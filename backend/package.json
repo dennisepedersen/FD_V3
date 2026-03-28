@@ -1,0 +1,28 @@
+{
+  "name": "fielddesk-v3-backend",
+  "version": "0.1.0",
+  "description": "Fielddesk V3 Phase-1 backend auth foundation",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "NODE_ENV=development node src/server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "bcrypt": "^5.1.1",
+    "dotenv": "^17.3.1",
+    "express": "^4.18.2",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.10.0"
+  },
+  "keywords": [
+    "fielddesk",
+    "v3",
+    "backend",
+    "auth"
+  ],
+  "author": "",
+  "license": "UNLICENSED"
+}
