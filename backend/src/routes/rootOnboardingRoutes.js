@@ -128,7 +128,6 @@ router.post("/v1/onboarding/complete", requireRootHost, requireAuth("onboarding"
       success: true,
       completed: true,
       auto_login: false,
-      tenant_login_url: result.tenant_login_url,
     });
   } catch (error) {
     next(error);

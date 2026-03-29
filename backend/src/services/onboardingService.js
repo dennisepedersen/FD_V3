@@ -513,7 +513,6 @@ async function completeOnboarding({ invitationId }) {
 
       return {
         tenant_id: tenant.id,
-        tenant_login_url: `https://${basicInfo.tenant_domain}/login`,
       };
     });
   } catch (error) {

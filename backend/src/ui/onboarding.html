@@ -345,9 +345,8 @@
 
     byId("completeBtn").addEventListener("click", async () => {
       try {
-        const data = await api("/v1/onboarding/complete", "POST", {});
-        status("completeStatus", true, `Completed. Redirecting to ${data.tenant_login_url}`);
-        setTimeout(() => { window.location.href = data.tenant_login_url; }, 1200);
+        await api("/v1/onboarding/complete", "POST", {});
+        status("completeStatus", true, "Onboarding completed. You can now log in via your tenant domain.");
       } catch (err) {
         status("completeStatus", false, err.message);
       }
