@@ -2,22 +2,115 @@ const crypto = require("crypto");
 const pool = require("../db/pool");
 const { withTransaction } = require("../db/tx");
 const invitationQueries = require("../db/queries/invitation");
-const tenantQueries = require("../db/queries/tenant");
-const userQueries = require("../db/queries/user");
+const onboardingQueries = require("../db/queries/onboarding");
 const auditQueries = require("../db/queries/audit");
-const { hashPassword } = require("./passwordService");
 const { issueOnboardingToken } = require("./jwtService");
 
 function hashInvitationToken(token) {
   return crypto.createHash("sha256").update(token).digest("hex");
 }
 
-function validateAcceptInput(input) {
-  const required = ["token", "full_name", "password", "tenant_slug", "tenant_name", "tenant_domain"];
-  for (const key of required) {
-    if (!input[key] || String(input[key]).trim() === "") {
-      throw Object.assign(new Error(`Missing field: ${key}`), { statusCode: 400 });
+function generateInvitationToken() {
+  return crypto.randomBytes(32).toString("hex");
+}
+
+function validateCreateInput(input) {
+  if (!input.email || String(input.email).trim() === "") {
+    throw Object.assign(new Error("Missing field: email"), { statusCode: 400 });
+  }
+
+  if (input.desiredSlug && !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(String(input.desiredSlug).trim().toLowerCase())) {
+    throw Object.assign(new Error("desired_slug format is invalid"), { statusCode: 400 });
+  }
+}
+
+function parseExpiresAt(expiresAt, expiresInHours) {
+  if (expiresAt) {
+    const parsed = new Date(expiresAt);
+    if (Number.isNaN(parsed.getTime()) || parsed.getTime() <= Date.now()) {
+      throw Object.assign(new Error("expires_at must be a valid future datetime"), { statusCode: 400 });
     }
+    return parsed;
+  }
+
+  const ttlHours = Number.isInteger(expiresInHours) && expiresInHours > 0 ? expiresInHours : 72;
+  return new Date(Date.now() + ttlHours * 60 * 60 * 1000);
+}
+
+function validateAcceptInput(input) {
+  if (!input.token || String(input.token).trim() === "") {
+    throw Object.assign(new Error("Missing field: token"), { statusCode: 400 });
+  }
+}
+
+async function createInvitation({
+  email,
+  actorId,
+  expiresInHours,
+  expiresAt,
+  companyName,
+  desiredSlug,
+  adminName,
+  allowSkipEk,
+  invitationNote,
+}) {
+  validateCreateInput({ email, desiredSlug });
+
+  const token = generateInvitationToken();
+  const tokenHash = hashInvitationToken(token);
+  const expiry = parseExpiresAt(expiresAt, expiresInHours);
+
+  try {
+    const result = await withTransaction(async (client) => {
+      const invitation = await invitationQueries.createInvitation(client, {
+        email,
+        tokenHash,
+        expiresAt: expiry,
+        companyName: companyName ? String(companyName).trim() : null,
+        desiredSlug: desiredSlug ? String(desiredSlug).trim().toLowerCase() : null,
+        adminName: adminName ? String(adminName).trim() : null,
+        allowSkipEk: Boolean(allowSkipEk),
+        invitationNote: invitationNote ? String(invitationNote).trim() : null,
+      });
+
+      await auditQueries.insertAuditEvent(client, {
+        actorId,
+        actorScope: "global",
+        tenantId: null,
+        eventType: "onboarding_created",
+        targetType: "tenant_invitation",
+        targetId: invitation.id,
+        outcome: "success",
+        reason: "onboarding_invitation_created",
+        metadata: {
+          email: invitation.email,
+          expires_at: invitation.expires_at,
+          company_name: invitation.company_name,
+          desired_slug: invitation.desired_slug,
+          admin_name: invitation.admin_name,
+          allow_skip_ek: invitation.allow_skip_ek,
+        },
+      });
+
+      return invitation;
+    });
+
+    return {
+      invitation_id: result.id,
+      email: result.email,
+      expires_at: result.expires_at,
+      company_name: result.company_name,
+      desired_slug: result.desired_slug,
+      admin_name: result.admin_name,
+      allow_skip_ek: result.allow_skip_ek,
+      invitation_note: result.invitation_note,
+      token,
+    };
+  } catch (error) {
+    if (error && error.code === "23505") {
+      throw Object.assign(new Error("Pending invitation already exists for email"), { statusCode: 409 });
+    }
+    throw error;
   }
 }
 
@@ -35,7 +128,7 @@ async function acceptInvitation(input) {
       }
 
       if (invitation.status !== "pending") {
-        throw Object.assign(new Error("Invitation is not pending"), { statusCode: 403 });
+        throw Object.assign(new Error("Invitation has already been used"), { statusCode: 403 });
       }
 
       if (invitation.revoked_at) {
@@ -46,55 +139,55 @@ async function acceptInvitation(input) {
         throw Object.assign(new Error("Invitation has expired"), { statusCode: 403 });
       }
 
-      const tenant = await tenantQueries.createTenant(client, {
-        slug: input.tenant_slug.toLowerCase(),
-        name: input.tenant_name.trim(),
-      });
+      let session = await onboardingQueries.getOnboardingSessionForUpdate(client, invitation.id);
 
-      await tenantQueries.createTenantDomain(client, {
-        tenantId: tenant.id,
-        domain: input.tenant_domain.toLowerCase(),
-        verified: false,
-        active: false,
-      });
+      if (session && session.status === "completed") {
+        throw Object.assign(new Error("Invitation has already been completed"), { statusCode: 403 });
+      }
 
-      const passwordHash = await hashPassword(input.password);
-      const user = await userQueries.createTenantAdminUser(client, {
-        tenantId: tenant.id,
-        email: invitation.email,
-        name: input.full_name.trim(),
-        passwordHash,
-      });
+      if (!session) {
+        session = await onboardingQueries.createOnboardingSession(client, {
+          invitationId: invitation.id,
+          email: invitation.email,
+          invitationData: {
+            company_name: invitation.company_name || null,
+            desired_slug: invitation.desired_slug || null,
+            admin_name: invitation.admin_name || null,
+            allow_skip_ek: Boolean(invitation.allow_skip_ek),
+            invitation_note: invitation.invitation_note || null,
+            expires_at: invitation.expires_at,
+          },
+        });
 
-      await invitationQueries.markInvitationAccepted(client, {
-        invitationId: invitation.id,
-        tenantId: tenant.id,
-      });
-
-      await auditQueries.insertAuditEvent(client, {
-        actorId: user.id,
-        actorScope: "tenant",
-        tenantId: tenant.id,
-        eventType: "invitation_accepted",
-        targetType: "tenant_invitation",
-        targetId: invitation.id,
-        outcome: "success",
-        reason: "invitation_accept_success",
-        metadata: {
-          tenant_slug: tenant.slug,
-          tenant_domain: input.tenant_domain.toLowerCase(),
-        },
-      });
+        await auditQueries.insertAuditEvent(client, {
+          actorId: invitation.id,
+          actorScope: "global",
+          tenantId: null,
+          eventType: "onboarding_started",
+          targetType: "onboarding_session",
+          targetId: session.id,
+          outcome: "success",
+          reason: "onboarding_session_started",
+          metadata: {
+            invitation_id: invitation.id,
+            email: invitation.email,
+            allow_skip_ek: Boolean(invitation.allow_skip_ek),
+          },
+        });
+      }
 
       const onboardingToken = issueOnboardingToken({
-        userId: user.id,
-        tenantId: tenant.id,
-        role: user.role,
-        email: user.email,
+        invitationId: invitation.id,
+        email: invitation.email,
       });
 
       return {
-        tenant_id: tenant.id,
+        invitation_id: invitation.id,
+        email: invitation.email,
+        company_name: invitation.company_name || null,
+        desired_slug: invitation.desired_slug || null,
+        admin_name: invitation.admin_name || null,
+        allow_skip_ek: Boolean(invitation.allow_skip_ek),
         onboarding_token: onboardingToken,
       };
     });
@@ -106,11 +199,11 @@ async function acceptInvitation(input) {
           actorId: "system:invitation_accept",
           actorScope: "system",
           tenantId: null,
-          eventType: "invitation_accepted",
+          eventType: "onboarding_started",
           targetType: "tenant_invitation",
           targetId: tokenHash,
           outcome: "fail",
-          reason: "invitation_accept_fail",
+          reason: "onboarding_start_fail",
           metadata: {},
         });
       } catch (auditError) {
@@ -124,5 +217,6 @@ async function acceptInvitation(input) {
 }
 
 module.exports = {
+  createInvitation,
   acceptInvitation,
 };

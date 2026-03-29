@@ -19,13 +19,13 @@ function issueAccessToken({ userId, tenantId, role, email }) {
   );
 }
 
-function issueOnboardingToken({ userId, tenantId, role, email }) {
+function issueOnboardingToken({ invitationId, email }) {
   return jwt.sign(
     {
-      sub: userId,
-      actor_scope: "tenant",
-      tenant_id: tenantId,
-      role,
+      sub: invitationId,
+      actor_scope: "root",
+      invitation_id: invitationId,
+      role: "onboarding_candidate",
       email,
       type: "onboarding",
     },
@@ -42,12 +42,24 @@ function verifyToken(token, expectedType) {
     throw new Error("Invalid token type");
   }
 
-  if (!payload.sub || !payload.tenant_id || !payload.role || !payload.email) {
-    throw new Error("Token missing required claims");
+  if (expectedType === "access") {
+    if (!payload.sub || !payload.tenant_id || !payload.role || !payload.email) {
+      throw new Error("Token missing required claims");
+    }
+
+    if (payload.actor_scope !== "tenant") {
+      throw new Error("Invalid actor scope");
+    }
   }
 
-  if (payload.actor_scope !== "tenant") {
-    throw new Error("Invalid actor scope");
+  if (expectedType === "onboarding") {
+    if (!payload.sub || !payload.invitation_id || !payload.email) {
+      throw new Error("Token missing required claims");
+    }
+
+    if (payload.actor_scope !== "root") {
+      throw new Error("Invalid actor scope");
+    }
   }
 
   return payload;

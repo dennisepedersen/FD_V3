@@ -22,6 +22,7 @@ const ENV = {
   DATABASE_URL: process.env.DATABASE_URL,
   JWT_SECRET: process.env.JWT_SECRET,
   INVITATION_JWT_SECRET: process.env.INVITATION_JWT_SECRET || process.env.JWT_SECRET,
+  GLOBAL_ADMIN_API_KEY: process.env.GLOBAL_ADMIN_API_KEY || null,
   ROOT_DOMAIN: process.env.ROOT_DOMAIN.toLowerCase(),
   PORT: port,
 };

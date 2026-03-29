@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fielddesk Onboarding</title>
+  <style>
+    :root {
+      --bg: #f4f1ea;
+      --surface: #fffdf8;
+      --text: #1f1a14;
+      --muted: #6d6459;
+      --accent: #0f766e;
+      --accent-2: #1d4ed8;
+      --danger: #b91c1c;
+      --ok: #166534;
+      --border: #e5dac9;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      color: var(--text);
+      background: radial-gradient(circle at top left, #efe7da 0%, #f4f1ea 42%, #e7dcc9 100%);
+      min-height: 100vh;
+      padding: 24px;
+    }
+    .wrap { max-width: 980px; margin: 0 auto; }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 20px;
+      box-shadow: 0 12px 30px rgba(41, 29, 15, 0.08);
+      margin-bottom: 16px;
+    }
+    h1 { margin: 0 0 12px; font-size: 32px; }
+    h2 { margin: 0 0 10px; font-size: 20px; }
+    p { margin: 0 0 12px; color: var(--muted); }
+    .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+    label { display: block; font-size: 14px; margin-bottom: 6px; color: var(--muted); }
+    input, select {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 11px 12px;
+      font-size: 15px;
+      background: #fff;
+      color: var(--text);
+    }
+    input[type="checkbox"] { width: auto; margin-right: 8px; }
+    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    button {
+      border: 0;
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      color: #fff;
+      background: linear-gradient(130deg, var(--accent), var(--accent-2));
+    }
+    button.secondary { background: #3f3a33; }
+    .status { font-size: 13px; margin-top: 10px; }
+    .status.ok { color: var(--ok); }
+    .status.err { color: var(--danger); }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+    .chip {
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 5px 10px;
+      font-size: 12px;
+      background: #fcfaf6;
+    }
+    .endpoint-card {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 10px;
+      background: #fff;
+      margin-bottom: 8px;
+    }
+    .endpoint-head { display: flex; gap: 8px; align-items: center; }
+    .endpoint-name { font-weight: 700; }
+    .endpoint-tag {
+      font-size: 11px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 2px 8px;
+      color: var(--muted);
+      background: #faf6ef;
+    }
+    .endpoint-desc { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
+    pre {
+      margin: 0;
+      padding: 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: #fbf7f0;
+      overflow: auto;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Fielddesk Onboarding V1</h1>
+      <p>Root-host onboarding flow. Paste invitation token, then complete all 6 steps.</p>
+      <div class="grid">
+        <div>
+          <label>Invitation Token</label>
+          <input id="inviteToken" placeholder="Paste invitation token" />
+        </div>
+        <div>
+          <label>Onboarding Bearer Token</label>
+          <input id="onboardingToken" placeholder="Auto-filled after invitation accept" />
+        </div>
+      </div>
+      <div class="row" style="margin-top: 12px;">
+        <button id="acceptBtn">Accept Invitation / Start</button>
+        <button class="secondary" id="stateBtn">Refresh State</button>
+      </div>
+      <div id="stateStatus" class="status"></div>
+    </div>
+
+    <div class="card">
+      <h2>Step 1: Basic Info</h2>
+      <div class="grid">
+        <div><label>Full Name</label><input id="fullName" /></div>
+        <div><label>Email (from invitation)</label><input id="inviteEmail" disabled /></div>
+        <div><label>Password</label><input id="password" type="password" /></div>
+        <div><label>Tenant Slug</label><input id="tenantSlug" placeholder="test" /></div>
+        <div><label>Tenant Name</label><input id="tenantName" placeholder="Test Tenant" /></div>
+        <div><label>Tenant Domain</label><input id="tenantDomain" placeholder="test.fielddesk.dk" /></div>
+      </div>
+      <div class="row" style="margin-top: 12px;"><button id="basicBtn">Save Basic Info</button></div>
+      <div id="basicStatus" class="status"></div>
+    </div>
+
+    <div class="card">
+      <h2>Step 2: Terms</h2>
+      <div class="grid">
+        <div><label>Terms Version</label><input id="termsVersion" value="v1.0" /></div>
+      </div>
+      <div class="row" style="margin-top: 10px;">
+        <label><input type="checkbox" id="termsAccepted" /> I accept the terms.</label>
+      </div>
+      <div class="row" style="margin-top: 12px;"><button id="termsBtn">Save Terms</button></div>
+      <div id="termsStatus" class="status"></div>
+    </div>
+
+    <div class="card">
+      <h2>Step 3: EK Integration</h2>
+      <div class="grid">
+        <div><label>EK Base URL</label><input id="ekBaseUrl" placeholder="https://api.example.com" /></div>
+        <div><label>EK API Key</label><input id="ekApiKey" /></div>
+      </div>
+      <div class="row" style="margin-top: 12px;">
+        <button id="ekTestBtn">Test Connection</button>
+        <button id="ekBtn">Save EK Integration</button>
+      </div>
+      <div id="ekStatus" class="status"></div>
+    </div>
+
+    <div class="card">
+      <h2>Step 4: Endpoint Selection</h2>
+      <p>Choose one or more endpoints. Default selected: projects, fitterhours, users.</p>
+      <div class="chips" id="endpointChips"></div>
+      <div class="row" style="margin-top: 12px;"><button id="endpointBtn">Save Endpoint Selection</button></div>
+      <div id="endpointStatus" class="status"></div>
+    </div>
+
+    <div class="card">
+      <h2>Step 5: Review</h2>
+      <div class="row" style="margin-bottom: 10px;"><button id="reviewBtn">Load Review</button></div>
+      <pre id="reviewBox">No review loaded.</pre>
+    </div>
+
+    <div class="card">
+      <h2>Step 6: Complete</h2>
+      <p>No auto-login. Completion redirects to tenant login URL only.</p>
+      <div class="row"><button id="completeBtn">Complete Onboarding</button></div>
+      <div id="completeStatus" class="status"></div>
+    </div>
+  </div>
+
+  <script>
+    const endpointOptions = [
+      { key: "projects", optional: false, description: "Core project structure and baseline data." },
+      { key: "fitterhours", optional: false, description: "Time registrations and work activity." },
+      { key: "users", optional: false, description: "Users for ownership and mapping." },
+      { key: "fitters", optional: true, description: "Technician master data." },
+      { key: "worksheets", optional: true, description: "Worksheet-level details." },
+      { key: "invoices", optional: true, description: "Invoice data for financial follow-up." },
+      { key: "purchaseinvoices", optional: true, description: "Supplier invoice data." }
+    ];
+
+    const endpointSet = new Set(["projects", "fitterhours", "users"]);
+    const byId = (id) => document.getElementById(id);
+
+    function status(id, ok, text) {
+      const el = byId(id);
+      el.className = `status ${ok ? "ok" : "err"}`;
+      el.textContent = text;
+    }
+
+    function token() {
+      return byId("onboardingToken").value.trim();
+    }
+
+    async function api(path, method, body, needsAuth = true) {
+      const headers = { "Content-Type": "application/json" };
+      if (needsAuth) {
+        headers.Authorization = `Bearer ${token()}`;
+      }
+
+      const res = await fetch(path, {
+        method,
+        headers,
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error?.message || `HTTP ${res.status}`);
+      }
+      return data;
+    }
+
+    function renderEndpoints() {
+      const root = byId("endpointChips");
+      root.innerHTML = "";
+      endpointOptions.forEach((endpoint) => {
+        const label = document.createElement("label");
+        label.className = "endpoint-card";
+        label.innerHTML = `
+          <div class="endpoint-head">
+            <input type="checkbox" value="${endpoint.key}">
+            <span class="endpoint-name">${endpoint.key}</span>
+            <span class="endpoint-tag">${endpoint.optional ? "optional" : "default"}</span>
+          </div>
+          <p class="endpoint-desc">${endpoint.description}</p>
+        `;
+        const input = label.querySelector("input");
+        input.checked = endpointSet.has(endpoint.key);
+        input.addEventListener("change", () => {
+          if (input.checked) endpointSet.add(endpoint.key);
+          else endpointSet.delete(endpoint.key);
+        });
+        root.appendChild(label);
+      });
+    }
+
+    byId("acceptBtn").addEventListener("click", async () => {
+      try {
+        const data = await api("/v1/invitations/accept", "POST", {
+          token: byId("inviteToken").value.trim(),
+        }, false);
+        byId("onboardingToken").value = data.onboarding_token;
+        byId("inviteEmail").value = data.email || "";
+        status("stateStatus", true, "Invitation accepted and onboarding started.");
+      } catch (err) {
+        status("stateStatus", false, err.message);
+      }
+    });
+
+    byId("stateBtn").addEventListener("click", async () => {
+      try {
+        const data = await api("/v1/onboarding/state", "GET");
+        status("stateStatus", true, JSON.stringify(data.state.steps));
+      } catch (err) {
+        status("stateStatus", false, err.message);
+      }
+    });
+
+    byId("basicBtn").addEventListener("click", async () => {
+      try {
+        await api("/v1/onboarding/basic-info", "POST", {
+          full_name: byId("fullName").value,
+          password: byId("password").value,
+          tenant_slug: byId("tenantSlug").value,
+          tenant_name: byId("tenantName").value,
+          tenant_domain: byId("tenantDomain").value,
+        });
+        status("basicStatus", true, "Basic info saved.");
+      } catch (err) {
+        status("basicStatus", false, err.message);
+      }
+    });
+
+    byId("termsBtn").addEventListener("click", async () => {
+      try {
+        await api("/v1/onboarding/terms", "POST", {
+          terms_version: byId("termsVersion").value,
+          accepted: byId("termsAccepted").checked,
+        });
+        status("termsStatus", true, "Terms saved.");
+      } catch (err) {
+        status("termsStatus", false, err.message);
+      }
+    });
+
+    byId("ekTestBtn").addEventListener("click", async () => {
+      try {
+        const data = await api("/v1/onboarding/ek/test", "POST", {
+          ek_base_url: byId("ekBaseUrl").value,
+          ek_api_key: byId("ekApiKey").value,
+        });
+        status("ekStatus", data.success, `${data.test_status}: ${data.message}`);
+      } catch (err) {
+        status("ekStatus", false, err.message);
+      }
+    });
+
+    byId("ekBtn").addEventListener("click", async () => {
+      try {
+        await api("/v1/onboarding/ek-integration", "POST", {
+          ek_base_url: byId("ekBaseUrl").value,
+          ek_api_key: byId("ekApiKey").value,
+        });
+        status("ekStatus", true, "EK integration saved.");
+      } catch (err) {
+        status("ekStatus", false, err.message);
+      }
+    });
+
+    byId("endpointBtn").addEventListener("click", async () => {
+      try {
+        await api("/v1/onboarding/endpoint-selection", "POST", {
+          endpoints: Array.from(endpointSet),
+        });
+        status("endpointStatus", true, "Endpoint selection saved.");
+      } catch (err) {
+        status("endpointStatus", false, err.message);
+      }
+    });
+
+    byId("reviewBtn").addEventListener("click", async () => {
+      try {
+        const data = await api("/v1/onboarding/review", "GET");
+        byId("reviewBox").textContent = JSON.stringify(data.review, null, 2);
+      } catch (err) {
+        byId("reviewBox").textContent = err.message;
+      }
+    });
+
+    byId("completeBtn").addEventListener("click", async () => {
+      try {
+        const data = await api("/v1/onboarding/complete", "POST", {});
+        status("completeStatus", true, `Completed. Redirecting to ${data.tenant_login_url}`);
+        setTimeout(() => { window.location.href = data.tenant_login_url; }, 1200);
+      } catch (err) {
+        status("completeStatus", false, err.message);
+      }
+    });
+
+    renderEndpoints();
+  </script>
+</body>
+</html>
