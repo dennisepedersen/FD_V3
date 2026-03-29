@@ -10,9 +10,9 @@ const tenantAuthRoutes = require("./routes/tenantAuthRoutes");
 const app = express();
 
 app.use(express.json({ limit: "1mb" }));
+app.use(rootHealthRoutes);
 app.use(tenantResolution);
 
-app.use(rootHealthRoutes);
 app.use(rootInvitationRoutes);
 app.use(rootOnboardingRoutes);
 app.use(tenantAuthRoutes);
