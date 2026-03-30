@@ -26,6 +26,10 @@ router.get("/app", requireTenantHost, (req, res) => {
   res.sendFile(path.join(tenantPublicDir, "app.html"));
 });
 
+router.get("/project/:projectId", requireTenantHost, (req, res) => {
+  res.sendFile(path.join(tenantPublicDir, "project.html"));
+});
+
 router.get("/tenant/auth.js", requireTenantHost, (req, res) => {
   res.sendFile(path.join(tenantPublicDir, "auth.js"));
 });
@@ -90,6 +94,39 @@ router.get("/api/projects", requireTenantHost, requireAuth("access"), async (req
       success: true,
       scope: "mine",
       projects,
+    });
+  } catch (error) {
+    next(error);
+  } finally {
+    client.release();
+  }
+});
+
+router.get("/api/projects/:projectId", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  if (hasAccessContextMismatch(req)) {
+    return next(createHttpError(403, "tenant_context_mismatch"));
+  }
+
+  const projectId = String(req.params.projectId || "").trim();
+  if (!projectId) {
+    return next(createHttpError(400, "project_id_required"));
+  }
+
+  const client = await pool.connect();
+  try {
+    const project = await projectQueries.findProjectForUser(client, {
+      tenantId: req.context.tenant.id,
+      userId: req.auth.sub,
+      projectId,
+    });
+
+    if (!project) {
+      return next(createHttpError(404, "project_not_found"));
+    }
+
+    res.status(200).json({
+      success: true,
+      project,
     });
   } catch (error) {
     next(error);

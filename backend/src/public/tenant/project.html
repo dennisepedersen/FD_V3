@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fielddesk Project</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      max-width: 840px;
+      margin: 32px auto;
+      padding: 0 16px;
+    }
+
+    button {
+      font: inherit;
+      padding: 10px 12px;
+      margin-right: 8px;
+    }
+
+    #projectDetailBox {
+      background: #f5f5f5;
+      padding: 12px;
+    }
+
+    .fieldRow {
+      border-bottom: 1px solid #ddd;
+      padding: 8px 0;
+    }
+
+    .fieldRow:last-child {
+      border-bottom: none;
+    }
+
+    .fieldLabel {
+      font-weight: 700;
+    }
+  </style>
+</head>
+<body data-page="project">
+  <h1>Project Detail</h1>
+  <p><a href="/app">Back to app</a></p>
+  <button id="logoutBtn" type="button">Log out</button>
+  <div id="projectDetailBox">Loading...</div>
+  <script src="/tenant/auth.js"></script>
+</body>
+</html>

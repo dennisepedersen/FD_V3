@@ -64,6 +64,15 @@
     return fallback;
   }
 
+  function getProjectIdFromPath() {
+    const path = String(window.location.pathname || "");
+    const match = path.match(/^\/project\/([^/]+)$/);
+    if (!match || !match[1]) {
+      return null;
+    }
+    return decodeURIComponent(match[1]);
+  }
+
   async function apiFetch(url, options) {
     const token = getToken();
     const response = await window.fetch(url, {
@@ -199,6 +208,14 @@
         const updatedAt = document.createElement("div");
         updatedAt.textContent = `Updated: ${project && project.updated_at ? project.updated_at : "-"}`;
 
+        if (project && project.project_id) {
+          const projectUrl = `/project/${encodeURIComponent(project.project_id)}`;
+          row.style.cursor = "pointer";
+          row.addEventListener("click", function () {
+            window.location.href = projectUrl;
+          });
+        }
+
         row.appendChild(name);
         row.appendChild(ref);
         row.appendChild(status);
@@ -245,11 +262,87 @@
     }
   }
 
+  function renderProjectDetail(project) {
+    const box = document.getElementById("projectDetailBox");
+    if (!box) {
+      return;
+    }
+
+    box.innerHTML = "";
+
+    const rows = [
+      { label: "Name", value: project && project.name ? project.name : "-" },
+      { label: "External Ref", value: project && project.external_project_ref ? project.external_project_ref : "-" },
+      { label: "Status", value: project && project.status ? project.status : "-" },
+      { label: "Project ID", value: project && project.project_id ? project.project_id : "-" },
+      { label: "Updated", value: project && project.updated_at ? project.updated_at : "-" },
+    ];
+
+    rows.forEach((item) => {
+      const row = document.createElement("div");
+      row.className = "fieldRow";
+
+      const label = document.createElement("div");
+      label.className = "fieldLabel";
+      label.textContent = item.label;
+
+      const value = document.createElement("div");
+      value.textContent = item.value;
+
+      row.appendChild(label);
+      row.appendChild(value);
+      box.appendChild(row);
+    });
+  }
+
+  async function initProjectPage() {
+    if (!requireToken()) {
+      return;
+    }
+
+    const projectDetailBox = document.getElementById("projectDetailBox");
+    const logoutBtn = document.getElementById("logoutBtn");
+    const projectId = getProjectIdFromPath();
+
+    if (!projectId) {
+      if (projectDetailBox) {
+        projectDetailBox.textContent = "Invalid project path";
+      }
+      return;
+    }
+
+    if (projectDetailBox) {
+      projectDetailBox.textContent = "Loading...";
+    }
+
+    try {
+      const response = await apiFetch(`/api/projects/${encodeURIComponent(projectId)}`, { method: "GET" });
+      renderProjectDetail(response && response.project ? response.project : null);
+    } catch (error) {
+      if (handleAuthFailure(error)) {
+        return;
+      }
+      if (projectDetailBox) {
+        projectDetailBox.textContent = `Failed to load project: ${getErrorMessage(error, "request_failed")}`;
+      }
+    }
+
+    if (logoutBtn) {
+      logoutBtn.addEventListener("click", function () {
+        logout();
+      });
+    }
+  }
+
   if (document.body && document.body.dataset.page === "login") {
     initLoginPage();
   }
 
   if (document.body && document.body.dataset.page === "app") {
     initAppPage();
+  }
+
+  if (document.body && document.body.dataset.page === "project") {
+    initProjectPage();
   }
 })();
