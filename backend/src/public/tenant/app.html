@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fielddesk Tenant App</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      max-width: 840px;
+      margin: 32px auto;
+      padding: 0 16px;
+    }
+
+    button {
+      font: inherit;
+      padding: 10px 12px;
+      margin-right: 8px;
+    }
+
+    pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: #f5f5f5;
+      padding: 12px;
+    }
+  </style>
+</head>
+<body data-page="app">
+  <h1>Tenant App</h1>
+  <p><a href="/login">Back to login</a></p>
+  <h2>User</h2>
+  <pre id="userBox">Loading...</pre>
+  <h2>Projects</h2>
+  <button id="loadProjectsBtn" type="button">Load my projects</button>
+  <button id="logoutBtn" type="button">Log out</button>
+  <pre id="projectsBox">Not loaded.</pre>
+  <script src="/tenant/auth.js"></script>
+</body>
+</html>

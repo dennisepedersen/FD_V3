@@ -6,6 +6,7 @@ const rootHealthRoutes = require("./routes/rootHealthRoutes");
 const rootInvitationRoutes = require("./routes/rootInvitationRoutes");
 const rootOnboardingRoutes = require("./routes/rootOnboardingRoutes");
 const tenantAuthRoutes = require("./routes/tenantAuthRoutes");
+const tenantSurfaceRoutes = require("./routes/tenantSurfaceRoutes");
 
 const app = express();
 
@@ -16,6 +17,7 @@ app.use(tenantResolution);
 app.use(rootInvitationRoutes);
 app.use(rootOnboardingRoutes);
 app.use(tenantAuthRoutes);
+app.use(tenantSurfaceRoutes);
 
 app.use((req, res, next) => {
   next(createHttpError(404, "not_found"));
