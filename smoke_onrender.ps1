@@ -6,6 +6,15 @@ $tenantHost = 'fd-test-onb.fielddesk.dk'
 $adminEmail = 'onboarding+fd-test-onb@fielddesk.local'
 $password = 'test1234'
 
+# Required for DB verification step later in the flow.
+# Validate early to avoid running half the smoke test with a missing DB connection.
+$conn = $env:FD_DB_URL
+if (-not $conn) {
+  Write-Error "FD_DB_URL environment variable is not set."
+  Write-Output 'final_result=FAIL'
+  exit 1
+}
+
 function ShortBody {
   param([string]$s)
   if ([string]::IsNullOrWhiteSpace($s)) { return '' }
@@ -124,14 +133,6 @@ $body8 = @{
 } | ConvertTo-Json -Compress
 $null = InvokeStep -step '8_complete' -method 'POST' -url "$base/v1/onboarding/complete" -headers $onboardingHeaders -body $body8
 
-# DATABASE_URL must be set in your environment before running this script.
-# Never hardcode credentials here. Set it via: $env:FD_DB_URL = '...'
-$conn = $env:FD_DB_URL
-if (-not $conn) {
-  Write-Error "FD_DB_URL environment variable is not set. Set it to the Render PostgreSQL connection string before running this script."
-  Write-Output 'final_result=FAIL'
-  exit 1
-}
 $sql = "WITH t AS (SELECT id FROM tenant WHERE slug='fd-test-onb' LIMIT 1), d AS (SELECT 1 FROM tenant_domain td JOIN t ON td.tenant_id=t.id WHERE td.domain='fd-test-onb.fielddesk.dk' LIMIT 1), u AS (SELECT 1 FROM tenant_user tu JOIN t ON tu.tenant_id=t.id WHERE lower(tu.email)=lower('onboarding+fd-test-onb@fielddesk.local') LIMIT 1) SELECT (CASE WHEN EXISTS(SELECT 1 FROM t) THEN 'tenant=ok' ELSE 'tenant=missing' END) || ';' || (CASE WHEN EXISTS(SELECT 1 FROM d) THEN 'domain=ok' ELSE 'domain=missing' END) || ';' || (CASE WHEN EXISTS(SELECT 1 FROM u) THEN 'user=ok' ELSE 'user=missing' END);"
 $dbOut = psql "$conn" -t -A -c $sql 2>&1
 if ($LASTEXITCODE -ne 0) {

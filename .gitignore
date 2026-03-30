@@ -11,3 +11,12 @@ backend/.env.*
 # Keep example env templates
 !.env.example
 !backend/.env.example
+
+# Local secret and scanner artifacts
+*.secrets
+*.secret
+*.key
+*.pem
+*.p12
+*.pfx
+secret-scan-report*.txt
