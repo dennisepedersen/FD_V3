@@ -15,6 +15,13 @@ if (-not $conn) {
   exit 1
 }
 
+$globalAdminApiKey = $env:FD_GLOBAL_ADMIN_API_KEY
+if (-not $globalAdminApiKey) {
+  Write-Error "FD_GLOBAL_ADMIN_API_KEY environment variable is not set."
+  Write-Output 'final_result=FAIL'
+  exit 1
+}
+
 function ShortBody {
   param([string]$s)
   if ([string]::IsNullOrWhiteSpace($s)) { return '' }
@@ -63,7 +70,7 @@ function InvokeStep {
 
 $globalHeaders = @{
   Host = $rootHost
-  'x-global-admin-key' = 'local_admin_key'
+  'x-global-admin-key' = $globalAdminApiKey
   'x-global-admin-id' = 'global-admin-1'
 }
 
