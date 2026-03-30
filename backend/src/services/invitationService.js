@@ -14,10 +14,29 @@ function generateInvitationToken() {
   return crypto.randomBytes(32).toString("hex");
 }
 
+function isRawPlaceholder(value) {
+  return typeof value === "string" && /^\{\{[^{}]+\}\}$/.test(value.trim());
+}
+
+function ensureNoRawPlaceholder(value, fieldName) {
+  if (isRawPlaceholder(value)) {
+    const error = new Error("invalid_placeholder_value");
+    error.statusCode = 400;
+    error.details = { field: fieldName };
+    throw error;
+  }
+}
+
 function validateCreateInput(input) {
   if (!input.email || String(input.email).trim() === "") {
     throw Object.assign(new Error("Missing field: email"), { statusCode: 400 });
   }
+
+  ensureNoRawPlaceholder(input.email, "email");
+  ensureNoRawPlaceholder(input.companyName, "company_name");
+  ensureNoRawPlaceholder(input.desiredSlug, "desired_slug");
+  ensureNoRawPlaceholder(input.adminName, "admin_name");
+  ensureNoRawPlaceholder(input.invitationNote, "invitation_note");
 
   if (input.desiredSlug && !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(String(input.desiredSlug).trim().toLowerCase())) {
     throw Object.assign(new Error("desired_slug format is invalid"), { statusCode: 400 });
@@ -54,7 +73,7 @@ async function createInvitation({
   allowSkipEk,
   invitationNote,
 }) {
-  validateCreateInput({ email, desiredSlug });
+  validateCreateInput({ email, companyName, desiredSlug, adminName, invitationNote });
 
   const token = generateInvitationToken();
   const tokenHash = hashInvitationToken(token);

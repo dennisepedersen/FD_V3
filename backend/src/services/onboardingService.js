@@ -27,6 +27,25 @@ function ensureNonEmptyString(value, fieldName) {
   }
 }
 
+function isRawPlaceholder(value) {
+  return typeof value === "string" && /^\{\{[^{}]+\}\}$/.test(value.trim());
+}
+
+function ensureNoRawPlaceholder(value, fieldName) {
+  if (isRawPlaceholder(value)) {
+    const error = new Error("invalid_placeholder_value");
+    error.statusCode = 400;
+    error.details = { field: fieldName };
+    throw error;
+  }
+}
+
+function ensureNoRawPlaceholders(fields) {
+  for (const [fieldName, value] of fields) {
+    ensureNoRawPlaceholder(value, fieldName);
+  }
+}
+
 function normalizeDomain(value) {
   return String(value || "").trim().toLowerCase();
 }
@@ -49,6 +68,8 @@ function normalizeEndpointSelection(endpoints) {
   if (!Array.isArray(endpoints)) {
     throw Object.assign(new Error("endpoints must be an array"), { statusCode: 400 });
   }
+
+  endpoints.forEach((item, index) => ensureNoRawPlaceholder(item, `endpoints[${index}]`));
 
   const normalized = [...new Set(
     endpoints
@@ -148,6 +169,13 @@ async function saveBasicInfo({ invitationId, fullName, password, tenantSlug, ten
   ensureNonEmptyString(tenantSlug, "tenant_slug");
   ensureNonEmptyString(tenantName, "tenant_name");
   ensureNonEmptyString(tenantDomain, "tenant_domain");
+  ensureNoRawPlaceholders([
+    ["full_name", fullName],
+    ["password", password],
+    ["tenant_slug", tenantSlug],
+    ["tenant_name", tenantName],
+    ["tenant_domain", tenantDomain],
+  ]);
 
   const passwordHash = await hashPassword(password);
 
@@ -169,6 +197,7 @@ async function saveBasicInfo({ invitationId, fullName, password, tenantSlug, ten
 
 async function saveTerms({ invitationId, termsVersion, accepted, ipAddress, userAgent }) {
   ensureNonEmptyString(termsVersion, "terms_version");
+  ensureNoRawPlaceholder(termsVersion, "terms_version");
   if (accepted !== true) {
     throw Object.assign(new Error("Terms must be accepted"), { statusCode: 400 });
   }
@@ -215,6 +244,10 @@ async function saveEkIntegration({ invitationId, ekBaseUrl, ekApiKey, skipped })
 
     ensureNonEmptyString(ekBaseUrl, "ek_base_url");
     ensureNonEmptyString(ekApiKey, "ek_api_key");
+    ensureNoRawPlaceholders([
+      ["ek_base_url", ekBaseUrl],
+      ["ek_api_key", ekApiKey],
+    ]);
 
     const normalizedBaseUrl = normalizeBaseUrl(ekBaseUrl);
     const encryptedApiKey = encryptSecret(ekApiKey);
@@ -236,6 +269,10 @@ async function saveEkIntegration({ invitationId, ekBaseUrl, ekApiKey, skipped })
 async function testEkConnection({ invitationId, ekBaseUrl, ekApiKey }) {
   ensureNonEmptyString(ekBaseUrl, "ek_base_url");
   ensureNonEmptyString(ekApiKey, "ek_api_key");
+  ensureNoRawPlaceholders([
+    ["ek_base_url", ekBaseUrl],
+    ["ek_api_key", ekApiKey],
+  ]);
 
   const normalizedBaseUrl = normalizeBaseUrl(ekBaseUrl);
 
@@ -350,6 +387,18 @@ async function completeOnboarding({ invitationId }) {
       if (!basicInfo.full_name || !basicInfo.password_hash || !basicInfo.tenant_slug || !basicInfo.tenant_name || !basicInfo.tenant_domain) {
         throw Object.assign(new Error("Step 1 (basic info) is incomplete"), { statusCode: 400 });
       }
+
+      ensureNoRawPlaceholders([
+        ["invitation_data.company_name", invitationData.company_name],
+        ["invitation_data.desired_slug", invitationData.desired_slug],
+        ["invitation_data.admin_name", invitationData.admin_name],
+        ["invitation_data.invitation_note", invitationData.invitation_note],
+        ["basic_info.full_name", basicInfo.full_name],
+        ["basic_info.tenant_slug", basicInfo.tenant_slug],
+        ["basic_info.tenant_name", basicInfo.tenant_name],
+        ["basic_info.tenant_domain", basicInfo.tenant_domain],
+        ["terms_data.terms_version", termsData.terms_version],
+      ]);
 
       if (!termsData.accepted || !termsData.terms_version) {
         throw Object.assign(new Error("Step 2 (terms) is incomplete"), { statusCode: 400 });
@@ -516,6 +565,18 @@ async function completeOnboarding({ invitationId }) {
       };
     });
   } catch (error) {
+    if (error && error.code === "23505") {
+      if (error.constraint === "uq_tenant_slug_ci") {
+        throw Object.assign(new Error("tenant_slug_already_exists"), { statusCode: 409 });
+      }
+
+      if (error.constraint === "uq_tenant_domain_domain_ci") {
+        throw Object.assign(new Error("tenant_domain_already_exists"), { statusCode: 409 });
+      }
+
+      throw Object.assign(new Error("onboarding_conflict"), { statusCode: 409 });
+    }
+
     const client = await pool.connect();
     try {
       try {
