@@ -2,6 +2,8 @@ const jwt = require("jsonwebtoken");
 const env = require("../config/env");
 
 const ACCESS_TTL = "15m";
+// Onboarding tokens are intentionally short-lived (15-60 min target window).
+// Current value: 30 minutes.
 const ONBOARDING_TTL = "30m";
 
 function issueAccessToken({ userId, tenantId, role, email }) {

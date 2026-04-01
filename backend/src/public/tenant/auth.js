@@ -132,14 +132,14 @@
       event.preventDefault();
       hideError();
 
-      const email = document.getElementById("email").value;
+      const login = document.getElementById("login").value.trim();
       const password = document.getElementById("password").value;
 
       try {
         const data = await apiFetch("/v1/auth/login", {
           method: "POST",
           headers: {},
-          body: JSON.stringify({ email, password }),
+          body: JSON.stringify({ login, password }),
         });
 
         if (!data || !data.access_token) {
@@ -155,8 +155,8 @@
   }
 
   async function initAppPage() {
-    const userBox = document.getElementById("userBox");
-    if (!userBox) {
+    const projectsContainer = document.getElementById("projectsContainer");
+    if (!projectsContainer) {
       return;
     }
 
@@ -164,95 +164,674 @@
       return;
     }
 
-    try {
-      const me = await apiFetch("/api/me", { method: "GET" });
-      userBox.textContent = JSON.stringify(me, null, 2);
-    } catch (error) {
-      if (handleAuthFailure(error)) {
-        return;
+    const userPill = document.getElementById("userPill");
+    const logoutBtn = document.getElementById("logoutBtn");
+    const sortSelect = document.getElementById("sortSelect");
+    const listMetaText = document.getElementById("listMetaText");
+    const scopeRow = document.getElementById("scopeRow");
+    const scopeChips = document.getElementById("scopeChips");
+    const drawerShell = document.getElementById("drawerShell");
+    const drawerOverlay = document.getElementById("drawerOverlay");
+    const drawerCloseBtn = document.getElementById("drawerCloseBtn");
+    const drawerCloseSecondaryBtn = document.getElementById("drawerCloseSecondaryBtn");
+    const drawerTitle = document.getElementById("drawerTitle");
+    const drawerRef = document.getElementById("drawerRef");
+    const drawerBody = document.getElementById("drawerBody");
+    const openProjectPageLink = document.getElementById("openProjectPageLink");
+
+    const state = {
+      me: null,
+      projects: [],
+      sortMode: sortSelect && sortSelect.value ? sortSelect.value : "ref_asc",
+      ownerOptions: [],
+      selectedOwnerIds: new Set(["__ALL__"]),
+      ownerLabelMap: new Map(),
+      drawerProjectId: null,
+    };
+
+    const ACTIVITY_FIELD_CANDIDATES = [
+      "last_activity_at",
+      "last_activity",
+      "last_activity_date",
+      "activity_at",
+      "activity_date",
+    ];
+
+    function toDate(value) {
+      if (!value) {
+        return null;
       }
-      userBox.textContent = `Failed to load user: ${getErrorMessage(error, "request_failed")}`;
-      return;
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) {
+        return null;
+      }
+      return date;
     }
 
-    const loadProjectsBtn = document.getElementById("loadProjectsBtn");
-    const logoutBtn = document.getElementById("logoutBtn");
-
-    function renderProjects(projects) {
-      const container = document.getElementById("projectsContainer");
-      if (!container) {
-        return;
+    function getActivityDate(project) {
+      if (!project) {
+        return null;
       }
-
-      container.innerHTML = "";
-
-      if (!Array.isArray(projects) || projects.length === 0) {
-        container.textContent = "No projects found";
-        return;
-      }
-
-      projects.forEach((project) => {
-        const row = document.createElement("div");
-        row.className = "projectRow";
-
-        const name = document.createElement("div");
-        name.className = "projectName";
-        name.textContent = project && project.name ? project.name : "(no name)";
-
-        const ref = document.createElement("div");
-        ref.textContent = `Ref: ${project && project.external_project_ref ? project.external_project_ref : "-"}`;
-
-        const status = document.createElement("div");
-        status.textContent = `Status: ${project && project.status ? project.status : "-"}`;
-
-        const updatedAt = document.createElement("div");
-        updatedAt.textContent = `Updated: ${project && project.updated_at ? project.updated_at : "-"}`;
-
-        if (project && project.project_id) {
-          const projectUrl = `/project/${encodeURIComponent(project.project_id)}`;
-          row.style.cursor = "pointer";
-          row.addEventListener("click", function () {
-            window.location.href = projectUrl;
-          });
+      for (let i = 0; i < ACTIVITY_FIELD_CANDIDATES.length; i += 1) {
+        const field = ACTIVITY_FIELD_CANDIDATES[i];
+        if (Object.prototype.hasOwnProperty.call(project, field)) {
+          return toDate(project[field]);
         }
+      }
+      return null;
+    }
 
-        row.appendChild(name);
-        row.appendChild(ref);
-        row.appendChild(status);
-        row.appendChild(updatedAt);
-        container.appendChild(row);
+    function getInactivityDays(activityDate) {
+      if (!activityDate) {
+        return null;
+      }
+      const now = new Date();
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const startOfActivity = new Date(
+        activityDate.getFullYear(),
+        activityDate.getMonth(),
+        activityDate.getDate()
+      );
+      const diffMs = startOfToday.getTime() - startOfActivity.getTime();
+      if (diffMs < 0) {
+        return 0;
+      }
+      return Math.floor(diffMs / 86400000);
+    }
+
+    function formatActivityDate(date) {
+      if (!date) {
+        return "-";
+      }
+      try {
+        return new Intl.DateTimeFormat("da-DK", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+        }).format(date);
+      } catch (_error) {
+        return date.toISOString().slice(0, 10);
+      }
+    }
+
+    function isClosedStatus(project) {
+      const status = String(project && project.status ? project.status : "").trim().toLowerCase();
+      return status === "closed" || status === "lukket";
+    }
+
+    function getStatusView(project) {
+      const activityDate = getActivityDate(project);
+      const inactivityDays = getInactivityDays(activityDate);
+
+      if (typeof inactivityDays === "number" && inactivityDays >= 60) {
+        return {
+          tone: "critical",
+          label: `OBS (${inactivityDays} dage)`,
+          activityDate,
+          inactivityDays,
+        };
+      }
+
+      if (typeof inactivityDays === "number" && inactivityDays >= 30) {
+        return {
+          tone: "warning",
+          label: `Stille (${inactivityDays} dage)`,
+          activityDate,
+          inactivityDays,
+        };
+      }
+
+      return {
+        tone: "neutral",
+        label: "Aktiv",
+        activityDate,
+        inactivityDays,
+      };
+    }
+
+    function refSortValue(ref) {
+      const value = String(ref || "").trim();
+      const numeric = Number.parseInt(value.replace(/[^0-9]/g, ""), 10);
+      if (Number.isNaN(numeric)) {
+        return null;
+      }
+      return numeric;
+    }
+
+    function compareByReference(a, b) {
+      const left = refSortValue(a && a.external_project_ref);
+      const right = refSortValue(b && b.external_project_ref);
+
+      if (left !== null && right !== null && left !== right) {
+        return left - right;
+      }
+
+      const leftRef = String(a && a.external_project_ref ? a.external_project_ref : "");
+      const rightRef = String(b && b.external_project_ref ? b.external_project_ref : "");
+      return leftRef.localeCompare(rightRef, "da", { sensitivity: "base", numeric: true });
+    }
+
+    function compareByActivity(a, b) {
+      const left = getActivityDate(a);
+      const right = getActivityDate(b);
+      const leftTime = left ? left.getTime() : 0;
+      const rightTime = right ? right.getTime() : 0;
+      return leftTime - rightTime;
+    }
+
+    function sortProjects(projects) {
+      const sorted = projects.slice();
+      if (state.sortMode === "ref_desc") {
+        sorted.sort((a, b) => compareByReference(b, a));
+        return sorted;
+      }
+      if (state.sortMode === "activity_desc") {
+        sorted.sort((a, b) => compareByActivity(b, a));
+        return sorted;
+      }
+      if (state.sortMode === "activity_asc") {
+        sorted.sort((a, b) => compareByActivity(a, b));
+        return sorted;
+      }
+      sorted.sort((a, b) => compareByReference(a, b));
+      return sorted;
+    }
+
+    function getOwnerId(project) {
+      return String(project && project.owner_user_id ? project.owner_user_id : "").trim();
+    }
+
+    function getOwnerDisplayName(project) {
+      if (!project) {
+        return "Ukendt ejer";
+      }
+
+      const ownerId = getOwnerId(project);
+      const candidates = [
+        project.owner_name,
+        project.owner_display_name,
+        project.owner_full_name,
+        project.owner_email,
+      ];
+
+      for (let i = 0; i < candidates.length; i += 1) {
+        const value = String(candidates[i] || "").trim();
+        if (value) {
+          return value;
+        }
+      }
+
+      if (!ownerId) {
+        return "Ukendt ejer";
+      }
+
+      if (state.me && String(state.me.id) === ownerId) {
+        return "Mig";
+      }
+
+      if (!state.ownerLabelMap.has(ownerId)) {
+        const nextNumber = state.ownerLabelMap.size + 1;
+        state.ownerLabelMap.set(ownerId, `Bruger ${nextNumber}`);
+      }
+
+      return state.ownerLabelMap.get(ownerId);
+    }
+
+    function ownerLabel(project) {
+      const ownerId = project && project.owner_user_id ? String(project.owner_user_id) : "";
+      if (!ownerId) {
+        return "Ukendt ejer";
+      }
+      return getOwnerDisplayName(project);
+    }
+
+    function hasTeamLeaderValue(project) {
+      const candidates = [
+        project && project.team_leader_name,
+        project && project.teamLeaderName,
+      ];
+      for (let i = 0; i < candidates.length; i += 1) {
+        const value = String(candidates[i] || "").trim();
+        if (value) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    function getTeamLeaderValue(project) {
+      const candidates = [
+        project && project.team_leader_name,
+        project && project.teamLeaderName,
+      ];
+      for (let i = 0; i < candidates.length; i += 1) {
+        const value = String(candidates[i] || "").trim();
+        if (value) {
+          return value;
+        }
+      }
+      return "";
+    }
+
+    function getFilteredProjects() {
+      const openProjects = state.projects.filter((project) => !isClosedStatus(project));
+
+      const ownerSet = new Map();
+      openProjects.forEach((project) => {
+        const ownerId = getOwnerId(project);
+        if (ownerId) {
+          ownerSet.set(ownerId, ownerLabel(project));
+        }
+      });
+
+      state.ownerOptions = Array.from(ownerSet.entries())
+        .map(([id, label]) => ({ id, label }))
+        .sort((a, b) => a.label.localeCompare(b.label, "da", { sensitivity: "base" }));
+
+      if (state.ownerOptions.length < 2) {
+        state.selectedOwnerIds = new Set(["__ALL__"]);
+      }
+
+      const allSelected = state.selectedOwnerIds.has("__ALL__");
+      if (allSelected) {
+        return sortProjects(openProjects);
+      }
+
+      const selectedSet = state.selectedOwnerIds;
+      const filtered = openProjects.filter((project) => selectedSet.has(getOwnerId(project)));
+      return sortProjects(filtered);
+    }
+
+    function makeBadge(statusView) {
+      const badge = document.createElement("span");
+      badge.className = "badge badgeNeutral";
+      if (statusView.tone === "warning") {
+        badge.className = "badge badgeWarning";
+      }
+      if (statusView.tone === "critical") {
+        badge.className = "badge badgeCritical";
+      }
+      badge.textContent = statusView.label;
+      return badge;
+    }
+
+    function openDrawer() {
+      if (!drawerShell) {
+        return;
+      }
+      drawerShell.classList.add("open");
+      drawerShell.setAttribute("aria-hidden", "false");
+      document.body.classList.add("drawer-open");
+    }
+
+    function closeDrawer() {
+      if (!drawerShell) {
+        return;
+      }
+      drawerShell.classList.remove("open");
+      drawerShell.setAttribute("aria-hidden", "true");
+      document.body.classList.remove("drawer-open");
+      state.drawerProjectId = null;
+    }
+
+    function renderDrawerFields(fields, hasError) {
+      if (!drawerBody) {
+        return;
+      }
+      drawerBody.innerHTML = "";
+      fields.forEach((field) => {
+        const wrapper = document.createElement("div");
+        wrapper.className = hasError ? "drawerField drawerError" : "drawerField";
+
+        const label = document.createElement("span");
+        label.className = "drawerLabel";
+        label.textContent = field.label;
+
+        const value = document.createElement("span");
+        value.className = "drawerValue";
+        value.textContent = field.value;
+
+        wrapper.appendChild(label);
+        wrapper.appendChild(value);
+        drawerBody.appendChild(wrapper);
       });
     }
 
-    const projectsContainer = document.getElementById("projectsContainer");
-    const loadProjects = async () => {
-      if (projectsContainer) {
-        projectsContainer.textContent = "Loading...";
+    function renderDrawerLoading(project) {
+      if (drawerTitle) {
+        drawerTitle.textContent = project && project.name ? project.name : "Sag";
       }
+      if (drawerRef) {
+        const refValue = project && project.external_project_ref ? project.external_project_ref : "-";
+        drawerRef.textContent = `Ref: ${refValue}`;
+      }
+      renderDrawerFields([
+        { label: "Status", value: "Indlæser..." },
+        { label: "Sidste aktivitet", value: "Indlæser..." },
+      ], false);
+    }
+
+    function renderDrawerProject(project) {
+      const statusView = getStatusView(project);
+      if (drawerTitle) {
+        drawerTitle.textContent = project && project.name ? project.name : "Sag";
+      }
+      if (drawerRef) {
+        drawerRef.textContent = `Ref: ${project && project.external_project_ref ? project.external_project_ref : "-"}`;
+      }
+
+      const fields = [
+        { label: "Status", value: statusView.label },
+        { label: "Sidste aktivitet", value: formatActivityDate(statusView.activityDate) },
+      ];
+
+      if (state.ownerOptions.length > 1) {
+        fields.push({ label: "Ejer", value: ownerLabel(project) });
+      }
+
+      const selectedCount = state.selectedOwnerIds.has("__ALL__")
+        ? state.ownerOptions.length
+        : state.selectedOwnerIds.size;
+      if (selectedCount > 1 && hasTeamLeaderValue(project)) {
+        fields.push({ label: "Teamleder", value: getTeamLeaderValue(project) });
+      }
+
+      renderDrawerFields(fields, false);
+    }
+
+    function renderDrawerNotFound() {
+      if (drawerTitle) {
+        drawerTitle.textContent = "Sag";
+      }
+      if (drawerRef) {
+        drawerRef.textContent = "Ref: -";
+      }
+      renderDrawerFields([
+        { label: "Fejl", value: "Projektet blev ikke fundet eller du har ikke adgang." },
+      ], true);
+    }
+
+    function renderDrawerError(message) {
+      renderDrawerFields([
+        { label: "Fejl", value: message },
+      ], true);
+    }
+
+    async function openProjectDrawer(project) {
+      if (!project || !project.project_id) {
+        return;
+      }
+
+      state.drawerProjectId = String(project.project_id);
+      if (openProjectPageLink) {
+        openProjectPageLink.href = `/project/${encodeURIComponent(state.drawerProjectId)}`;
+      }
+      renderDrawerLoading(project);
+      openDrawer();
+
       try {
-        const response = await apiFetch("/api/projects?scope=mine", { method: "GET" });
-        const projects = response && Array.isArray(response.projects)
-          ? response.projects
-          : [];
-        renderProjects(projects);
+        const response = await apiFetch(`/api/projects/${encodeURIComponent(state.drawerProjectId)}`, {
+          method: "GET",
+        });
+        const detail = response && response.project ? response.project : null;
+        if (!detail) {
+          renderDrawerError("Projektdata mangler.");
+          return;
+        }
+        renderDrawerProject(detail);
       } catch (error) {
         if (handleAuthFailure(error)) {
           return;
         }
-        if (projectsContainer) {
-          projectsContainer.textContent = `Failed to load projects: ${getErrorMessage(error, "request_failed")}`;
+        if (error && error.status === 404) {
+          renderDrawerNotFound();
+          return;
         }
+        renderDrawerError(`Kunne ikke hente projektet: ${getErrorMessage(error, "request_failed")}`);
       }
-    };
+    }
 
-    if (loadProjectsBtn && projectsContainer) {
-      loadProjectsBtn.addEventListener("click", async () => {
-        await loadProjects();
+    function setSelectedOwners(ownerIds) {
+      if (!Array.isArray(ownerIds) || ownerIds.length === 0) {
+        state.selectedOwnerIds = new Set(["__ALL__"]);
+        return;
+      }
+
+      if (ownerIds.includes("__ALL__")) {
+        state.selectedOwnerIds = new Set(["__ALL__"]);
+        return;
+      }
+
+      const valid = ownerIds.filter((id) => state.ownerOptions.some((option) => option.id === id));
+      if (valid.length === 0) {
+        state.selectedOwnerIds = new Set(["__ALL__"]);
+        return;
+      }
+
+      state.selectedOwnerIds = new Set(valid);
+    }
+
+    function renderScopeChips() {
+      if (!scopeRow || !scopeChips) {
+        return;
+      }
+
+      if (state.ownerOptions.length < 2) {
+        scopeRow.hidden = true;
+        scopeChips.innerHTML = "";
+        return;
+      }
+
+      scopeRow.hidden = false;
+      scopeChips.innerHTML = "";
+
+      function createChip(label, id) {
+        const chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = "scopeChip";
+        const allSelected = state.selectedOwnerIds.has("__ALL__");
+        const isActive = id === "__ALL__" ? allSelected : (!allSelected && state.selectedOwnerIds.has(id));
+        if (isActive) {
+          chip.classList.add("active");
+        }
+        chip.textContent = label;
+        chip.addEventListener("click", () => {
+          if (id === "__ALL__") {
+            setSelectedOwners(["__ALL__"]);
+            renderProjects();
+            return;
+          }
+
+          const current = state.selectedOwnerIds.has("__ALL__")
+            ? new Set()
+            : new Set(state.selectedOwnerIds);
+
+          if (current.has(id)) {
+            current.delete(id);
+          } else {
+            current.add(id);
+          }
+
+          setSelectedOwners(Array.from(current));
+          renderProjects();
+        });
+        scopeChips.appendChild(chip);
+      }
+
+      createChip("Vis alle", "__ALL__");
+      state.ownerOptions.forEach((option) => {
+        createChip(option.label, option.id);
       });
     }
 
-    if (projectsContainer) {
-      await loadProjects();
+    function createProjectCard(project) {
+      const statusView = getStatusView(project);
+      const card = document.createElement("button");
+      card.type = "button";
+      card.className = "projectCard";
+
+      const name = document.createElement("h3");
+      name.className = "projectName";
+      name.textContent = project && project.name ? project.name : "(uden navn)";
+
+      const ref = document.createElement("p");
+      ref.className = "projectRef";
+      ref.textContent = `Ref: ${project && project.external_project_ref ? project.external_project_ref : "-"}`;
+
+      const lineTwo = document.createElement("div");
+      lineTwo.className = "projectLineTwo";
+
+      const activity = document.createElement("span");
+      activity.className = "activityText";
+      activity.textContent = `Sidste aktivitet: ${formatActivityDate(statusView.activityDate)}`;
+
+      lineTwo.appendChild(activity);
+      lineTwo.appendChild(makeBadge(statusView));
+
+      card.appendChild(name);
+      card.appendChild(ref);
+      card.appendChild(lineTwo);
+
+      card.addEventListener("click", () => {
+        openProjectDrawer(project);
+      });
+
+      return card;
+    }
+
+    function renderProjects() {
+      const visibleProjects = getFilteredProjects();
+      projectsContainer.innerHTML = "";
+      renderScopeChips();
+
+      const selectedCount = state.selectedOwnerIds.has("__ALL__")
+        ? state.ownerOptions.length
+        : state.selectedOwnerIds.size;
+      const groupMode = selectedCount > 1;
+
+      if (listMetaText) {
+        const modeText = groupMode ? "Grupperet visning" : "Enkelt visning";
+        listMetaText.textContent = `${visibleProjects.length} aktive sager · ${modeText}`;
+      }
+
+      if (visibleProjects.length === 0) {
+        const emptyState = document.createElement("div");
+        emptyState.className = "emptyState";
+        emptyState.textContent = "Ingen aktive sager fundet.";
+        projectsContainer.appendChild(emptyState);
+        return;
+      }
+
+      if (!groupMode) {
+        visibleProjects.forEach((project) => {
+          projectsContainer.appendChild(createProjectCard(project));
+        });
+        return;
+      }
+
+      const groups = new Map();
+      visibleProjects.forEach((project) => {
+        const group = ownerLabel(project);
+        if (!groups.has(group)) {
+          groups.set(group, []);
+        }
+        groups.get(group).push(project);
+      });
+
+      const groupNames = Array.from(groups.keys()).sort((a, b) =>
+        a.localeCompare(b, "da", { sensitivity: "base" })
+      );
+
+      groupNames.forEach((groupName) => {
+        const groupProjects = groups.get(groupName) || [];
+        const block = document.createElement("section");
+        block.className = "groupBlock";
+
+        const header = document.createElement("h2");
+        header.className = "groupHeader";
+        header.innerHTML = `<strong>${groupName}</strong><span>${groupProjects.length} sager</span>`;
+
+        block.appendChild(header);
+        groupProjects.forEach((project) => {
+          block.appendChild(createProjectCard(project));
+        });
+
+        projectsContainer.appendChild(block);
+      });
+    }
+
+    async function loadProjects() {
+      projectsContainer.innerHTML = "";
+      if (listMetaText) {
+        listMetaText.textContent = "Indlæser sager...";
+      }
+
+      try {
+        const response = await apiFetch("/api/projects?scope=mine", { method: "GET" });
+        state.projects = response && Array.isArray(response.projects) ? response.projects : [];
+        state.ownerLabelMap.clear();
+        renderProjects();
+      } catch (error) {
+        if (handleAuthFailure(error)) {
+          return;
+        }
+        const message = `Kunne ikke hente sager: ${getErrorMessage(error, "request_failed")}`;
+        projectsContainer.textContent = message;
+        if (listMetaText) {
+          listMetaText.textContent = "Fejl under indlæsning";
+        }
+      }
+    }
+
+    try {
+      const me = await apiFetch("/api/me", { method: "GET" });
+      state.me = me && me.user ? me.user : null;
+      if (userPill) {
+        const name = state.me && state.me.name ? state.me.name : "Ukendt bruger";
+        const role = state.me && state.me.role ? state.me.role : "rolle ukendt";
+        userPill.textContent = `${name} · ${role}`;
+      }
+    } catch (error) {
+      if (handleAuthFailure(error)) {
+        return;
+      }
+      if (userPill) {
+        userPill.textContent = `Kunne ikke hente bruger: ${getErrorMessage(error, "request_failed")}`;
+      }
+      return;
+    }
+
+    if (sortSelect) {
+      sortSelect.addEventListener("change", () => {
+        state.sortMode = sortSelect.value;
+        renderProjects();
+      });
+    }
+
+    if (drawerCloseBtn) {
+      drawerCloseBtn.addEventListener("click", closeDrawer);
+    }
+
+    if (drawerCloseSecondaryBtn) {
+      drawerCloseSecondaryBtn.addEventListener("click", closeDrawer);
+    }
+
+    if (drawerOverlay) {
+      drawerOverlay.addEventListener("click", closeDrawer);
+    }
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && drawerShell && drawerShell.classList.contains("open")) {
+        closeDrawer();
+      }
+    });
+
+    await loadProjects();
+
+    if (openProjectPageLink) {
+      openProjectPageLink.addEventListener("click", () => {
+        closeDrawer();
+      });
     }
 
     if (logoutBtn) {
@@ -271,11 +850,11 @@
     box.innerHTML = "";
 
     const rows = [
-      { label: "Name", value: project && project.name ? project.name : "-" },
-      { label: "External Ref", value: project && project.external_project_ref ? project.external_project_ref : "-" },
+      { label: "Navn", value: project && project.name ? project.name : "-" },
+      { label: "Reference", value: project && project.external_project_ref ? project.external_project_ref : "-" },
       { label: "Status", value: project && project.status ? project.status : "-" },
-      { label: "Project ID", value: project && project.project_id ? project.project_id : "-" },
-      { label: "Updated", value: project && project.updated_at ? project.updated_at : "-" },
+      { label: "Sags-ID", value: project && project.project_id ? project.project_id : "-" },
+      { label: "Opdateret", value: project && project.updated_at ? project.updated_at : "-" },
     ];
 
     rows.forEach((item) => {
@@ -306,13 +885,13 @@
 
     if (!projectId) {
       if (projectDetailBox) {
-        projectDetailBox.textContent = "Invalid project path";
+        projectDetailBox.textContent = "Ugyldig sagssti";
       }
       return;
     }
 
     if (projectDetailBox) {
-      projectDetailBox.textContent = "Loading...";
+      projectDetailBox.textContent = "Indlæser...";
     }
 
     try {
@@ -323,7 +902,7 @@
         return;
       }
       if (projectDetailBox) {
-        projectDetailBox.textContent = `Failed to load project: ${getErrorMessage(error, "request_failed")}`;
+        projectDetailBox.textContent = `Kunne ikke hente sag: ${getErrorMessage(error, "request_failed")}`;
       }
     }
 

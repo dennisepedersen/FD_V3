@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="da">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fielddesk – Admin: Opret invitation</title>
+  <style>
+    :root {
+      --bg: #f4f1ea;
+      --surface: #fffdf8;
+      --text: #1f1a14;
+      --muted: #6d6459;
+      --accent: #0f766e;
+      --accent2: #1d4ed8;
+      --danger: #b91c1c;
+      --ok: #166534;
+      --border: #e5dac9;
+      --warn: #92400e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      color: var(--text);
+      background: radial-gradient(circle at top left, #efe7da 0%, #f4f1ea 42%, #e7dcc9 100%);
+      min-height: 100vh;
+      padding: 20px 16px 40px;
+    }
+    .wrap { max-width: 760px; margin: 0 auto; }
+    h1 { font-size: 26px; margin: 0 0 4px; }
+    .subtitle { color: var(--muted); font-size: 14px; margin: 0 0 20px; }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 20px;
+      margin-bottom: 16px;
+      box-shadow: 0 8px 24px rgba(41,29,15,0.07);
+    }
+    h2 { margin: 0 0 14px; font-size: 17px; }
+    .grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+    label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+    input, select, textarea {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 9px 10px;
+      font-size: 14px;
+      font-family: inherit;
+      background: #fff;
+      color: var(--text);
+    }
+    textarea { resize: vertical; min-height: 60px; }
+    input[type="checkbox"] { width: auto; margin-right: 6px; vertical-align: middle; }
+    .check-label { display: flex; align-items: center; gap: 6px; font-size: 14px; cursor: pointer; }
+    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
+    button {
+      border: 0; border-radius: 9px; padding: 9px 16px;
+      font-size: 14px; font-weight: 700; cursor: pointer; color: #fff;
+      background: linear-gradient(130deg, var(--accent), var(--accent2));
+    }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    button.sec { background: #3f3a33; }
+    button.sm { padding: 5px 10px; font-size: 12px; }
+    .msg { font-size: 13px; margin-top: 10px; padding: 8px 10px; border-radius: 8px; display: none; }
+    .msg.ok { background: #dcfce7; color: var(--ok); display: block; }
+    .msg.err { background: #fee2e2; color: var(--danger); display: block; }
+    .msg.info { background: #fef3c7; color: var(--warn); display: block; }
+    .link-box {
+      margin-top: 14px; padding: 12px 14px; background: #f0fdf4;
+      border: 1px solid #bbf7d0; border-radius: 10px; display: none;
+    }
+    .link-box.show { display: block; }
+    .link-box p { margin: 0 0 8px; font-size: 13px; color: var(--ok); font-weight: 700; }
+    .link-url { word-break: break-all; font-size: 13px; color: #15803d; margin-bottom: 10px; font-family: monospace; }
+    .cred-note { font-size: 12px; color: var(--muted); margin-top: 6px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+    th { text-align: left; padding: 6px 8px; border-bottom: 2px solid var(--border); color: var(--muted); font-size: 12px; }
+    td { padding: 7px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    .badge {
+      display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700;
+    }
+    .badge.pending { background: #fef9c3; color: #854d0e; }
+    .badge.accepted { background: #dcfce7; color: #166534; }
+    .badge.revoked { background: #fee2e2; color: #b91c1c; }
+    .empty { color: var(--muted); font-size: 13px; padding: 16px 0; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Fielddesk Admin</h1>
+    <p class="subtitle">Opret invitationer til nye tenants. Kun tilgængeligt på root-host.</p>
+
+    <!-- Admin credentials -->
+    <div class="card">
+      <h2>Admin-legitimation</h2>
+      <p style="font-size:13px;color:var(--muted);margin:0 0 10px;">Gemmes kun i sessionStorage – aldrig i localStorage.</p>
+      <div class="grid">
+        <div>
+          <label>Admin Key (x-global-admin-key)</label>
+          <input id="adminKey" type="password" autocomplete="off" placeholder="API-nøgle" />
+        </div>
+        <div>
+          <label>Admin ID (x-global-admin-id)</label>
+          <input id="adminId" type="text" autocomplete="off" placeholder="Aktør-ID" />
+        </div>
+      </div>
+      <div class="row">
+        <button id="saveCredBtn">Gem legitimation</button>
+      </div>
+      <div id="credMsg" class="msg"></div>
+    </div>
+
+    <!-- Create invitation -->
+    <div class="card">
+      <h2>Opret invitation</h2>
+      <div class="grid">
+        <div>
+          <label>E-mail (påkrævet)</label>
+          <input id="email" type="email" placeholder="hc@firma.dk" />
+        </div>
+        <div>
+          <label>Firmanavn</label>
+          <input id="companyName" placeholder="HC Entreprise A/S" />
+        </div>
+        <div>
+          <label>Ønsket slug</label>
+          <input id="desiredSlug" placeholder="hc" />
+        </div>
+        <div>
+          <label>Admin-navn</label>
+          <input id="adminName" placeholder="Hans Christian" />
+        </div>
+        <div>
+          <label>Foreslået login (3–4 bogstaver)</label>
+          <input id="suggestedLogin" placeholder="hc / thkj" maxlength="4" />
+        </div>
+        <div>
+          <label>Udløber om (timer, standard 72)</label>
+          <input id="expiresInHours" type="number" value="72" min="1" max="720" />
+        </div>
+      </div>
+      <div style="margin-top:10px;">
+        <label>Note til invitation</label>
+        <textarea id="inviteNote" placeholder="Valgfri besked til tenant admin"></textarea>
+      </div>
+      <div style="margin-top:10px;">
+        <label class="check-label">
+          <input type="checkbox" id="allowSkipEk" />
+          Tillad spring over EK integration
+        </label>
+      </div>
+      <div class="row">
+        <button id="createBtn">Opret invitation</button>
+      </div>
+      <div id="createMsg" class="msg"></div>
+
+      <!-- Onboarding link shown after creation -->
+      <div id="linkBox" class="link-box">
+        <p>Onboarding-link (vis til tenant admin – vises kun én gang):</p>
+        <div id="linkUrl" class="link-url"></div>
+        <div class="row" style="margin-top:0;">
+          <button class="sm" id="copyLinkBtn">Kopiér link</button>
+          <button class="sm sec" id="openLinkBtn">Åbn link</button>
+        </div>
+        <p class="cred-note">Token gemmes som hash i databasen – den rå token kan ikke genskabes.</p>
+      </div>
+    </div>
+
+    <!-- Invitation list -->
+    <div class="card">
+      <h2>Invitationer</h2>
+      <div class="row" style="margin-top:0; margin-bottom:10px;">
+        <button class="sec" id="loadAllBtn">Indlæs alle</button>
+        <button class="sec" id="loadPendingBtn">Kun afventende</button>
+        <button class="sec" id="loadAcceptedBtn">Kun accepteret</button>
+      </div>
+      <div id="listMsg" class="msg"></div>
+      <div id="tableWrap">
+        <p class="empty">Tryk på en knap herover for at indlæse invitationer.</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // --- Session storage for credentials (never localStorage) ---
+    const SS_KEY = "fd_admin_creds";
+
+    function getCreds() {
+      try {
+        const raw = sessionStorage.getItem(SS_KEY);
+        return raw ? JSON.parse(raw) : null;
+      } catch { return null; }
+    }
+
+    function saveCreds(key, id) {
+      sessionStorage.setItem(SS_KEY, JSON.stringify({ key, id }));
+    }
+
+    function adminHeaders() {
+      const c = getCreds();
+      if (!c || !c.key || !c.id) throw new Error("Ingen admin-legitimation gemt. Udfyld felterne øverst og gem dem.");
+      return {
+        "Content-Type": "application/json",
+        "x-global-admin-key": c.key,
+        "x-global-admin-id": c.id,
+      };
+    }
+
+    function byId(id) { return document.getElementById(id); }
+
+    function showMsg(id, type, text) {
+      const el = byId(id);
+      el.className = `msg ${type}`;
+      el.textContent = text;
+    }
+
+    // Restore credentials from session storage on load
+    (function restoreCreds() {
+      const c = getCreds();
+      if (c) {
+        byId("adminKey").value = c.key || "";
+        byId("adminId").value = c.id || "";
+      }
+    })();
+
+    byId("saveCredBtn").addEventListener("click", () => {
+      const key = byId("adminKey").value.trim();
+      const id = byId("adminId").value.trim();
+      if (!key || !id) {
+        showMsg("credMsg", "err", "Begge felter er påkrævet.");
+        return;
+      }
+      saveCreds(key, id);
+      showMsg("credMsg", "ok", "Legitimation gemt i session (forsvinder ved lukning af fane).");
+    });
+
+    byId("createBtn").addEventListener("click", async () => {
+      const btn = byId("createBtn");
+      btn.disabled = true;
+      byId("linkBox").classList.remove("show");
+      showMsg("createMsg", "info", "Opretter invitation…");
+
+      try {
+        const body = {
+          email: byId("email").value.trim(),
+          company_name: byId("companyName").value.trim() || undefined,
+          desired_slug: byId("desiredSlug").value.trim() || undefined,
+          admin_name: byId("adminName").value.trim() || undefined,
+          suggested_login: byId("suggestedLogin").value.trim() || undefined,
+          invitation_note: byId("inviteNote").value.trim() || undefined,
+          allow_skip_ek: byId("allowSkipEk").checked,
+          expires_in_hours: parseInt(byId("expiresInHours").value, 10) || 72,
+        };
+
+        if (!body.email) {
+          showMsg("createMsg", "err", "E-mail er påkrævet.");
+          return;
+        }
+
+        const res = await fetch("/v1/invitations", {
+          method: "POST",
+          headers: adminHeaders(),
+          body: JSON.stringify(body),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          showMsg("createMsg", "err", data?.error?.message || `HTTP ${res.status}`);
+          return;
+        }
+
+        const token = data.invitation_token;
+        const origin = window.location.origin;
+        const link = `${origin}/onboarding?token=${encodeURIComponent(token)}`;
+
+        byId("linkUrl").textContent = link;
+        byId("linkBox").classList.add("show");
+        byId("copyLinkBtn").onclick = () => {
+          navigator.clipboard.writeText(link).then(() => {
+            byId("copyLinkBtn").textContent = "Kopieret ✓";
+            setTimeout(() => { byId("copyLinkBtn").textContent = "Kopiér link"; }, 2000);
+          });
+        };
+        byId("openLinkBtn").onclick = () => window.open(link, "_blank");
+
+        showMsg("createMsg", "ok", `Invitation oprettet for ${data.email}. Udløber: ${new Date(data.expires_at).toLocaleString("da-DK")}`);
+
+        // Clear form
+        ["email","companyName","desiredSlug","adminName","suggestedLogin","inviteNote"].forEach(id => { byId(id).value = ""; });
+        byId("allowSkipEk").checked = false;
+        byId("expiresInHours").value = "72";
+      } catch (err) {
+        showMsg("createMsg", "err", err.message);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    async function loadInvitations(status) {
+      showMsg("listMsg", "info", "Indlæser…");
+      byId("tableWrap").innerHTML = "";
+      try {
+        const url = status ? `/v1/invitations?status=${encodeURIComponent(status)}` : "/v1/invitations";
+        const res = await fetch(url, { headers: adminHeaders() });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          showMsg("listMsg", "err", data?.error?.message || `HTTP ${res.status}`);
+          return;
+        }
+        showMsg("listMsg", "ok", `${data.invitations.length} invitation(er) hentet.`);
+        renderTable(data.invitations);
+      } catch (err) {
+        showMsg("listMsg", "err", err.message);
+      }
+    }
+
+    function renderTable(rows) {
+      const wrap = byId("tableWrap");
+      if (!rows.length) {
+        wrap.innerHTML = `<p class="empty">Ingen invitationer fundet.</p>`;
+        return;
+      }
+      const table = document.createElement("table");
+      table.innerHTML = `
+        <thead><tr>
+          <th>E-mail</th><th>Firma</th><th>Slug</th><th>Login</th><th>Status</th><th>Udløber</th><th>Oprettet</th>
+        </tr></thead>
+      `;
+      const tbody = document.createElement("tbody");
+      rows.forEach(inv => {
+        const tr = document.createElement("tr");
+        const exp = inv.expires_at ? new Date(inv.expires_at).toLocaleDateString("da-DK") : "–";
+        const created = inv.created_at ? new Date(inv.created_at).toLocaleDateString("da-DK") : "–";
+        const expired = inv.expires_at && new Date(inv.expires_at) < new Date();
+        tr.innerHTML = `
+          <td>${esc(inv.email)}</td>
+          <td>${esc(inv.company_name || "–")}</td>
+          <td>${esc(inv.desired_slug || "–")}</td>
+          <td>${esc(inv.suggested_login || "–")}</td>
+          <td><span class="badge ${inv.status}">${esc(inv.status)}${expired && inv.status === "pending" ? " (udløbet)" : ""}</span></td>
+          <td>${exp}</td>
+          <td>${created}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      wrap.appendChild(table);
+    }
+
+    function esc(str) {
+      return String(str || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+    }
+
+    byId("loadAllBtn").addEventListener("click", () => loadInvitations(null));
+    byId("loadPendingBtn").addEventListener("click", () => loadInvitations("pending"));
+    byId("loadAcceptedBtn").addEventListener("click", () => loadInvitations("accepted"));
+  </script>
+</body>
+</html>

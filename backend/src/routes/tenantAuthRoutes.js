@@ -1,6 +1,7 @@
 const express = require("express");
 const pool = require("../db/pool");
 const requireTenantHost = require("../middleware/requireTenantHost");
+const { rateLimitRedis } = require("../middleware/rateLimitRedis");
 const userQueries = require("../db/queries/user");
 const auditQueries = require("../db/queries/audit");
 const { verifyPassword } = require("../services/passwordService");
@@ -8,19 +9,37 @@ const { issueAccessToken } = require("../services/jwtService");
 const { createHttpError } = require("../middleware/errorHandler");
 
 const router = express.Router();
+const loginRateLimit = rateLimitRedis({
+  windowMs: 60 * 1000,
+  maxRequests: 10,
+});
 
-router.post("/v1/auth/login", requireTenantHost, async (req, res, next) => {
-  const { email, password } = req.body || {};
-  if (!email || !password) {
+router.post("/v1/auth/login", requireTenantHost, loginRateLimit, async (req, res, next) => {
+  // Accepts { login, password } where login is a username (3-4 alpha chars) or legacy email.
+  // Legacy mode: email fallback is kept for backward compatibility and is planned for phase-out.
+  const { login, email: legacyEmail, password } = req.body || {};
+  const identifier = login || legacyEmail;
+  if (!identifier || !password) {
     return next(createHttpError(400, "Missing login fields"));
   }
 
   const client = await pool.connect();
   try {
-    const user = await userQueries.findActiveUserByEmail(client, {
-      tenantId: req.context.tenant.id,
-      email,
-    });
+    // Strategy: username-first lookup, then legacy email fallback.
+    const isUsername = /^[a-zA-Z]{3,4}$/.test(String(identifier).trim());
+    let user = null;
+    if (isUsername) {
+      user = await userQueries.findActiveUserByUsername(client, {
+        tenantId: req.context.tenant.id,
+        username: String(identifier).trim(),
+      });
+    }
+    if (!user) {
+      user = await userQueries.findActiveUserByEmail(client, {
+        tenantId: req.context.tenant.id,
+        email: identifier,
+      });
+    }
 
     if (!user || user.status !== "active") {
       await auditQueries.insertAuditEvent(client, {
@@ -32,7 +51,7 @@ router.post("/v1/auth/login", requireTenantHost, async (req, res, next) => {
         targetId: null,
         outcome: "fail",
         reason: "login_fail",
-        metadata: { email: String(email).toLowerCase() },
+        metadata: { login: String(identifier).toLowerCase() },
       });
       throw createHttpError(401, "Invalid credentials");
     }
@@ -48,7 +67,7 @@ router.post("/v1/auth/login", requireTenantHost, async (req, res, next) => {
         targetId: user.id,
         outcome: "fail",
         reason: "login_fail",
-        metadata: { email: String(email).toLowerCase() },
+        metadata: { login: String(identifier).toLowerCase() },
       });
       throw createHttpError(401, "Invalid credentials");
     }

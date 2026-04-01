@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="da">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Fielddesk Tenant Login</title>
+  <title>Fielddesk Login</title>
   <style>
     body {
       font-family: sans-serif;
@@ -32,19 +32,20 @@
   </style>
 </head>
 <body data-page="login">
-  <h1>Tenant Login</h1>
+  <h1>Log ind</h1>
   <form id="loginForm">
     <label>
-      Email
-      <input id="email" name="email" type="email" autocomplete="email" required>
+      Brugernavn
+      <input id="login" name="login" type="text" autocomplete="username" required maxlength="4" placeholder="dep">
     </label>
     <label>
-      Password
+      Adgangskode
       <input id="password" name="password" type="password" autocomplete="current-password" required>
     </label>
-    <button type="submit">Log in</button>
+    <button type="submit">Log ind</button>
   </form>
   <pre id="errorBox" hidden></pre>
   <script src="/tenant/auth.js"></script>
 </body>
 </html>
+

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="da">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -11,214 +11,349 @@
       --text: #1f1a14;
       --muted: #6d6459;
       --accent: #0f766e;
-      --accent-2: #1d4ed8;
+      --accent2: #1d4ed8;
       --danger: #b91c1c;
       --ok: #166534;
       --border: #e5dac9;
     }
+
     * { box-sizing: border-box; }
+
     body {
       margin: 0;
       font-family: Georgia, "Times New Roman", serif;
       color: var(--text);
       background: radial-gradient(circle at top left, #efe7da 0%, #f4f1ea 42%, #e7dcc9 100%);
       min-height: 100vh;
-      padding: 24px;
+      padding: 20px 16px 48px;
     }
-    .wrap { max-width: 980px; margin: 0 auto; }
+
+    .wrap { max-width: 620px; margin: 0 auto; }
+    h1 { font-size: 26px; margin: 0 0 4px; }
+    .subtitle { color: var(--muted); font-size: 14px; margin: 0 0 24px; }
+
     .card {
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 18px;
-      padding: 20px;
-      box-shadow: 0 12px 30px rgba(41, 29, 15, 0.08);
+      border-radius: 16px;
+      padding: 22px 20px;
       margin-bottom: 16px;
+      box-shadow: 0 8px 24px rgba(41, 29, 15, 0.07);
     }
-    h1 { margin: 0 0 12px; font-size: 32px; }
-    h2 { margin: 0 0 10px; font-size: 20px; }
-    p { margin: 0 0 12px; color: var(--muted); }
-    .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
-    label { display: block; font-size: 14px; margin-bottom: 6px; color: var(--muted); }
-    input, select {
+
+    h2 { margin: 0 0 14px; font-size: 17px; }
+
+    .step-num {
+      display: inline-block;
+      width: 22px;
+      height: 22px;
+      line-height: 22px;
+      text-align: center;
+      border-radius: 50%;
+      background: var(--accent);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 700;
+      margin-right: 7px;
+    }
+
+    .field { margin-bottom: 12px; }
+    label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+
+    input, textarea {
       width: 100%;
       border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 11px 12px;
+      border-radius: 9px;
+      padding: 10px 11px;
       font-size: 15px;
+      font-family: inherit;
       background: #fff;
       color: var(--text);
     }
-    input[type="checkbox"] { width: auto; margin-right: 8px; }
-    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+    input:focus, textarea:focus {
+      outline: 2px solid var(--accent);
+      border-color: var(--accent);
+    }
+
+    input.err { border-color: var(--danger); }
+    .hint { font-size: 12px; color: var(--muted); margin-top: 3px; }
+    .hint.err { color: var(--danger); }
+
+    .radio-group { display: flex; gap: 16px; margin-top: 8px; }
+    .radio-option { display: flex; align-items: center; gap: 8px; font-size: 15px; cursor: pointer; }
+    .radio-option input[type="radio"] { width: 18px; height: 18px; cursor: pointer; }
+
+    .ep-grid { display: grid; gap: 8px; margin-top: 10px; }
+    .ep-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 10px;
+      background: #fbf7f0;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+    }
+
+    .ep-item input[type="checkbox"] { width: 17px; height: 17px; margin-top: 2px; cursor: pointer; flex-shrink: 0; }
+    .ep-name { font-weight: 700; font-size: 14px; }
+    .ep-desc { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .ep-tag { font-size: 11px; color: var(--accent); }
+
+    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 16px; }
+
     button {
       border: 0;
-      border-radius: 10px;
-      padding: 10px 14px;
-      font-size: 14px;
+      border-radius: 9px;
+      padding: 11px 18px;
+      font-size: 15px;
       font-weight: 700;
       cursor: pointer;
       color: #fff;
-      background: linear-gradient(130deg, var(--accent), var(--accent-2));
+      background: linear-gradient(130deg, var(--accent), var(--accent2));
     }
-    button.secondary { background: #3f3a33; }
-    .status { font-size: 13px; margin-top: 10px; }
-    .status.ok { color: var(--ok); }
-    .status.err { color: var(--danger); }
-    .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
-    .chip {
-      border: 1px solid var(--border);
-      border-radius: 999px;
-      padding: 5px 10px;
-      font-size: 12px;
-      background: #fcfaf6;
-    }
-    .endpoint-card {
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 10px;
-      background: #fff;
-      margin-bottom: 8px;
-    }
-    .endpoint-head { display: flex; gap: 8px; align-items: center; }
-    .endpoint-name { font-weight: 700; }
-    .endpoint-tag {
-      font-size: 11px;
-      border: 1px solid var(--border);
-      border-radius: 999px;
-      padding: 2px 8px;
-      color: var(--muted);
-      background: #faf6ef;
-    }
-    .endpoint-desc { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
-    pre {
-      margin: 0;
-      padding: 12px;
-      border-radius: 10px;
-      border: 1px solid var(--border);
-      background: #fbf7f0;
-      overflow: auto;
+
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    button.sec { background: #3f3a33; }
+
+    .msg {
       font-size: 13px;
+      margin-top: 10px;
+      padding: 9px 11px;
+      border-radius: 8px;
+      display: none;
     }
+
+    .msg.ok { background: #dcfce7; color: var(--ok); display: block; }
+    .msg.err { background: #fee2e2; color: var(--danger); display: block; }
+    .msg.info { background: #fef3c7; color: #92400e; display: block; }
+
+    .hidden { display: none !important; }
+
+    .progress { display: flex; gap: 6px; margin-bottom: 22px; flex-wrap: wrap; }
+    .prog-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--border); transition: background 0.2s; }
+    .prog-dot.done { background: var(--ok); }
+    .prog-dot.current { background: var(--accent); }
+
+    #invalidScreen { text-align: center; padding: 40px 20px; }
+    #invalidScreen h2 { color: var(--danger); }
+
+    #completeScreen { text-align: center; padding: 30px 20px; }
+    #completeScreen .big { font-size: 40px; }
+    #completeScreen h2 { color: var(--ok); margin: 8px 0 4px; }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="card">
-      <h1>Fielddesk Onboarding V1</h1>
-      <p>Root-host onboarding flow. Paste invitation token, then complete all 6 steps.</p>
-      <div class="grid">
-        <div>
-          <label>Invitation Token</label>
-          <input id="inviteToken" placeholder="Paste invitation token" />
+  <div class="wrap" id="app">
+    <div id="loadingScreen" class="card" style="text-align:center;padding:32px;">
+      <p style="color:var(--muted)">Validerer invitation…</p>
+    </div>
+
+    <div id="invalidScreen" class="card hidden">
+      <div style="font-size:36px">⛔</div>
+      <h2>Ugyldig invitation</h2>
+      <p id="invalidMsg" style="color:var(--muted);font-size:14px;"></p>
+    </div>
+
+    <div id="mainFlow" class="hidden">
+      <h1>Velkommen til Fielddesk</h1>
+      <p class="subtitle">Fuldfør opsætning af din virksomhed nedenfor.</p>
+
+      <div class="progress" id="progressDots"></div>
+
+      <div class="card" id="step1" data-step="1">
+        <h2><span class="step-num">1</span>Login og adgangskode</h2>
+        <div class="field">
+          <label>Brugernavn (3–4 bogstaver)</label>
+          <input id="loginName" maxlength="4" autocomplete="username" placeholder="dep, tkj, hc, thkj" />
+          <p class="hint" id="loginHint">Brug 3–4 bogstaver, fx dine initialer. Du logger ind med dette fremover.</p>
         </div>
-        <div>
-          <label>Onboarding Bearer Token</label>
-          <input id="onboardingToken" placeholder="Auto-filled after invitation accept" />
+        <div class="field">
+          <label>Fulde navn</label>
+          <input id="fullName" autocomplete="name" placeholder="Hans Christian" />
         </div>
+        <div class="field">
+          <label>Adgangskode</label>
+          <input id="password" type="password" autocomplete="new-password" placeholder="Min. 8 tegn, ét tal, ét specialtegn" />
+          <p class="hint">Min. 8 tegn · mindst ét tal · mindst ét specialtegn (fx ! @ # $)</p>
+        </div>
+        <div class="field">
+          <label>Gentag adgangskode</label>
+          <input id="password2" type="password" autocomplete="new-password" placeholder="Gentag adgangskode" />
+        </div>
+        <div class="row"><button id="step1Btn">Næste</button></div>
+        <div id="step1Msg" class="msg"></div>
       </div>
-      <div class="row" style="margin-top: 12px;">
-        <button id="acceptBtn">Accept Invitation / Start</button>
-        <button class="secondary" id="stateBtn">Refresh State</button>
+
+      <div class="card hidden" id="step2" data-step="2">
+        <h2><span class="step-num">2</span>Virksomhedsoplysninger</h2>
+        <div class="field">
+          <label>Virksomhedsnavn</label>
+          <input id="tenantName" placeholder="HC Entreprise A/S" />
+        </div>
+        <div class="field">
+          <label>Slug (URL-navn, fx hc → hc.fielddesk.dk)</label>
+          <input id="tenantSlug" placeholder="hc" />
+          <p class="hint">Kun små bogstaver, tal og bindestreg. Kan ikke ændres senere.</p>
+        </div>
+        <div class="field">
+          <label>Domæne</label>
+          <input id="tenantDomain" placeholder="hc.fielddesk.dk" />
+        </div>
+        <div class="row">
+          <button class="sec" id="step2BackBtn">Tilbage</button>
+          <button id="step2Btn">Næste</button>
+        </div>
+        <div id="step2Msg" class="msg"></div>
       </div>
-      <div id="stateStatus" class="status"></div>
+
+      <div class="card hidden" id="step3" data-step="3">
+        <h2><span class="step-num">3</span>Vilkår og betingelser</h2>
+        <p style="font-size:14px;color:var(--muted)">
+          Ved at acceptere bekræfter du, at du er bemyndiget til at oprette denne konto på vegne af din virksomhed.
+        </p>
+        <div style="margin-top:12px;">
+          <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;font-size:14px;">
+            <input type="checkbox" id="termsAccepted" style="width:18px;height:18px;margin-top:2px;flex-shrink:0;" />
+            Jeg accepterer Fielddesks <a href="/terms" target="_blank" style="color:var(--accent)">vilkår og betingelser</a> (v1.0).
+          </label>
+        </div>
+        <div class="row">
+          <button class="sec" id="step3BackBtn">Tilbage</button>
+          <button id="step3Btn">Næste</button>
+        </div>
+        <div id="step3Msg" class="msg"></div>
+      </div>
+
+      <div class="card hidden" id="step4" data-step="4">
+        <h2><span class="step-num">4</span>E-Komplet integration</h2>
+        <p style="font-size:14px;color:var(--muted)">Ønsker du at forbinde til E-Komplet?</p>
+        <div class="radio-group">
+          <label class="radio-option">
+            <input type="radio" name="ekChoice" id="ekYes" value="yes" />
+            Ja, forbind til E-Komplet
+          </label>
+          <label class="radio-option">
+            <input type="radio" name="ekChoice" id="ekNo" value="no" />
+            Nej, spring over
+          </label>
+        </div>
+
+        <div id="ekFields" class="hidden" style="margin-top:16px;">
+          <div class="field">
+            <label>E-Komplet basis-URL</label>
+            <input id="ekBaseUrl" placeholder="https://api.e-komplet.dk" />
+          </div>
+          <div class="field">
+            <label>API-nøgle</label>
+            <input id="ekApiKey" type="password" autocomplete="off" placeholder="E-Komplet API-nøgle" />
+            <p class="hint">Nøglen krypteres og vises aldrig igen.</p>
+          </div>
+          <div class="row" style="margin-top:10px;">
+            <button class="sec" id="testEkBtn" style="font-size:13px;padding:8px 14px;">Test forbindelse</button>
+          </div>
+          <div id="ekTestMsg" class="msg"></div>
+
+          <div id="epSection" style="margin-top:16px;">
+            <label style="font-size:14px;font-weight:700;color:var(--text);display:block;margin-bottom:6px;">Vælg datapunkter</label>
+            <div class="ep-grid" id="epGrid"></div>
+          </div>
+        </div>
+
+        <div id="ekSkipNote" class="hidden" style="margin-top:12px;font-size:13px;color:var(--muted);">
+          Du springer EK-integration over. Du kan opsætte dette senere.
+        </div>
+
+        <div class="row">
+          <button class="sec" id="step4BackBtn">Tilbage</button>
+          <button id="step4Btn">Næste</button>
+        </div>
+        <div id="step4Msg" class="msg"></div>
+      </div>
+
+      <div class="card hidden" id="step5" data-step="5">
+        <h2><span class="step-num">5</span>Gennemse</h2>
+        <table style="width:100%;border-collapse:collapse;font-size:14px;" id="reviewTable"></table>
+        <div class="row">
+          <button class="sec" id="step5BackBtn">Tilbage</button>
+          <button id="step5Btn">Fuldfør opsætning</button>
+        </div>
+        <div id="step5Msg" class="msg"></div>
+      </div>
     </div>
 
-    <div class="card">
-      <h2>Step 1: Basic Info</h2>
-      <div class="grid">
-        <div><label>Full Name</label><input id="fullName" /></div>
-        <div><label>Email (from invitation)</label><input id="inviteEmail" disabled /></div>
-        <div><label>Password</label><input id="password" type="password" /></div>
-        <div><label>Tenant Slug</label><input id="tenantSlug" placeholder="test" /></div>
-        <div><label>Tenant Name</label><input id="tenantName" placeholder="Test Tenant" /></div>
-        <div><label>Tenant Domain</label><input id="tenantDomain" placeholder="test.fielddesk.dk" /></div>
-      </div>
-      <div class="row" style="margin-top: 12px;"><button id="basicBtn">Save Basic Info</button></div>
-      <div id="basicStatus" class="status"></div>
-    </div>
-
-    <div class="card">
-      <h2>Step 2: Terms</h2>
-      <div class="grid">
-        <div><label>Terms Version</label><input id="termsVersion" value="v1.0" /></div>
-      </div>
-      <div class="row" style="margin-top: 10px;">
-        <label><input type="checkbox" id="termsAccepted" /> I accept the terms.</label>
-      </div>
-      <div class="row" style="margin-top: 12px;"><button id="termsBtn">Save Terms</button></div>
-      <div id="termsStatus" class="status"></div>
-    </div>
-
-    <div class="card">
-      <h2>Step 3: EK Integration</h2>
-      <div class="grid">
-        <div><label>EK Base URL</label><input id="ekBaseUrl" placeholder="https://api.example.com" /></div>
-        <div><label>EK API Key</label><input id="ekApiKey" /></div>
-      </div>
-      <div class="row" style="margin-top: 12px;">
-        <button id="ekTestBtn">Test Connection</button>
-        <button id="ekBtn">Save EK Integration</button>
-      </div>
-      <div id="ekStatus" class="status"></div>
-    </div>
-
-    <div class="card">
-      <h2>Step 4: Endpoint Selection</h2>
-      <p>Choose one or more endpoints. Default selected: projects, fitterhours, users.</p>
-      <div class="chips" id="endpointChips"></div>
-      <div class="row" style="margin-top: 12px;"><button id="endpointBtn">Save Endpoint Selection</button></div>
-      <div id="endpointStatus" class="status"></div>
-    </div>
-
-    <div class="card">
-      <h2>Step 5: Review</h2>
-      <div class="row" style="margin-bottom: 10px;"><button id="reviewBtn">Load Review</button></div>
-      <pre id="reviewBox">No review loaded.</pre>
-    </div>
-
-    <div class="card">
-      <h2>Step 6: Complete</h2>
-      <p>No auto-login. Completion redirects to tenant login URL only.</p>
-      <div class="row"><button id="completeBtn">Complete Onboarding</button></div>
-      <div id="completeStatus" class="status"></div>
+    <div id="completeScreen" class="card hidden">
+      <div class="big">✅</div>
+      <h2>Opsætning fuldført</h2>
+      <p id="loginLink" style="font-size:14px;color:var(--muted);"></p>
     </div>
   </div>
 
   <script>
     const endpointOptions = [
-      { key: "projects", optional: false, description: "Core project structure and baseline data." },
-      { key: "fitterhours", optional: false, description: "Time registrations and work activity." },
-      { key: "users", optional: false, description: "Users for ownership and mapping." },
-      { key: "fitters", optional: true, description: "Technician master data." },
-      { key: "worksheets", optional: true, description: "Worksheet-level details." },
-      { key: "invoices", optional: true, description: "Invoice data for financial follow-up." },
-      { key: "purchaseinvoices", optional: true, description: "Supplier invoice data." }
+      { key: "projects", label: "Projekter", defaultOn: true, desc: "Kernedata om projekter." },
+      { key: "fitterhours", label: "Timer", defaultOn: true, desc: "Tidsregistreringer og arbejdsaktivitet." },
+      { key: "users", label: "Brugere", defaultOn: true, desc: "Brugere til ejerskab og mapping." },
+      { key: "fitters", label: "Montører", defaultOn: false, desc: "Montørers stamdata." },
+      { key: "worksheets", label: "Arbejdssedler", defaultOn: false, desc: "Arbejdssedler på sagsniveau." },
+      { key: "invoices", label: "Fakturaer", defaultOn: false, desc: "Fakturadata." },
+      { key: "purchaseinvoices", label: "Leverandørfakturaer", defaultOn: false, desc: "Leverandørfakturadata." },
     ];
 
-    const endpointSet = new Set(["projects", "fitterhours", "users"]);
-    const byId = (id) => document.getElementById(id);
+    const endpointSet = new Set(endpointOptions.filter((e) => e.defaultOn).map((e) => e.key));
+    let onboardingToken = null;
+    let invitationData = {};
+    let allowSkipEk = false;
+    let ekTestPassed = false;
+    let currentStep = 1;
+    const TOTAL_STEPS = 5;
 
-    function status(id, ok, text) {
+    function byId(id) { return document.getElementById(id); }
+
+    function showMsg(id, type, text) {
       const el = byId(id);
-      el.className = `status ${ok ? "ok" : "err"}`;
+      el.className = `msg ${type}`;
       el.textContent = text;
     }
 
-    function token() {
-      return byId("onboardingToken").value.trim();
+    function hideMsg(id) {
+      byId(id).className = "msg";
     }
 
-    async function api(path, method, body, needsAuth = true) {
+    function showStep(n) {
+      for (let i = 1; i <= TOTAL_STEPS; i += 1) {
+        const el = byId(`step${i}`);
+        if (el) {
+          el.classList.toggle("hidden", i !== n);
+        }
+      }
+      currentStep = n;
+      renderProgress();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    function renderProgress() {
+      const dots = byId("progressDots");
+      dots.innerHTML = "";
+      for (let i = 1; i <= TOTAL_STEPS; i += 1) {
+        const dot = document.createElement("div");
+        dot.className = "prog-dot" + (i < currentStep ? " done" : i === currentStep ? " current" : "");
+        dots.appendChild(dot);
+      }
+    }
+
+    async function api(path, method, body) {
       const headers = { "Content-Type": "application/json" };
-      if (needsAuth) {
-        headers.Authorization = `Bearer ${token()}`;
+      if (onboardingToken) {
+        headers.Authorization = `Bearer ${onboardingToken}`;
       }
 
       const res = await fetch(path, {
         method,
         headers,
-        body: body ? JSON.stringify(body) : undefined,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
       });
+
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(data?.error?.message || `HTTP ${res.status}`);
@@ -226,133 +361,355 @@
       return data;
     }
 
-    function renderEndpoints() {
-      const root = byId("endpointChips");
-      root.innerHTML = "";
-      endpointOptions.forEach((endpoint) => {
-        const label = document.createElement("label");
-        label.className = "endpoint-card";
-        label.innerHTML = `
-          <div class="endpoint-head">
-            <input type="checkbox" value="${endpoint.key}">
-            <span class="endpoint-name">${endpoint.key}</span>
-            <span class="endpoint-tag">${endpoint.optional ? "optional" : "default"}</span>
-          </div>
-          <p class="endpoint-desc">${endpoint.description}</p>
-        `;
-        const input = label.querySelector("input");
-        input.checked = endpointSet.has(endpoint.key);
-        input.addEventListener("change", () => {
-          if (input.checked) endpointSet.add(endpoint.key);
-          else endpointSet.delete(endpoint.key);
+    function renderEpGrid() {
+      const grid = byId("epGrid");
+      grid.innerHTML = "";
+
+      endpointOptions.forEach((ep) => {
+        const div = document.createElement("div");
+        div.className = "ep-item";
+
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.id = `ep_${ep.key}`;
+        cb.checked = endpointSet.has(ep.key);
+        cb.addEventListener("change", () => {
+          if (cb.checked) {
+            endpointSet.add(ep.key);
+          } else {
+            endpointSet.delete(ep.key);
+          }
         });
-        root.appendChild(label);
+
+        const info = document.createElement("div");
+        const tag = ep.defaultOn
+          ? `<span class="ep-tag">standard</span>`
+          : `<span class="ep-tag" style="color:var(--muted)">valgfri</span>`;
+        info.innerHTML = `<div class="ep-name">${ep.label} ${tag}</div><div class="ep-desc">${ep.desc}</div>`;
+
+        div.appendChild(cb);
+        div.appendChild(info);
+        grid.appendChild(div);
       });
     }
 
-    byId("acceptBtn").addEventListener("click", async () => {
-      try {
-        const data = await api("/v1/invitations/accept", "POST", {
-          token: byId("inviteToken").value.trim(),
-        }, false);
-        byId("onboardingToken").value = data.onboarding_token;
-        byId("inviteEmail").value = data.email || "";
-        status("stateStatus", true, "Invitation accepted and onboarding started.");
-      } catch (err) {
-        status("stateStatus", false, err.message);
+    byId("ekYes").addEventListener("change", () => {
+      byId("ekFields").classList.remove("hidden");
+      byId("ekSkipNote").classList.add("hidden");
+      hideMsg("step4Msg");
+    });
+
+    byId("ekNo").addEventListener("change", () => {
+      byId("ekFields").classList.add("hidden");
+      byId("ekSkipNote").classList.remove("hidden");
+      hideMsg("step4Msg");
+    });
+
+    byId("loginName").addEventListener("input", () => {
+      const v = byId("loginName").value.trim().toLowerCase();
+      const hint = byId("loginHint");
+
+      if (v && !/^[a-z]{3,4}$/.test(v)) {
+        byId("loginName").classList.add("err");
+        hint.className = "hint err";
+        hint.textContent = "Kun bogstaver, 3–4 tegn.";
+      } else {
+        byId("loginName").classList.remove("err");
+        hint.className = "hint";
+        hint.textContent = "Brug 3–4 bogstaver, fx dine initialer. Du logger ind med dette fremover.";
       }
     });
 
-    byId("stateBtn").addEventListener("click", async () => {
-      try {
-        const data = await api("/v1/onboarding/state", "GET");
-        status("stateStatus", true, JSON.stringify(data.state.steps));
-      } catch (err) {
-        status("stateStatus", false, err.message);
+    byId("step1Btn").addEventListener("click", () => {
+      const login = byId("loginName").value.trim().toLowerCase();
+      const name = byId("fullName").value.trim();
+      const pw = byId("password").value;
+      const pw2 = byId("password2").value;
+
+      if (!/^[a-z]{3,4}$/.test(login)) {
+        showMsg("step1Msg", "err", "Brugernavn skal være 3–4 bogstaver.");
+        return;
+      }
+      if (!name) {
+        showMsg("step1Msg", "err", "Fulde navn er påkrævet.");
+        return;
+      }
+      if (pw.length < 8) {
+        showMsg("step1Msg", "err", "Adgangskode skal være mindst 8 tegn.");
+        return;
+      }
+      if (!/[0-9]/.test(pw)) {
+        showMsg("step1Msg", "err", "Adgangskode skal indeholde mindst ét tal.");
+        return;
+      }
+      if (!/[^a-zA-Z0-9]/.test(pw)) {
+        showMsg("step1Msg", "err", "Adgangskode skal indeholde mindst ét specialtegn.");
+        return;
+      }
+      if (pw !== pw2) {
+        showMsg("step1Msg", "err", "Adgangskoderne stemmer ikke overens.");
+        return;
+      }
+
+      hideMsg("step1Msg");
+      showStep(2);
+
+      if (invitationData.desired_slug && !byId("tenantSlug").value) {
+        byId("tenantSlug").value = invitationData.desired_slug;
+        byId("tenantDomain").value = `${invitationData.desired_slug}.fielddesk.dk`;
+      }
+
+      if (invitationData.company_name && !byId("tenantName").value) {
+        byId("tenantName").value = invitationData.company_name;
       }
     });
 
-    byId("basicBtn").addEventListener("click", async () => {
-      try {
-        await api("/v1/onboarding/basic-info", "POST", {
-          full_name: byId("fullName").value,
-          password: byId("password").value,
-          tenant_slug: byId("tenantSlug").value,
-          tenant_name: byId("tenantName").value,
-          tenant_domain: byId("tenantDomain").value,
-        });
-        status("basicStatus", true, "Basic info saved.");
-      } catch (err) {
-        status("basicStatus", false, err.message);
+    byId("step2BackBtn").addEventListener("click", () => showStep(1));
+
+    byId("step2Btn").addEventListener("click", () => {
+      const tn = byId("tenantName").value.trim();
+      const ts = byId("tenantSlug").value.trim().toLowerCase();
+      const td = byId("tenantDomain").value.trim().toLowerCase();
+
+      if (!tn) {
+        showMsg("step2Msg", "err", "Virksomhedsnavn er påkrævet.");
+        return;
       }
+      if (!ts || !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(ts)) {
+        showMsg("step2Msg", "err", "Slug er ugyldig.");
+        return;
+      }
+      if (!td) {
+        showMsg("step2Msg", "err", "Domæne er påkrævet.");
+        return;
+      }
+
+      hideMsg("step2Msg");
+      showStep(3);
     });
 
-    byId("termsBtn").addEventListener("click", async () => {
-      try {
-        await api("/v1/onboarding/terms", "POST", {
-          terms_version: byId("termsVersion").value,
-          accepted: byId("termsAccepted").checked,
-        });
-        status("termsStatus", true, "Terms saved.");
-      } catch (err) {
-        status("termsStatus", false, err.message);
+    byId("step3BackBtn").addEventListener("click", () => showStep(2));
+
+    byId("step3Btn").addEventListener("click", () => {
+      if (!byId("termsAccepted").checked) {
+        showMsg("step3Msg", "err", "Du skal acceptere vilkårene for at fortsætte.");
+        return;
       }
+
+      if (!allowSkipEk) {
+        byId("ekNo").closest("label").style.display = "none";
+        byId("ekYes").checked = true;
+        byId("ekFields").classList.remove("hidden");
+        byId("ekSkipNote").classList.add("hidden");
+      }
+
+      hideMsg("step3Msg");
+      renderEpGrid();
+      showStep(4);
     });
 
-    byId("ekTestBtn").addEventListener("click", async () => {
+    byId("step4BackBtn").addEventListener("click", () => showStep(3));
+
+    byId("testEkBtn").addEventListener("click", async () => {
+      const btn = byId("testEkBtn");
+      btn.disabled = true;
+      showMsg("ekTestMsg", "info", "Tester forbindelse…");
+
       try {
         const data = await api("/v1/onboarding/ek/test", "POST", {
-          ek_base_url: byId("ekBaseUrl").value,
-          ek_api_key: byId("ekApiKey").value,
+          ek_base_url: byId("ekBaseUrl").value.trim(),
+          ek_api_key: byId("ekApiKey").value.trim(),
         });
-        status("ekStatus", data.success, `${data.test_status}: ${data.message}`);
+        ekTestPassed = data.success;
+        showMsg("ekTestMsg", data.success ? "ok" : "err", `${data.test_status}: ${data.message}`);
       } catch (err) {
-        status("ekStatus", false, err.message);
+        ekTestPassed = false;
+        showMsg("ekTestMsg", "err", err.message);
+      } finally {
+        btn.disabled = false;
       }
     });
 
-    byId("ekBtn").addEventListener("click", async () => {
+    byId("step4Btn").addEventListener("click", async () => {
+      const wantsEk = byId("ekYes").checked;
+      const btn = byId("step4Btn");
+      btn.disabled = true;
+      showMsg("step4Msg", "info", "Gemmer…");
+
       try {
-        await api("/v1/onboarding/ek-integration", "POST", {
-          ek_base_url: byId("ekBaseUrl").value,
-          ek_api_key: byId("ekApiKey").value,
-        });
-        status("ekStatus", true, "EK integration saved.");
+        if (wantsEk) {
+          if (!byId("ekBaseUrl").value.trim() || !byId("ekApiKey").value.trim()) {
+            showMsg("step4Msg", "err", "Basis-URL og API-nøgle er påkrævet.");
+            btn.disabled = false;
+            return;
+          }
+          if (!ekTestPassed) {
+            showMsg("step4Msg", "err", "Test forbindelsen først, og fortsæt kun hvis testen lykkes.");
+            btn.disabled = false;
+            return;
+          }
+          if (endpointSet.size === 0) {
+            showMsg("step4Msg", "err", "Vælg mindst ét endpoint.");
+            btn.disabled = false;
+            return;
+          }
+
+          await api("/v1/onboarding/ek-integration", "POST", {
+            ek_base_url: byId("ekBaseUrl").value.trim(),
+            ek_api_key: byId("ekApiKey").value.trim(),
+          });
+
+          await api("/v1/onboarding/endpoint-selection", "POST", {
+            endpoints: Array.from(endpointSet),
+          });
+        } else {
+          if (!allowSkipEk) {
+            showMsg("step4Msg", "err", "EK-integration er påkrævet for denne invitation.");
+            btn.disabled = false;
+            return;
+          }
+
+          await api("/v1/onboarding/ek-integration", "POST", {
+            skipped: true,
+          });
+        }
+
+        await saveBasicAndTermsAndGoToReview();
       } catch (err) {
-        status("ekStatus", false, err.message);
+        showMsg("step4Msg", "err", err.message);
+      } finally {
+        btn.disabled = false;
       }
     });
 
-    byId("endpointBtn").addEventListener("click", async () => {
-      try {
-        await api("/v1/onboarding/endpoint-selection", "POST", {
-          endpoints: Array.from(endpointSet),
-        });
-        status("endpointStatus", true, "Endpoint selection saved.");
-      } catch (err) {
-        status("endpointStatus", false, err.message);
-      }
-    });
+    async function saveBasicAndTermsAndGoToReview() {
+      const login = byId("loginName").value.trim().toLowerCase();
+      const name = byId("fullName").value.trim();
+      const pw = byId("password").value;
 
-    byId("reviewBtn").addEventListener("click", async () => {
+      showMsg("step4Msg", "info", "Gemmer grundoplysninger…");
+
+      await api("/v1/onboarding/basic-info", "POST", {
+        login_name: login,
+        full_name: name,
+        password: pw,
+        tenant_slug: byId("tenantSlug").value.trim().toLowerCase(),
+        tenant_name: byId("tenantName").value.trim(),
+        tenant_domain: byId("tenantDomain").value.trim().toLowerCase(),
+      });
+
+      await api("/v1/onboarding/terms", "POST", {
+        terms_version: "v1.0",
+        accepted: true,
+      });
+
+      hideMsg("step4Msg");
+      await loadReview();
+      showStep(5);
+    }
+
+    async function loadReview() {
       try {
         const data = await api("/v1/onboarding/review", "GET");
-        byId("reviewBox").textContent = JSON.stringify(data.review, null, 2);
-      } catch (err) {
-        byId("reviewBox").textContent = err.message;
-      }
-    });
+        const r = data.review || {};
+        const rows = [
+          ["E-mail", r.email],
+          ["Brugernavn", r.login_name],
+          ["Fulde navn", r.full_name],
+          ["Virksomhed", r.tenant_name],
+          ["Slug", r.tenant_slug],
+          ["Domæne", r.tenant_domain],
+          ["Vilkår accepteret", r.terms_version ? `Ja (${r.terms_version})` : "Nej"],
+          ["EK integration", r.ek_base_url || (r.ek_test_status === "skipped" ? "Sprunget over" : "Ikke sat op")],
+          ["Endpoints", Array.isArray(r.endpoint_selection) && r.endpoint_selection.length > 0 ? r.endpoint_selection.join(", ") : "Ingen"],
+        ];
 
-    byId("completeBtn").addEventListener("click", async () => {
+        byId("reviewTable").innerHTML = rows
+          .map(([k, v]) => `<tr><td style="padding:6px 4px;color:var(--muted);font-size:13px;width:40%">${k}</td><td style="padding:6px 4px;font-size:14px">${v || "–"}</td></tr>`)
+          .join("");
+      } catch (err) {
+        byId("reviewTable").innerHTML = `<tr><td colspan="2" style="color:var(--danger);padding:8px 0;">${err.message}</td></tr>`;
+      }
+    }
+
+    byId("step5BackBtn").addEventListener("click", () => showStep(4));
+
+    byId("step5Btn").addEventListener("click", async () => {
+      const btn = byId("step5Btn");
+      btn.disabled = true;
+      showMsg("step5Msg", "info", "Fuldfører opsætning…");
+
       try {
         await api("/v1/onboarding/complete", "POST", {});
-        status("completeStatus", true, "Onboarding completed. You can now log in via your tenant domain.");
+        const slug = byId("tenantSlug").value.trim().toLowerCase();
+
+        byId("mainFlow").classList.add("hidden");
+        byId("loginLink").innerHTML = `Din virksomhed er nu oprettet.<br><br>Log ind på: <a href="https://${slug}.fielddesk.dk/login" style="color:var(--accent)">${slug}.fielddesk.dk/login</a>`;
+        byId("completeScreen").classList.remove("hidden");
+        window.scrollTo({ top: 0, behavior: "smooth" });
       } catch (err) {
-        status("completeStatus", false, err.message);
+        showMsg("step5Msg", "err", err.message);
+        btn.disabled = false;
       }
     });
 
-    renderEndpoints();
+    (async function init() {
+      const params = new URLSearchParams(window.location.search);
+      const token = params.get("token");
+
+      if (!token) {
+        byId("loadingScreen").classList.add("hidden");
+        byId("invalidScreen").classList.remove("hidden");
+        byId("invalidMsg").textContent = "Intet invitation-token fundet i URL. Kontrollér at linket er korrekt.";
+        return;
+      }
+
+      try {
+        const data = await fetch("/v1/invitations/accept", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token }),
+        }).then(async (res) => {
+          const payload = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            throw new Error(payload?.error?.message || `HTTP ${res.status}`);
+          }
+          return payload;
+        });
+
+        onboardingToken = data.onboarding_token;
+        allowSkipEk = Boolean(data.allow_skip_ek);
+        invitationData = {
+          company_name: data.company_name || null,
+          desired_slug: data.desired_slug || null,
+          admin_name: data.admin_name || null,
+        };
+
+        let state = null;
+        try {
+          const stateResponse = await api("/v1/onboarding/state", "GET");
+          state = stateResponse.state;
+        } catch (_err) {
+          state = null;
+        }
+
+        byId("loadingScreen").classList.add("hidden");
+        byId("mainFlow").classList.remove("hidden");
+
+        if (state?.suggested_login) {
+          byId("loginName").value = state.suggested_login;
+        }
+        if (data.admin_name) {
+          byId("fullName").value = data.admin_name;
+        }
+
+        showStep(1);
+      } catch (err) {
+        byId("loadingScreen").classList.add("hidden");
+        byId("invalidScreen").classList.remove("hidden");
+        byId("invalidMsg").textContent = err.message;
+      }
+    })();
   </script>
 </body>
 </html>

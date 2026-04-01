@@ -64,6 +64,21 @@ function normalizeBaseUrl(value) {
   }
 }
 
+function buildEkTestUrls(baseUrl) {
+  const parsed = new URL(baseUrl);
+  const cleanedPath = parsed.pathname.replace(/\/+$/, "");
+  const hasV4 = cleanedPath.includes("/api/v4.0");
+
+  const v4Base = hasV4
+    ? `${parsed.origin}${cleanedPath.slice(0, cleanedPath.indexOf("/api/v4.0") + "/api/v4.0".length)}`
+    : `${parsed.origin}${cleanedPath}/api/v4.0`;
+
+  return [
+    `${v4Base}/projects?page=1&pageSize=1`,
+    `${v4Base}/users?page=1&pageSize=1`,
+  ];
+}
+
 function normalizeEndpointSelection(endpoints) {
   if (!Array.isArray(endpoints)) {
     throw Object.assign(new Error("endpoints must be an array"), { statusCode: 400 });
@@ -120,6 +135,13 @@ function summarizeState(session) {
   const terms = session.terms_data || {};
   const ek = session.ek_integration || {};
   const endpoints = Array.isArray(session.endpoint_selection) ? session.endpoint_selection : [];
+  const ekSkipped = ek.skipped === true;
+  const hasEkCredentials = Boolean(ek.ek_base_url && ek.ek_api_key_encrypted);
+  const endpointsComplete = ekSkipped ? true : endpoints.length > 0;
+  const reviewComplete = basicInfo.full_name && basicInfo.login_name && basicInfo.tenant_slug && basicInfo.tenant_name && basicInfo.tenant_domain &&
+    terms.accepted &&
+    (ekSkipped || hasEkCredentials) &&
+    endpointsComplete;
 
   return {
     invitation_id: session.invitation_id,
@@ -127,27 +149,23 @@ function summarizeState(session) {
     company_name: invitationData.company_name || basicInfo.tenant_name || null,
     desired_slug: invitationData.desired_slug || basicInfo.tenant_slug || null,
     allow_skip_ek: Boolean(invitationData.allow_skip_ek),
+    suggested_login: invitationData.suggested_login || null,
     terms_version: terms.terms_version || null,
     ek_test_status: ek.connection_test_status || "not_tested",
     ek_test_message: ek.connection_test_message || null,
     status: session.status,
     current_step: [
-      basicInfo.full_name && basicInfo.tenant_slug && basicInfo.tenant_name && basicInfo.tenant_domain ? "basic_info" : null,
+      basicInfo.full_name && basicInfo.login_name && basicInfo.tenant_slug && basicInfo.tenant_name && basicInfo.tenant_domain ? "basic_info" : null,
       terms.accepted ? "terms" : null,
-      ek.ek_base_url && ek.ek_api_key_encrypted ? "ek_integration" : null,
-      endpoints.length > 0 ? "endpoint_selection" : null,
+      ekSkipped || hasEkCredentials ? "ek_integration" : null,
+      endpointsComplete ? "endpoint_selection" : null,
     ].filter(Boolean).length + 1,
     steps: {
-      basic_info: Boolean(basicInfo.full_name && basicInfo.tenant_slug && basicInfo.tenant_name && basicInfo.tenant_domain),
+      basic_info: Boolean(basicInfo.full_name && basicInfo.login_name && basicInfo.tenant_slug && basicInfo.tenant_name && basicInfo.tenant_domain),
       terms: Boolean(terms.accepted),
-      ek_integration: Boolean(ek.ek_base_url && ek.ek_api_key_encrypted),
-      endpoint_selection: endpoints.length > 0,
-      review: Boolean(
-        basicInfo.full_name && basicInfo.tenant_slug && basicInfo.tenant_name && basicInfo.tenant_domain &&
-        terms.accepted &&
-        ek.ek_base_url && ek.ek_api_key_encrypted &&
-        endpoints.length > 0
-      ),
+      ek_integration: Boolean(ekSkipped || hasEkCredentials),
+      endpoint_selection: Boolean(endpointsComplete),
+      review: Boolean(reviewComplete),
       complete: session.status === "completed",
     },
   };
@@ -163,12 +181,13 @@ async function getOnboardingState(invitationId) {
   }
 }
 
-async function saveBasicInfo({ invitationId, fullName, password, tenantSlug, tenantName, tenantDomain }) {
+async function saveBasicInfo({ invitationId, fullName, password, tenantSlug, tenantName, tenantDomain, loginName }) {
   ensureNonEmptyString(fullName, "full_name");
   ensureNonEmptyString(password, "password");
   ensureNonEmptyString(tenantSlug, "tenant_slug");
   ensureNonEmptyString(tenantName, "tenant_name");
   ensureNonEmptyString(tenantDomain, "tenant_domain");
+  ensureNonEmptyString(loginName, "login_name");
   ensureNoRawPlaceholders([
     ["full_name", fullName],
     ["password", password],
@@ -177,16 +196,51 @@ async function saveBasicInfo({ invitationId, fullName, password, tenantSlug, ten
     ["tenant_domain", tenantDomain],
   ]);
 
+  const normalizedLogin = String(loginName).trim().toLowerCase();
+  if (!/^[a-z]{3,4}$/.test(normalizedLogin)) {
+    throw Object.assign(new Error("login_name must be 3-4 lowercase letters only"), { statusCode: 400 });
+  }
+
   const passwordHash = await hashPassword(password);
 
+  // Validate password complexity
+  const pwd = String(password);
+  if (pwd.length < 8) {
+    throw Object.assign(new Error("password must be at least 8 characters"), { statusCode: 400 });
+  }
+  if (pwd.length > 128) {
+    throw Object.assign(new Error("password must be at most 128 characters"), { statusCode: 400 });
+  }
+  if (!/[0-9]/.test(pwd)) {
+    throw Object.assign(new Error("password must contain at least one digit"), { statusCode: 400 });
+  }
+  if (!/[^a-zA-Z0-9]/.test(pwd)) {
+    throw Object.assign(new Error("password must contain at least one special character"), { statusCode: 400 });
+  }
+
   await withTransaction(async (client) => {
-    const { session } = await loadInvitationAndSessionForUpdate(client, invitationId);
+    const { invitation, session } = await loadInvitationAndSessionForUpdate(client, invitationId);
+
+    if (invitation.tenant_id) {
+      const { rows } = await client.query(
+        `SELECT 1
+         FROM tenant_user
+         WHERE tenant_id = $1
+           AND lower(username) = lower($2)
+         LIMIT 1`,
+        [invitation.tenant_id, normalizedLogin]
+      );
+      if (rows.length > 0) {
+        throw Object.assign(new Error("Valgt login-navn er allerede i brug. Vælg et andet login-navn."), { statusCode: 409 });
+      }
+    }
 
     await onboardingQueries.updateOnboardingBasicInfo(client, {
       invitationId,
       basicInfo: {
         full_name: String(fullName).trim(),
         password_hash: passwordHash,
+        login_name: normalizedLogin,
         tenant_slug: normalizeSlug(tenantSlug || session.invitation_data?.desired_slug),
         tenant_name: String(tenantName || session.invitation_data?.company_name || "").trim(),
         tenant_domain: normalizeDomain(tenantDomain),
@@ -275,42 +329,53 @@ async function testEkConnection({ invitationId, ekBaseUrl, ekApiKey }) {
   ]);
 
   const normalizedBaseUrl = normalizeBaseUrl(ekBaseUrl);
+  const testUrls = buildEkTestUrls(ekBaseUrl);
 
   let success = false;
-  let message = "Connection test failed";
+  let message = "Forbindelsestest kunne ikke verificere et konkret E-Komplet endpoint";
+  let status = "limited";
 
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 7000);
+  for (const candidateUrl of testUrls) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 7000);
 
-    const response = await fetch(normalizedBaseUrl, {
-      method: "GET",
-      headers: {
-        "x-api-key": ekApiKey,
-      },
-      signal: controller.signal,
-    });
+      const response = await fetch(candidateUrl, {
+        method: "GET",
+        headers: {
+          "x-api-key": ekApiKey,
+        },
+        signal: controller.signal,
+      });
 
-    clearTimeout(timeout);
+      clearTimeout(timeout);
 
-    success = response.ok;
-    message = success
-      ? "Connection test succeeded"
-      : `Connection test failed with status ${response.status}`;
-  } catch (error) {
-    message = `Connection test failed: ${error.message}`;
+      if (response.ok) {
+        success = true;
+        status = "verified";
+        message = `Forbindelsestest lykkedes mod ${candidateUrl}`;
+        break;
+      }
+
+      status = "limited";
+      message = `Kunne ikke verificere endpoint-adgang (seneste status: ${response.status})`;
+    } catch (error) {
+      status = "limited";
+      message = `Forbindelsestest er begrænset: ${error.message}`;
+    }
   }
 
   await withTransaction(async (client) => {
     await loadInvitationAndSessionForUpdate(client, invitationId);
 
+    const existingSession = await onboardingQueries.getOnboardingSessionForUpdate(client, invitationId);
+    const existingEk = existingSession?.ek_integration || {};
+
     await onboardingQueries.updateOnboardingEkIntegration(client, {
       invitationId,
       ekIntegration: {
-        skipped: false,
-        ek_base_url: normalizedBaseUrl,
-        ek_api_key_encrypted: encryptSecret(ekApiKey),
-        connection_test_status: success ? "success" : "failed",
+        ...existingEk,
+        connection_test_status: success ? "success" : status,
         connection_test_message: message,
         tested_at: new Date().toISOString(),
       },
@@ -321,7 +386,7 @@ async function testEkConnection({ invitationId, ekBaseUrl, ekApiKey }) {
     success,
     message,
     normalized_base_url: normalizedBaseUrl,
-    test_status: success ? "success" : "failed",
+    test_status: success ? "success" : status,
   };
 }
 
@@ -358,6 +423,7 @@ async function getOnboardingReview(invitationId) {
         admin_name: invitationData.admin_name || null,
         allow_skip_ek: Boolean(invitationData.allow_skip_ek),
         full_name: basicInfo.full_name || null,
+        login_name: basicInfo.login_name || null,
         tenant_slug: basicInfo.tenant_slug || null,
         tenant_name: basicInfo.tenant_name || null,
         tenant_domain: basicInfo.tenant_domain || null,
@@ -384,7 +450,7 @@ async function completeOnboarding({ invitationId }) {
       const ekIntegration = session.ek_integration || {};
       const endpointSelection = Array.isArray(session.endpoint_selection) ? session.endpoint_selection : [];
 
-      if (!basicInfo.full_name || !basicInfo.password_hash || !basicInfo.tenant_slug || !basicInfo.tenant_name || !basicInfo.tenant_domain) {
+      if (!basicInfo.full_name || !basicInfo.password_hash || !basicInfo.login_name || !basicInfo.tenant_slug || !basicInfo.tenant_name || !basicInfo.tenant_domain) {
         throw Object.assign(new Error("Step 1 (basic info) is incomplete"), { statusCode: 400 });
       }
 
@@ -418,7 +484,7 @@ async function completeOnboarding({ invitationId }) {
         throw Object.assign(new Error("EK connection test must succeed before completion"), { statusCode: 400 });
       }
 
-      if (endpointSelection.length === 0) {
+      if (!skipEk && endpointSelection.length === 0) {
         throw Object.assign(new Error("Step 4 (endpoint selection) is incomplete"), { statusCode: 400 });
       }
 
@@ -441,6 +507,7 @@ async function completeOnboarding({ invitationId }) {
         email: invitation.email,
         name: String(basicInfo.full_name).trim(),
         passwordHash: basicInfo.password_hash,
+        username: basicInfo.login_name,
       });
 
       await client.query(
@@ -572,6 +639,10 @@ async function completeOnboarding({ invitationId }) {
 
       if (error.constraint === "uq_tenant_domain_domain_ci") {
         throw Object.assign(new Error("tenant_domain_already_exists"), { statusCode: 409 });
+      }
+
+      if (error.constraint === "tenant_user_username_tenant_uniq") {
+        throw Object.assign(new Error("Valgt login-navn er allerede i brug. Vælg et andet login-navn."), { statusCode: 409 });
       }
 
       throw Object.assign(new Error("onboarding_conflict"), { statusCode: 409 });

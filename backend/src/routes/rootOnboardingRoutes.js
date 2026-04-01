@@ -42,11 +42,12 @@ router.post("/v1/onboarding/ek/test", requireRootHost, requireAuth("onboarding")
 
 router.post("/v1/onboarding/basic-info", requireRootHost, requireAuth("onboarding"), async (req, res, next) => {
   try {
-    const { full_name, password, tenant_slug, tenant_name, tenant_domain } = req.body || {};
+    const { full_name, password, login_name, tenant_slug, tenant_name, tenant_domain } = req.body || {};
     await onboardingService.saveBasicInfo({
       invitationId: req.auth.invitation_id,
       fullName: full_name,
       password,
+      loginName: login_name,
       tenantSlug: tenant_slug,
       tenantName: tenant_name,
       tenantDomain: tenant_domain,

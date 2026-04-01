@@ -1,4 +1,4 @@
-const DEFAULT_ENDPOINT_SELECTION = ["projects", "fitterhours", "users"];
+const DEFAULT_ENDPOINT_SELECTION = [];
 
 async function createOnboardingSession(client, { invitationId, email, invitationData }) {
   const sql = `
