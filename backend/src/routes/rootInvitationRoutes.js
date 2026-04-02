@@ -13,7 +13,7 @@ const invitationAcceptRateLimit = rateLimitRedis({
 });
 
 // Global admin HTML UI
-router.get("/admin/invitations", requireRootHost, requireGlobalAdmin, (req, res) => {
+router.get("/admin/invitations", requireRootHost, (req, res) => {
   res.sendFile(path.join(__dirname, "../ui/root-invitations.html"));
 });
 
@@ -37,6 +37,7 @@ router.post("/v1/invitations", requireRootHost, requireGlobalAdmin, async (req, 
     const result = await invitationService.createInvitation({
       email,
       actorId: req.globalAdmin.actorId,
+      authSource: req.globalAdmin.authType || "header_admin",
       companyName: company_name,
       desiredSlug: desired_slug,
       adminName: admin_name,

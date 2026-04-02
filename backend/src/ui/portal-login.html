@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="da">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fielddesk Portal Login</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f3efe6;
+      --panel: rgba(255, 252, 246, 0.94);
+      --panel-border: rgba(35, 43, 35, 0.12);
+      --text: #1c261f;
+      --muted: #5e6b60;
+      --accent: #1d5c46;
+      --accent-strong: #154434;
+      --danger: #a83a2a;
+      --shadow: 0 24px 60px rgba(33, 41, 35, 0.14);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(29, 92, 70, 0.18), transparent 32%),
+        radial-gradient(circle at bottom right, rgba(195, 123, 72, 0.18), transparent 28%),
+        linear-gradient(180deg, #f6f2e9 0%, #efe7d8 100%);
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+
+    .shell {
+      width: min(420px, 100%);
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 24px;
+      padding: 28px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(10px);
+    }
+
+    .eyebrow {
+      font-size: 12px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin: 0 0 12px;
+    }
+
+    h1 {
+      font-family: "Fraunces", Georgia, serif;
+      font-size: clamp(32px, 6vw, 42px);
+      line-height: 1;
+      margin: 0 0 10px;
+    }
+
+    p {
+      margin: 0 0 24px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    form {
+      display: grid;
+      gap: 14px;
+    }
+
+    label {
+      display: grid;
+      gap: 8px;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    input {
+      width: 100%;
+      border: 1px solid rgba(28, 38, 31, 0.14);
+      border-radius: 14px;
+      padding: 13px 14px;
+      font: inherit;
+      background: rgba(255, 255, 255, 0.78);
+      color: var(--text);
+    }
+
+    input:focus {
+      outline: 2px solid rgba(29, 92, 70, 0.18);
+      border-color: rgba(29, 92, 70, 0.55);
+    }
+
+    button {
+      appearance: none;
+      border: 0;
+      border-radius: 14px;
+      padding: 14px 16px;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+      color: #fff;
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent-strong) 100%);
+    }
+
+    button:disabled {
+      opacity: 0.7;
+      cursor: wait;
+    }
+
+    .message {
+      min-height: 22px;
+      margin-top: 16px;
+      font-size: 14px;
+      color: var(--muted);
+    }
+
+    .message.error {
+      color: var(--danger);
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <p class="eyebrow">Fielddesk V3</p>
+    <h1>Portal Login</h1>
+    <p>Log ind som global admin for at oprette og styre invitationer pa portal.fielddesk.dk.</p>
+
+    <form id="login-form">
+      <label>
+        Username
+        <input id="username" name="username" type="text" autocomplete="username" maxlength="64" required>
+      </label>
+
+      <label>
+        Password
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+      </label>
+
+      <button id="submit-button" type="submit">Log ind</button>
+    </form>
+
+    <div id="message" class="message" aria-live="polite"></div>
+  </main>
+
+  <script>
+    const form = document.getElementById("login-form");
+    const usernameInput = document.getElementById("username");
+    const passwordInput = document.getElementById("password");
+    const submitButton = document.getElementById("submit-button");
+    const message = document.getElementById("message");
+
+    function setMessage(text, type) {
+      message.textContent = text || "";
+      message.className = type ? `message ${type}` : "message";
+    }
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      setMessage("");
+      submitButton.disabled = true;
+
+      try {
+        const response = await fetch("/v1/portal/auth/login", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            username: usernameInput.value,
+            password: passwordInput.value,
+          }),
+        });
+
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(body?.error?.message || "Login mislykkedes");
+        }
+
+        window.location.assign("/invitations");
+      } catch (error) {
+        setMessage(error.message || "Login mislykkedes", "error");
+      } finally {
+        submitButton.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

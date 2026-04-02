@@ -3,56 +3,566 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Fielddesk Tenant App</title>
+  <title>Fielddesk App</title>
   <style>
+    :root {
+      --bg: #f3f5f8;
+      --surface: #ffffff;
+      --surface-2: #f8fafc;
+      --text: #1f2937;
+      --muted: #637083;
+      --border: #d7e0ea;
+      --brand: #0f4c81;
+      --brand-soft: #e8f2fb;
+      --badge-neutral-bg: #eef3f8;
+      --badge-neutral-text: #2f3a48;
+      --badge-warning-bg: #fff2df;
+      --badge-warning-text: #9a3e00;
+      --badge-critical-bg: #fde7e7;
+      --badge-critical-text: #991b1b;
+      --radius: 14px;
+      --drawer-width: min(480px, 100vw);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
     body {
-      font-family: sans-serif;
-      max-width: 840px;
-      margin: 32px auto;
-      padding: 0 16px;
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      background:
+        radial-gradient(circle at 10% 0%, #eaf3ff 0%, rgba(234, 243, 255, 0) 38%),
+        var(--bg);
+      color: var(--text);
     }
 
-    button {
-      font: inherit;
+    body.drawer-open {
+      overflow: hidden;
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.92);
+      backdrop-filter: blur(6px);
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+    }
+
+    .brandMark {
+      width: 32px;
+      height: 32px;
+      border-radius: 10px;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(135deg, #1c5b8f, #133c66);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .topActions {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn {
+      border: 1px solid var(--border);
+      border-radius: 10px;
       padding: 10px 12px;
-      margin-right: 8px;
+      font: inherit;
+      background: #fff;
+      color: var(--text);
+      cursor: pointer;
     }
 
-    pre {
-      white-space: pre-wrap;
-      word-break: break-word;
-      background: #f5f5f5;
+    .btn:hover {
+      background: #f8fafc;
+    }
+
+    .btnPrimary {
+      border-color: #105891;
+      background: #105891;
+      color: #fff;
+    }
+
+    .page {
+      width: min(980px, 100%);
+      margin: 0 auto;
+      padding: 14px;
+      display: grid;
+      gap: 14px;
+    }
+
+    .panel {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      box-shadow: 0 1px 2px rgba(10, 25, 41, 0.06);
+    }
+
+    .headerPanel {
+      padding: 14px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .titleRow {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .titleRow h1 {
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.15;
+    }
+
+    .subtitle {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .userPill {
+      max-width: 100%;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 11px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: var(--surface-2);
+      font-size: 12px;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .toolbar {
       padding: 12px;
+      display: grid;
+      gap: 10px;
     }
 
-    #projectsContainer {
-      background: #f5f5f5;
-      padding: 12px;
+    .sortSelect {
+      width: 100%;
+      min-height: 44px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0 12px;
+      font: inherit;
+      background: #fff;
+      color: var(--text);
     }
 
-    .projectRow {
-      border-bottom: 1px solid #ddd;
-      padding: 8px 0;
+    .metaRow {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 13px;
+      min-height: 20px;
     }
 
-    .projectRow:last-child {
-      border-bottom: none;
+    .projectList {
+      display: grid;
+      gap: 12px;
+    }
+
+    .groupBlock {
+      display: grid;
+      gap: 10px;
+    }
+
+    .groupHeader {
+      margin: 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0 4px;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+    }
+
+    .groupHeader strong {
+      color: var(--text);
+      letter-spacing: 0.01em;
+      text-transform: none;
+      font-size: 14px;
+    }
+
+    .scopeRow {
+      display: grid;
+      gap: 8px;
+    }
+
+    .scopeRow[hidden] {
+      display: none;
+    }
+
+    .scopeRowLabel {
+      color: var(--muted);
+      font-size: 12px;
+      margin: 0;
+    }
+
+    .scopeChips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .scopeChip {
+      border: 1px solid var(--border);
+      background: #fff;
+      color: var(--text);
+      border-radius: 999px;
+      min-height: 34px;
+      padding: 0 11px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .scopeChip.active {
+      border-color: #105891;
+      background: var(--brand-soft);
+      color: #0e4d80;
+      font-weight: 600;
+    }
+
+    .projectCard {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--surface);
+      text-align: left;
+      padding: 10px;
+      display: grid;
+      gap: 7px;
+      cursor: pointer;
+      transition: border-color 0.14s ease, transform 0.14s ease;
+    }
+
+    .projectCard:hover {
+      border-color: #b6c5d6;
+      transform: translateY(-1px);
+    }
+
+    .projectCard:focus-visible {
+      outline: 2px solid #1f6db1;
+      outline-offset: 1px;
     }
 
     .projectName {
-      font-weight: 700;
+      margin: 0;
+      font-size: 15px;
+      line-height: 1.25;
+    }
+
+    .projectRef {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .projectLineTwo {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .activityText {
+      color: var(--muted);
+      font-size: 12px;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 28px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      padding: 0 10px;
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .badgeNeutral {
+      background: var(--badge-neutral-bg);
+      color: var(--badge-neutral-text);
+      border-color: #d8e0ea;
+    }
+
+    .badgeWarning {
+      background: var(--badge-warning-bg);
+      color: var(--badge-warning-text);
+      border-color: #f4b26a;
+    }
+
+    .badgeCritical {
+      background: var(--badge-critical-bg);
+      color: var(--badge-critical-text);
+      border-color: #ef9a9a;
+    }
+
+    .emptyState {
+      border: 1px dashed var(--border);
+      border-radius: 12px;
+      background: #f8fbff;
+      color: var(--muted);
+      text-align: center;
+      padding: 22px 12px;
+    }
+
+    .drawerShell {
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      pointer-events: none;
+    }
+
+    .drawerShell.open {
+      pointer-events: auto;
+    }
+
+    .drawerOverlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(10, 25, 41, 0.45);
+      opacity: 0;
+      transition: opacity 0.18s ease;
+    }
+
+    .drawerShell.open .drawerOverlay {
+      opacity: 1;
+    }
+
+    .drawerPanel {
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: var(--drawer-width);
+      height: 100%;
+      background: var(--surface);
+      transform: translateX(100%);
+      transition: transform 0.22s ease;
+      display: flex;
+      flex-direction: column;
+      border-left: 1px solid var(--border);
+    }
+
+    .drawerShell.open .drawerPanel {
+      transform: translateX(0);
+    }
+
+    .drawerHeader {
+      padding: 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .drawerTitle {
+      margin: 0;
+      font-size: 21px;
+      line-height: 1.2;
+    }
+
+    .drawerRef {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .iconBtn {
+      min-width: 38px;
+      height: 38px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: #fff;
+      font-size: 20px;
+      line-height: 1;
+      cursor: pointer;
+      color: var(--text);
+    }
+
+    .drawerBody {
+      flex: 1;
+      overflow: auto;
+      padding: 14px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .drawerField {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface-2);
+      padding: 10px;
+    }
+
+    .drawerLabel {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 5px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .drawerValue {
+      display: block;
+      font-size: 14px;
+      font-weight: 600;
+      word-break: break-word;
+    }
+
+    .drawerError {
+      border-color: #f2b3b3;
+      background: #fff0f0;
+      color: #991b1b;
+    }
+
+    .drawerFooter {
+      border-top: 1px solid var(--border);
+      padding: 12px 14px;
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+      background: #fff;
+    }
+
+    @media (min-width: 760px) {
+      .page {
+        padding: 24px;
+      }
+
+      .topbar {
+        padding: 12px 24px;
+      }
+
+      .headerPanel {
+        padding: 16px;
+      }
+
+      .toolbar {
+        grid-template-columns: 1fr auto;
+        align-items: center;
+      }
+
+      .sortSelect {
+        min-width: 260px;
+      }
+
+      .scopeRow {
+        grid-column: 1 / -1;
+      }
+
+      .projectCard {
+        padding: 12px;
+        gap: 8px;
+      }
+
+      .projectName {
+        font-size: 16px;
+      }
     }
   </style>
 </head>
 <body data-page="app">
-  <h1>Tenant App</h1>
-  <p><a href="/login">Back to login</a></p>
-  <h2>User</h2>
-  <pre id="userBox">Loading...</pre>
-  <h2>Projects</h2>
-  <button id="loadProjectsBtn" type="button">Load my projects</button>
-  <button id="logoutBtn" type="button">Log out</button>
-  <div id="projectsContainer">Not loaded.</div>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brandMark">FD</div>
+      <span>Fielddesk</span>
+    </div>
+    <div class="topActions">
+      <button id="logoutBtn" class="btn" type="button">Log ud</button>
+    </div>
+  </header>
+
+  <main class="page">
+    <section class="panel headerPanel">
+      <div class="titleRow">
+        <div>
+          <h1>Sagsoversigt</h1>
+          <p class="subtitle">Tryk på en sag for hurtig visning i sidepanel.</p>
+        </div>
+      </div>
+      <div id="userPill" class="userPill">Indlæser bruger...</div>
+    </section>
+
+    <section class="panel toolbar">
+      <div class="metaRow" id="listMetaText">Indlæser sager...</div>
+      <label>
+        <span class="subtitle">Sortering</span>
+        <select id="sortSelect" class="sortSelect">
+          <option value="ref_asc">Projektnr. (stigende)</option>
+          <option value="ref_desc">Projektnr. (faldende)</option>
+          <option value="activity_desc">Sidste aktivitet (nyeste)</option>
+          <option value="activity_asc">Sidste aktivitet (ældste)</option>
+        </select>
+      </label>
+      <div id="scopeRow" class="scopeRow" hidden>
+        <p class="scopeRowLabel">Visning</p>
+        <div id="scopeChips" class="scopeChips"></div>
+      </div>
+    </section>
+
+    <section id="projectsContainer" class="projectList" aria-live="polite"></section>
+  </main>
+
+  <div id="drawerShell" class="drawerShell" aria-hidden="true">
+    <div id="drawerOverlay" class="drawerOverlay"></div>
+    <aside class="drawerPanel" aria-modal="true" role="dialog" aria-labelledby="drawerTitle">
+      <div class="drawerHeader">
+        <div>
+          <h2 id="drawerTitle" class="drawerTitle">Sag</h2>
+          <p id="drawerRef" class="drawerRef">Ref: -</p>
+        </div>
+        <button id="drawerCloseBtn" class="iconBtn" type="button" aria-label="Luk">×</button>
+      </div>
+      <div id="drawerBody" class="drawerBody">
+        <div class="drawerField">
+          <span class="drawerLabel">Status</span>
+          <span class="drawerValue">Vælg en sag</span>
+        </div>
+      </div>
+      <div class="drawerFooter">
+        <button id="drawerCloseSecondaryBtn" class="btn" type="button">Luk</button>
+        <a id="openProjectPageLink" class="btn btnPrimary" href="/app">Åbn sag</a>
+      </div>
+    </aside>
+  </div>
+
   <script src="/tenant/auth.js"></script>
 </body>
 </html>

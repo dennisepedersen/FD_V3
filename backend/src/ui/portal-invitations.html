@@ -1,0 +1,533 @@
+<!doctype html>
+<html lang="da">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fielddesk Invitationer</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f4f0e8;
+      --card: rgba(255, 252, 247, 0.94);
+      --line: rgba(27, 38, 31, 0.12);
+      --text: #1b261f;
+      --muted: #617065;
+      --accent: #1d5c46;
+      --accent-strong: #153f31;
+      --warm: #b86a31;
+      --danger: #a13a2d;
+      --shadow: 0 20px 48px rgba(33, 41, 35, 0.12);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(29, 92, 70, 0.14), transparent 22%),
+        linear-gradient(180deg, #f6f1e8 0%, #ece4d6 100%);
+    }
+
+    .page {
+      width: min(1120px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 28px 0 40px;
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 22px;
+    }
+
+    h1 {
+      margin: 0;
+      font-family: "Fraunces", Georgia, serif;
+      font-size: clamp(34px, 5vw, 48px);
+      line-height: 1;
+    }
+
+    .meta {
+      color: var(--muted);
+      margin-top: 8px;
+    }
+
+    .logout {
+      appearance: none;
+      border: 1px solid rgba(27, 38, 31, 0.14);
+      background: rgba(255, 255, 255, 0.7);
+      padding: 12px 16px;
+      border-radius: 999px;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: minmax(0, 420px) minmax(0, 1fr);
+      gap: 18px;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      box-shadow: var(--shadow);
+      padding: 20px;
+      backdrop-filter: blur(8px);
+    }
+
+    .card h2 {
+      margin: 0 0 6px;
+      font-size: 20px;
+    }
+
+    .card p {
+      margin: 0 0 16px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    form { display: grid; gap: 12px; }
+
+    label {
+      display: grid;
+      gap: 7px;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    input,
+    textarea,
+    select {
+      width: 100%;
+      border: 1px solid rgba(27, 38, 31, 0.14);
+      border-radius: 14px;
+      padding: 12px 13px;
+      font: inherit;
+      background: rgba(255, 255, 255, 0.78);
+      color: var(--text);
+    }
+
+    textarea {
+      min-height: 100px;
+      resize: vertical;
+    }
+
+    .split {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .checkbox {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .checkbox input {
+      width: 18px;
+      height: 18px;
+      margin: 0;
+    }
+
+    .actions,
+    .status-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    button.primary,
+    button.secondary {
+      appearance: none;
+      border: 0;
+      border-radius: 14px;
+      padding: 12px 15px;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button.primary {
+      color: #fff;
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent-strong) 100%);
+    }
+
+    button.secondary {
+      color: var(--text);
+      background: rgba(27, 38, 31, 0.08);
+    }
+
+    button:disabled {
+      opacity: 0.7;
+      cursor: wait;
+    }
+
+    .message {
+      min-height: 22px;
+      font-size: 14px;
+      color: var(--muted);
+    }
+
+    .message.error { color: var(--danger); }
+    .message.success { color: var(--accent); }
+
+    .token-box,
+    .status-box {
+      margin-top: 16px;
+      border-radius: 16px;
+      padding: 14px;
+      background: rgba(184, 106, 49, 0.08);
+      border: 1px solid rgba(184, 106, 49, 0.18);
+      overflow-wrap: anywhere;
+    }
+
+    .list-toolbar {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    th,
+    td {
+      padding: 10px 8px;
+      border-bottom: 1px solid rgba(27, 38, 31, 0.08);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 5px 9px;
+      background: rgba(27, 38, 31, 0.08);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    @media (max-width: 900px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 640px) {
+      .page { width: min(100% - 20px, 1120px); }
+      .split { grid-template-columns: 1fr; }
+      .topbar {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="topbar">
+      <div>
+        <h1>Invitationer</h1>
+        <div id="welcome" class="meta">Indlaeser portal-session...</div>
+      </div>
+      <button id="logout-button" class="logout" type="button">Log ud</button>
+    </header>
+
+    <div class="grid">
+      <section class="card">
+        <h2>Opret invitation</h2>
+        <p>Opret ny tenant-admin invitation uden manuelle admin-headers.</p>
+
+        <form id="invite-form">
+          <label>
+            Email
+            <input id="email" type="email" required>
+          </label>
+
+          <label>
+            Firmanavn
+            <input id="company-name" type="text">
+          </label>
+
+          <div class="split">
+            <label>
+              Onsket slug
+              <input id="desired-slug" type="text">
+            </label>
+
+            <label>
+              Admin-navn
+              <input id="admin-name" type="text">
+            </label>
+          </div>
+
+          <div class="split">
+            <label>
+              Foreslaet login
+              <input id="suggested-login" type="text" maxlength="4">
+            </label>
+
+            <label>
+              Udlober om timer
+              <input id="expires-hours" type="number" min="1" step="1" value="72">
+            </label>
+          </div>
+
+          <label class="checkbox">
+            <input id="allow-skip-ek" type="checkbox">
+            Tillad onboarding uden EK-integration
+          </label>
+
+          <label>
+            Note
+            <textarea id="invitation-note"></textarea>
+          </label>
+
+          <div class="actions">
+            <button id="create-button" class="primary" type="submit">Opret invitation</button>
+            <button id="refresh-button" class="secondary" type="button">Opdater liste</button>
+          </div>
+        </form>
+
+        <div id="create-message" class="message" aria-live="polite"></div>
+        <div id="token-box" class="token-box" hidden></div>
+      </section>
+
+      <section class="card">
+        <div class="list-toolbar">
+          <div>
+            <h2>Seneste invitationer</h2>
+            <p>Se status og sla op pa en enkelt invitation.</p>
+          </div>
+
+          <label>
+            Statusfilter
+            <select id="status-filter">
+              <option value="">Alle</option>
+              <option value="pending">Pending</option>
+              <option value="accepted">Accepted</option>
+              <option value="revoked">Revoked</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="status-actions">
+          <input id="status-id" type="text" placeholder="Invitation ID">
+          <button id="status-button" class="secondary" type="button">Hent status</button>
+        </div>
+        <div id="status-box" class="status-box" hidden></div>
+
+        <div id="list-message" class="message" aria-live="polite"></div>
+        <table>
+          <thead>
+            <tr>
+              <th>Email</th>
+              <th>Status</th>
+              <th>Firma</th>
+              <th>Login</th>
+              <th>Udlober</th>
+            </tr>
+          </thead>
+          <tbody id="invitation-rows"></tbody>
+        </table>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    const welcome = document.getElementById("welcome");
+    const logoutButton = document.getElementById("logout-button");
+    const inviteForm = document.getElementById("invite-form");
+    const createButton = document.getElementById("create-button");
+    const refreshButton = document.getElementById("refresh-button");
+    const createMessage = document.getElementById("create-message");
+    const listMessage = document.getElementById("list-message");
+    const tokenBox = document.getElementById("token-box");
+    const statusFilter = document.getElementById("status-filter");
+    const rows = document.getElementById("invitation-rows");
+    const statusButton = document.getElementById("status-button");
+    const statusId = document.getElementById("status-id");
+    const statusBox = document.getElementById("status-box");
+
+    async function readJson(response) {
+      const body = await response.json().catch(() => ({}));
+      if (response.status === 401) {
+        window.location.assign("/login");
+        throw new Error("Portal-session er udlobet");
+      }
+      if (!response.ok) {
+        throw new Error(body?.error?.message || "Request failed");
+      }
+      return body;
+    }
+
+    function setMessage(element, text, type) {
+      element.textContent = text || "";
+      element.className = type ? `message ${type}` : "message";
+    }
+
+    function formatDate(value) {
+      if (!value) return "-";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return value;
+      return date.toLocaleString("da-DK");
+    }
+
+    async function loadMe() {
+      const body = await readJson(await fetch("/v1/portal/auth/me"));
+      welcome.textContent = `Logget ind som ${body.user.display_name} (${body.user.username})`;
+    }
+
+    function renderRows(invitations) {
+      rows.innerHTML = "";
+      if (!Array.isArray(invitations) || invitations.length === 0) {
+        rows.innerHTML = '<tr><td colspan="5">Ingen invitationer fundet.</td></tr>';
+        return;
+      }
+
+      invitations.forEach((item) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${item.email || "-"}<br><small>${item.id}</small></td>
+          <td><span class="badge">${item.status || "-"}</span></td>
+          <td>${item.company_name || "-"}</td>
+          <td>${item.suggested_login || "-"}</td>
+          <td>${formatDate(item.expires_at)}</td>
+        `;
+        rows.appendChild(tr);
+      });
+    }
+
+    async function loadInvitations() {
+      setMessage(listMessage, "Indlaeser invitationer...");
+      const params = new URLSearchParams();
+      if (statusFilter.value) {
+        params.set("status", statusFilter.value);
+      }
+
+      const url = params.size ? `/v1/invitations?${params.toString()}` : "/v1/invitations";
+      const body = await readJson(await fetch(url));
+      renderRows(body.invitations || []);
+      setMessage(listMessage, `${(body.invitations || []).length} invitationer vist.`, "success");
+    }
+
+    inviteForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      tokenBox.hidden = true;
+      setMessage(createMessage, "");
+      createButton.disabled = true;
+
+      try {
+        const payload = {
+          email: document.getElementById("email").value,
+          company_name: document.getElementById("company-name").value,
+          desired_slug: document.getElementById("desired-slug").value,
+          admin_name: document.getElementById("admin-name").value,
+          suggested_login: document.getElementById("suggested-login").value,
+          allow_skip_ek: document.getElementById("allow-skip-ek").checked,
+          invitation_note: document.getElementById("invitation-note").value,
+          expires_in_hours: Number(document.getElementById("expires-hours").value || 72),
+        };
+
+        const body = await readJson(await fetch("/v1/invitations", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        }));
+
+        setMessage(createMessage, "Invitation oprettet.", "success");
+        tokenBox.hidden = false;
+        tokenBox.innerHTML = `
+          <strong>Onboarding-link</strong><br>
+          https://fielddesk.dk/onboarding?token=${body.invitation_token}
+        `;
+        inviteForm.reset();
+        document.getElementById("expires-hours").value = 72;
+        await loadInvitations();
+      } catch (error) {
+        setMessage(createMessage, error.message || "Kunne ikke oprette invitation", "error");
+      } finally {
+        createButton.disabled = false;
+      }
+    });
+
+    refreshButton.addEventListener("click", () => {
+      loadInvitations().catch((error) => {
+        setMessage(listMessage, error.message || "Kunne ikke opdatere liste", "error");
+      });
+    });
+
+    statusFilter.addEventListener("change", () => {
+      loadInvitations().catch((error) => {
+        setMessage(listMessage, error.message || "Kunne ikke hente invitationer", "error");
+      });
+    });
+
+    statusButton.addEventListener("click", async () => {
+      statusBox.hidden = true;
+      if (!statusId.value.trim()) {
+        statusBox.hidden = false;
+        statusBox.textContent = "Angiv et invitation-id.";
+        return;
+      }
+
+      try {
+        const body = await readJson(await fetch(`/v1/invitations/${encodeURIComponent(statusId.value.trim())}/status`));
+        statusBox.hidden = false;
+        statusBox.innerHTML = `
+          <strong>Status:</strong> ${body.invitation.status}<br>
+          <strong>Email:</strong> ${body.invitation.email}<br>
+          <strong>Firma:</strong> ${body.invitation.company_name || "-"}<br>
+          <strong>Slug:</strong> ${body.invitation.desired_slug || "-"}<br>
+          <strong>Tenant:</strong> ${body.tenant ? `${body.tenant.name} (${body.tenant.domain || "-"})` : "Ikke oprettet endnu"}
+        `;
+      } catch (error) {
+        statusBox.hidden = false;
+        statusBox.textContent = error.message || "Kunne ikke hente status";
+      }
+    });
+
+    logoutButton.addEventListener("click", async () => {
+      logoutButton.disabled = true;
+      try {
+        await readJson(await fetch("/v1/portal/auth/logout", {
+          method: "POST",
+        }));
+      } catch (error) {
+        // Redirect anyway to leave the authenticated page.
+      }
+      window.location.assign("/login");
+    });
+
+    Promise.all([loadMe(), loadInvitations()]).catch((error) => {
+      setMessage(listMessage, error.message || "Kunne ikke initialisere portalen", "error");
+    });
+  </script>
+</body>
+</html>

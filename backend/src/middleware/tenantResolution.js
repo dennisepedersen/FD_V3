@@ -16,6 +16,10 @@ function classifyHost(host) {
     return { domainScope: "root", slug: null };
   }
 
+  if (host === env.PORTAL_DOMAIN) {
+    return { domainScope: "portal", slug: null };
+  }
+
   const suffix = `.${env.ROOT_DOMAIN}`;
   if (host.endsWith(suffix)) {
     const slug = host.slice(0, -suffix.length);
@@ -62,6 +66,10 @@ async function tenantResolution(req, res, next) {
   };
 
   if (classification.domainScope === "root") {
+    return next();
+  }
+
+  if (classification.domainScope === "portal") {
     return next();
   }
 

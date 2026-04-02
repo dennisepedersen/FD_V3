@@ -117,6 +117,7 @@ function validateAcceptInput(input) {
 async function createInvitation({
   email,
   actorId,
+  authSource,
   expiresInHours,
   expiresAt,
   companyName,
@@ -166,6 +167,7 @@ async function createInvitation({
           desired_slug: invitation.desired_slug,
           admin_name: invitation.admin_name,
           allow_skip_ek: invitation.allow_skip_ek,
+          auth_source: authSource || "unknown",
         },
       });
 
