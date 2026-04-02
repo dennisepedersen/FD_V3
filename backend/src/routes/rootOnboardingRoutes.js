@@ -119,7 +119,24 @@ router.post("/v1/onboarding/endpoint-selection", requireRootHost, requireAuth("o
 router.get("/v1/onboarding/review", requireRootHost, requireAuth("onboarding"), async (req, res, next) => {
   try {
     const review = await onboardingService.getOnboardingReview(req.auth.invitation_id);
-    res.status(200).json({ success: true, review });
+    res.status(200).json({
+      success: true,
+      review: review.review || review,
+      state: review.review ? {
+        invitation_id: review.invitation_id,
+        email: review.email,
+        company_name: review.company_name,
+        desired_slug: review.desired_slug,
+        allow_skip_ek: review.allow_skip_ek,
+        suggested_login: review.suggested_login,
+        terms_version: review.terms_version,
+        ek_test_status: review.ek_test_status,
+        ek_test_message: review.ek_test_message,
+        status: review.status,
+        current_step: review.current_step,
+        steps: review.steps,
+      } : null,
+    });
   } catch (error) {
     next(error);
   }

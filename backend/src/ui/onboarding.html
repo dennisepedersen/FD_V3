@@ -647,7 +647,7 @@
     async function loadReview() {
       try {
         const data = await api("/v1/onboarding/review", "GET");
-        const r = data.review || {};
+        const r = data.review?.review || data.review || {};
         const rows = [
           ["E-mail", r.email],
           ["Brugernavn", r.login_name],
