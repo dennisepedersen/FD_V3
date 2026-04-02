@@ -242,7 +242,7 @@
         <div id="ekFields" class="hidden" style="margin-top:16px;">
           <div class="field">
             <label>E-Komplet basis-URL</label>
-            <input id="ekBaseUrl" placeholder="https://api.e-komplet.dk" />
+            <input id="ekBaseUrl" value="https://externalaccessapi.e-komplet.dk/" placeholder="https://externalaccessapi.e-komplet.dk/" />
           </div>
           <div class="field">
             <label>API-nøgle</label>
@@ -307,8 +307,16 @@
     let ekTestPassed = false;
     let currentStep = 1;
     const TOTAL_STEPS = 5;
+    const DEFAULT_EK_BASE_URL = "https://externalaccessapi.e-komplet.dk/";
 
     function byId(id) { return document.getElementById(id); }
+
+    function ensureDefaultEkBaseUrl() {
+      const input = byId("ekBaseUrl");
+      if (input && !input.value.trim()) {
+        input.value = DEFAULT_EK_BASE_URL;
+      }
+    }
 
     function showMsg(id, type, text) {
       const el = byId(id);
@@ -654,6 +662,7 @@
     });
 
     (async function init() {
+      ensureDefaultEkBaseUrl();
       const params = new URLSearchParams(window.location.search);
       const token = params.get("token");
 

@@ -9,6 +9,8 @@ const userQueries = require("../db/queries/user");
 const auditQueries = require("../db/queries/audit");
 const { hashPassword } = require("./passwordService");
 
+const DEFAULT_EK_BASE_URL = "https://externalaccessapi.e-komplet.dk/";
+
 function encryptionKey() {
   return crypto.createHash("sha256").update(env.JWT_SECRET).digest();
 }
@@ -113,10 +115,10 @@ function deriveSuggestedLogin(email, adminName) {
 }
 
 function normalizeBaseUrl(value) {
-  const normalized = String(value || "").trim();
+  const normalized = String(value || "").trim() || DEFAULT_EK_BASE_URL;
   try {
     const parsed = new URL(normalized);
-    return parsed.origin;
+    return `${parsed.origin}${parsed.pathname.replace(/\/+$/, "") || "/"}`;
   } catch (error) {
     throw Object.assign(new Error("ek_base_url must be a valid URL"), { statusCode: 400 });
   }
@@ -124,17 +126,36 @@ function normalizeBaseUrl(value) {
 
 function buildEkTestUrls(baseUrl) {
   const parsed = new URL(baseUrl);
-  const cleanedPath = parsed.pathname.replace(/\/+$/, "");
-  const hasV4 = cleanedPath.includes("/api/v4.0");
+  const rootPath = parsed.pathname.replace(/\/+$/, "");
+  const originWithPath = `${parsed.origin}${rootPath}`;
 
-  const v4Base = hasV4
-    ? `${parsed.origin}${cleanedPath.slice(0, cleanedPath.indexOf("/api/v4.0") + "/api/v4.0".length)}`
-    : `${parsed.origin}${cleanedPath}/api/v4.0`;
-
-  return [
-    `${v4Base}/projects?page=1&pageSize=1`,
-    `${v4Base}/users?page=1&pageSize=1`,
+  const apiBases = [
+    `${originWithPath}/api/v4.0`,
+    `${originWithPath}/api/v4`,
+    `${originWithPath}/api/v3.0`,
+    `${originWithPath}/api/v3`,
   ];
+
+  if (rootPath.includes("/api/v4.0")) {
+    apiBases.unshift(`${parsed.origin}${rootPath.slice(0, rootPath.indexOf("/api/v4.0") + "/api/v4.0".length)}`);
+  }
+  if (rootPath.includes("/api/v4")) {
+    apiBases.unshift(`${parsed.origin}${rootPath.slice(0, rootPath.indexOf("/api/v4") + "/api/v4".length)}`);
+  }
+  if (rootPath.includes("/api/v3.0")) {
+    apiBases.unshift(`${parsed.origin}${rootPath.slice(0, rootPath.indexOf("/api/v3.0") + "/api/v3.0".length)}`);
+  }
+  if (rootPath.includes("/api/v3")) {
+    apiBases.unshift(`${parsed.origin}${rootPath.slice(0, rootPath.indexOf("/api/v3") + "/api/v3".length)}`);
+  }
+
+  const uniqueApiBases = [...new Set(apiBases.map((value) => value.replace(/\/+$/, "")))];
+  const urls = [];
+  uniqueApiBases.forEach((apiBase) => {
+    urls.push(`${apiBase}/projects?page=1&pageSize=1`);
+    urls.push(`${apiBase}/users?page=1&pageSize=1`);
+  });
+  return urls;
 }
 
 function normalizeEndpointSelection(endpoints) {
@@ -380,15 +401,16 @@ async function saveEkIntegration({ invitationId, ekBaseUrl, ekApiKey, skipped })
 }
 
 async function testEkConnection({ invitationId, ekBaseUrl, ekApiKey }) {
-  ensureNonEmptyString(ekBaseUrl, "ek_base_url");
+  const providedBaseUrl = String(ekBaseUrl || "").trim() || DEFAULT_EK_BASE_URL;
+  ensureNonEmptyString(providedBaseUrl, "ek_base_url");
   ensureNonEmptyString(ekApiKey, "ek_api_key");
   ensureNoRawPlaceholders([
-    ["ek_base_url", ekBaseUrl],
+    ["ek_base_url", providedBaseUrl],
     ["ek_api_key", ekApiKey],
   ]);
 
-  const normalizedBaseUrl = normalizeBaseUrl(ekBaseUrl);
-  const testUrls = buildEkTestUrls(ekBaseUrl);
+  const normalizedBaseUrl = normalizeBaseUrl(providedBaseUrl);
+  const testUrls = buildEkTestUrls(normalizedBaseUrl);
 
   let success = false;
   let message = "Forbindelsestest kunne ikke verificere et konkret E-Komplet endpoint";
@@ -403,6 +425,8 @@ async function testEkConnection({ invitationId, ekBaseUrl, ekApiKey }) {
         method: "GET",
         headers: {
           "x-api-key": ekApiKey,
+          Authorization: `Bearer ${ekApiKey}`,
+          Accept: "application/json",
         },
         signal: controller.signal,
       });
