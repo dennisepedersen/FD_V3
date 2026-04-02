@@ -385,6 +385,7 @@ async function saveEkIntegration({ invitationId, ekBaseUrl, ekApiKey, ekSiteName
     const normalizedBaseUrl = normalizeBaseUrl(ekBaseUrl);
     const normalizedSiteName = normalizeSiteName(ekSiteName);
     const encryptedApiKey = encryptSecret(ekApiKey);
+    const existingEk = session.ek_integration || {};
 
     await onboardingQueries.updateOnboardingEkIntegration(client, {
       invitationId,
@@ -393,9 +394,12 @@ async function saveEkIntegration({ invitationId, ekBaseUrl, ekApiKey, ekSiteName
         ek_base_url: normalizedBaseUrl,
         ek_site_name: normalizedSiteName,
         ek_api_key_encrypted: encryptedApiKey,
-        connection_test_status: "not_tested",
-        connection_test_message: "Credentials saved. Run EK test endpoint.",
-        tested_at: null,
+        connection_test_status: existingEk.connection_test_status || "not_tested",
+        connection_test_message: existingEk.connection_test_message || "Credentials saved. Run EK test endpoint.",
+        connection_test_response_body: existingEk.connection_test_response_body || null,
+        connection_test_response_status: existingEk.connection_test_response_status || null,
+        connection_test_retry_after: existingEk.connection_test_retry_after || null,
+        tested_at: existingEk.tested_at || null,
       },
     });
   });

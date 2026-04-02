@@ -425,6 +425,15 @@
       hideMsg("step4Msg");
     });
 
+    function invalidateEkTest() {
+      ekTestPassed = false;
+      hideMsg("ekTestMsg");
+    }
+
+    byId("ekBaseUrl").addEventListener("input", invalidateEkTest);
+    byId("ekApiKey").addEventListener("input", invalidateEkTest);
+    byId("ekSiteName").addEventListener("input", invalidateEkTest);
+
     byId("loginName").addEventListener("input", () => {
       const v = byId("loginName").value.trim().toLowerCase();
       const hint = byId("loginHint");
