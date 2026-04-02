@@ -124,38 +124,22 @@ function normalizeBaseUrl(value) {
   }
 }
 
-function buildEkTestUrls(baseUrl) {
+function normalizeSiteName(value) {
+  return String(value || "").trim();
+}
+
+function buildEkDebtorsTestUrl(baseUrl) {
   const parsed = new URL(baseUrl);
-  const rootPath = parsed.pathname.replace(/\/+$/, "");
-  const originWithPath = `${parsed.origin}${rootPath}`;
+  const cleanPath = parsed.pathname.replace(/\/+$/, "");
 
-  const apiBases = [
-    `${originWithPath}/api/v4.0`,
-    `${originWithPath}/api/v4`,
-    `${originWithPath}/api/v3.0`,
-    `${originWithPath}/api/v3`,
-  ];
-
-  if (rootPath.includes("/api/v4.0")) {
-    apiBases.unshift(`${parsed.origin}${rootPath.slice(0, rootPath.indexOf("/api/v4.0") + "/api/v4.0".length)}`);
-  }
-  if (rootPath.includes("/api/v4")) {
-    apiBases.unshift(`${parsed.origin}${rootPath.slice(0, rootPath.indexOf("/api/v4") + "/api/v4".length)}`);
-  }
-  if (rootPath.includes("/api/v3.0")) {
-    apiBases.unshift(`${parsed.origin}${rootPath.slice(0, rootPath.indexOf("/api/v3.0") + "/api/v3.0".length)}`);
-  }
-  if (rootPath.includes("/api/v3")) {
-    apiBases.unshift(`${parsed.origin}${rootPath.slice(0, rootPath.indexOf("/api/v3") + "/api/v3".length)}`);
+  let v3Base;
+  if (cleanPath.includes("/api/v3.0")) {
+    v3Base = `${parsed.origin}${cleanPath.slice(0, cleanPath.indexOf("/api/v3.0") + "/api/v3.0".length)}`;
+  } else {
+    v3Base = `${parsed.origin}${cleanPath}/api/v3.0`;
   }
 
-  const uniqueApiBases = [...new Set(apiBases.map((value) => value.replace(/\/+$/, "")))];
-  const urls = [];
-  uniqueApiBases.forEach((apiBase) => {
-    urls.push(`${apiBase}/projects?page=1&pageSize=1`);
-    urls.push(`${apiBase}/users?page=1&pageSize=1`);
-  });
-  return urls;
+  return `${v3Base.replace(/\/+$/, "")}/debtors?page=1&pageSize=10`;
 }
 
 function normalizeEndpointSelection(endpoints) {
@@ -352,7 +336,7 @@ async function saveTerms({ invitationId, termsVersion, accepted, ipAddress, user
   });
 }
 
-async function saveEkIntegration({ invitationId, ekBaseUrl, ekApiKey, skipped }) {
+async function saveEkIntegration({ invitationId, ekBaseUrl, ekApiKey, ekSiteName, skipped }) {
   const skipRequested = skipped === true;
 
   await withTransaction(async (client) => {
@@ -378,12 +362,15 @@ async function saveEkIntegration({ invitationId, ekBaseUrl, ekApiKey, skipped })
 
     ensureNonEmptyString(ekBaseUrl, "ek_base_url");
     ensureNonEmptyString(ekApiKey, "ek_api_key");
+    ensureNonEmptyString(ekSiteName, "ek_site_name");
     ensureNoRawPlaceholders([
       ["ek_base_url", ekBaseUrl],
       ["ek_api_key", ekApiKey],
+      ["ek_site_name", ekSiteName],
     ]);
 
     const normalizedBaseUrl = normalizeBaseUrl(ekBaseUrl);
+    const normalizedSiteName = normalizeSiteName(ekSiteName);
     const encryptedApiKey = encryptSecret(ekApiKey);
 
     await onboardingQueries.updateOnboardingEkIntegration(client, {
@@ -391,6 +378,7 @@ async function saveEkIntegration({ invitationId, ekBaseUrl, ekApiKey, skipped })
       ekIntegration: {
         skipped: false,
         ek_base_url: normalizedBaseUrl,
+        ek_site_name: normalizedSiteName,
         ek_api_key_encrypted: encryptedApiKey,
         connection_test_status: "not_tested",
         connection_test_message: "Credentials saved. Run EK test endpoint.",
@@ -400,52 +388,52 @@ async function saveEkIntegration({ invitationId, ekBaseUrl, ekApiKey, skipped })
   });
 }
 
-async function testEkConnection({ invitationId, ekBaseUrl, ekApiKey }) {
+async function testEkConnection({ invitationId, ekBaseUrl, ekApiKey, ekSiteName }) {
   const providedBaseUrl = String(ekBaseUrl || "").trim() || DEFAULT_EK_BASE_URL;
   ensureNonEmptyString(providedBaseUrl, "ek_base_url");
   ensureNonEmptyString(ekApiKey, "ek_api_key");
+  ensureNonEmptyString(ekSiteName, "ek_site_name");
   ensureNoRawPlaceholders([
     ["ek_base_url", providedBaseUrl],
     ["ek_api_key", ekApiKey],
+    ["ek_site_name", ekSiteName],
   ]);
 
   const normalizedBaseUrl = normalizeBaseUrl(providedBaseUrl);
-  const testUrls = buildEkTestUrls(normalizedBaseUrl);
+  const normalizedSiteName = normalizeSiteName(ekSiteName);
+  const candidateUrl = buildEkDebtorsTestUrl(normalizedBaseUrl);
 
   let success = false;
-  let message = "Forbindelsestest kunne ikke verificere et konkret E-Komplet endpoint";
+  let message = "Forbindelsestest kunne ikke verificere E-Komplet endpoint";
   let status = "limited";
 
-  for (const candidateUrl of testUrls) {
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 7000);
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 7000);
 
-      const response = await fetch(candidateUrl, {
-        method: "GET",
-        headers: {
-          "x-api-key": ekApiKey,
-          Authorization: `Bearer ${ekApiKey}`,
-          Accept: "application/json",
-        },
-        signal: controller.signal,
-      });
+    const response = await fetch(candidateUrl, {
+      method: "GET",
+      headers: {
+        apikey: ekApiKey,
+        siteName: normalizedSiteName,
+        Accept: "application/json",
+      },
+      signal: controller.signal,
+    });
 
-      clearTimeout(timeout);
+    clearTimeout(timeout);
 
-      if (response.ok) {
-        success = true;
-        status = "verified";
-        message = `Forbindelsestest lykkedes mod ${candidateUrl}`;
-        break;
-      }
-
+    if (response.ok) {
+      success = true;
+      status = "verified";
+      message = `Forbindelsestest lykkedes mod ${candidateUrl}`;
+    } else {
       status = "limited";
-      message = `Kunne ikke verificere endpoint-adgang (seneste status: ${response.status})`;
-    } catch (error) {
-      status = "limited";
-      message = `Forbindelsestest er begrænset: ${error.message}`;
+      message = `Kunne ikke verificere endpoint-adgang (status: ${response.status})`;
     }
+  } catch (error) {
+    status = "limited";
+    message = `Forbindelsestest er begrænset: ${error.message}`;
   }
 
   await withTransaction(async (client) => {
@@ -458,6 +446,8 @@ async function testEkConnection({ invitationId, ekBaseUrl, ekApiKey }) {
       invitationId,
       ekIntegration: {
         ...existingEk,
+        ek_base_url: normalizedBaseUrl,
+        ek_site_name: normalizedSiteName,
         connection_test_status: success ? "success" : status,
         connection_test_message: message,
         tested_at: new Date().toISOString(),
@@ -469,6 +459,7 @@ async function testEkConnection({ invitationId, ekBaseUrl, ekApiKey }) {
     success,
     message,
     normalized_base_url: normalizedBaseUrl,
+    normalized_site_name: normalizedSiteName,
     test_status: success ? "success" : status,
   };
 }
@@ -513,6 +504,7 @@ async function getOnboardingReview(invitationId) {
         terms_version: terms.terms_version || null,
         terms_accepted_at: terms.accepted_at || null,
         ek_base_url: ek.ek_base_url || null,
+        ek_site_name: ek.ek_site_name || null,
         ek_test_status: ek.connection_test_status || "not_tested",
         ek_test_message: ek.connection_test_message || null,
         endpoint_selection: endpointSelection,
@@ -638,6 +630,7 @@ async function completeOnboarding({ invitationId }) {
             user.id,
             JSON.stringify({
               ek_base_url: ekIntegration.ek_base_url,
+              ek_site_name: ekIntegration.ek_site_name || null,
               ek_api_key_encrypted: "stored",
             }),
             "onboarding_complete",

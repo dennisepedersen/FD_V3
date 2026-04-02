@@ -249,6 +249,11 @@
             <input id="ekApiKey" type="password" autocomplete="off" placeholder="E-Komplet API-nøgle" />
             <p class="hint">Nøglen krypteres og vises aldrig igen.</p>
           </div>
+          <div class="field">
+            <label>SiteName</label>
+            <input id="ekSiteName" value="Ekstern" placeholder="Ekstern" />
+            <p class="hint">Bruges som header i E-Komplet kald (fx Ekstern).</p>
+          </div>
           <div class="row" style="margin-top:10px;">
             <button class="sec" id="testEkBtn" style="font-size:13px;padding:8px 14px;">Test forbindelse</button>
           </div>
@@ -308,6 +313,7 @@
     let currentStep = 1;
     const TOTAL_STEPS = 5;
     const DEFAULT_EK_BASE_URL = "https://externalaccessapi.e-komplet.dk/";
+    const DEFAULT_EK_SITE_NAME = "Ekstern";
 
     function byId(id) { return document.getElementById(id); }
 
@@ -315,6 +321,11 @@
       const input = byId("ekBaseUrl");
       if (input && !input.value.trim()) {
         input.value = DEFAULT_EK_BASE_URL;
+      }
+
+      const siteNameInput = byId("ekSiteName");
+      if (siteNameInput && !siteNameInput.value.trim()) {
+        siteNameInput.value = DEFAULT_EK_SITE_NAME;
       }
     }
 
@@ -527,6 +538,7 @@
         const data = await api("/v1/onboarding/ek/test", "POST", {
           ek_base_url: byId("ekBaseUrl").value.trim(),
           ek_api_key: byId("ekApiKey").value.trim(),
+          ek_site_name: byId("ekSiteName").value.trim(),
         });
         ekTestPassed = data.success;
         showMsg("ekTestMsg", data.success ? "ok" : "err", `${data.test_status}: ${data.message}`);
@@ -546,8 +558,8 @@
 
       try {
         if (wantsEk) {
-          if (!byId("ekBaseUrl").value.trim() || !byId("ekApiKey").value.trim()) {
-            showMsg("step4Msg", "err", "Basis-URL og API-nøgle er påkrævet.");
+          if (!byId("ekBaseUrl").value.trim() || !byId("ekApiKey").value.trim() || !byId("ekSiteName").value.trim()) {
+            showMsg("step4Msg", "err", "Basis-URL, API-nøgle og SiteName er påkrævet.");
             btn.disabled = false;
             return;
           }
@@ -565,6 +577,7 @@
           await api("/v1/onboarding/ek-integration", "POST", {
             ek_base_url: byId("ekBaseUrl").value.trim(),
             ek_api_key: byId("ekApiKey").value.trim(),
+            ek_site_name: byId("ekSiteName").value.trim(),
           });
 
           await api("/v1/onboarding/endpoint-selection", "POST", {
@@ -629,6 +642,7 @@
           ["Domæne", r.tenant_domain],
           ["Vilkår accepteret", r.terms_version ? `Ja (${r.terms_version})` : "Nej"],
           ["EK integration", r.ek_base_url || (r.ek_test_status === "skipped" ? "Sprunget over" : "Ikke sat op")],
+          ["SiteName", r.ek_site_name || "-"],
           ["Endpoints", Array.isArray(r.endpoint_selection) && r.endpoint_selection.length > 0 ? r.endpoint_selection.join(", ") : "Ingen"],
         ];
 

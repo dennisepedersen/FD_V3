@@ -22,17 +22,19 @@ router.get("/v1/onboarding/state", requireRootHost, requireAuth("onboarding"), a
 
 router.post("/v1/onboarding/ek/test", requireRootHost, requireAuth("onboarding"), async (req, res, next) => {
   try {
-    const { ek_base_url, ek_api_key } = req.body || {};
+    const { ek_base_url, ek_api_key, ek_site_name } = req.body || {};
     const result = await onboardingService.testEkConnection({
       invitationId: req.auth.invitation_id,
       ekBaseUrl: ek_base_url,
       ekApiKey: ek_api_key,
+      ekSiteName: ek_site_name,
     });
 
     res.status(200).json({
       success: result.success,
       message: result.message,
       normalized_base_url: result.normalized_base_url,
+      normalized_site_name: result.normalized_site_name,
       test_status: result.test_status,
     });
   } catch (error) {
@@ -82,11 +84,12 @@ router.post("/v1/onboarding/terms", requireRootHost, requireAuth("onboarding"), 
 
 router.post("/v1/onboarding/ek-integration", requireRootHost, requireAuth("onboarding"), async (req, res, next) => {
   try {
-    const { ek_base_url, ek_api_key, skipped } = req.body || {};
+    const { ek_base_url, ek_api_key, ek_site_name, skipped } = req.body || {};
     await onboardingService.saveEkIntegration({
       invitationId: req.auth.invitation_id,
       ekBaseUrl: ek_base_url,
       ekApiKey: ek_api_key,
+      ekSiteName: ek_site_name,
       skipped,
     });
 
