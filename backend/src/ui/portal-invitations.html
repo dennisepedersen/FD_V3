@@ -344,6 +344,7 @@
               <th>Status</th>
               <th>Firma</th>
               <th>Udlober</th>
+              <th>Handling</th>
             </tr>
           </thead>
           <tbody id="invitation-rows"></tbody>
@@ -399,7 +400,7 @@
     function renderRows(invitations) {
       rows.innerHTML = "";
       if (!Array.isArray(invitations) || invitations.length === 0) {
-        rows.innerHTML = '<tr><td colspan="4">Ingen invitationer fundet.</td></tr>';
+        rows.innerHTML = '<tr><td colspan="5">Ingen invitationer fundet.</td></tr>';
         return;
       }
 
@@ -410,10 +411,51 @@
           <td><span class="badge">${item.status || "-"}</span></td>
           <td>${item.company_name || "-"}</td>
           <td>${formatDate(item.expires_at)}</td>
+          <td><button class="secondary js-copy-link" type="button" data-invitation-id="${item.id}">Kopier onboarding-link</button></td>
         `;
         rows.appendChild(tr);
       });
     }
+
+    rows.addEventListener("click", async (event) => {
+      const button = event.target.closest(".js-copy-link");
+      if (!button) {
+        return;
+      }
+
+      const invitationId = button.getAttribute("data-invitation-id");
+      if (!invitationId) {
+        return;
+      }
+
+      const original = button.textContent;
+      button.disabled = true;
+      button.textContent = "Genererer...";
+
+      try {
+        const body = await readJson(await fetch(`/v1/invitations/${encodeURIComponent(invitationId)}/reissue-link`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            expires_in_hours: Number(document.getElementById("expires-hours").value || 72),
+          }),
+        }));
+
+        await navigator.clipboard.writeText(body.onboarding_link);
+        setMessage(listMessage, `Onboarding-link kopieret for ${body.email}.`, "success");
+        button.textContent = "Kopieret";
+      } catch (error) {
+        setMessage(listMessage, error.message || "Kunne ikke generere onboarding-link", "error");
+        button.textContent = "Fejl";
+      } finally {
+        setTimeout(() => {
+          button.disabled = false;
+          button.textContent = original;
+        }, 1200);
+      }
+    });
 
     async function loadInvitations() {
       setMessage(listMessage, "Indlaeser invitationer...");

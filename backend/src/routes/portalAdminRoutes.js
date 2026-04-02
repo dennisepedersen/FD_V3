@@ -5,6 +5,7 @@ const { rateLimitRedis } = require("../middleware/rateLimitRedis");
 const { createHttpError } = require("../middleware/errorHandler");
 const invitationService = require("../services/invitationService");
 const globalAdminAuthService = require("../services/globalAdminAuthService");
+const env = require("../config/env");
 const {
   PORTAL_SESSION_COOKIE_NAME,
   portalSessionCookieOptions,
@@ -206,6 +207,37 @@ router.get("/v1/invitations/:id/status", requirePortalHost, requireGlobalAdminSe
             domain: invitation.tenant_domain,
           }
         : null,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/v1/invitations/:id/reissue-link", requirePortalHost, requireGlobalAdminSession, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    if (!id) {
+      throw createHttpError(400, "Missing invitation id");
+    }
+
+    const { expires_in_hours } = req.body || {};
+    const result = await invitationService.reissueInvitationLink({
+      invitationId: id,
+      actorId: req.globalAdmin.actorId,
+      authSource: "portal_session",
+      expiresInHours: Number.isInteger(expires_in_hours) ? expires_in_hours : undefined,
+    });
+
+    const protocol = env.NODE_ENV === "production" ? "https" : "http";
+    const onboardingLink = `${protocol}://${env.ROOT_DOMAIN}/onboarding?token=${result.token}`;
+
+    res.status(200).json({
+      success: true,
+      invitation_id: result.invitation_id,
+      email: result.email,
+      expires_at: result.expires_at,
+      invitation_token: result.token,
+      onboarding_link: onboardingLink,
     });
   } catch (error) {
     next(error);

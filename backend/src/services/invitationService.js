@@ -153,6 +153,58 @@ async function getInvitationStatus(invitationId) {
   }
 }
 
+async function reissueInvitationLink({ invitationId, actorId, authSource, expiresInHours }) {
+  if (!invitationId || String(invitationId).trim() === "") {
+    throw Object.assign(new Error("Missing field: invitation_id"), { statusCode: 400 });
+  }
+
+  const token = generateInvitationToken();
+  const tokenHash = hashInvitationToken(token);
+  const expiry = parseExpiresAt(null, expiresInHours);
+
+  const result = await withTransaction(async (client) => {
+    const invitation = await invitationQueries.findInvitationByIdForUpdate(client, invitationId);
+    if (!invitation) {
+      throw Object.assign(new Error("Invitation not found"), { statusCode: 404 });
+    }
+
+    if (invitation.status !== "pending" || invitation.revoked_at) {
+      throw Object.assign(new Error("Invitation is not pending"), { statusCode: 409 });
+    }
+
+    const rotated = await invitationQueries.rotateInvitationToken(client, {
+      invitationId,
+      tokenHash,
+      expiresAt: expiry,
+    });
+
+    await auditQueries.insertAuditEvent(client, {
+      actorId,
+      actorScope: "global",
+      tenantId: null,
+      eventType: "onboarding_created",
+      targetType: "tenant_invitation",
+      targetId: invitation.id,
+      outcome: "success",
+      reason: "onboarding_invitation_link_reissued",
+      metadata: {
+        email: invitation.email,
+        auth_source: authSource || "unknown",
+        expires_at: rotated?.expires_at || expiry,
+      },
+    });
+
+    return {
+      invitation_id: invitation.id,
+      email: invitation.email,
+      expires_at: rotated?.expires_at || expiry,
+      token,
+    };
+  });
+
+  return result;
+}
+
 async function acceptInvitation(input) {
   validateAcceptInput(input);
 
@@ -275,4 +327,5 @@ module.exports = {
   acceptInvitation,
   listInvitations,
   getInvitationStatus,
+  reissueInvitationLink,
 };
