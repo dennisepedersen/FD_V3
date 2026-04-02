@@ -1,6 +1,6 @@
 async function listProjectsForUser(client, { tenantId, userId }) {
   const sql = `
-    WITH current_user AS (
+    WITH current_actor AS (
       SELECT lower(nullif(btrim(username), '')) AS username_ci
       FROM tenant_user
       WHERE tenant_id = $1
@@ -20,7 +20,7 @@ async function listProjectsForUser(client, { tenantId, userId }) {
       pc.created_at,
       pc.updated_at
     FROM project_core pc
-    CROSS JOIN current_user cu
+    CROSS JOIN current_actor cu
     LEFT JOIN project_assignment pa
       ON pa.tenant_id = pc.tenant_id
      AND pa.project_id = pc.project_id
@@ -41,7 +41,7 @@ async function listProjectsForUser(client, { tenantId, userId }) {
 
 async function findProjectForUser(client, { tenantId, userId, projectId }) {
   const sql = `
-    WITH current_user AS (
+    WITH current_actor AS (
       SELECT lower(nullif(btrim(username), '')) AS username_ci
       FROM tenant_user
       WHERE tenant_id = $1
@@ -61,7 +61,7 @@ async function findProjectForUser(client, { tenantId, userId, projectId }) {
       pc.created_at,
       pc.updated_at
     FROM project_core pc
-    CROSS JOIN current_user cu
+    CROSS JOIN current_actor cu
     LEFT JOIN project_assignment pa
       ON pa.tenant_id = pc.tenant_id
      AND pa.project_id = pc.project_id
