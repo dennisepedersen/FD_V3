@@ -463,6 +463,10 @@ CREATE TABLE project_core (
   external_project_ref text NULL,
   name text NOT NULL,
   status text NOT NULL,
+  responsible_code text NULL,
+  responsible_name text NULL,
+  team_leader_code text NULL,
+  team_leader_name text NULL,
   owner_user_id uuid NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
@@ -481,6 +485,7 @@ CREATE UNIQUE INDEX uq_project_core_tenant_external_ref
 
 CREATE INDEX ix_project_core_tenant_status ON project_core (tenant_id, status);
 CREATE INDEX ix_project_core_owner ON project_core (tenant_id, owner_user_id);
+CREATE INDEX ix_project_core_tenant_responsible_code_ci ON project_core (tenant_id, lower(responsible_code));
 
 CREATE TRIGGER trg_project_core_set_updated_at
 BEFORE UPDATE ON project_core

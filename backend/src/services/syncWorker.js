@@ -96,6 +96,16 @@ function mapProjectStatus(rawStatus) {
   return "open";
 }
 
+function pickTrimmedText(raw, keys) {
+  for (let i = 0; i < keys.length; i += 1) {
+    const value = raw[keys[i]];
+    if (value == null) continue;
+    const text = String(value).trim();
+    if (text) return text;
+  }
+  return null;
+}
+
 function mapProjectRow(raw) {
   if (!raw || typeof raw !== "object") {
     return null;
@@ -124,10 +134,46 @@ function mapProjectRow(raw) {
 
   const statusRaw = raw.Status ?? raw.status ?? raw.ProjectStatus ?? raw.projectStatus ?? null;
 
+  const responsibleCode = pickTrimmedText(raw, [
+    "Responsible",
+    "responsible",
+    "ResponsibleCode",
+    "responsibleCode",
+    "responsible_code",
+  ]);
+
+  const responsibleName = pickTrimmedText(raw, [
+    "ResponsibleName",
+    "responsibleName",
+    "responsible_name",
+    "ResponsibleFullName",
+    "responsibleFullName",
+  ]);
+
+  const teamLeaderCode = pickTrimmedText(raw, [
+    "TeamLeader",
+    "teamLeader",
+    "team_leader",
+    "Teamleader",
+    "teamleader",
+  ]);
+
+  const teamLeaderName = pickTrimmedText(raw, [
+    "TeamLeaderName",
+    "teamLeaderName",
+    "team_leader_name",
+    "TeamleaderName",
+    "teamleaderName",
+  ]);
+
   return {
     externalProjectRef: String(externalRef).trim(),
     name: String(name).trim() || `Project ${externalRef}`,
     status: mapProjectStatus(statusRaw),
+    responsibleCode,
+    responsibleName,
+    teamLeaderCode,
+    teamLeaderName,
   };
 }
 
@@ -137,19 +183,43 @@ async function upsertProjectBatch(client, { tenantId, mappedRows }) {
   const values = [];
   const params = [];
   mappedRows.forEach((row, index) => {
-    const offset = index * 4;
-    params.push(tenantId, row.externalProjectRef, row.name, row.status);
-    values.push(`($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4})`);
+    const offset = index * 8;
+    params.push(
+      tenantId,
+      row.externalProjectRef,
+      row.name,
+      row.status,
+      row.responsibleCode,
+      row.responsibleName,
+      row.teamLeaderCode,
+      row.teamLeaderName
+    );
+    values.push(
+      `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8})`
+    );
   });
 
   const sql = `
-    INSERT INTO project_core (tenant_id, external_project_ref, name, status)
+    INSERT INTO project_core (
+      tenant_id,
+      external_project_ref,
+      name,
+      status,
+      responsible_code,
+      responsible_name,
+      team_leader_code,
+      team_leader_name
+    )
     VALUES ${values.join(",\n")}
     ON CONFLICT (tenant_id, external_project_ref)
     WHERE external_project_ref IS NOT NULL
     DO UPDATE SET
       name = EXCLUDED.name,
       status = EXCLUDED.status,
+      responsible_code = EXCLUDED.responsible_code,
+      responsible_name = EXCLUDED.responsible_name,
+      team_leader_code = EXCLUDED.team_leader_code,
+      team_leader_name = EXCLUDED.team_leader_name,
       updated_at = now()
   `;
 
