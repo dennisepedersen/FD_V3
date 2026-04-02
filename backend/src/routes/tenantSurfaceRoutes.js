@@ -68,6 +68,15 @@ router.get("/api/me", requireTenantHost, requireAuth("access"), async (req, res,
       },
     });
   } catch (error) {
+    console.error("[tenantSurfaceRoutes] request_failed", {
+      route: "/api/me",
+      scope: null,
+      tenant_id: req.context?.tenant?.id || req.auth?.tenant_id || null,
+      user_id: req.auth?.sub || null,
+      role: req.auth?.role || null,
+      error_message: error?.message || null,
+      error_stack: error?.stack || null,
+    });
     next(error);
   } finally {
     client.release();
@@ -96,6 +105,15 @@ router.get("/api/projects", requireTenantHost, requireAuth("access"), async (req
       projects,
     });
   } catch (error) {
+    console.error("[tenantSurfaceRoutes] request_failed", {
+      route: "/api/projects",
+      scope: req.query?.scope || "mine",
+      tenant_id: req.context?.tenant?.id || req.auth?.tenant_id || null,
+      user_id: req.auth?.sub || null,
+      role: req.auth?.role || null,
+      error_message: error?.message || null,
+      error_stack: error?.stack || null,
+    });
     next(error);
   } finally {
     client.release();
