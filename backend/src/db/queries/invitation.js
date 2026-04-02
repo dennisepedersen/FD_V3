@@ -80,6 +80,18 @@ async function listInvitations(client, { status } = {}) {
   return rows;
 }
 
+async function expirePendingInvitations(client) {
+  const sql = `
+    UPDATE tenant_invitation
+    SET status = 'expired'
+    WHERE status = 'pending'
+      AND expires_at <= now()
+      AND accepted_at IS NULL
+      AND revoked_at IS NULL
+  `;
+  await client.query(sql);
+}
+
 async function getInvitationStatusById(client, invitationId) {
   const sql = `
     SELECT
@@ -134,6 +146,7 @@ module.exports = {
   findInvitationByIdForUpdate,
   findInvitationByTokenHashForUpdate,
   markInvitationAccepted,
+  expirePendingInvitations,
   listInvitations,
   getInvitationStatusById,
 };

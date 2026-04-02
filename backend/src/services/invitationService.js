@@ -4,7 +4,7 @@ const { withTransaction } = require("../db/tx");
 const invitationQueries = require("../db/queries/invitation");
 const onboardingQueries = require("../db/queries/onboarding");
 const auditQueries = require("../db/queries/audit");
-const { issueOnboardingToken } = require("./jwtService");
+const { issueOnboardingToken, verifyToken } = require("./jwtService");
 
 function hashInvitationToken(token) {
   return crypto.createHash("sha256").update(token).digest("hex");
@@ -59,6 +59,14 @@ function parseExpiresAt(expiresAt, expiresInHours) {
 function validateAcceptInput(input) {
   if (!input.token || String(input.token).trim() === "") {
     throw Object.assign(new Error("Missing field: token"), { statusCode: 400 });
+  }
+}
+
+function tryDecodeOnboardingToken(token) {
+  try {
+    return verifyToken(token, "onboarding");
+  } catch (_error) {
+    return null;
   }
 }
 
@@ -138,6 +146,7 @@ async function createInvitation({
 async function listInvitations({ status } = {}) {
   const client = await pool.connect();
   try {
+    await invitationQueries.expirePendingInvitations(client);
     return await invitationQueries.listInvitations(client, { status });
   } finally {
     client.release();
@@ -147,6 +156,7 @@ async function listInvitations({ status } = {}) {
 async function getInvitationStatus(invitationId) {
   const client = await pool.connect();
   try {
+    await invitationQueries.expirePendingInvitations(client);
     return await invitationQueries.getInvitationStatusById(client, invitationId);
   } finally {
     client.release();
@@ -226,12 +236,19 @@ async function issueOnboardingLinkForInvitation({ invitationId, actorId, authSou
 
 async function acceptInvitation(input) {
   validateAcceptInput(input);
-
-  const tokenHash = hashInvitationToken(input.token);
+  const token = String(input.token).trim();
+  const onboardingPayload = tryDecodeOnboardingToken(token);
+  const tokenHash = onboardingPayload ? null : hashInvitationToken(token);
 
   try {
     return await withTransaction(async (client) => {
-      const invitation = await invitationQueries.findInvitationByTokenHashForUpdate(client, tokenHash);
+      let invitation;
+      if (onboardingPayload) {
+        const invitationId = onboardingPayload.invitation_id || onboardingPayload.sub;
+        invitation = await invitationQueries.findInvitationByIdForUpdate(client, invitationId);
+      } else {
+        invitation = await invitationQueries.findInvitationByTokenHashForUpdate(client, tokenHash);
+      }
 
       if (!invitation) {
         throw Object.assign(new Error("Invitation not found"), { statusCode: 403 });
@@ -286,10 +303,12 @@ async function acceptInvitation(input) {
         });
       }
 
-      const onboardingToken = issueOnboardingToken({
-        invitationId: invitation.id,
-        email: invitation.email,
-      });
+      const onboardingToken = onboardingPayload
+        ? token
+        : issueOnboardingToken({
+            invitationId: invitation.id,
+            email: invitation.email,
+          });
 
       await auditQueries.insertAuditEvent(client, {
         actorId: invitation.id,
@@ -326,7 +345,7 @@ async function acceptInvitation(input) {
           tenantId: null,
           eventType: "onboarding_started",
           targetType: "tenant_invitation",
-          targetId: tokenHash,
+          targetId: tokenHash || "jwt_token",
           outcome: "fail",
           reason: "onboarding_start_fail",
           metadata: {},
