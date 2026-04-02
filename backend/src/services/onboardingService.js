@@ -128,6 +128,19 @@ function normalizeSiteName(value) {
   return String(value || "").trim();
 }
 
+function compactEkResponseBody(text) {
+  const raw = String(text || "").trim();
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    return JSON.stringify(JSON.parse(raw), null, 2).slice(0, 4000);
+  } catch (_error) {
+    return raw.slice(0, 4000);
+  }
+}
+
 function buildEkDebtorsTestUrl(baseUrl) {
   const parsed = new URL(baseUrl);
   const cleanPath = parsed.pathname.replace(/\/+$/, "");
@@ -406,6 +419,9 @@ async function testEkConnection({ invitationId, ekBaseUrl, ekApiKey, ekSiteName 
   let success = false;
   let message = "Forbindelsestest kunne ikke verificere E-Komplet endpoint";
   let status = "limited";
+  let responseBody = null;
+  let responseStatus = null;
+  let retryAfter = null;
 
   try {
     const controller = new AbortController();
@@ -422,6 +438,9 @@ async function testEkConnection({ invitationId, ekBaseUrl, ekApiKey, ekSiteName 
     });
 
     clearTimeout(timeout);
+    responseStatus = response.status;
+    retryAfter = response.headers.get("retry-after") || null;
+    responseBody = compactEkResponseBody(await response.text());
 
     if (response.ok) {
       success = true;
@@ -430,6 +449,12 @@ async function testEkConnection({ invitationId, ekBaseUrl, ekApiKey, ekSiteName 
     } else {
       status = "limited";
       message = `Kunne ikke verificere endpoint-adgang (status: ${response.status})`;
+      if (retryAfter) {
+        message += `\nRetry-After: ${retryAfter}`;
+      }
+      if (responseBody) {
+        message += `\n\nE-Komplet respons:\n${responseBody}`;
+      }
     }
   } catch (error) {
     status = "limited";
@@ -450,6 +475,9 @@ async function testEkConnection({ invitationId, ekBaseUrl, ekApiKey, ekSiteName 
         ek_site_name: normalizedSiteName,
         connection_test_status: success ? "success" : status,
         connection_test_message: message,
+        connection_test_response_body: responseBody,
+        connection_test_response_status: responseStatus,
+        connection_test_retry_after: retryAfter,
         tested_at: new Date().toISOString(),
       },
     });
@@ -461,6 +489,9 @@ async function testEkConnection({ invitationId, ekBaseUrl, ekApiKey, ekSiteName 
     normalized_base_url: normalizedBaseUrl,
     normalized_site_name: normalizedSiteName,
     test_status: success ? "success" : status,
+    response_body: responseBody,
+    response_status: responseStatus,
+    retry_after: retryAfter,
   };
 }
 

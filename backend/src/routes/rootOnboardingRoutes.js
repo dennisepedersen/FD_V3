@@ -36,6 +36,9 @@ router.post("/v1/onboarding/ek/test", requireRootHost, requireAuth("onboarding")
       normalized_base_url: result.normalized_base_url,
       normalized_site_name: result.normalized_site_name,
       test_status: result.test_status,
+      response_body: result.response_body,
+      response_status: result.response_status,
+      retry_after: result.retry_after,
     });
   } catch (error) {
     next(error);

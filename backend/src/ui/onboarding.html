@@ -118,6 +118,7 @@
 
     .msg {
       font-size: 13px;
+      white-space: pre-wrap;
       margin-top: 10px;
       padding: 9px 11px;
       border-radius: 8px;
@@ -541,7 +542,21 @@
           ek_site_name: byId("ekSiteName").value.trim(),
         });
         ekTestPassed = data.success;
-        showMsg("ekTestMsg", data.success ? "ok" : "err", `${data.test_status}: ${data.message}`);
+        if (data.success) {
+          showMsg("ekTestMsg", "ok", "forbindelse ok");
+        } else {
+          let detailText = `${data.test_status}: ${data.message}`;
+          if (data.response_status) {
+            detailText += `\nHTTP status: ${data.response_status}`;
+          }
+          if (data.retry_after) {
+            detailText += `\nRetry-After: ${data.retry_after}`;
+          }
+          if (data.response_body) {
+            detailText += `\n\nE-Komplet respons:\n${data.response_body}`;
+          }
+          showMsg("ekTestMsg", "err", detailText);
+        }
       } catch (err) {
         ekTestPassed = false;
         showMsg("ekTestMsg", "err", err.message);
