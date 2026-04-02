@@ -8,6 +8,7 @@ const rootInvitationRoutes = require("./routes/rootInvitationRoutes");
 const rootOnboardingRoutes = require("./routes/rootOnboardingRoutes");
 const tenantAuthRoutes = require("./routes/tenantAuthRoutes");
 const tenantSurfaceRoutes = require("./routes/tenantSurfaceRoutes");
+const { startSyncWorker } = require("./services/syncWorker");
 
 const app = express();
 
@@ -55,5 +56,7 @@ app.use((req, res, next) => {
 });
 
 app.use(errorHandler);
+
+startSyncWorker();
 
 module.exports = app;
