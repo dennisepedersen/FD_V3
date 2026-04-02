@@ -132,10 +132,6 @@
           <input id="adminName" placeholder="Hans Christian" />
         </div>
         <div>
-          <label>Foreslået login (3–4 bogstaver)</label>
-          <input id="suggestedLogin" placeholder="hc / thkj" maxlength="4" />
-        </div>
-        <div>
           <label>Udløber om (timer, standard 72)</label>
           <input id="expiresInHours" type="number" value="72" min="1" max="720" />
         </div>
@@ -247,7 +243,6 @@
           company_name: byId("companyName").value.trim() || undefined,
           desired_slug: byId("desiredSlug").value.trim() || undefined,
           admin_name: byId("adminName").value.trim() || undefined,
-          suggested_login: byId("suggestedLogin").value.trim() || undefined,
           invitation_note: byId("inviteNote").value.trim() || undefined,
           allow_skip_ek: byId("allowSkipEk").checked,
           expires_in_hours: parseInt(byId("expiresInHours").value, 10) || 72,
@@ -286,7 +281,7 @@
         showMsg("createMsg", "ok", `Invitation oprettet for ${data.email}. Udløber: ${new Date(data.expires_at).toLocaleString("da-DK")}`);
 
         // Clear form
-        ["email","companyName","desiredSlug","adminName","suggestedLogin","inviteNote"].forEach(id => { byId(id).value = ""; });
+        ["email","companyName","desiredSlug","adminName","inviteNote"].forEach(id => { byId(id).value = ""; });
         byId("allowSkipEk").checked = false;
         byId("expiresInHours").value = "72";
       } catch (err) {
@@ -323,7 +318,7 @@
       const table = document.createElement("table");
       table.innerHTML = `
         <thead><tr>
-          <th>E-mail</th><th>Firma</th><th>Slug</th><th>Login</th><th>Status</th><th>Udløber</th><th>Oprettet</th>
+          <th>E-mail</th><th>Firma</th><th>Slug</th><th>Status</th><th>Udløber</th><th>Oprettet</th>
         </tr></thead>
       `;
       const tbody = document.createElement("tbody");
@@ -336,7 +331,6 @@
           <td>${esc(inv.email)}</td>
           <td>${esc(inv.company_name || "–")}</td>
           <td>${esc(inv.desired_slug || "–")}</td>
-          <td>${esc(inv.suggested_login || "–")}</td>
           <td><span class="badge ${inv.status}">${esc(inv.status)}${expired && inv.status === "pending" ? " (udløbet)" : ""}</span></td>
           <td>${exp}</td>
           <td>${created}</td>

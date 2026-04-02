@@ -7,7 +7,6 @@ async function createInvitation(client, {
   adminName,
   allowSkipEk,
   invitationNote,
-  suggestedLogin,
 }) {
   const sql = `
     INSERT INTO tenant_invitation (
@@ -19,11 +18,10 @@ async function createInvitation(client, {
       desired_slug,
       admin_name,
       allow_skip_ek,
-      invitation_note,
-      suggested_login
+      invitation_note
     )
-    VALUES ($1, $2, $3, 'pending', $4, $5, $6, $7, $8, $9)
-    RETURNING id, email, status, expires_at, created_at, company_name, desired_slug, admin_name, allow_skip_ek, invitation_note, suggested_login
+    VALUES ($1, $2, $3, 'pending', $4, $5, $6, $7, $8)
+    RETURNING id, email, status, expires_at, created_at, company_name, desired_slug, admin_name, allow_skip_ek, invitation_note
   `;
 
   const { rows } = await client.query(sql, [
@@ -35,7 +33,6 @@ async function createInvitation(client, {
     adminName || null,
     Boolean(allowSkipEk),
     invitationNote || null,
-    suggestedLogin ? String(suggestedLogin).toLowerCase().trim() : null,
   ]);
   return rows[0];
 }
@@ -43,7 +40,7 @@ async function createInvitation(client, {
 async function findInvitationByIdForUpdate(client, invitationId) {
   const sql = `
     SELECT id, email, status, expires_at, tenant_id, created_at, accepted_at, revoked_at,
-           company_name, desired_slug, admin_name, allow_skip_ek, invitation_note, suggested_login
+           company_name, desired_slug, admin_name, allow_skip_ek, invitation_note
     FROM tenant_invitation
     WHERE id = $1
     FOR UPDATE
@@ -55,7 +52,7 @@ async function findInvitationByIdForUpdate(client, invitationId) {
 async function findInvitationByTokenHashForUpdate(client, tokenHash) {
   const sql = `
     SELECT id, email, status, expires_at, tenant_id, created_at, accepted_at, revoked_at,
-           company_name, desired_slug, admin_name, allow_skip_ek, invitation_note, suggested_login
+           company_name, desired_slug, admin_name, allow_skip_ek, invitation_note
     FROM tenant_invitation
     WHERE token_hash = $1
     FOR UPDATE
@@ -73,7 +70,7 @@ async function listInvitations(client, { status } = {}) {
   }
   const sql = `
     SELECT id, email, status, expires_at, tenant_id, created_at, accepted_at,
-           company_name, desired_slug, admin_name, allow_skip_ek, invitation_note, suggested_login
+        company_name, desired_slug, admin_name, allow_skip_ek, invitation_note
     FROM tenant_invitation
     ${where}
     ORDER BY created_at DESC
@@ -98,7 +95,6 @@ async function getInvitationStatusById(client, invitationId) {
       i.admin_name,
       i.allow_skip_ek,
       i.invitation_note,
-      i.suggested_login,
       i.tenant_id,
       t.slug AS tenant_slug,
       t.name AS tenant_name,

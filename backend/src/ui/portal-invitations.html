@@ -287,11 +287,6 @@
 
           <div class="split">
             <label>
-              Foreslaet login
-              <input id="suggested-login" type="text" maxlength="4">
-            </label>
-
-            <label>
               Udlober om timer
               <input id="expires-hours" type="number" min="1" step="1" value="72">
             </label>
@@ -348,7 +343,6 @@
               <th>Email</th>
               <th>Status</th>
               <th>Firma</th>
-              <th>Login</th>
               <th>Udlober</th>
             </tr>
           </thead>
@@ -405,7 +399,7 @@
     function renderRows(invitations) {
       rows.innerHTML = "";
       if (!Array.isArray(invitations) || invitations.length === 0) {
-        rows.innerHTML = '<tr><td colspan="5">Ingen invitationer fundet.</td></tr>';
+        rows.innerHTML = '<tr><td colspan="4">Ingen invitationer fundet.</td></tr>';
         return;
       }
 
@@ -415,7 +409,6 @@
           <td>${item.email || "-"}<br><small>${item.id}</small></td>
           <td><span class="badge">${item.status || "-"}</span></td>
           <td>${item.company_name || "-"}</td>
-          <td>${item.suggested_login || "-"}</td>
           <td>${formatDate(item.expires_at)}</td>
         `;
         rows.appendChild(tr);
@@ -447,7 +440,6 @@
           company_name: document.getElementById("company-name").value,
           desired_slug: document.getElementById("desired-slug").value,
           admin_name: document.getElementById("admin-name").value,
-          suggested_login: document.getElementById("suggested-login").value,
           allow_skip_ek: document.getElementById("allow-skip-ek").checked,
           invitation_note: document.getElementById("invitation-note").value,
           expires_in_hours: Number(document.getElementById("expires-hours").value || 72),

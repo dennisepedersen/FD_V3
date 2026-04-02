@@ -117,7 +117,6 @@ router.post("/v1/invitations", requirePortalHost, requireGlobalAdminSession, asy
       company_name,
       desired_slug,
       admin_name,
-      suggested_login,
       allow_skip_ek,
       invitation_note,
       expires_at,
@@ -134,7 +133,6 @@ router.post("/v1/invitations", requirePortalHost, requireGlobalAdminSession, asy
       companyName: company_name,
       desiredSlug: desired_slug,
       adminName: admin_name,
-      suggestedLogin: suggested_login,
       allowSkipEk: allow_skip_ek,
       invitationNote: invitation_note,
       expiresAt: expires_at,
@@ -148,7 +146,6 @@ router.post("/v1/invitations", requirePortalHost, requireGlobalAdminSession, asy
       company_name: result.company_name,
       desired_slug: result.desired_slug,
       admin_name: result.admin_name,
-      suggested_login: result.suggested_login,
       allow_skip_ek: result.allow_skip_ek,
       invitation_note: result.invitation_note,
       expires_at: result.expires_at,
@@ -199,7 +196,6 @@ router.get("/v1/invitations/:id/status", requirePortalHost, requireGlobalAdminSe
         admin_name: invitation.admin_name,
         allow_skip_ek: invitation.allow_skip_ek,
         invitation_note: invitation.invitation_note,
-        suggested_login: invitation.suggested_login,
       },
       tenant: invitation.tenant_id
         ? {

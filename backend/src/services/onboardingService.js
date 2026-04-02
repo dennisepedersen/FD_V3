@@ -54,6 +54,64 @@ function normalizeSlug(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+function normalizeLetters(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z]/g, "")
+    .toLowerCase();
+}
+
+function deriveSuggestedLoginFromEmail(email) {
+  const localPart = String(email || "").split("@")[0] || "";
+  const letters = normalizeLetters(localPart);
+  if (letters.length >= 4) {
+    return letters.slice(0, 4);
+  }
+  if (letters.length >= 3) {
+    return letters.slice(0, 3);
+  }
+  return null;
+}
+
+function deriveSuggestedLoginFromAdminName(adminName) {
+  const parts = String(adminName || "")
+    .trim()
+    .split(/\s+/)
+    .map((part) => normalizeLetters(part))
+    .filter(Boolean);
+
+  if (parts.length === 0) {
+    return null;
+  }
+
+  if (parts.length >= 3) {
+    return `${parts[0][0]}${parts[1][0]}${parts[2][0]}`;
+  }
+
+  if (parts.length === 2) {
+    const first = parts[0][0] || "";
+    const second = parts[1].slice(0, 2);
+    const candidate = `${first}${second}`;
+    if (candidate.length >= 3) {
+      return candidate.slice(0, 3);
+    }
+    const source = `${parts[0]}${parts[1]}`;
+    return `${candidate}${source}`.slice(0, 3);
+  }
+
+  const single = parts[0];
+  if (single.length >= 3) {
+    return single.slice(0, 3);
+  }
+
+  return `${single}${single}${single}`.slice(0, 3);
+}
+
+function deriveSuggestedLogin(email, adminName) {
+  return deriveSuggestedLoginFromEmail(email) || deriveSuggestedLoginFromAdminName(adminName) || null;
+}
+
 function normalizeBaseUrl(value) {
   const normalized = String(value || "").trim();
   try {
@@ -138,6 +196,7 @@ function summarizeState(session) {
   const ekSkipped = ek.skipped === true;
   const hasEkCredentials = Boolean(ek.ek_base_url && ek.ek_api_key_encrypted);
   const endpointsComplete = ekSkipped ? true : endpoints.length > 0;
+  const suggestedLogin = basicInfo.login_name || deriveSuggestedLogin(session.email, invitationData.admin_name);
   const reviewComplete = basicInfo.full_name && basicInfo.login_name && basicInfo.tenant_slug && basicInfo.tenant_name && basicInfo.tenant_domain &&
     terms.accepted &&
     (ekSkipped || hasEkCredentials) &&
@@ -149,7 +208,7 @@ function summarizeState(session) {
     company_name: invitationData.company_name || basicInfo.tenant_name || null,
     desired_slug: invitationData.desired_slug || basicInfo.tenant_slug || null,
     allow_skip_ek: Boolean(invitationData.allow_skip_ek),
-    suggested_login: invitationData.suggested_login || null,
+    suggested_login: suggestedLogin,
     terms_version: terms.terms_version || null,
     ek_test_status: ek.connection_test_status || "not_tested",
     ek_test_message: ek.connection_test_message || null,
