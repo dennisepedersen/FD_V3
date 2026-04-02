@@ -554,17 +554,7 @@
         if (data.success) {
           showMsg("ekTestMsg", "ok", "forbindelse ok");
         } else {
-          let detailText = `${data.test_status}: ${data.message}`;
-          if (data.response_status) {
-            detailText += `\nHTTP status: ${data.response_status}`;
-          }
-          if (data.retry_after) {
-            detailText += `\nRetry-After: ${data.retry_after}`;
-          }
-          if (data.response_body) {
-            detailText += `\n\nE-Komplet respons:\n${data.response_body}`;
-          }
-          showMsg("ekTestMsg", "err", detailText);
+          showMsg("ekTestMsg", "err", data.message || "Forbindelsen kunne ikke verificeres.");
         }
       } catch (err) {
         ekTestPassed = false;
@@ -673,8 +663,21 @@
         byId("reviewTable").innerHTML = rows
           .map(([k, v]) => `<tr><td style="padding:6px 4px;color:var(--muted);font-size:13px;width:40%">${k}</td><td style="padding:6px 4px;font-size:14px">${v || "–"}</td></tr>`)
           .join("");
+
+        const completeButton = byId("step5Btn");
+        const usesEkIntegration = r.ek_test_status !== "skipped";
+        const ekIsReady = r.ek_test_status === "success";
+
+        if (usesEkIntegration && !ekIsReady) {
+          completeButton.disabled = true;
+          showMsg("step5Msg", "err", "Test forbindelsen først, og fortsæt kun hvis forbindelsen er ok.");
+        } else {
+          completeButton.disabled = false;
+          hideMsg("step5Msg");
+        }
       } catch (err) {
         byId("reviewTable").innerHTML = `<tr><td colspan="2" style="color:var(--danger);padding:8px 0;">${err.message}</td></tr>`;
+        byId("step5Btn").disabled = true;
       }
     }
 

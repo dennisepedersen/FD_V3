@@ -141,6 +141,53 @@ function compactEkResponseBody(text) {
   }
 }
 
+function extractHumanEkMessage(responseBody) {
+  if (!responseBody) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(responseBody);
+    if (typeof parsed === "string" && parsed.trim()) {
+      return parsed.trim();
+    }
+    if (parsed && typeof parsed.message === "string" && parsed.message.trim()) {
+      return parsed.message.trim();
+    }
+    if (parsed && parsed.error && typeof parsed.error.message === "string" && parsed.error.message.trim()) {
+      return parsed.error.message.trim();
+    }
+  } catch (_error) {
+    // Fall back to plain text below.
+  }
+
+  const firstLine = String(responseBody).trim().split("\n")[0] || "";
+  return firstLine.slice(0, 300) || null;
+}
+
+function parseRetryAfterMs(retryAfter) {
+  if (!retryAfter) {
+    return null;
+  }
+
+  const asSeconds = Number(retryAfter);
+  if (Number.isFinite(asSeconds) && asSeconds >= 0) {
+    return Math.min(asSeconds * 1000, 30_000);
+  }
+
+  const asDate = Date.parse(retryAfter);
+  if (Number.isFinite(asDate)) {
+    const delta = asDate - Date.now();
+    return delta > 0 ? Math.min(delta, 30_000) : null;
+  }
+
+  return null;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function buildEkDebtorsTestUrl(baseUrl) {
   const parsed = new URL(baseUrl);
   const cleanPath = parsed.pathname.replace(/\/+$/, "");
@@ -427,42 +474,63 @@ async function testEkConnection({ invitationId, ekBaseUrl, ekApiKey, ekSiteName 
   let responseStatus = null;
   let retryAfter = null;
 
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 7000);
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 7000);
 
-    const response = await fetch(candidateUrl, {
-      method: "GET",
-      headers: {
-        apikey: ekApiKey,
-        siteName: normalizedSiteName,
-        Accept: "application/json",
-      },
-      signal: controller.signal,
-    });
+      const response = await fetch(candidateUrl, {
+        method: "GET",
+        headers: {
+          apikey: ekApiKey,
+          siteName: normalizedSiteName,
+          Accept: "application/json",
+        },
+        signal: controller.signal,
+      });
 
-    clearTimeout(timeout);
-    responseStatus = response.status;
-    retryAfter = response.headers.get("retry-after") || null;
-    responseBody = compactEkResponseBody(await response.text());
+      clearTimeout(timeout);
+      responseStatus = response.status;
+      retryAfter = response.headers.get("retry-after") || null;
+      responseBody = compactEkResponseBody(await response.text());
 
-    if (response.ok) {
-      success = true;
-      status = "verified";
-      message = `Forbindelsestest lykkedes mod ${candidateUrl}`;
-    } else {
-      status = "limited";
-      message = `Kunne ikke verificere endpoint-adgang (status: ${response.status})`;
-      if (retryAfter) {
-        message += `\nRetry-After: ${retryAfter}`;
+      if (response.ok) {
+        success = true;
+        status = "verified";
+        message = "forbindelse ok";
+        break;
       }
-      if (responseBody) {
-        message += `\n\nE-Komplet respons:\n${responseBody}`;
+
+      if (response.status === 429 && attempt < 5) {
+        const retryMs = parseRetryAfterMs(retryAfter) || attempt * 1200;
+        await sleep(retryMs);
+        continue;
+      }
+
+      status = "limited";
+      if (response.status === 429) {
+        message = "E-Komplet afviser midlertidigt forbindelsen pga. for mange forespørgsler. Prøv igen om lidt.";
+      } else {
+        message = "Forbindelsen kunne ikke verificeres hos E-Komplet.";
+      }
+      const humanResponse = extractHumanEkMessage(responseBody);
+      if (humanResponse) {
+        message = `${message}\n${humanResponse}`;
+      }
+      break;
+    } catch (error) {
+      status = "limited";
+      message = "Forbindelsen til E-Komplet kunne ikke gennemføres lige nu. Prøv igen om lidt.";
+      if (attempt >= 5) {
+        const humanError = String(error?.message || "").trim();
+        if (humanError) {
+          message = `${message}\n${humanError}`;
+        }
+      }
+      if (attempt < 5) {
+        await sleep(attempt * 1200);
       }
     }
-  } catch (error) {
-    status = "limited";
-    message = `Forbindelsestest er begrænset: ${error.message}`;
   }
 
   await withTransaction(async (client) => {
@@ -713,11 +781,11 @@ async function completeOnboarding({ invitationId }) {
         actorId: user.id,
         actorScope: "tenant",
         tenantId: tenant.id,
-        eventType: "tenant_status_changed",
+        eventType: "onboarding_completed",
         targetType: "tenant",
         targetId: tenant.id,
         outcome: "success",
-        reason: "onboarding_complete_success",
+        reason: "tenant_activated_from_onboarding",
         metadata: {
           from_status: "onboarding_new",
           to_status: "active",
@@ -728,7 +796,7 @@ async function completeOnboarding({ invitationId }) {
         actorId: user.id,
         actorScope: "tenant",
         tenantId: tenant.id,
-        eventType: "invitation_accepted",
+        eventType: "onboarding_completed",
         targetType: "tenant_invitation",
         targetId: invitation.id,
         outcome: "success",
