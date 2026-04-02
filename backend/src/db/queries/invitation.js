@@ -129,25 +129,11 @@ async function markInvitationAccepted(client, { invitationId, tenantId }) {
   await client.query(sql, [invitationId, tenantId]);
 }
 
-async function rotateInvitationToken(client, { invitationId, tokenHash, expiresAt }) {
-  const sql = `
-    UPDATE tenant_invitation
-    SET
-      token_hash = $2,
-      expires_at = $3
-    WHERE id = $1
-    RETURNING id, email, status, expires_at
-  `;
-  const { rows } = await client.query(sql, [invitationId, tokenHash, expiresAt]);
-  return rows[0] || null;
-}
-
 module.exports = {
   createInvitation,
   findInvitationByIdForUpdate,
   findInvitationByTokenHashForUpdate,
   markInvitationAccepted,
-  rotateInvitationToken,
   listInvitations,
   getInvitationStatusById,
 };

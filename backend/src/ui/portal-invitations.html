@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Fielddesk Invitationer</title>
+  <title>Fielddesk Tenant Invitationer</title>
   <style>
     :root {
       color-scheme: light;
@@ -406,12 +406,15 @@
 
       invitations.forEach((item) => {
         const tr = document.createElement("tr");
+        const actionCell = item.status === "pending"
+          ? `<button class="secondary js-copy-link" type="button" data-invitation-id="${item.id}">Kopier onboarding-link</button>`
+          : "-";
         tr.innerHTML = `
           <td>${item.email || "-"}<br><small>${item.id}</small></td>
           <td><span class="badge">${item.status || "-"}</span></td>
           <td>${item.company_name || "-"}</td>
           <td>${formatDate(item.expires_at)}</td>
-          <td><button class="secondary js-copy-link" type="button" data-invitation-id="${item.id}">Kopier onboarding-link</button></td>
+          <td>${actionCell}</td>
         `;
         rows.appendChild(tr);
       });
@@ -438,9 +441,7 @@
           headers: {
             "content-type": "application/json",
           },
-          body: JSON.stringify({
-            expires_in_hours: Number(document.getElementById("expires-hours").value || 72),
-          }),
+          body: JSON.stringify({}),
         }));
 
         await navigator.clipboard.writeText(body.onboarding_link);

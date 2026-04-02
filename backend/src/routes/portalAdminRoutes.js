@@ -220,23 +220,21 @@ router.post("/v1/invitations/:id/reissue-link", requirePortalHost, requireGlobal
       throw createHttpError(400, "Missing invitation id");
     }
 
-    const { expires_in_hours } = req.body || {};
-    const result = await invitationService.reissueInvitationLink({
+    const result = await invitationService.issueOnboardingLinkForInvitation({
       invitationId: id,
       actorId: req.globalAdmin.actorId,
       authSource: "portal_session",
-      expiresInHours: Number.isInteger(expires_in_hours) ? expires_in_hours : undefined,
     });
 
     const protocol = env.NODE_ENV === "production" ? "https" : "http";
-    const onboardingLink = `${protocol}://${env.ROOT_DOMAIN}/onboarding?token=${result.token}`;
+    const onboardingLink = `${protocol}://${env.ROOT_DOMAIN}/onboarding?token=${result.onboarding_token}`;
 
     res.status(200).json({
       success: true,
       invitation_id: result.invitation_id,
       email: result.email,
       expires_at: result.expires_at,
-      invitation_token: result.token,
+      invitation_token: result.onboarding_token,
       onboarding_link: onboardingLink,
     });
   } catch (error) {
