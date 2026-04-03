@@ -725,6 +725,30 @@ async function fetchProjectsPage({ endpointBase, page, pageSize, headers, update
   return parsePagedPayload(payload);
 }
 
+async function discoverCompatibleProjectEndpoints({ endpointBases, headers }) {
+  const compatible = [];
+  let lastError = null;
+
+  for (const endpointBase of endpointBases) {
+    try {
+      await fetchProjectsPage({ endpointBase, page: 1, pageSize: 1, headers, updatedAfter: null });
+      compatible.push(endpointBase);
+    } catch (error) {
+      lastError = error;
+      if (/\(404\)|\(400\)/.test(String(error.message || ""))) {
+        continue;
+      }
+      console.error(`[syncWorker] endpoint probe failed endpoint=${endpointBase} msg=${error.message}`);
+    }
+  }
+
+  if (!compatible.length) {
+    throw lastError || new Error("No compatible E-Komplet /projects endpoint found");
+  }
+
+  return compatible;
+}
+
 async function fetchJsonWithRetry(url, { headers }) {
   let lastError = null;
 
@@ -863,34 +887,18 @@ function computeRetryBackoffMs(retryCount) {
   return baseMs * Math.pow(2, Math.max(0, retryCount - 1));
 }
 
-async function getProjectEndpointAndHeaders({ cfg }) {
-  const endpointVariants = buildProjectEndpointVariants(cfg.ekBaseUrl);
+async function getProjectEndpointsAndHeaders({ cfg }) {
+  const endpointBases = buildProjectEndpointVariants(cfg.ekBaseUrl);
   const headers = {
     apikey: cfg.ekApiKey,
     siteName: cfg.siteName,
     Accept: "application/json",
   };
 
-  let chosen = null;
-  let lastError = null;
-  for (const endpoint of endpointVariants) {
-    try {
-      await fetchProjectsPage({ endpointBase: endpoint, page: 1, pageSize: 1, headers, updatedAfter: null });
-      chosen = endpoint;
-      break;
-    } catch (error) {
-      lastError = error;
-      if (/\(404\)|\(400\)/.test(String(error.message || ""))) {
-        continue;
-      }
-    }
-  }
-
-  if (!chosen) {
-    throw lastError || new Error("No compatible E-Komplet /projects endpoint found");
-  }
-
-  return { endpointBase: chosen, headers };
+  return {
+    endpointBases,
+    headers,
+  };
 }
 
 async function persistProjectsPage({
@@ -1011,19 +1019,14 @@ async function logProjectsPageFailure({ job, endpointKey, page, error, attempts 
 
 async function runProjectsEndpoint({ job, cfg, mode }) {
   const endpointKey = "projects";
-  const { endpointBase, headers } = await getProjectEndpointAndHeaders({ cfg });
+  const { endpointBases, headers } = await getProjectEndpointsAndHeaders({ cfg });
+  const compatibleEndpoints = await discoverCompatibleProjectEndpoints({ endpointBases, headers });
+  let updatedAfter = null;
+
   const state = await withTransaction(async (client) => getEndpointState(client, {
     tenantId: job.tenant_id,
     endpointKey,
   }));
-
-  let page = 1;
-  let maxPages = mode === "delta" ? DELTA_MAX_PAGES : 5000;
-  let updatedAfter = null;
-
-  if (mode === "bootstrap" && state && Number.isInteger(state.last_successful_page) && state.status === "partial") {
-    page = Math.max(1, Number(state.last_successful_page) + 1);
-  }
 
   if (mode === "delta" && state && state.updated_after_watermark) {
     updatedAfter = state.updated_after_watermark;
@@ -1032,7 +1035,6 @@ async function runProjectsEndpoint({ job, cfg, mode }) {
   let pagesProcessed = 0;
   let rowsProcessed = 0;
   let retriesQueued = 0;
-  let terminal = false;
 
   await withTransaction(async (client) => {
     await markEndpointState(client, {
@@ -1052,66 +1054,64 @@ async function runProjectsEndpoint({ job, cfg, mode }) {
     });
   });
 
-  while (!terminal && pagesProcessed < maxPages) {
-    await heartbeat(job.id);
+  for (const endpointBase of compatibleEndpoints) {
+    let page = 1;
 
-    try {
-      const result = await persistProjectsPage({
-        job,
-        cfg,
-        endpointBase,
-        headers,
-        endpointKey,
-        page,
-        updatedAfter,
-      });
+    while (true) {
+      await heartbeat(job.id);
 
-      pagesProcessed += 1;
-      rowsProcessed += result.rowsPersisted;
-
-      await withTransaction(async (client) => {
-        await syncJobQueries.markJobProgress(client, {
-          jobId: job.id,
-          rowsProcessed,
-          pagesProcessed,
+      try {
+        const result = await persistProjectsPage({
+          job,
+          cfg,
+          endpointBase,
+          headers,
+          endpointKey,
+          page,
+          updatedAfter,
         });
-      });
 
-      console.log(
-        `[syncWorker] endpoint=${endpointKey} mode=${mode} page=${page} next=${result.parsed.nextPage} persisted=${result.rowsPersisted} enriched=${result.enrichedCount}`
-      );
+        // Stop for this endpoint when a page returns zero rows.
+        if (result.rowsFetched === 0) {
+          console.log(
+            `[syncWorker] endpoint=${endpointBase} mode=${mode} page=${page} rows=0 cumulativeRows=${rowsProcessed}`
+          );
+          break;
+        }
 
-      if (result.parsed.nextPage != null && Number(result.parsed.nextPage) > page) {
-        page = Number(result.parsed.nextPage);
-        continue;
-      }
+        pagesProcessed += 1;
+        rowsProcessed += result.rowsPersisted;
 
-      if (result.parsed.rows.length >= PAGE_SIZE && mode === "bootstrap") {
+        await withTransaction(async (client) => {
+          await syncJobQueries.markJobProgress(client, {
+            jobId: job.id,
+            rowsProcessed,
+            pagesProcessed,
+          });
+        });
+
+        console.log(
+          `[syncWorker] endpoint=${endpointBase} mode=${mode} page=${page} rows=${result.rowsFetched} cumulativeRows=${rowsProcessed}`
+        );
+
         page += 1;
-        continue;
-      }
+      } catch (error) {
+        const attemptNo = 1;
+        const failure = await logProjectsPageFailure({
+          job,
+          endpointKey,
+          page,
+          error,
+          attempts: attemptNo,
+        });
 
-      terminal = true;
-    } catch (error) {
-      const attemptNo = 1;
-      const failure = await logProjectsPageFailure({
-        job,
-        endpointKey,
-        page,
-        error,
-        attempts: attemptNo,
-      });
+        retriesQueued += 1;
 
-      retriesQueued += 1;
+        console.error(
+          `[syncWorker] page failed endpoint=${endpointBase} mode=${mode} page=${page} status=${failure.classification.kind} msg=${error.message}`
+        );
 
-      console.error(
-        `[syncWorker] page failed endpoint=${endpointKey} mode=${mode} page=${page} status=${failure.classification.kind} msg=${error.message}`
-      );
-
-      page += 1;
-
-      if (mode === "delta" && page > DELTA_MAX_PAGES) {
-        terminal = true;
+        page += 1;
       }
     }
   }
@@ -1143,7 +1143,8 @@ async function runProjectsEndpoint({ job, cfg, mode }) {
 
 async function runProjectsBacklogRetryRound({ job, cfg }) {
   const endpointKey = "projects";
-  const { endpointBase, headers } = await getProjectEndpointAndHeaders({ cfg });
+  const { endpointBases, headers } = await getProjectEndpointsAndHeaders({ cfg });
+  const compatibleEndpoints = await discoverCompatibleProjectEndpoints({ endpointBases, headers });
 
   const dueFailures = await withTransaction(async (client) => {
     const { rows } = await client.query(
@@ -1180,13 +1181,26 @@ async function runProjectsBacklogRetryRound({ job, cfg }) {
     const page = failure.page_number || 1;
 
     try {
-      const parsed = await fetchProjectsPage({
-        endpointBase,
-        page,
-        pageSize: PAGE_SIZE,
-        headers,
-        updatedAfter: null,
-      });
+      let parsed = null;
+      let lastEndpointError = null;
+      for (const endpointBase of compatibleEndpoints) {
+        try {
+          parsed = await fetchProjectsPage({
+            endpointBase,
+            page,
+            pageSize: PAGE_SIZE,
+            headers,
+            updatedAfter: null,
+          });
+          break;
+        } catch (error) {
+          lastEndpointError = error;
+        }
+      }
+
+      if (!parsed) {
+        throw lastEndpointError || new Error("retry page fetch failed on all endpoints");
+      }
 
       const mappedRows = parsed.rows.map(mapProjectRow).filter(Boolean);
       const enriched = await enrichProjectIdentityFields({
