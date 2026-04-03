@@ -12,6 +12,28 @@ const MAX_BACKLOG_ATTEMPTS = 8;
 const BACKLOG_RETRY_BATCH_SIZE = 40;
 const DELTA_INTERVAL_MS = 10 * 60 * 1000;
 const DELTA_MAX_PAGES = 25;
+const FITTERHOURS_DEFAULT_MONTHS_LOOKBACK = 12;
+const PROJECT_START_DATE_COLUMN_CANDIDATES = [
+  "project_start_date",
+  "start_date",
+  "project_start_at",
+  "project_start",
+  "startdate",
+];
+const FITTERHOURS_DATE_KEYS = [
+  "date",
+  "Date",
+  "workDate",
+  "WorkDate",
+  "hourDate",
+  "HourDate",
+  "registrationDate",
+  "RegistrationDate",
+  "startDate",
+  "StartDate",
+  "endDate",
+  "EndDate",
+];
 const SYNC_MODES = {
   BOOTSTRAP_INITIAL: "bootstrap_initial",
   DELTA: "delta",
@@ -479,6 +501,154 @@ async function listEnabledEndpoints(client, tenantId) {
   return rows.map((row) => row.endpoint_key).filter(Boolean);
 }
 
+function orderEndpointExecution(endpointKeys) {
+  const unique = [];
+  const seen = new Set();
+
+  for (const key of endpointKeys || []) {
+    const normalized = String(key || "").trim().toLowerCase();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    unique.push(normalized);
+  }
+
+  const ordered = [];
+  if (seen.has("projects")) {
+    ordered.push("projects");
+  }
+
+  for (const key of unique) {
+    if (key === "projects" || key === "fitterhours") {
+      continue;
+    }
+    ordered.push(key);
+  }
+
+  if (seen.has("fitterhours")) {
+    ordered.push("fitterhours");
+  }
+
+  return ordered;
+}
+
+function parseTimestampCandidate(value) {
+  if (value == null || value === "") return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.getTime();
+}
+
+function extractRowTimestamp(row) {
+  if (!row || typeof row !== "object") {
+    return null;
+  }
+
+  for (const key of FITTERHOURS_DATE_KEYS) {
+    const candidate = parseTimestampCandidate(row[key]);
+    if (candidate != null) {
+      return candidate;
+    }
+  }
+
+  const dynamicDateKeys = Object.keys(row).filter((key) => /date|time/i.test(key));
+  for (const key of dynamicDateKeys) {
+    const candidate = parseTimestampCandidate(row[key]);
+    if (candidate != null) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+function shouldStopHistoricalPaging(rows, cutoffIso) {
+  if (!cutoffIso) return false;
+  const cutoffMs = parseTimestampCandidate(cutoffIso);
+  if (cutoffMs == null) return false;
+
+  const timestamps = rows
+    .map((row) => extractRowTimestamp(row))
+    .filter((value) => value != null);
+
+  if (!timestamps.length) {
+    return false;
+  }
+
+  const hasDataAtOrAfterCutoff = timestamps.some((timestamp) => timestamp >= cutoffMs);
+  return !hasDataAtOrAfterCutoff;
+}
+
+function subtractMonthsIso(months) {
+  const date = new Date();
+  date.setUTCMonth(date.getUTCMonth() - Number(months || 0));
+  return date.toISOString();
+}
+
+async function computeFitterhoursCutoff(client, tenantId) {
+  const baselineIso = subtractMonthsIso(FITTERHOURS_DEFAULT_MONTHS_LOOKBACK);
+  const columnInfo = await client.query(
+    `
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'project_core'
+        AND column_name = ANY($1::text[])
+      ORDER BY array_position($1::text[], column_name)
+      LIMIT 1
+    `,
+    [PROJECT_START_DATE_COLUMN_CANDIDATES]
+  );
+
+  const projectStartDateColumn = columnInfo.rows[0]?.column_name || null;
+  let activeProjectCount = 0;
+  let olderThanBaselineCount = null;
+  let oldestActiveProjectStartDate = null;
+
+  if (projectStartDateColumn) {
+    const sql = `
+      SELECT
+        COUNT(*)::int AS active_count,
+        COUNT(*) FILTER (WHERE ${projectStartDateColumn} IS NOT NULL AND ${projectStartDateColumn} < $2::timestamptz)::int AS older_than_baseline_count,
+        MIN(${projectStartDateColumn}) FILTER (WHERE ${projectStartDateColumn} IS NOT NULL) AS oldest_active_project_start_date
+      FROM project_core
+      WHERE tenant_id = $1
+        AND status = 'open'
+        AND COALESCE(is_closed, false) = false
+    `;
+    const { rows } = await client.query(sql, [tenantId, baselineIso]);
+    const stats = rows[0] || {};
+    activeProjectCount = Number(stats.active_count || 0);
+    olderThanBaselineCount = Number(stats.older_than_baseline_count || 0);
+    oldestActiveProjectStartDate = stats.oldest_active_project_start_date
+      ? new Date(stats.oldest_active_project_start_date).toISOString()
+      : null;
+  } else {
+    const { rows } = await client.query(
+      `
+        SELECT COUNT(*)::int AS active_count
+        FROM project_core
+        WHERE tenant_id = $1
+          AND status = 'open'
+          AND COALESCE(is_closed, false) = false
+      `,
+      [tenantId]
+    );
+    activeProjectCount = Number(rows[0]?.active_count || 0);
+  }
+
+  // Global fitterhours bootstrap is always capped at 12 months.
+  const cutoffIso = baselineIso;
+
+  return {
+    cutoffIso,
+    baselineIso,
+    activeProjectCount,
+    projectStartDateColumn,
+    oldestActiveProjectStartDate,
+    olderThanBaselineCount,
+  };
+}
+
 function normalizeBase(baseUrl) {
   const parsed = new URL(String(baseUrl || "").trim());
   const cleanPath = parsed.pathname.replace(/\/+$/, "");
@@ -503,8 +673,9 @@ function buildProjectSourceEndpointVariants(baseUrl) {
     `${normalized}/api/v4/projects`,
   ].map((url) => url.replace(/([^:]\/)(\/+)/g, "$1"));
   const v3 = [
-    `${normalized}/api/v3.0/projects`,
-    `${normalized}/api/v3/projects`,
+    `${normalized}/Management/WorkInProgress`,
+    `${normalized}/api/v3.0/Management/WorkInProgress`,
+    `${normalized}/api/v3/Management/WorkInProgress`,
   ].map((url) => url.replace(/([^:]\/)(\/+)/g, "$1"));
 
   return {
@@ -633,12 +804,12 @@ function parseProjectDetailPayload(payload) {
 
 function mapProjectStatus(rawStatus, isClosedHint) {
   if (isClosedHint === true) return "closed";
-  if (isClosedHint === false && !rawStatus) return "open";
+  if (isClosedHint === false) return "open";
   const value = String(rawStatus || "").trim().toLowerCase();
-  if (!value) return "open";
-  if (/(archiv|deleted|slettet)/.test(value)) return "archived";
-  if (/(closed|complete|done|afsluttet|lukket)/.test(value)) return "closed";
-  return "open";
+  if (!value) return null;
+  if (value === "closed") return "closed";
+  if (value === "open") return "open";
+  return null;
 }
 
 function pickTrimmedText(raw, keys) {
@@ -675,7 +846,7 @@ function pickBooleanValue(raw, keys) {
   return null;
 }
 
-function mapProjectRow(raw) {
+function mapProjectRow(raw, { sourceEndpointKey } = {}) {
   if (!raw || typeof raw !== "object") {
     return null;
   }
@@ -718,7 +889,37 @@ function mapProjectRow(raw) {
     raw.Stage ??
     null;
 
-  const isClosed = pickBooleanValue(raw, ["isClosed", "IsClosed"]);
+  const isClosedV4 = pickBooleanValue(raw, ["isClosed", "IsClosed"]);
+  const isWorkInProgressV3 = pickBooleanValue(raw, ["IsWorkInProgress", "isWorkInProgress"]);
+
+  let resolvedStatus = null;
+  let resolvedIsClosed = null;
+
+  if (sourceEndpointKey === "projects_v4") {
+    // v4 is authoritative: isClosed decides open/closed deterministically.
+    if (isClosedV4 === true) {
+      resolvedStatus = "closed";
+      resolvedIsClosed = true;
+    } else if (isClosedV4 === false) {
+      resolvedStatus = "open";
+      resolvedIsClosed = false;
+    } else {
+      resolvedStatus = mapProjectStatus(statusRaw, null);
+      resolvedIsClosed = null;
+    }
+  } else if (sourceEndpointKey === "projects_v3") {
+    // v3 WorkInProgress endpoint only proves active/open when true.
+    if (isWorkInProgressV3 === true) {
+      resolvedStatus = "open";
+      resolvedIsClosed = false;
+    } else {
+      resolvedStatus = null;
+      resolvedIsClosed = null;
+    }
+  } else {
+    resolvedStatus = mapProjectStatus(statusRaw, isClosedV4);
+    resolvedIsClosed = isClosedV4;
+  }
 
   const responsibleCode = pickTrimmedText(raw, [
     "Responsible",
@@ -778,8 +979,8 @@ function mapProjectRow(raw) {
   return {
     externalProjectRef: String(externalRef).trim(),
     name: String(name).trim() || `Project ${externalRef}`,
-    status: mapProjectStatus(statusRaw, isClosed),
-    isClosed,
+    status: resolvedStatus,
+    isClosed: resolvedIsClosed,
     activityDate,
     responsibleCode,
     responsibleName,
@@ -865,9 +1066,19 @@ async function upsertProjectBatch(client, { tenantId, mappedRows, sourceEndpoint
       WHERE external_project_ref IS NOT NULL
       DO UPDATE SET
         name = EXCLUDED.name,
-        status = EXCLUDED.status,
+        status = CASE
+          WHEN EXCLUDED.has_v4 THEN COALESCE(EXCLUDED.status, project_core.status)
+          WHEN EXCLUDED.has_v3 AND project_core.has_v4 THEN project_core.status
+          WHEN EXCLUDED.has_v3 AND EXCLUDED.status = 'open' THEN 'open'
+          ELSE project_core.status
+        END,
         activity_date = COALESCE(EXCLUDED.activity_date, project_core.activity_date),
-        is_closed = COALESCE(EXCLUDED.is_closed, project_core.is_closed),
+        is_closed = CASE
+          WHEN EXCLUDED.has_v4 THEN COALESCE(EXCLUDED.is_closed, project_core.is_closed)
+          WHEN EXCLUDED.has_v3 AND project_core.has_v4 THEN project_core.is_closed
+          WHEN EXCLUDED.has_v3 AND EXCLUDED.is_closed = false THEN false
+          ELSE project_core.is_closed
+        END,
         responsible_code = EXCLUDED.responsible_code,
         responsible_name = EXCLUDED.responsible_name,
         responsible_id = EXCLUDED.responsible_id,
@@ -1121,7 +1332,7 @@ async function getGenericEndpointsAndHeaders({ cfg, endpointKey }) {
   };
 }
 
-async function runReadOnlyEndpoint({ job, cfg, endpointKey, mode }) {
+async function runReadOnlyEndpoint({ job, cfg, endpointKey, mode, cutoffContext = null }) {
   const normalizedMode = modeFromJobType(mode, SYNC_MODES.SLOW_RECONCILIATION);
   const strategyMeta = ENDPOINT_STRATEGY[endpointKey] || {
     supportsDelta: false,
@@ -1145,6 +1356,7 @@ async function runReadOnlyEndpoint({ job, cfg, endpointKey, mode }) {
   let rowsFetchedTotal = 0;
   let retriesQueued = 0;
   let lastSuccessfulPage = state && state.last_successful_page ? Number(state.last_successful_page) : null;
+  const cutoffIso = cutoffContext && cutoffContext.cutoffIso ? cutoffContext.cutoffIso : null;
 
   await withTransaction(async (client) => {
     await markEndpointState(client, {
@@ -1202,6 +1414,9 @@ async function runReadOnlyEndpoint({ job, cfg, endpointKey, mode }) {
         });
 
         const rowsFetched = parsed.rows.length;
+        const stopForCutoff = endpointKey === "fitterhours"
+          ? shouldStopHistoricalPaging(parsed.rows, cutoffIso)
+          : false;
 
         await withTransaction(async (client) => {
           await appendPageLog(client, {
@@ -1272,6 +1487,13 @@ async function runReadOnlyEndpoint({ job, cfg, endpointKey, mode }) {
         console.log(
           `[syncWorker] endpoint=${endpointKey} source=${endpointBase} page=${page} nextPage=${parsed.nextPage} pageCount=unknown rowsPersisted=0 collectedOrPersistedTotal=${rowsFetchedTotal}`
         );
+
+        if (stopForCutoff) {
+          console.log(
+            `[syncWorker] endpoint=${endpointKey} cutoff_reached=true cutoff=${cutoffIso} stop_at_page=${page}`
+          );
+          break;
+        }
 
         page += 1;
       } catch (error) {
@@ -1404,7 +1626,9 @@ async function persistProjectsPage({
   updatedAfter,
 }) {
   const parsed = await fetchProjectsPage({ endpointBase, page, pageSize: PAGE_SIZE, headers, updatedAfter });
-  const mappedRows = parsed.rows.map(mapProjectRow).filter(Boolean);
+  const mappedRows = parsed.rows
+    .map((row) => mapProjectRow(row, { sourceEndpointKey: endpointKey }))
+    .filter((row) => Boolean(row && row.status));
 
   const enriched = await enrichProjectIdentityFields({
     ekBaseUrl: cfg.ekBaseUrl,
@@ -2197,7 +2421,8 @@ async function processSyncJob(job) {
 
   try {
     const endpoints = await listEnabledEndpoints(tenantClient, job.tenant_id);
-    if (endpoints.length === 0) {
+    const executionEndpoints = orderEndpointExecution(endpoints);
+    if (executionEndpoints.length === 0) {
       tenantClient.release();
       tenantClientReleased = true;
       await withTransaction(async (client) => {
@@ -2218,7 +2443,7 @@ async function processSyncJob(job) {
     const jobMode = modeFromJobType(job.type, SYNC_MODES.DELTA);
 
     // Backlog is always processed first to avoid hidden restart-from-page-1 behavior.
-    for (const endpointKey of endpoints) {
+    for (const endpointKey of executionEndpoints) {
       if (endpointKey === "projects") {
         for (const projectEndpointKey of ["projects_v4", "projects_v3"]) {
           const retryRound = await runProjectsBacklogRetryRound({ job, cfg, endpointKey: projectEndpointKey });
@@ -2249,7 +2474,7 @@ async function processSyncJob(job) {
       return;
     }
 
-    for (const endpointKey of endpoints) {
+    for (const endpointKey of executionEndpoints) {
       if (endpointKey === "projects") {
         const result = await runProjectsEndpoint({
           job,
@@ -2271,11 +2496,22 @@ async function processSyncJob(job) {
           ? SYNC_MODES.SLOW_RECONCILIATION
           : jobMode;
 
+        const cutoffContext = endpointKey === "fitterhours"
+          ? await withTransaction(async (client) => computeFitterhoursCutoff(client, job.tenant_id))
+          : null;
+
+        if (cutoffContext && cutoffContext.cutoffIso) {
+          console.log(
+            `[syncWorker] endpoint=fitterhours cutoff=${cutoffContext.cutoffIso} baseline=${cutoffContext.baselineIso} startDateColumn=${cutoffContext.projectStartDateColumn || "none"} activeProjects=${cutoffContext.activeProjectCount} oldestActiveStart=${cutoffContext.oldestActiveProjectStartDate || "null"} olderThanBaseline=${cutoffContext.olderThanBaselineCount == null ? "unknown" : cutoffContext.olderThanBaselineCount}`
+          );
+        }
+
         const result = await runReadOnlyEndpoint({
           job,
           cfg,
           endpointKey,
           mode: endpointMode,
+          cutoffContext,
         });
 
         rowsProcessed += result.rowsProcessed;
