@@ -6,37 +6,63 @@ async function listProjectsForUser(client, { tenantId, userId }) {
       WHERE tenant_id = $1
         AND id = $2
       LIMIT 1
+    ),
+    scoped_projects AS (
+      SELECT DISTINCT
+        pc.project_id,
+        pc.external_project_ref,
+        pc.name,
+        pc.status,
+        pc.is_closed,
+        pc.activity_date,
+        pc.owner_user_id,
+        pc.responsible_code,
+        pc.responsible_name,
+        pc.responsible_id,
+        pc.team_leader_code,
+        pc.team_leader_name,
+        pc.team_leader_id,
+        pc.created_at,
+        pc.updated_at
+      FROM project_core pc
+      CROSS JOIN current_actor cu
+      LEFT JOIN project_assignment pa
+        ON pa.tenant_id = pc.tenant_id
+       AND pa.project_id = pc.project_id
+      WHERE pc.tenant_id = $1
+        AND (
+          (cu.username_ci IS NOT NULL AND lower(btrim(coalesce(pc.responsible_code, ''))) = cu.username_ci)
+          OR
+          (cu.username_ci IS NOT NULL AND lower(btrim(coalesce(pc.team_leader_code, ''))) = cu.username_ci)
+          OR
+          pc.owner_user_id = $2
+          OR pa.tenant_user_id = $2
+        )
     )
-    SELECT DISTINCT
-      pc.project_id,
-      pc.external_project_ref,
-      pc.name,
-      pc.status,
-      pc.is_closed,
-      pc.activity_date,
-      pc.owner_user_id,
-      pc.responsible_code,
-      pc.responsible_name,
-      pc.responsible_id,
-      pc.team_leader_code,
-      pc.team_leader_name,
-      pc.team_leader_id,
-      pc.created_at,
-      pc.updated_at
-    FROM project_core pc
-    CROSS JOIN current_actor cu
-    LEFT JOIN project_assignment pa
-      ON pa.tenant_id = pc.tenant_id
-     AND pa.project_id = pc.project_id
-    WHERE pc.tenant_id = $1
-      AND (
-        (cu.username_ci IS NOT NULL AND lower(btrim(coalesce(pc.responsible_code, ''))) = cu.username_ci)
-        OR
-        pc.owner_user_id = $2
-        OR pa.tenant_user_id = $2
-      )
-    ORDER BY pc.updated_at DESC, pc.name ASC
-    LIMIT 100
+    SELECT
+      project_id,
+      external_project_ref,
+      name,
+      status,
+      is_closed,
+      activity_date,
+      owner_user_id,
+      responsible_code,
+      responsible_name,
+      responsible_id,
+      team_leader_code,
+      team_leader_name,
+      team_leader_id,
+      created_at,
+      updated_at
+    FROM scoped_projects
+    ORDER BY
+      CASE
+        WHEN COALESCE(is_closed, false) = false AND lower(coalesce(status, '')) <> 'closed' THEN 0
+        ELSE 1
+      END ASC,
+      updated_at DESC,
+      name ASC
   `;
 
   const { rows } = await client.query(sql, [tenantId, userId]);
@@ -77,6 +103,8 @@ async function findProjectForUser(client, { tenantId, userId, projectId }) {
       AND pc.project_id = $2
       AND (
         (cu.username_ci IS NOT NULL AND lower(btrim(coalesce(pc.responsible_code, ''))) = cu.username_ci)
+        OR
+        (cu.username_ci IS NOT NULL AND lower(btrim(coalesce(pc.team_leader_code, ''))) = cu.username_ci)
         OR
         pc.owner_user_id = $3
         OR pa.tenant_user_id = $3
