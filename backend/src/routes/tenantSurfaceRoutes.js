@@ -162,7 +162,7 @@ router.get("/api/sync/status", requireTenantHost, requireAuth("access"), async (
           SELECT id, type, status, started_at, finished_at, updated_at, rows_processed, pages_processed, retry_count, error_message
           FROM sync_job
           WHERE tenant_id = $1
-            AND type IN ('bootstrap', 'delta')
+            AND type IN ('bootstrap', 'bootstrap_initial', 'delta', 'retry_backlog', 'manual_full_resync', 'slow_reconciliation')
           ORDER BY created_at DESC
           LIMIT 20
         `,
@@ -174,7 +174,7 @@ router.get("/api/sync/status", requireTenantHost, requireAuth("access"), async (
             SELECT id, type, status, created_at, started_at, finished_at, updated_at
             FROM sync_job
             WHERE tenant_id = $1
-              AND type IN ('bootstrap', 'delta')
+              AND type IN ('bootstrap', 'bootstrap_initial', 'delta', 'retry_backlog', 'manual_full_resync', 'slow_reconciliation')
             ORDER BY created_at DESC
             LIMIT 1
           ),
@@ -183,7 +183,8 @@ router.get("/api/sync/status", requireTenantHost, requireAuth("access"), async (
               endpoint_key,
               COUNT(*) FILTER (WHERE status IN ('pending', 'deferred', 'retrying')) AS pending_backlog,
               COUNT(*) FILTER (WHERE status = 'failed') AS failed_backlog,
-              MIN(next_retry_at) FILTER (WHERE status IN ('pending', 'deferred', 'retrying')) AS next_retry_at
+              MIN(next_retry_at) FILTER (WHERE status IN ('pending', 'deferred', 'retrying')) AS next_retry_at,
+              ARRAY_REMOVE(ARRAY_AGG(page_number ORDER BY page_number) FILTER (WHERE page_number IS NOT NULL AND status IN ('pending', 'deferred', 'retrying', 'failed')), NULL) AS failed_pages
             FROM sync_failure_backlog
             WHERE tenant_id = $1
             GROUP BY endpoint_key
@@ -212,36 +213,60 @@ router.get("/api/sync/status", requireTenantHost, requireAuth("access"), async (
           SELECT
             ses.endpoint_key,
             ses.status,
+            ses.current_mode,
+            ses.sync_strategy,
+            ses.current_job_id AS state_current_job_id,
             COALESCE(lj.type, sj.type) AS sync_type,
             ses.last_attempt_at,
+            ses.heartbeat_at,
             ses.last_successful_sync_at,
             ses.last_successful_page,
             ses.last_successful_cursor,
+            ses.last_seen_remote_cursor,
             ses.updated_after_watermark,
             ses.rows_fetched,
             ses.rows_persisted,
+            ses.retry_count,
+            ses.pending_backlog_count,
+            ses.failed_page_count,
+            ses.pages_processed_last_job,
+            ses.rows_fetched_last_job,
+            ses.last_http_status,
             ses.next_planned_at,
             ses.last_error,
             ses.updated_at,
             COALESCE(pt.pages_processed, 0) AS pages_processed,
             COALESCE(pt.rows_fetched, 0) AS rows_fetched_logged,
             COALESCE(pt.rows_persisted, 0) AS rows_persisted_logged,
-            COALESCE(plj.pages_processed_last_job, 0) AS pages_processed_last_job,
-            COALESCE(plj.rows_fetched_last_job, 0) AS rows_fetched_last_job,
+            COALESCE(NULLIF(ses.pages_processed_last_job, 0), plj.pages_processed_last_job, 0) AS pages_processed_last_job,
+            COALESCE(NULLIF(ses.rows_fetched_last_job, 0), plj.rows_fetched_last_job, 0) AS rows_fetched_last_job,
             COALESCE(plj.rows_persisted_last_job, 0) AS rows_persisted_last_job,
-            COALESCE(be.pending_backlog, 0) AS pending_backlog,
-            COALESCE(be.failed_backlog, 0) AS failed_backlog,
+            COALESCE(NULLIF(ses.pending_backlog_count, 0), be.pending_backlog, 0) AS pending_backlog,
+            COALESCE(NULLIF(ses.failed_page_count, 0), be.failed_backlog, 0) AS failed_backlog,
             be.next_retry_at,
+            COALESCE(be.failed_pages, ARRAY[]::integer[]) AS failed_pages,
+            CASE
+              WHEN ses.endpoint_key IN ('projects_v4', 'projects_v3', 'projects') THEN true
+              ELSE false
+            END AS has_persist_table,
+            CASE
+              WHEN COALESCE(NULLIF(ses.pending_backlog_count, 0), be.pending_backlog, 0) > 0 THEN 'continue_backlog'
+              WHEN ses.updated_after_watermark IS NOT NULL THEN 'use_watermark'
+              WHEN ses.last_successful_page IS NOT NULL THEN 'continue_from_last_page'
+              ELSE 'full_restart'
+            END AS next_run_action,
             lj.id AS current_job_id,
             ses.last_job_id,
             (ses.last_job_id = lj.id) AS touched_by_current_job,
             CASE
+              WHEN COALESCE(ses.last_error, '') LIKE 'persist_skipped:%' THEN 'not_materialized'
               WHEN COALESCE(ses.last_error, '') LIKE 'endpoint_not_implemented:%' THEN 'not_implemented'
               WHEN ses.status = 'running' AND ses.last_attempt_at < now() - interval '3 minutes' THEN 'stale'
               WHEN ses.status = 'failed' AND ses.last_job_id IS DISTINCT FROM lj.id THEN 'historical_failed'
               ELSE ses.status
             END AS effective_status,
             CASE
+              WHEN COALESCE(ses.last_error, '') LIKE 'persist_skipped:%' THEN 'missing_persist_table'
               WHEN COALESCE(ses.last_error, '') LIKE 'endpoint_not_implemented:%' THEN 'skipped_by_design'
               WHEN ses.status = 'running' AND ses.last_attempt_at < now() - interval '3 minutes' THEN 'no_recent_heartbeat'
               WHEN ses.status = 'failed' AND ses.last_job_id IS DISTINCT FROM lj.id THEN 'historical_failure'
@@ -273,7 +298,7 @@ router.get("/api/sync/status", requireTenantHost, requireAuth("access"), async (
     ]);
 
     const jobs = latestJobs.rows;
-    const latestBootstrap = jobs.find((job) => job.type === "bootstrap") || null;
+    const latestBootstrap = jobs.find((job) => job.type === "bootstrap_initial") || jobs.find((job) => job.type === "bootstrap") || null;
     const latestDelta = jobs.find((job) => job.type === "delta") || null;
     const backlog = backlogStats.rows[0] || {
       pending_count: "0",

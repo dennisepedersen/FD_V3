@@ -433,7 +433,7 @@ CREATE TABLE sync_job (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT fk_sync_job_tenant FOREIGN KEY (tenant_id) REFERENCES tenant(id) ON DELETE RESTRICT,
-  CONSTRAINT ck_sync_job_type CHECK (type IN ('bootstrap', 'delta')),
+  CONSTRAINT ck_sync_job_type CHECK (type IN ('bootstrap', 'bootstrap_initial', 'delta', 'retry_backlog', 'manual_full_resync', 'slow_reconciliation')),
   CONSTRAINT ck_sync_job_status CHECK (status IN ('queued', 'running', 'success', 'failed')),
   CONSTRAINT ck_sync_job_rows_nonnegative CHECK (rows_processed >= 0),
   CONSTRAINT ck_sync_job_pages_nonnegative CHECK (pages_processed >= 0)
@@ -471,6 +471,8 @@ CREATE TABLE project_core (
   team_leader_code text NULL,
   team_leader_name text NULL,
   team_leader_id text NULL,
+  has_v4 boolean NOT NULL DEFAULT false,
+  has_v3 boolean NOT NULL DEFAULT false,
   owner_user_id uuid NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
@@ -579,6 +581,17 @@ CREATE TABLE sync_endpoint_state (
   last_successful_page integer NULL,
   last_successful_cursor text NULL,
   updated_after_watermark timestamptz NULL,
+  current_mode text NULL,
+  sync_strategy text NOT NULL DEFAULT 'reconcile_scan',
+  current_job_id uuid NULL,
+  retry_count integer NOT NULL DEFAULT 0,
+  pending_backlog_count integer NOT NULL DEFAULT 0,
+  failed_page_count integer NOT NULL DEFAULT 0,
+  pages_processed_last_job integer NOT NULL DEFAULT 0,
+  rows_fetched_last_job bigint NOT NULL DEFAULT 0,
+  last_http_status integer NULL,
+  heartbeat_at timestamptz NULL,
+  last_seen_remote_cursor text NULL,
   rows_fetched bigint NOT NULL DEFAULT 0,
   rows_persisted bigint NOT NULL DEFAULT 0,
   next_planned_at timestamptz NULL,
@@ -588,8 +601,11 @@ CREATE TABLE sync_endpoint_state (
   updated_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT fk_sync_endpoint_state_tenant FOREIGN KEY (tenant_id) REFERENCES tenant(id) ON DELETE CASCADE,
   CONSTRAINT fk_sync_endpoint_state_job FOREIGN KEY (last_job_id) REFERENCES sync_job(id) ON DELETE SET NULL,
+  CONSTRAINT fk_sync_endpoint_state_current_job FOREIGN KEY (current_job_id) REFERENCES sync_job(id) ON DELETE SET NULL,
   CONSTRAINT uq_sync_endpoint_state_tenant_endpoint UNIQUE (tenant_id, endpoint_key),
   CONSTRAINT ck_sync_endpoint_state_status CHECK (status IN ('idle', 'running', 'success', 'partial', 'failed')),
+  CONSTRAINT ck_sync_endpoint_state_mode CHECK (current_mode IS NULL OR current_mode IN ('bootstrap_initial', 'delta', 'retry_backlog', 'manual_full_resync', 'slow_reconciliation', 'reconcile_scan')),
+  CONSTRAINT ck_sync_endpoint_state_strategy CHECK (sync_strategy IN ('delta_supported', 'reconcile_scan', 'backlog_retry_only', 'not_materialized')),
   CONSTRAINT ck_sync_endpoint_state_endpoint_not_blank CHECK (btrim(endpoint_key) <> ''),
   CONSTRAINT ck_sync_endpoint_state_rows_fetched_nonnegative CHECK (rows_fetched >= 0),
   CONSTRAINT ck_sync_endpoint_state_rows_persisted_nonnegative CHECK (rows_persisted >= 0)
@@ -597,6 +613,7 @@ CREATE TABLE sync_endpoint_state (
 
 CREATE INDEX ix_sync_endpoint_state_tenant_status ON sync_endpoint_state (tenant_id, status);
 CREATE INDEX ix_sync_endpoint_state_next_planned ON sync_endpoint_state (next_planned_at);
+CREATE INDEX ix_sync_endpoint_state_current_job ON sync_endpoint_state (current_job_id);
 
 CREATE TRIGGER trg_sync_endpoint_state_set_updated_at
 BEFORE UPDATE ON sync_endpoint_state
@@ -671,11 +688,17 @@ CREATE TABLE sync_page_log (
   rows_persisted integer NOT NULL DEFAULT 0,
   http_status integer NULL,
   error_message text NULL,
+  mode text NULL,
+  retry_count integer NOT NULL DEFAULT 0,
+  started_at timestamptz NOT NULL DEFAULT now(),
+  finished_at timestamptz NULL,
+  error_text text NULL,
   attempt_no integer NOT NULL DEFAULT 1,
   occurred_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT fk_sync_page_log_tenant FOREIGN KEY (tenant_id) REFERENCES tenant(id) ON DELETE CASCADE,
   CONSTRAINT fk_sync_page_log_job FOREIGN KEY (job_id) REFERENCES sync_job(id) ON DELETE CASCADE,
   CONSTRAINT ck_sync_page_log_status CHECK (status IN ('success', 'failed', 'retry_success', 'retry_failed')),
+  CONSTRAINT ck_sync_page_log_mode CHECK (mode IS NULL OR mode IN ('bootstrap_initial', 'delta', 'retry_backlog', 'manual_full_resync', 'slow_reconciliation', 'reconcile_scan')),
   CONSTRAINT ck_sync_page_log_endpoint_not_blank CHECK (btrim(endpoint_key) <> ''),
   CONSTRAINT ck_sync_page_log_rows_fetched_nonnegative CHECK (rows_fetched >= 0),
   CONSTRAINT ck_sync_page_log_rows_persisted_nonnegative CHECK (rows_persisted >= 0),

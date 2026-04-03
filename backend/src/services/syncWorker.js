@@ -12,6 +12,38 @@ const MAX_BACKLOG_ATTEMPTS = 8;
 const BACKLOG_RETRY_BATCH_SIZE = 40;
 const DELTA_INTERVAL_MS = 10 * 60 * 1000;
 const DELTA_MAX_PAGES = 25;
+const SYNC_MODES = {
+  BOOTSTRAP_INITIAL: "bootstrap_initial",
+  DELTA: "delta",
+  RETRY_BACKLOG: "retry_backlog",
+  MANUAL_FULL_RESYNC: "manual_full_resync",
+  SLOW_RECONCILIATION: "slow_reconciliation",
+  RECONCILE_SCAN: "reconcile_scan",
+};
+const SYNC_STRATEGIES = {
+  DELTA_SUPPORTED: "delta_supported",
+  RECONCILE_SCAN: "reconcile_scan",
+  BACKLOG_RETRY_ONLY: "backlog_retry_only",
+  NOT_MATERIALIZED: "not_materialized",
+};
+const READ_ONLY_ENDPOINT_KEYS = new Set([
+  "users",
+  "fitters",
+  "fitterhours",
+  "worksheets",
+  "invoices",
+  "purchaseinvoices",
+]);
+const ENDPOINT_STRATEGY = {
+  projects_v4: { supportsDelta: true, strategy: SYNC_STRATEGIES.DELTA_SUPPORTED, materialized: true },
+  projects_v3: { supportsDelta: true, strategy: SYNC_STRATEGIES.DELTA_SUPPORTED, materialized: true },
+  users: { supportsDelta: false, strategy: SYNC_STRATEGIES.RECONCILE_SCAN, materialized: false },
+  fitters: { supportsDelta: false, strategy: SYNC_STRATEGIES.RECONCILE_SCAN, materialized: false },
+  fitterhours: { supportsDelta: false, strategy: SYNC_STRATEGIES.RECONCILE_SCAN, materialized: false },
+  invoices: { supportsDelta: false, strategy: SYNC_STRATEGIES.RECONCILE_SCAN, materialized: false },
+  purchaseinvoices: { supportsDelta: false, strategy: SYNC_STRATEGIES.RECONCILE_SCAN, materialized: false },
+  worksheets: { supportsDelta: false, strategy: SYNC_STRATEGIES.RECONCILE_SCAN, materialized: false },
+};
 
 let started = false;
 let timer = null;
@@ -47,6 +79,15 @@ function extractSiteName(snapshot) {
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function chunkArray(items, chunkSize) {
+  const size = Math.max(1, Number(chunkSize) || 1);
+  const chunks = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
 }
 
 function isRetryableHttpStatus(status) {
@@ -122,6 +163,37 @@ async function heartbeat(jobId) {
   });
 }
 
+function modeFromJobType(jobType, fallbackMode = SYNC_MODES.DELTA) {
+  const normalized = String(jobType || "").trim().toLowerCase();
+  if (!normalized) return fallbackMode;
+  if (Object.values(SYNC_MODES).includes(normalized)) {
+    return normalized;
+  }
+  if (normalized === "bootstrap") {
+    return SYNC_MODES.BOOTSTRAP_INITIAL;
+  }
+  return fallbackMode;
+}
+
+async function markEndpointHeartbeat(client, { tenantId, endpointKey, jobId, currentMode }) {
+  await ensureEndpointState(client, { tenantId, endpointKey });
+  await client.query(
+    `
+      UPDATE sync_endpoint_state
+      SET
+        heartbeat_at = now(),
+        last_attempt_at = now(),
+        current_job_id = COALESCE($3, current_job_id),
+        current_mode = COALESCE($4::text, current_mode),
+        status = CASE WHEN status = 'idle' THEN 'running' ELSE status END,
+        updated_at = now()
+      WHERE tenant_id = $1
+        AND endpoint_key = $2
+    `,
+    [tenantId, endpointKey, jobId || null, currentMode || null]
+  );
+}
+
 async function ensureEndpointState(client, { tenantId, endpointKey }) {
   await client.query(
     `
@@ -138,13 +210,24 @@ async function markEndpointState(client, {
   endpointKey,
   status,
   jobId,
+  currentJobId,
+  currentMode,
+  syncStrategy,
   lastAttemptAt,
   lastSuccessAt,
   lastSuccessfulPage,
   lastSuccessfulCursor,
+  lastSeenRemoteCursor,
   updatedAfterWatermark,
   rowsFetchedDelta,
   rowsPersistedDelta,
+  pagesProcessedLastJob,
+  rowsFetchedLastJob,
+  retryCount,
+  pendingBacklogCount,
+  failedPageCount,
+  lastHttpStatus,
+  heartbeatAt,
   nextPlannedAt,
   errorMessage,
 }) {
@@ -156,15 +239,26 @@ async function markEndpointState(client, {
       SET
         status = COALESCE($3::text, status),
         last_job_id = COALESCE($4, last_job_id),
-        last_attempt_at = COALESCE($5, last_attempt_at),
-        last_successful_sync_at = COALESCE($6, last_successful_sync_at),
-        last_successful_page = COALESCE($7, last_successful_page),
-        last_successful_cursor = COALESCE($8::text, last_successful_cursor),
-        updated_after_watermark = COALESCE($9::timestamptz, updated_after_watermark),
-        rows_fetched = rows_fetched + COALESCE($10, 0),
-        rows_persisted = rows_persisted + COALESCE($11, 0),
-        next_planned_at = COALESCE($12::timestamptz, next_planned_at),
-        last_error = COALESCE($13::text, last_error),
+        current_job_id = COALESCE($5, current_job_id),
+        current_mode = COALESCE($6::text, current_mode),
+        sync_strategy = COALESCE($7::text, sync_strategy),
+        last_attempt_at = COALESCE($8, last_attempt_at),
+        last_successful_sync_at = COALESCE($9, last_successful_sync_at),
+        last_successful_page = COALESCE($10, last_successful_page),
+        last_successful_cursor = COALESCE($11::text, last_successful_cursor),
+        last_seen_remote_cursor = COALESCE($12::text, last_seen_remote_cursor),
+        updated_after_watermark = COALESCE($13::timestamptz, updated_after_watermark),
+        rows_fetched = rows_fetched + COALESCE($14, 0),
+        rows_persisted = rows_persisted + COALESCE($15, 0),
+        pages_processed_last_job = COALESCE($16, pages_processed_last_job),
+        rows_fetched_last_job = COALESCE($17, rows_fetched_last_job),
+        retry_count = COALESCE($18, retry_count),
+        pending_backlog_count = COALESCE($19, pending_backlog_count),
+        failed_page_count = COALESCE($20, failed_page_count),
+        last_http_status = COALESCE($21, last_http_status),
+        heartbeat_at = COALESCE($22::timestamptz, heartbeat_at),
+        next_planned_at = COALESCE($23::timestamptz, next_planned_at),
+        last_error = COALESCE($24::text, last_error),
         updated_at = now()
       WHERE tenant_id = $1 AND endpoint_key = $2
     `,
@@ -173,13 +267,24 @@ async function markEndpointState(client, {
       endpointKey,
       status || null,
       jobId || null,
+      currentJobId || null,
+      currentMode || null,
+      syncStrategy || null,
       lastAttemptAt || null,
       lastSuccessAt || null,
       lastSuccessfulPage == null ? null : Number(lastSuccessfulPage),
       lastSuccessfulCursor || null,
+      lastSeenRemoteCursor || null,
       updatedAfterWatermark || null,
       rowsFetchedDelta == null ? 0 : Number(rowsFetchedDelta),
       rowsPersistedDelta == null ? 0 : Number(rowsPersistedDelta),
+      pagesProcessedLastJob == null ? null : Number(pagesProcessedLastJob),
+      rowsFetchedLastJob == null ? null : Number(rowsFetchedLastJob),
+      retryCount == null ? null : Number(retryCount),
+      pendingBacklogCount == null ? null : Number(pendingBacklogCount),
+      failedPageCount == null ? null : Number(failedPageCount),
+      lastHttpStatus == null ? null : Number(lastHttpStatus),
+      heartbeatAt || null,
       nextPlannedAt || null,
       errorMessage || null,
     ]
@@ -190,6 +295,7 @@ async function appendPageLog(client, {
   tenantId,
   jobId,
   endpointKey,
+  mode,
   pageNumber,
   nextPage,
   status,
@@ -197,6 +303,9 @@ async function appendPageLog(client, {
   rowsPersisted,
   httpStatus,
   errorMessage,
+  retryCount,
+  startedAt,
+  finishedAt,
   attemptNo,
 }) {
   await client.query(
@@ -205,6 +314,7 @@ async function appendPageLog(client, {
         tenant_id,
         job_id,
         endpoint_key,
+        mode,
         page_number,
         next_page,
         status,
@@ -212,19 +322,28 @@ async function appendPageLog(client, {
         rows_persisted,
         http_status,
         error_message,
+        retry_count,
+        started_at,
+        finished_at,
+        error_text,
         attempt_no
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
     `,
     [
       tenantId,
       jobId,
       endpointKey,
+      mode || null,
       pageNumber == null ? null : Number(pageNumber),
       nextPage == null ? null : Number(nextPage),
       status,
       rowsFetched == null ? 0 : Number(rowsFetched),
       rowsPersisted == null ? 0 : Number(rowsPersisted),
       httpStatus == null ? null : Number(httpStatus),
+      errorMessage || null,
+      retryCount == null ? Math.max(0, (attemptNo == null ? 1 : Number(attemptNo)) - 1) : Number(retryCount),
+      startedAt || nowIso(),
+      finishedAt || nowIso(),
       errorMessage || null,
       attemptNo == null ? 1 : Number(attemptNo),
     ]
@@ -318,6 +437,17 @@ async function getEndpointState(client, { tenantId, endpointKey }) {
         last_successful_sync_at,
         last_successful_page,
         last_successful_cursor,
+        current_mode,
+        sync_strategy,
+        current_job_id,
+        retry_count,
+        pending_backlog_count,
+        failed_page_count,
+        pages_processed_last_job,
+        rows_fetched_last_job,
+        last_http_status,
+        heartbeat_at,
+        last_seen_remote_cursor,
         updated_after_watermark,
         rows_fetched,
         rows_persisted,
@@ -362,6 +492,35 @@ function buildProjectEndpointVariants(baseUrl) {
     `${normalized}/api/v3.0/projects`,
     `${normalized}/api/v4/projects`,
     `${normalized}/api/v3/projects`,
+  ].map((url) => url.replace(/([^:]\/)(\/+)/g, "$1"));
+  return [...new Set(variants)];
+}
+
+function buildProjectSourceEndpointVariants(baseUrl) {
+  const normalized = normalizeBase(baseUrl);
+  const v4 = [
+    `${normalized}/api/v4.0/projects`,
+    `${normalized}/api/v4/projects`,
+  ].map((url) => url.replace(/([^:]\/)(\/+)/g, "$1"));
+  const v3 = [
+    `${normalized}/api/v3.0/projects`,
+    `${normalized}/api/v3/projects`,
+  ].map((url) => url.replace(/([^:]\/)(\/+)/g, "$1"));
+
+  return {
+    projects_v4: [...new Set(v4)],
+    projects_v3: [...new Set(v3)],
+  };
+}
+
+function buildGenericEndpointVariants(baseUrl, endpointKey) {
+  const normalized = normalizeBase(baseUrl);
+  const safeKey = String(endpointKey || "").trim().toLowerCase();
+  const variants = [
+    `${normalized}/api/v4.0/${safeKey}`,
+    `${normalized}/api/v3.0/${safeKey}`,
+    `${normalized}/api/v4/${safeKey}`,
+    `${normalized}/api/v3/${safeKey}`,
   ].map((url) => url.replace(/([^:]\/)(\/+)/g, "$1"));
   return [...new Set(variants)];
 }
@@ -651,68 +810,93 @@ function requiresIdentityEnrichment(row) {
   return !row.responsibleCode || String(row.responsibleCode).trim() === "";
 }
 
-async function upsertProjectBatch(client, { tenantId, mappedRows }) {
+async function upsertProjectBatch(client, { tenantId, mappedRows, sourceEndpointKey }) {
   if (!mappedRows.length) return;
 
-  const values = [];
-  const params = [];
-  mappedRows.forEach((row, index) => {
-    const offset = index * 12;
-    params.push(
-      tenantId,
-      row.externalProjectRef,
-      row.name,
-      row.status,
-      row.activityDate,
-      row.isClosed,
-      row.responsibleCode,
-      row.responsibleName,
-      row.responsibleId,
-      row.teamLeaderCode,
-      row.teamLeaderName,
-      row.teamLeaderId
-    );
-    values.push(
-      `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9}, $${offset + 10}, $${offset + 11}, $${offset + 12})`
-    );
-  });
+  const fromV4 = sourceEndpointKey === "projects_v4";
+  const fromV3 = sourceEndpointKey === "projects_v3";
 
-  const sql = `
-    INSERT INTO project_core (
-      tenant_id,
-      external_project_ref,
-      name,
-      status,
-      activity_date,
-      is_closed,
-      responsible_code,
-      responsible_name,
-      responsible_id,
-      team_leader_code,
-      team_leader_name,
-      team_leader_id
-    )
-    VALUES ${values.join(",\n")}
-    ON CONFLICT (tenant_id, external_project_ref)
-    WHERE external_project_ref IS NOT NULL
-    DO UPDATE SET
-      name = EXCLUDED.name,
-      status = EXCLUDED.status,
-      activity_date = COALESCE(EXCLUDED.activity_date, project_core.activity_date),
-      is_closed = COALESCE(EXCLUDED.is_closed, project_core.is_closed),
-      responsible_code = EXCLUDED.responsible_code,
-      responsible_name = EXCLUDED.responsible_name,
-      responsible_id = EXCLUDED.responsible_id,
-      team_leader_code = EXCLUDED.team_leader_code,
-      team_leader_name = EXCLUDED.team_leader_name,
-      team_leader_id = EXCLUDED.team_leader_id,
-      updated_at = now()
-  `;
+  const rowChunks = chunkArray(mappedRows, 100);
+  for (const chunk of rowChunks) {
+    const values = [];
+    const params = [];
+    chunk.forEach((row, index) => {
+      const offset = index * 14;
+      params.push(
+        tenantId,
+        row.externalProjectRef,
+        row.name,
+        row.status,
+        row.activityDate,
+        row.isClosed,
+        row.responsibleCode,
+        row.responsibleName,
+        row.responsibleId,
+        row.teamLeaderCode,
+        row.teamLeaderName,
+        row.teamLeaderId,
+        fromV4,
+        fromV3
+      );
+      values.push(
+        `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9}, $${offset + 10}, $${offset + 11}, $${offset + 12}, $${offset + 13}, $${offset + 14})`
+      );
+    });
 
-  await client.query(sql, params);
+    const sql = `
+      INSERT INTO project_core (
+        tenant_id,
+        external_project_ref,
+        name,
+        status,
+        activity_date,
+        is_closed,
+        responsible_code,
+        responsible_name,
+        responsible_id,
+        team_leader_code,
+        team_leader_name,
+        team_leader_id,
+        has_v4,
+        has_v3
+      )
+      VALUES ${values.join(",\n")}
+      ON CONFLICT (tenant_id, external_project_ref)
+      WHERE external_project_ref IS NOT NULL
+      DO UPDATE SET
+        name = EXCLUDED.name,
+        status = EXCLUDED.status,
+        activity_date = COALESCE(EXCLUDED.activity_date, project_core.activity_date),
+        is_closed = COALESCE(EXCLUDED.is_closed, project_core.is_closed),
+        responsible_code = EXCLUDED.responsible_code,
+        responsible_name = EXCLUDED.responsible_name,
+        responsible_id = EXCLUDED.responsible_id,
+        team_leader_code = EXCLUDED.team_leader_code,
+        team_leader_name = EXCLUDED.team_leader_name,
+        team_leader_id = EXCLUDED.team_leader_id,
+        has_v4 = project_core.has_v4 OR EXCLUDED.has_v4,
+        has_v3 = project_core.has_v3 OR EXCLUDED.has_v3,
+        updated_at = now()
+    `;
+
+    await client.query(sql, params);
+  }
 }
 
 async function fetchProjectsPage({ endpointBase, page, pageSize, headers, updatedAfter }) {
+  const params = new URLSearchParams();
+  params.set("page", String(page));
+  params.set("pageSize", String(pageSize));
+  if (updatedAfter) {
+    params.set("updatedAfter", String(updatedAfter));
+  }
+
+  const url = `${endpointBase}?${params.toString()}`;
+  const payload = await fetchJsonWithRetry(url, { headers });
+  return parsePagedPayload(payload);
+}
+
+async function fetchEndpointPage({ endpointBase, page, pageSize, headers, updatedAfter }) {
   const params = new URLSearchParams();
   params.set("page", String(page));
   params.set("pageSize", String(pageSize));
@@ -744,6 +928,30 @@ async function discoverCompatibleProjectEndpoints({ endpointBases, headers }) {
 
   if (!compatible.length) {
     throw lastError || new Error("No compatible E-Komplet /projects endpoint found");
+  }
+
+  return compatible;
+}
+
+async function discoverCompatibleEndpoints({ endpointBases, headers }) {
+  const compatible = [];
+  let lastError = null;
+
+  for (const endpointBase of endpointBases) {
+    try {
+      await fetchEndpointPage({ endpointBase, page: 1, pageSize: 1, headers, updatedAfter: null });
+      compatible.push(endpointBase);
+    } catch (error) {
+      lastError = error;
+      if (/\(404\)|\(400\)/.test(String(error.message || ""))) {
+        continue;
+      }
+      console.error(`[syncWorker] endpoint probe failed endpoint=${endpointBase} msg=${error.message}`);
+    }
+  }
+
+  if (!compatible.length) {
+    throw lastError || new Error("No compatible E-Komplet endpoint found");
   }
 
   return compatible;
@@ -867,28 +1075,40 @@ async function enrichProjectIdentityFields({ ekBaseUrl, headers, rows }) {
   return { rows: enrichedRows, enrichedCount };
 }
 
-async function isProjectsSyncEnabled(client, tenantId) {
-  const { rows } = await client.query(
-    `
-      SELECT 1
-      FROM tenant_endpoint_selection
-      WHERE tenant_id = $1
-        AND endpoint_key = 'projects'
-        AND enabled = true
-      LIMIT 1
-    `,
-    [tenantId]
-  );
-  return rows.length > 0;
-}
-
 function computeRetryBackoffMs(retryCount) {
   const baseMs = 15_000;
   return baseMs * Math.pow(2, Math.max(0, retryCount - 1));
 }
 
-async function getProjectEndpointsAndHeaders({ cfg }) {
-  const endpointBases = buildProjectEndpointVariants(cfg.ekBaseUrl);
+async function getProjectSourceEndpointsAndHeaders({ cfg }) {
+  const sourceVariants = buildProjectSourceEndpointVariants(cfg.ekBaseUrl);
+  const headers = {
+    apikey: cfg.ekApiKey,
+    siteName: cfg.siteName,
+    Accept: "application/json",
+  };
+
+  const sources = [
+    {
+      endpointKey: "projects_v4",
+      endpointBases: sourceVariants.projects_v4,
+      strategy: ENDPOINT_STRATEGY.projects_v4,
+    },
+    {
+      endpointKey: "projects_v3",
+      endpointBases: sourceVariants.projects_v3,
+      strategy: ENDPOINT_STRATEGY.projects_v3,
+    },
+  ];
+
+  return {
+    sources,
+    headers,
+  };
+}
+
+async function getGenericEndpointsAndHeaders({ cfg, endpointKey }) {
+  const endpointBases = buildGenericEndpointVariants(cfg.ekBaseUrl, endpointKey);
   const headers = {
     apikey: cfg.ekApiKey,
     siteName: cfg.siteName,
@@ -901,12 +1121,285 @@ async function getProjectEndpointsAndHeaders({ cfg }) {
   };
 }
 
+async function runReadOnlyEndpoint({ job, cfg, endpointKey, mode }) {
+  const normalizedMode = modeFromJobType(mode, SYNC_MODES.SLOW_RECONCILIATION);
+  const strategyMeta = ENDPOINT_STRATEGY[endpointKey] || {
+    supportsDelta: false,
+    strategy: SYNC_STRATEGIES.NOT_MATERIALIZED,
+    materialized: false,
+  };
+  const { endpointBases, headers } = await getGenericEndpointsAndHeaders({ cfg, endpointKey });
+  const compatibleEndpoints = await discoverCompatibleEndpoints({ endpointBases, headers });
+
+  const state = await withTransaction(async (client) => getEndpointState(client, {
+    tenantId: job.tenant_id,
+    endpointKey,
+  }));
+
+  let updatedAfter = null;
+  if (normalizedMode === SYNC_MODES.DELTA && strategyMeta.supportsDelta && state && state.updated_after_watermark) {
+    updatedAfter = state.updated_after_watermark;
+  }
+
+  let pagesProcessed = 0;
+  let rowsFetchedTotal = 0;
+  let retriesQueued = 0;
+  let lastSuccessfulPage = state && state.last_successful_page ? Number(state.last_successful_page) : null;
+
+  await withTransaction(async (client) => {
+    await markEndpointState(client, {
+      tenantId: job.tenant_id,
+      endpointKey,
+      status: "running",
+      jobId: job.id,
+      currentJobId: job.id,
+      currentMode: normalizedMode,
+      syncStrategy: strategyMeta.materialized ? strategyMeta.strategy : SYNC_STRATEGIES.NOT_MATERIALIZED,
+      lastAttemptAt: nowIso(),
+      lastSuccessAt: null,
+      lastSuccessfulPage: null,
+      lastSuccessfulCursor: null,
+      lastSeenRemoteCursor: null,
+      updatedAfterWatermark: null,
+      rowsFetchedDelta: 0,
+      rowsPersistedDelta: 0,
+      pagesProcessedLastJob: 0,
+      rowsFetchedLastJob: 0,
+      retryCount: 0,
+      pendingBacklogCount: null,
+      failedPageCount: null,
+      lastHttpStatus: null,
+      heartbeatAt: nowIso(),
+      nextPlannedAt: normalizedMode === SYNC_MODES.DELTA ? new Date(Date.now() + DELTA_INTERVAL_MS).toISOString() : null,
+      errorMessage: null,
+    });
+  });
+
+  for (const endpointBase of compatibleEndpoints) {
+    let page = state && state.last_successful_page ? Number(state.last_successful_page) + 1 : 1;
+    if (normalizedMode === SYNC_MODES.BOOTSTRAP_INITIAL || normalizedMode === SYNC_MODES.MANUAL_FULL_RESYNC) {
+      page = 1;
+    }
+
+    while (true) {
+      await heartbeat(job.id);
+      await withTransaction(async (client) => {
+        await markEndpointHeartbeat(client, {
+          tenantId: job.tenant_id,
+          endpointKey,
+          jobId: job.id,
+          currentMode: normalizedMode,
+        });
+      });
+
+      try {
+        const parsed = await fetchEndpointPage({
+          endpointBase,
+          page,
+          pageSize: PAGE_SIZE,
+          headers,
+          updatedAfter,
+        });
+
+        const rowsFetched = parsed.rows.length;
+
+        await withTransaction(async (client) => {
+          await appendPageLog(client, {
+            tenantId: job.tenant_id,
+            jobId: job.id,
+            endpointKey,
+            mode: normalizedMode,
+            pageNumber: page,
+            nextPage: parsed.nextPage,
+            status: "success",
+            rowsFetched,
+            rowsPersisted: 0,
+            httpStatus: 200,
+            errorMessage: "persist_skipped:no_supported_table",
+            retryCount: 0,
+            startedAt: nowIso(),
+            finishedAt: nowIso(),
+            attemptNo: 1,
+          });
+
+          await markEndpointState(client, {
+            tenantId: job.tenant_id,
+            endpointKey,
+            status: "running",
+            jobId: job.id,
+            currentJobId: job.id,
+            currentMode: normalizedMode,
+            syncStrategy: strategyMeta.materialized ? strategyMeta.strategy : SYNC_STRATEGIES.NOT_MATERIALIZED,
+            lastAttemptAt: nowIso(),
+            lastSuccessAt: null,
+            lastSuccessfulPage: page,
+            lastSuccessfulCursor: parsed.nextPage == null ? null : String(parsed.nextPage),
+            lastSeenRemoteCursor: parsed.nextPage == null ? null : String(parsed.nextPage),
+            updatedAfterWatermark: null,
+            rowsFetchedDelta: rowsFetched,
+            rowsPersistedDelta: 0,
+            pagesProcessedLastJob: null,
+            rowsFetchedLastJob: null,
+            retryCount: null,
+            pendingBacklogCount: null,
+            failedPageCount: null,
+            lastHttpStatus: 200,
+            heartbeatAt: nowIso(),
+            nextPlannedAt: null,
+            errorMessage: "persist_skipped:no_supported_table",
+          });
+        });
+
+        if (rowsFetched === 0) {
+          console.log(
+            `[syncWorker] endpoint=${endpointKey} source=${endpointBase} page=${page} nextPage=${parsed.nextPage} pageCount=unknown rowsPersisted=0 collectedOrPersistedTotal=${rowsFetchedTotal}`
+          );
+          break;
+        }
+
+        pagesProcessed += 1;
+        rowsFetchedTotal += rowsFetched;
+        lastSuccessfulPage = page;
+
+        await withTransaction(async (client) => {
+          await syncJobQueries.markJobProgress(client, {
+            jobId: job.id,
+            rowsProcessed: rowsFetchedTotal,
+            pagesProcessed,
+          });
+        });
+
+        console.log(
+          `[syncWorker] endpoint=${endpointKey} source=${endpointBase} page=${page} nextPage=${parsed.nextPage} pageCount=unknown rowsPersisted=0 collectedOrPersistedTotal=${rowsFetchedTotal}`
+        );
+
+        page += 1;
+      } catch (error) {
+        const classification = classifyError(error);
+        const nextRetryAt = classification.retryable ? computeBacklogRetryAt(classification.kind, 1) : null;
+        const status = classification.retryable ? "deferred" : "failed";
+
+        await withTransaction(async (client) => {
+          await appendPageLog(client, {
+            tenantId: job.tenant_id,
+            jobId: job.id,
+            endpointKey,
+            mode: normalizedMode,
+            pageNumber: page,
+            nextPage: null,
+            status: "failed",
+            rowsFetched: 0,
+            rowsPersisted: 0,
+            httpStatus: classification.status,
+            errorMessage: String(error.message || "sync_page_failed").slice(0, 2000),
+            retryCount: 0,
+            startedAt: nowIso(),
+            finishedAt: nowIso(),
+            attemptNo: 1,
+          });
+
+          await queueBacklogFailure(client, {
+            tenantId: job.tenant_id,
+            jobId: job.id,
+            endpointKey,
+            locator: normalizeLocator({ page }),
+            failureKind: classification.kind,
+            errorMessage: error.message,
+            attempts: 1,
+            nextRetryAt,
+            status,
+          });
+
+          await markEndpointState(client, {
+            tenantId: job.tenant_id,
+            endpointKey,
+            status: "partial",
+            jobId: job.id,
+            currentJobId: job.id,
+            currentMode: normalizedMode,
+            syncStrategy: strategyMeta.materialized ? strategyMeta.strategy : SYNC_STRATEGIES.NOT_MATERIALIZED,
+            lastAttemptAt: nowIso(),
+            lastSuccessAt: null,
+            lastSuccessfulPage: lastSuccessfulPage,
+            lastSuccessfulCursor: null,
+            lastSeenRemoteCursor: null,
+            updatedAfterWatermark: null,
+            rowsFetchedDelta: 0,
+            rowsPersistedDelta: 0,
+            pagesProcessedLastJob: null,
+            rowsFetchedLastJob: null,
+            retryCount: 1,
+            pendingBacklogCount: null,
+            failedPageCount: null,
+            lastHttpStatus: classification.status,
+            heartbeatAt: nowIso(),
+            nextPlannedAt: nextRetryAt,
+            errorMessage: String(error.message || "sync_page_failed").slice(0, 2000),
+          });
+        });
+
+        retriesQueued += 1;
+        page += 1;
+      }
+    }
+  }
+
+  await withTransaction(async (client) => {
+    const { rows } = await client.query(
+      `
+        SELECT
+          COUNT(*) FILTER (WHERE status IN ('pending', 'deferred', 'retrying'))::int AS pending_count,
+          COUNT(*) FILTER (WHERE status = 'failed')::int AS failed_count
+        FROM sync_failure_backlog
+        WHERE tenant_id = $1
+          AND endpoint_key = $2
+      `,
+      [job.tenant_id, endpointKey]
+    );
+    const backlogCounts = rows[0] || { pending_count: 0, failed_count: 0 };
+
+    await markEndpointState(client, {
+      tenantId: job.tenant_id,
+      endpointKey,
+      status: Number(backlogCounts.pending_count || 0) > 0 ? "partial" : "success",
+      jobId: job.id,
+      currentJobId: null,
+      currentMode: normalizedMode,
+      syncStrategy: strategyMeta.materialized ? strategyMeta.strategy : SYNC_STRATEGIES.NOT_MATERIALIZED,
+      lastAttemptAt: nowIso(),
+      lastSuccessAt: nowIso(),
+      lastSuccessfulPage: lastSuccessfulPage,
+      lastSuccessfulCursor: null,
+      lastSeenRemoteCursor: null,
+      updatedAfterWatermark: normalizedMode === SYNC_MODES.DELTA && strategyMeta.supportsDelta ? nowIso() : null,
+      rowsFetchedDelta: 0,
+      rowsPersistedDelta: 0,
+      pagesProcessedLastJob: pagesProcessed,
+      rowsFetchedLastJob: rowsFetchedTotal,
+      retryCount: retriesQueued,
+      pendingBacklogCount: Number(backlogCounts.pending_count || 0),
+      failedPageCount: Number(backlogCounts.failed_count || 0),
+      lastHttpStatus: null,
+      heartbeatAt: nowIso(),
+      nextPlannedAt: new Date(Date.now() + DELTA_INTERVAL_MS).toISOString(),
+      errorMessage: "persist_skipped:no_supported_table",
+    });
+  });
+
+  return {
+    pagesProcessed,
+    rowsProcessed: 0,
+    retriesQueued,
+  };
+}
+
 async function persistProjectsPage({
   job,
   cfg,
   endpointBase,
   headers,
   endpointKey,
+  mode,
   page,
   updatedAfter,
 }) {
@@ -923,12 +1416,14 @@ async function persistProjectsPage({
     await upsertProjectBatch(client, {
       tenantId: job.tenant_id,
       mappedRows: enriched.rows,
+      sourceEndpointKey: endpointKey,
     });
 
     await appendPageLog(client, {
       tenantId: job.tenant_id,
       jobId: job.id,
       endpointKey,
+      mode,
       pageNumber: page,
       nextPage: parsed.nextPage,
       status: "success",
@@ -936,6 +1431,9 @@ async function persistProjectsPage({
       rowsPersisted: enriched.rows.length,
       httpStatus: 200,
       errorMessage: null,
+      retryCount: 0,
+      startedAt: nowIso(),
+      finishedAt: nowIso(),
       attemptNo: 1,
     });
 
@@ -944,13 +1442,24 @@ async function persistProjectsPage({
       endpointKey,
       status: "running",
       jobId: job.id,
+      currentJobId: job.id,
+      currentMode: mode,
+      syncStrategy: ENDPOINT_STRATEGY[endpointKey]?.strategy || SYNC_STRATEGIES.DELTA_SUPPORTED,
       lastAttemptAt: nowIso(),
       lastSuccessAt: null,
       lastSuccessfulPage: page,
       lastSuccessfulCursor: parsed.nextPage == null ? null : String(parsed.nextPage),
+      lastSeenRemoteCursor: parsed.nextPage == null ? null : String(parsed.nextPage),
       updatedAfterWatermark: null,
       rowsFetchedDelta: mappedRows.length,
       rowsPersistedDelta: enriched.rows.length,
+      pagesProcessedLastJob: null,
+      rowsFetchedLastJob: null,
+      retryCount: null,
+      pendingBacklogCount: null,
+      failedPageCount: null,
+      lastHttpStatus: 200,
+      heartbeatAt: nowIso(),
       nextPlannedAt: null,
       errorMessage: null,
     });
@@ -964,7 +1473,7 @@ async function persistProjectsPage({
   };
 }
 
-async function logProjectsPageFailure({ job, endpointKey, page, error, attempts }) {
+async function logProjectsPageFailure({ job, endpointKey, mode, page, error, attempts }) {
   const classification = classifyError(error);
   const status = classification.retryable ? "deferred" : "failed";
   const nextRetryAt = classification.retryable ? computeBacklogRetryAt(classification.kind, attempts) : null;
@@ -975,6 +1484,7 @@ async function logProjectsPageFailure({ job, endpointKey, page, error, attempts 
       tenantId: job.tenant_id,
       jobId: job.id,
       endpointKey,
+      mode,
       pageNumber: page,
       nextPage: null,
       status: "failed",
@@ -982,6 +1492,9 @@ async function logProjectsPageFailure({ job, endpointKey, page, error, attempts 
       rowsPersisted: 0,
       httpStatus: classification.status,
       errorMessage: String(error.message || "sync_page_failed").slice(0, 2000),
+      retryCount: Math.max(0, attempts - 1),
+      startedAt: nowIso(),
+      finishedAt: nowIso(),
       attemptNo: attempts,
     });
 
@@ -1002,13 +1515,24 @@ async function logProjectsPageFailure({ job, endpointKey, page, error, attempts 
       endpointKey,
       status: "partial",
       jobId: job.id,
+      currentJobId: job.id,
+      currentMode: mode,
+      syncStrategy: ENDPOINT_STRATEGY[endpointKey]?.strategy || SYNC_STRATEGIES.RECONCILE_SCAN,
       lastAttemptAt: nowIso(),
       lastSuccessAt: null,
       lastSuccessfulPage: null,
       lastSuccessfulCursor: null,
+      lastSeenRemoteCursor: null,
       updatedAfterWatermark: null,
       rowsFetchedDelta: 0,
       rowsPersistedDelta: 0,
+      pagesProcessedLastJob: null,
+      rowsFetchedLastJob: null,
+      retryCount: attempts,
+      pendingBacklogCount: null,
+      failedPageCount: null,
+      lastHttpStatus: classification.status,
+      heartbeatAt: nowIso(),
       nextPlannedAt: nextRetryAt,
       errorMessage: String(error.message || "sync_page_failed").slice(0, 2000),
     });
@@ -1018,134 +1542,207 @@ async function logProjectsPageFailure({ job, endpointKey, page, error, attempts 
 }
 
 async function runProjectsEndpoint({ job, cfg, mode }) {
-  const endpointKey = "projects";
-  const { endpointBases, headers } = await getProjectEndpointsAndHeaders({ cfg });
-  const compatibleEndpoints = await discoverCompatibleProjectEndpoints({ endpointBases, headers });
-  let updatedAfter = null;
-
-  const state = await withTransaction(async (client) => getEndpointState(client, {
-    tenantId: job.tenant_id,
-    endpointKey,
-  }));
-
-  if (mode === "delta" && state && state.updated_after_watermark) {
-    updatedAfter = state.updated_after_watermark;
-  }
+  const normalizedMode = modeFromJobType(mode, SYNC_MODES.DELTA);
+  const { sources, headers } = await getProjectSourceEndpointsAndHeaders({ cfg });
 
   let pagesProcessed = 0;
   let rowsProcessed = 0;
   let retriesQueued = 0;
 
-  await withTransaction(async (client) => {
-    await markEndpointState(client, {
-      tenantId: job.tenant_id,
-      endpointKey,
-      status: "running",
-      jobId: job.id,
-      lastAttemptAt: nowIso(),
-      lastSuccessAt: null,
-      lastSuccessfulPage: null,
-      lastSuccessfulCursor: null,
-      updatedAfterWatermark: null,
-      rowsFetchedDelta: 0,
-      rowsPersistedDelta: 0,
-      nextPlannedAt: mode === "delta" ? new Date(Date.now() + DELTA_INTERVAL_MS).toISOString() : null,
-      errorMessage: null,
+  for (const source of sources) {
+    const endpointKey = source.endpointKey;
+    const compatibleEndpoints = await discoverCompatibleProjectEndpoints({
+      endpointBases: source.endpointBases,
+      headers,
     });
-  });
 
-  for (const endpointBase of compatibleEndpoints) {
-    let page = 1;
+    const state = await withTransaction(async (client) =>
+      getEndpointState(client, {
+        tenantId: job.tenant_id,
+        endpointKey,
+      })
+    );
 
-    while (true) {
-      await heartbeat(job.id);
+    const hasKnownWatermark = Boolean(state && state.updated_after_watermark);
+    const hasBacklog = await withTransaction(async (client) => {
+      const { rows } = await client.query(
+        `
+          SELECT COUNT(*)::int AS c
+          FROM sync_failure_backlog
+          WHERE tenant_id = $1
+            AND endpoint_key = $2
+            AND status IN ('pending', 'deferred', 'retrying')
+        `,
+        [job.tenant_id, endpointKey]
+      );
+      return Number(rows[0]?.c || 0) > 0;
+    });
 
-      try {
-        const result = await persistProjectsPage({
-          job,
-          cfg,
-          endpointBase,
-          headers,
-          endpointKey,
-          page,
-          updatedAfter,
-        });
+    const isStrictDelta = normalizedMode === SYNC_MODES.DELTA && hasKnownWatermark && !hasBacklog;
+    const updatedAfter = isStrictDelta ? state.updated_after_watermark : null;
+    let page = state && state.last_successful_page ? Number(state.last_successful_page) + 1 : 1;
+    if (normalizedMode === SYNC_MODES.BOOTSTRAP_INITIAL || normalizedMode === SYNC_MODES.MANUAL_FULL_RESYNC) {
+      page = 1;
+    }
 
-        // Stop for this endpoint when a page returns zero rows.
-        if (result.rowsFetched === 0) {
-          console.log(
-            `[syncWorker] endpoint=${endpointBase} mode=${mode} page=${page} rows=0 cumulativeRows=${rowsProcessed}`
-          );
-          break;
-        }
+    await withTransaction(async (client) => {
+      await markEndpointState(client, {
+        tenantId: job.tenant_id,
+        endpointKey,
+        status: "running",
+        jobId: job.id,
+        currentJobId: job.id,
+        currentMode: normalizedMode,
+        syncStrategy: source.strategy.strategy,
+        lastAttemptAt: nowIso(),
+        lastSuccessAt: null,
+        lastSuccessfulPage: null,
+        lastSuccessfulCursor: null,
+        lastSeenRemoteCursor: null,
+        updatedAfterWatermark: null,
+        rowsFetchedDelta: 0,
+        rowsPersistedDelta: 0,
+        pagesProcessedLastJob: 0,
+        rowsFetchedLastJob: 0,
+        retryCount: 0,
+        pendingBacklogCount: null,
+        failedPageCount: null,
+        lastHttpStatus: null,
+        heartbeatAt: nowIso(),
+        nextPlannedAt: normalizedMode === SYNC_MODES.DELTA ? new Date(Date.now() + DELTA_INTERVAL_MS).toISOString() : null,
+        errorMessage: null,
+      });
+    });
 
-        pagesProcessed += 1;
-        rowsProcessed += result.rowsPersisted;
+    let sourcePagesProcessed = 0;
+    let sourceRowsFetched = 0;
+    let sourceRowsPersisted = 0;
+    let sourceRetries = 0;
+    let lastSuccessfulPage = state && state.last_successful_page ? Number(state.last_successful_page) : null;
 
+    for (const endpointBase of compatibleEndpoints) {
+      while (true) {
+        await heartbeat(job.id);
         await withTransaction(async (client) => {
-          await syncJobQueries.markJobProgress(client, {
+          await markEndpointHeartbeat(client, {
+            tenantId: job.tenant_id,
+            endpointKey,
             jobId: job.id,
-            rowsProcessed,
-            pagesProcessed,
+            currentMode: normalizedMode,
           });
         });
 
-        console.log(
-          `[syncWorker] endpoint=${endpointBase} mode=${mode} page=${page} rows=${result.rowsFetched} cumulativeRows=${rowsProcessed}`
-        );
+        try {
+          const result = await persistProjectsPage({
+            job,
+            cfg,
+            endpointBase,
+            headers,
+            endpointKey,
+            mode: normalizedMode,
+            page,
+            updatedAfter,
+          });
 
-        page += 1;
-      } catch (error) {
-        const attemptNo = 1;
-        const failure = await logProjectsPageFailure({
-          job,
-          endpointKey,
-          page,
-          error,
-          attempts: attemptNo,
-        });
+          if (result.rowsFetched === 0) {
+            console.log(
+              `[syncWorker] endpoint=${endpointKey} source=${endpointBase} currentPage=${page} nextPage=${result.parsed.nextPage} pageCount=unknown rowsPersisted=0 collectedOrPersistedTotal=${rowsProcessed}`
+            );
+            break;
+          }
 
-        retriesQueued += 1;
+          sourcePagesProcessed += 1;
+          sourceRowsFetched += result.rowsFetched;
+          sourceRowsPersisted += result.rowsPersisted;
+          pagesProcessed += 1;
+          rowsProcessed += result.rowsPersisted;
+          lastSuccessfulPage = page;
 
-        console.error(
-          `[syncWorker] page failed endpoint=${endpointBase} mode=${mode} page=${page} status=${failure.classification.kind} msg=${error.message}`
-        );
+          await withTransaction(async (client) => {
+            await syncJobQueries.markJobProgress(client, {
+              jobId: job.id,
+              rowsProcessed,
+              pagesProcessed,
+            });
+          });
 
-        page += 1;
+          console.log(
+            `[syncWorker] endpoint=${endpointKey} source=${endpointBase} currentPage=${page} nextPage=${result.parsed.nextPage} pageCount=unknown rowsPersisted=${result.rowsPersisted} collectedOrPersistedTotal=${rowsProcessed}`
+          );
+
+          page += 1;
+        } catch (error) {
+          const attemptNo = 1;
+          const failure = await logProjectsPageFailure({
+            job,
+            endpointKey,
+            mode: normalizedMode,
+            page,
+            error,
+            attempts: attemptNo,
+          });
+
+          sourceRetries += 1;
+          retriesQueued += 1;
+
+          console.error(
+            `[syncWorker] page failed endpoint=${endpointKey} source=${endpointBase} mode=${normalizedMode} page=${page} status=${failure.classification.kind} msg=${error.message}`
+          );
+
+          page += 1;
+        }
       }
     }
+
+    const backlogCounts = await withTransaction(async (client) => {
+      const { rows } = await client.query(
+        `
+          SELECT
+            COUNT(*) FILTER (WHERE status IN ('pending', 'deferred', 'retrying'))::int AS pending_count,
+            COUNT(*) FILTER (WHERE status = 'failed')::int AS failed_count
+          FROM sync_failure_backlog
+          WHERE tenant_id = $1
+            AND endpoint_key = $2
+        `,
+        [job.tenant_id, endpointKey]
+      );
+      return rows[0] || { pending_count: 0, failed_count: 0 };
+    });
+
+    await withTransaction(async (client) => {
+      await markEndpointState(client, {
+        tenantId: job.tenant_id,
+        endpointKey,
+        status: Number(backlogCounts.pending_count || 0) > 0 ? "partial" : "success",
+        jobId: job.id,
+        currentJobId: null,
+        currentMode: normalizedMode,
+        syncStrategy: source.strategy.strategy,
+        lastAttemptAt: nowIso(),
+        lastSuccessAt: nowIso(),
+        lastSuccessfulPage,
+        lastSuccessfulCursor: null,
+        lastSeenRemoteCursor: null,
+        updatedAfterWatermark: source.strategy.supportsDelta ? nowIso() : null,
+        rowsFetchedDelta: 0,
+        rowsPersistedDelta: 0,
+        pagesProcessedLastJob: sourcePagesProcessed,
+        rowsFetchedLastJob: sourceRowsFetched,
+        retryCount: sourceRetries,
+        pendingBacklogCount: Number(backlogCounts.pending_count || 0),
+        failedPageCount: Number(backlogCounts.failed_count || 0),
+        lastHttpStatus: null,
+        heartbeatAt: nowIso(),
+        nextPlannedAt: new Date(Date.now() + DELTA_INTERVAL_MS).toISOString(),
+        errorMessage: Number(backlogCounts.pending_count || 0) > 0 ? "backlog_pending" : null,
+      });
+    });
   }
 
-  await withTransaction(async (client) => {
-    await markEndpointState(client, {
-      tenantId: job.tenant_id,
-      endpointKey,
-      status: retriesQueued > 0 ? "partial" : "success",
-      jobId: job.id,
-      lastAttemptAt: nowIso(),
-      lastSuccessAt: nowIso(),
-      lastSuccessfulPage: page,
-      lastSuccessfulCursor: null,
-      updatedAfterWatermark: mode === "delta" ? nowIso() : null,
-      rowsFetchedDelta: 0,
-      rowsPersistedDelta: 0,
-      nextPlannedAt: new Date(Date.now() + DELTA_INTERVAL_MS).toISOString(),
-      errorMessage: null,
-    });
-  });
-
-  return {
-    pagesProcessed,
-    rowsProcessed,
-    retriesQueued,
-  };
+  return { pagesProcessed, rowsProcessed, retriesQueued };
 }
 
-async function runProjectsBacklogRetryRound({ job, cfg }) {
-  const endpointKey = "projects";
-  const { endpointBases, headers } = await getProjectEndpointsAndHeaders({ cfg });
-  const compatibleEndpoints = await discoverCompatibleProjectEndpoints({ endpointBases, headers });
-
+async function runProjectsBacklogRetryRound({ job, cfg, endpointKey }) {
   const dueFailures = await withTransaction(async (client) => {
     const { rows } = await client.query(
       `
@@ -1170,6 +1767,17 @@ async function runProjectsBacklogRetryRound({ job, cfg }) {
     );
     return rows;
   });
+
+  if (!dueFailures.length) {
+    return { retried: 0, resolved: 0, stillFailed: 0 };
+  }
+
+  const { sources, headers } = await getProjectSourceEndpointsAndHeaders({ cfg });
+  const source = sources.find((item) => item.endpointKey === endpointKey);
+  if (!source) {
+    return { retried: 0, resolved: 0, stillFailed: dueFailures.length };
+  }
+  const compatibleEndpoints = await discoverCompatibleProjectEndpoints({ endpointBases: source.endpointBases, headers });
 
   let retried = 0;
   let resolved = 0;
@@ -1213,6 +1821,7 @@ async function runProjectsBacklogRetryRound({ job, cfg }) {
         await upsertProjectBatch(client, {
           tenantId: job.tenant_id,
           mappedRows: enriched.rows,
+          sourceEndpointKey: endpointKey,
         });
 
         await resolveBacklogFailure(client, {
@@ -1224,6 +1833,7 @@ async function runProjectsBacklogRetryRound({ job, cfg }) {
           tenantId: job.tenant_id,
           jobId: job.id,
           endpointKey,
+          mode: SYNC_MODES.RETRY_BACKLOG,
           pageNumber: page,
           nextPage: parsed.nextPage,
           status: "retry_success",
@@ -1231,6 +1841,9 @@ async function runProjectsBacklogRetryRound({ job, cfg }) {
           rowsPersisted: enriched.rows.length,
           httpStatus: 200,
           errorMessage: null,
+          retryCount: Math.max(0, nextAttempt - 1),
+          startedAt: nowIso(),
+          finishedAt: nowIso(),
           attemptNo: nextAttempt,
         });
       });
@@ -1272,6 +1885,7 @@ async function runProjectsBacklogRetryRound({ job, cfg }) {
           tenantId: job.tenant_id,
           jobId: job.id,
           endpointKey,
+          mode: SYNC_MODES.RETRY_BACKLOG,
           pageNumber: page,
           nextPage: null,
           status: "retry_failed",
@@ -1279,6 +1893,9 @@ async function runProjectsBacklogRetryRound({ job, cfg }) {
           rowsPersisted: 0,
           httpStatus: classification.status,
           errorMessage: String(error.message || "sync_retry_failed").slice(0, 2000),
+          retryCount: Math.max(0, nextAttempt - 1),
+          startedAt: nowIso(),
+          finishedAt: nowIso(),
           attemptNo: nextAttempt,
         });
       });
@@ -1286,6 +1903,239 @@ async function runProjectsBacklogRetryRound({ job, cfg }) {
       stillFailed += 1;
     }
   }
+
+  await withTransaction(async (client) => {
+    const { rows } = await client.query(
+      `
+        SELECT
+          COUNT(*) FILTER (WHERE status IN ('pending', 'deferred', 'retrying'))::int AS pending_count,
+          COUNT(*) FILTER (WHERE status = 'failed')::int AS failed_count
+        FROM sync_failure_backlog
+        WHERE tenant_id = $1
+          AND endpoint_key = $2
+      `,
+      [job.tenant_id, endpointKey]
+    );
+    const counts = rows[0] || { pending_count: 0, failed_count: 0 };
+
+    await markEndpointState(client, {
+      tenantId: job.tenant_id,
+      endpointKey,
+      status: Number(counts.pending_count || 0) > 0 ? "partial" : "success",
+      jobId: job.id,
+      currentJobId: null,
+      currentMode: SYNC_MODES.RETRY_BACKLOG,
+      syncStrategy: ENDPOINT_STRATEGY[endpointKey]?.strategy || SYNC_STRATEGIES.DELTA_SUPPORTED,
+      lastAttemptAt: nowIso(),
+      lastSuccessAt: null,
+      lastSuccessfulPage: null,
+      lastSuccessfulCursor: null,
+      lastSeenRemoteCursor: null,
+      updatedAfterWatermark: null,
+      rowsFetchedDelta: 0,
+      rowsPersistedDelta: 0,
+      pagesProcessedLastJob: null,
+      rowsFetchedLastJob: null,
+      retryCount: retried,
+      pendingBacklogCount: Number(counts.pending_count || 0),
+      failedPageCount: Number(counts.failed_count || 0),
+      lastHttpStatus: null,
+      heartbeatAt: nowIso(),
+      nextPlannedAt: null,
+      errorMessage: Number(counts.pending_count || 0) > 0 ? "backlog_pending" : null,
+    });
+  });
+
+  return {
+    retried,
+    resolved,
+    stillFailed,
+  };
+}
+
+async function runReadOnlyBacklogRetryRound({ job, cfg, endpointKey }) {
+  const dueFailures = await withTransaction(async (client) => {
+    const { rows } = await client.query(
+      `
+        SELECT
+          id,
+          page_number,
+          attempts
+        FROM sync_failure_backlog
+        WHERE tenant_id = $1
+          AND endpoint_key = $2
+          AND status IN ('pending', 'deferred', 'retrying')
+          AND (next_retry_at IS NULL OR next_retry_at <= now())
+        ORDER BY last_failed_at ASC
+        LIMIT $3
+      `,
+      [job.tenant_id, endpointKey, BACKLOG_RETRY_BATCH_SIZE]
+    );
+    return rows;
+  });
+
+  if (!dueFailures.length) {
+    return { retried: 0, resolved: 0, stillFailed: 0 };
+  }
+
+  const { endpointBases, headers } = await getGenericEndpointsAndHeaders({ cfg, endpointKey });
+  const compatibleEndpoints = await discoverCompatibleEndpoints({ endpointBases, headers });
+
+  let retried = 0;
+  let resolved = 0;
+  let stillFailed = 0;
+
+  for (const failure of dueFailures) {
+    retried += 1;
+    const nextAttempt = Number(failure.attempts || 0) + 1;
+    const page = failure.page_number || 1;
+
+    try {
+      let parsed = null;
+      let lastEndpointError = null;
+
+      for (const endpointBase of compatibleEndpoints) {
+        try {
+          parsed = await fetchEndpointPage({
+            endpointBase,
+            page,
+            pageSize: PAGE_SIZE,
+            headers,
+            updatedAfter: null,
+          });
+          break;
+        } catch (error) {
+          lastEndpointError = error;
+        }
+      }
+
+      if (!parsed) {
+        throw lastEndpointError || new Error("retry page fetch failed on all endpoints");
+      }
+
+      await withTransaction(async (client) => {
+        await resolveBacklogFailure(client, {
+          backlogId: failure.id,
+          jobId: job.id,
+        });
+
+        await appendPageLog(client, {
+          tenantId: job.tenant_id,
+          jobId: job.id,
+          endpointKey,
+          mode: SYNC_MODES.RETRY_BACKLOG,
+          pageNumber: page,
+          nextPage: parsed.nextPage,
+          status: "retry_success",
+          rowsFetched: parsed.rows.length,
+          rowsPersisted: 0,
+          httpStatus: 200,
+          errorMessage: "persist_skipped:no_supported_table",
+          retryCount: Math.max(0, nextAttempt - 1),
+          startedAt: nowIso(),
+          finishedAt: nowIso(),
+          attemptNo: nextAttempt,
+        });
+      });
+
+      resolved += 1;
+    } catch (error) {
+      const classification = classifyError(error);
+      const terminal = !classification.retryable || nextAttempt >= MAX_BACKLOG_ATTEMPTS;
+      const nextStatus = terminal ? "failed" : "deferred";
+      const nextRetryAt = terminal ? null : computeBacklogRetryAt(classification.kind, nextAttempt);
+
+      await withTransaction(async (client) => {
+        await client.query(
+          `
+            UPDATE sync_failure_backlog
+            SET
+              failure_kind = $2,
+              error_message = $3,
+              attempts = $4,
+              last_failed_at = now(),
+              next_retry_at = $5,
+              status = $6,
+              last_job_id = $7,
+              updated_at = now()
+            WHERE id = $1
+          `,
+          [
+            failure.id,
+            classification.kind,
+            String(error.message || "sync_retry_failed").slice(0, 2000),
+            nextAttempt,
+            nextRetryAt,
+            nextStatus,
+            job.id,
+          ]
+        );
+
+        await appendPageLog(client, {
+          tenantId: job.tenant_id,
+          jobId: job.id,
+          endpointKey,
+          mode: SYNC_MODES.RETRY_BACKLOG,
+          pageNumber: page,
+          nextPage: null,
+          status: "retry_failed",
+          rowsFetched: 0,
+          rowsPersisted: 0,
+          httpStatus: classification.status,
+          errorMessage: String(error.message || "sync_retry_failed").slice(0, 2000),
+          retryCount: Math.max(0, nextAttempt - 1),
+          startedAt: nowIso(),
+          finishedAt: nowIso(),
+          attemptNo: nextAttempt,
+        });
+      });
+
+      stillFailed += 1;
+    }
+  }
+
+  await withTransaction(async (client) => {
+    const { rows } = await client.query(
+      `
+        SELECT
+          COUNT(*) FILTER (WHERE status IN ('pending', 'deferred', 'retrying'))::int AS pending_count,
+          COUNT(*) FILTER (WHERE status = 'failed')::int AS failed_count
+        FROM sync_failure_backlog
+        WHERE tenant_id = $1
+          AND endpoint_key = $2
+      `,
+      [job.tenant_id, endpointKey]
+    );
+    const counts = rows[0] || { pending_count: 0, failed_count: 0 };
+    await markEndpointState(client, {
+      tenantId: job.tenant_id,
+      endpointKey,
+      status: Number(counts.pending_count || 0) > 0 ? "partial" : "success",
+      jobId: job.id,
+      currentJobId: null,
+      currentMode: SYNC_MODES.RETRY_BACKLOG,
+      syncStrategy: ENDPOINT_STRATEGY[endpointKey]?.materialized
+        ? ENDPOINT_STRATEGY[endpointKey].strategy
+        : SYNC_STRATEGIES.NOT_MATERIALIZED,
+      lastAttemptAt: nowIso(),
+      lastSuccessAt: null,
+      lastSuccessfulPage: null,
+      lastSuccessfulCursor: null,
+      lastSeenRemoteCursor: null,
+      updatedAfterWatermark: null,
+      rowsFetchedDelta: 0,
+      rowsPersistedDelta: 0,
+      pagesProcessedLastJob: null,
+      rowsFetchedLastJob: null,
+      retryCount: retried,
+      pendingBacklogCount: Number(counts.pending_count || 0),
+      failedPageCount: Number(counts.failed_count || 0),
+      lastHttpStatus: null,
+      heartbeatAt: nowIso(),
+      nextPlannedAt: null,
+      errorMessage: Number(counts.pending_count || 0) > 0 ? "backlog_pending" : null,
+    });
+  });
 
   return {
     retried,
@@ -1311,7 +2161,7 @@ async function scheduleDeltaJobs() {
             SELECT 1
             FROM sync_job sj_bootstrap
             WHERE sj_bootstrap.tenant_id = t.id
-              AND sj_bootstrap.type = 'bootstrap'
+              AND sj_bootstrap.type IN ('bootstrap_initial', 'bootstrap')
               AND sj_bootstrap.status = 'success'
           )
           AND NOT EXISTS (
@@ -1346,9 +2196,8 @@ async function processSyncJob(job) {
   let pagesProcessed = 0;
 
   try {
-    const projectsEnabled = await isProjectsSyncEnabled(tenantClient, job.tenant_id);
     const endpoints = await listEnabledEndpoints(tenantClient, job.tenant_id);
-    if (!projectsEnabled || endpoints.length === 0) {
+    if (endpoints.length === 0) {
       tenantClient.release();
       tenantClientReleased = true;
       await withTransaction(async (client) => {
@@ -1366,42 +2215,103 @@ async function processSyncJob(job) {
     tenantClient.release();
     tenantClientReleased = true;
 
+    const jobMode = modeFromJobType(job.type, SYNC_MODES.DELTA);
+
+    // Backlog is always processed first to avoid hidden restart-from-page-1 behavior.
     for (const endpointKey of endpoints) {
-      if (endpointKey !== "projects") {
-        await withTransaction(async (client) => {
-          await markEndpointState(client, {
-            tenantId: job.tenant_id,
-            endpointKey,
-            status: "failed",
-            jobId: job.id,
-            lastAttemptAt: nowIso(),
-            lastSuccessAt: null,
-            lastSuccessfulPage: null,
-            lastSuccessfulCursor: null,
-            updatedAfterWatermark: null,
-            rowsFetchedDelta: 0,
-            rowsPersistedDelta: 0,
-            nextPlannedAt: null,
-            errorMessage: `endpoint_not_implemented:${endpointKey}`,
-          });
-        });
+      if (endpointKey === "projects") {
+        for (const projectEndpointKey of ["projects_v4", "projects_v3"]) {
+          const retryRound = await runProjectsBacklogRetryRound({ job, cfg, endpointKey: projectEndpointKey });
+          console.log(
+            `[syncWorker] retry round job=${job.id} endpoint=${projectEndpointKey} retried=${retryRound.retried} resolved=${retryRound.resolved} stillFailed=${retryRound.stillFailed}`
+          );
+        }
         continue;
       }
 
-      const result = await runProjectsEndpoint({
-        job,
-        cfg,
-        mode: job.type === "delta" ? "delta" : "bootstrap",
-      });
-
-      rowsProcessed += result.rowsProcessed;
-      pagesProcessed += result.pagesProcessed;
+      if (READ_ONLY_ENDPOINT_KEYS.has(endpointKey)) {
+        const retryRound = await runReadOnlyBacklogRetryRound({ job, cfg, endpointKey });
+        console.log(
+          `[syncWorker] retry round job=${job.id} endpoint=${endpointKey} retried=${retryRound.retried} resolved=${retryRound.resolved} stillFailed=${retryRound.stillFailed}`
+        );
+      }
     }
 
-    const retryRound = await runProjectsBacklogRetryRound({ job, cfg });
-    console.log(
-      `[syncWorker] retry round job=${job.id} retried=${retryRound.retried} resolved=${retryRound.resolved} stillFailed=${retryRound.stillFailed}`
-    );
+    if (jobMode === SYNC_MODES.RETRY_BACKLOG) {
+      await withTransaction(async (client) => {
+        await syncJobQueries.markJobSuccess(client, {
+          jobId: job.id,
+          rowsProcessed,
+          pagesProcessed,
+        });
+      });
+      console.log(`[syncWorker] job completed ${job.id} mode=${jobMode} rows=${rowsProcessed} pages=${pagesProcessed}`);
+      return;
+    }
+
+    for (const endpointKey of endpoints) {
+      if (endpointKey === "projects") {
+        const result = await runProjectsEndpoint({
+          job,
+          cfg,
+          mode: jobMode,
+        });
+
+        rowsProcessed += result.rowsProcessed;
+        pagesProcessed += result.pagesProcessed;
+        continue;
+      }
+
+      if (READ_ONLY_ENDPOINT_KEYS.has(endpointKey)) {
+        const strategyMeta = ENDPOINT_STRATEGY[endpointKey] || {
+          supportsDelta: false,
+          strategy: SYNC_STRATEGIES.RECONCILE_SCAN,
+        };
+        const endpointMode = jobMode === SYNC_MODES.DELTA && !strategyMeta.supportsDelta
+          ? SYNC_MODES.SLOW_RECONCILIATION
+          : jobMode;
+
+        const result = await runReadOnlyEndpoint({
+          job,
+          cfg,
+          endpointKey,
+          mode: endpointMode,
+        });
+
+        rowsProcessed += result.rowsProcessed;
+        pagesProcessed += result.pagesProcessed;
+        continue;
+      }
+
+      await withTransaction(async (client) => {
+        await markEndpointState(client, {
+          tenantId: job.tenant_id,
+          endpointKey,
+          status: "partial",
+          jobId: job.id,
+          currentJobId: null,
+          currentMode: jobMode,
+          syncStrategy: SYNC_STRATEGIES.NOT_MATERIALIZED,
+          lastAttemptAt: nowIso(),
+          lastSuccessAt: null,
+          lastSuccessfulPage: null,
+          lastSuccessfulCursor: null,
+          lastSeenRemoteCursor: null,
+          updatedAfterWatermark: null,
+          rowsFetchedDelta: 0,
+          rowsPersistedDelta: 0,
+          pagesProcessedLastJob: 0,
+          rowsFetchedLastJob: 0,
+          retryCount: 0,
+          pendingBacklogCount: 0,
+          failedPageCount: 0,
+          lastHttpStatus: null,
+          heartbeatAt: nowIso(),
+          nextPlannedAt: null,
+          errorMessage: `endpoint_unsupported:${endpointKey}`,
+        });
+      });
+    }
 
     await withTransaction(async (client) => {
       await syncJobQueries.markJobSuccess(client, {

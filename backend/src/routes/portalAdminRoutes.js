@@ -266,7 +266,7 @@ router.get("/v1/sync/overview", requirePortalHost, requireGlobalAdminSession, as
             SELECT status
             FROM sync_job sj
             WHERE sj.tenant_id = t.id
-              AND sj.type = 'bootstrap'
+              AND sj.type IN ('bootstrap_initial', 'bootstrap')
             ORDER BY sj.created_at DESC
             LIMIT 1
           ) bs ON true

@@ -752,12 +752,12 @@ async function completeOnboarding({ invitationId }) {
       // Queue initial data bootstrap for the tenant if no bootstrap job is already active.
       await client.query(
         `INSERT INTO sync_job (tenant_id, type, status, rows_processed, pages_processed)
-         SELECT $1, 'bootstrap', 'queued', 0, 0
+         SELECT $1, 'bootstrap_initial', 'queued', 0, 0
          WHERE NOT EXISTS (
            SELECT 1
            FROM sync_job
            WHERE tenant_id = $1
-             AND type = 'bootstrap'
+             AND type = 'bootstrap_initial'
              AND status IN ('queued', 'running')
          )`,
         [tenant.id]

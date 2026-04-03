@@ -2,11 +2,19 @@ async function claimNextSyncJob(client) {
   const selectSql = `
     SELECT id, tenant_id, type, status, retry_count
     FROM sync_job
-    WHERE type IN ('bootstrap', 'delta')
+    WHERE type IN ('bootstrap', 'bootstrap_initial', 'delta', 'retry_backlog', 'manual_full_resync', 'slow_reconciliation')
       AND status = 'queued'
       AND (next_retry_at IS NULL OR next_retry_at <= now())
     ORDER BY
-      CASE type WHEN 'bootstrap' THEN 0 ELSE 1 END,
+      CASE type
+        WHEN 'manual_full_resync' THEN 0
+        WHEN 'bootstrap_initial' THEN 1
+        WHEN 'bootstrap' THEN 1
+        WHEN 'retry_backlog' THEN 2
+        WHEN 'delta' THEN 3
+        WHEN 'slow_reconciliation' THEN 4
+        ELSE 5
+      END,
       created_at ASC
     FOR UPDATE SKIP LOCKED
     LIMIT 1
