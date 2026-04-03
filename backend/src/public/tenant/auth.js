@@ -170,6 +170,13 @@
     const listMetaText = document.getElementById("listMetaText");
     const scopeRow = document.getElementById("scopeRow");
     const scopeChips = document.getElementById("scopeChips");
+    const refreshSyncBtn = document.getElementById("refreshSyncBtn");
+    const syncBootstrapText = document.getElementById("syncBootstrapText");
+    const syncDeltaText = document.getElementById("syncDeltaText");
+    const syncLastSuccessText = document.getElementById("syncLastSuccessText");
+    const syncBacklogText = document.getElementById("syncBacklogText");
+    const syncNextRetryText = document.getElementById("syncNextRetryText");
+    const syncRowsText = document.getElementById("syncRowsText");
     const drawerShell = document.getElementById("drawerShell");
     const drawerOverlay = document.getElementById("drawerOverlay");
     const drawerCloseBtn = document.getElementById("drawerCloseBtn");
@@ -252,6 +259,25 @@
         }).format(date);
       } catch (_error) {
         return date.toISOString().slice(0, 10);
+      }
+    }
+
+    function formatDateTimeValue(value) {
+      if (!value) return "-";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) {
+        return String(value);
+      }
+      try {
+        return new Intl.DateTimeFormat("da-DK", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        }).format(date);
+      } catch (_error) {
+        return date.toISOString();
       }
     }
 
@@ -796,6 +822,88 @@
       }
     }
 
+    async function loadSyncStatus() {
+      if (syncBootstrapText) syncBootstrapText.textContent = "Indlæser...";
+      if (syncDeltaText) syncDeltaText.textContent = "Indlæser...";
+      if (syncLastSuccessText) syncLastSuccessText.textContent = "Indlæser...";
+      if (syncBacklogText) syncBacklogText.textContent = "Indlæser...";
+      if (syncNextRetryText) syncNextRetryText.textContent = "Indlæser...";
+      if (syncRowsText) syncRowsText.textContent = "Indlæser...";
+
+      try {
+        const response = await apiFetch("/api/sync/status", { method: "GET" });
+        const bootstrap = response && response.bootstrap ? response.bootstrap : null;
+        const delta = response && response.delta ? response.delta : null;
+        const endpointStates = response && Array.isArray(response.endpoint_states)
+          ? response.endpoint_states
+          : [];
+        const backlog = response && response.backlog ? response.backlog : null;
+
+        const persistedRows = endpointStates.reduce((sum, row) => {
+          const value = Number(row && row.rows_persisted ? row.rows_persisted : 0);
+          return sum + (Number.isFinite(value) ? value : 0);
+        }, 0);
+
+        const latestSuccessCandidates = [];
+        endpointStates.forEach((row) => {
+          if (row && row.last_successful_sync_at) {
+            latestSuccessCandidates.push(row.last_successful_sync_at);
+          }
+        });
+
+        const latestSuccess = latestSuccessCandidates
+          .map((value) => new Date(value))
+          .filter((date) => !Number.isNaN(date.getTime()))
+          .sort((a, b) => b.getTime() - a.getTime())[0];
+
+        if (syncBootstrapText) {
+          const bootstrapStatus = bootstrap ? String(bootstrap.status || "-") : "-";
+          const progress = bootstrap
+            ? `${bootstrap.pages_processed || 0} sider / ${bootstrap.rows_processed || 0} rows`
+            : "-";
+          syncBootstrapText.textContent = `${bootstrapStatus} (${progress})`;
+        }
+
+        if (syncDeltaText) {
+          const deltaStatus = delta ? String(delta.status || "-") : "-";
+          const deltaAttempt = delta && delta.updated_at ? formatDateTimeValue(delta.updated_at) : "-";
+          syncDeltaText.textContent = `${deltaStatus} (senest: ${deltaAttempt})`;
+        }
+
+        if (syncLastSuccessText) {
+          syncLastSuccessText.textContent = latestSuccess ? formatDateTimeValue(latestSuccess) : "-";
+        }
+
+        if (syncBacklogText) {
+          const pending = backlog ? Number(backlog.pending_count || 0) : 0;
+          const failed = backlog ? Number(backlog.failed_count || 0) : 0;
+          syncBacklogText.textContent = `${pending} pending, ${failed} failed`;
+        }
+
+        if (syncNextRetryText) {
+          syncNextRetryText.textContent = backlog && backlog.next_retry_at
+            ? formatDateTimeValue(backlog.next_retry_at)
+            : "-";
+        }
+
+        if (syncRowsText) {
+          syncRowsText.textContent = String(persistedRows);
+        }
+      } catch (error) {
+        if (handleAuthFailure(error)) {
+          return;
+        }
+
+        const msg = `Fejl: ${getErrorMessage(error, "request_failed")}`;
+        if (syncBootstrapText) syncBootstrapText.textContent = msg;
+        if (syncDeltaText) syncDeltaText.textContent = "-";
+        if (syncLastSuccessText) syncLastSuccessText.textContent = "-";
+        if (syncBacklogText) syncBacklogText.textContent = "-";
+        if (syncNextRetryText) syncNextRetryText.textContent = "-";
+        if (syncRowsText) syncRowsText.textContent = "-";
+      }
+    }
+
     try {
       const me = await apiFetch("/api/me", { method: "GET" });
       state.me = me && me.user ? me.user : null;
@@ -839,7 +947,13 @@
       }
     });
 
-    await loadProjects();
+    await Promise.all([loadProjects(), loadSyncStatus()]);
+
+    if (refreshSyncBtn) {
+      refreshSyncBtn.addEventListener("click", () => {
+        loadSyncStatus();
+      });
+    }
 
     if (openProjectPageLink) {
       openProjectPageLink.addEventListener("click", () => {

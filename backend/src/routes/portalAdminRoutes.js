@@ -1,5 +1,6 @@
 const express = require("express");
 const path = require("path");
+const pool = require("../db/pool");
 const requirePortalHost = require("../middleware/requirePortalHost");
 const { rateLimitRedis } = require("../middleware/rateLimitRedis");
 const { createHttpError } = require("../middleware/errorHandler");
@@ -239,6 +240,129 @@ router.post("/v1/invitations/:id/reissue-link", requirePortalHost, requireGlobal
     });
   } catch (error) {
     next(error);
+  }
+});
+
+router.get("/v1/sync/overview", requirePortalHost, requireGlobalAdminSession, async (req, res, next) => {
+  const client = await pool.connect();
+  try {
+    const [tenantsResult, stuckJobsResult] = await Promise.all([
+      client.query(
+        `
+          SELECT
+            t.id AS tenant_id,
+            t.slug,
+            t.name,
+            bs.status AS bootstrap_status,
+            ds.status AS delta_status,
+            MAX(ses.last_successful_sync_at) AS last_successful_sync_at,
+            MAX(ses.last_attempt_at) AS last_attempt_at,
+            COALESCE(SUM(ses.rows_persisted), 0) AS rows_persisted_total,
+            COALESCE(SUM(CASE WHEN sfb.status IN ('pending', 'deferred', 'retrying') THEN 1 ELSE 0 END), 0) AS pending_failures,
+            COALESCE(SUM(CASE WHEN sfb.status = 'failed' THEN 1 ELSE 0 END), 0) AS failed_backlog,
+            MIN(sfb.next_retry_at) FILTER (WHERE sfb.status IN ('pending', 'deferred', 'retrying')) AS next_retry_at
+          FROM tenant t
+          LEFT JOIN LATERAL (
+            SELECT status
+            FROM sync_job sj
+            WHERE sj.tenant_id = t.id
+              AND sj.type = 'bootstrap'
+            ORDER BY sj.created_at DESC
+            LIMIT 1
+          ) bs ON true
+          LEFT JOIN LATERAL (
+            SELECT status
+            FROM sync_job sj
+            WHERE sj.tenant_id = t.id
+              AND sj.type = 'delta'
+            ORDER BY sj.created_at DESC
+            LIMIT 1
+          ) ds ON true
+          LEFT JOIN sync_endpoint_state ses ON ses.tenant_id = t.id
+          LEFT JOIN sync_failure_backlog sfb ON sfb.tenant_id = t.id
+          GROUP BY t.id, t.slug, t.name, bs.status, ds.status
+          ORDER BY t.slug ASC
+        `
+      ),
+      client.query(
+        `
+          SELECT
+            sj.id,
+            sj.tenant_id,
+            t.slug,
+            sj.type,
+            sj.status,
+            sj.started_at,
+            sj.updated_at,
+            sj.error_message
+          FROM sync_job sj
+          JOIN tenant t ON t.id = sj.tenant_id
+          WHERE sj.status = 'running'
+            AND sj.updated_at < now() - interval '3 minutes'
+          ORDER BY sj.updated_at ASC
+        `
+      ),
+    ]);
+
+    res.status(200).json({
+      success: true,
+      tenants: tenantsResult.rows,
+      stuck_jobs: stuckJobsResult.rows,
+    });
+  } catch (error) {
+    next(error);
+  } finally {
+    client.release();
+  }
+});
+
+router.get("/v1/sync/failures", requirePortalHost, requireGlobalAdminSession, async (req, res, next) => {
+  const client = await pool.connect();
+  try {
+    const limit = Math.min(Math.max(Number(req.query.limit || 200), 1), 1000);
+    const { rows } = await client.query(
+      `
+        SELECT
+          sfb.id,
+          sfb.tenant_id,
+          t.slug AS tenant_slug,
+          sfb.endpoint_key,
+          sfb.locator_type,
+          sfb.locator_value,
+          sfb.page_number,
+          sfb.cursor_value,
+          sfb.reference_value,
+          sfb.failure_kind,
+          sfb.error_message,
+          sfb.attempts,
+          sfb.first_failed_at,
+          sfb.last_failed_at,
+          sfb.next_retry_at,
+          sfb.status,
+          CASE
+            WHEN sfb.status = 'failed' AND sfb.failure_kind = 'http_429' AND sfb.attempts >= 3 THEN true
+            WHEN sfb.status = 'failed' AND sfb.failure_kind = 'permanent' THEN true
+            ELSE false
+          END AS manual_follow_up_required
+        FROM sync_failure_backlog sfb
+        JOIN tenant t ON t.id = sfb.tenant_id
+        WHERE sfb.status IN ('pending', 'deferred', 'retrying', 'failed')
+        ORDER BY
+          CASE sfb.status WHEN 'failed' THEN 0 ELSE 1 END,
+          sfb.last_failed_at DESC
+        LIMIT $1
+      `,
+      [limit]
+    );
+
+    res.status(200).json({
+      success: true,
+      failures: rows,
+    });
+  } catch (error) {
+    next(error);
+  } finally {
+    client.release();
   }
 });
 

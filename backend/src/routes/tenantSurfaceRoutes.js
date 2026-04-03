@@ -120,6 +120,89 @@ router.get("/api/projects", requireTenantHost, requireAuth("access"), async (req
   }
 });
 
+router.get("/api/sync/status", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  if (hasAccessContextMismatch(req)) {
+    return next(createHttpError(403, "tenant_context_mismatch"));
+  }
+
+  const client = await pool.connect();
+  try {
+    const tenantId = req.context.tenant.id;
+
+    const [latestJobs, endpointStates, backlogStats] = await Promise.all([
+      client.query(
+        `
+          SELECT id, type, status, started_at, finished_at, updated_at, rows_processed, pages_processed, retry_count, error_message
+          FROM sync_job
+          WHERE tenant_id = $1
+            AND type IN ('bootstrap', 'delta')
+          ORDER BY created_at DESC
+          LIMIT 20
+        `,
+        [tenantId]
+      ),
+      client.query(
+        `
+          SELECT
+            endpoint_key,
+            status,
+            last_attempt_at,
+            last_successful_sync_at,
+            last_successful_page,
+            last_successful_cursor,
+            updated_after_watermark,
+            rows_fetched,
+            rows_persisted,
+            next_planned_at,
+            last_error,
+            updated_at
+          FROM sync_endpoint_state
+          WHERE tenant_id = $1
+          ORDER BY endpoint_key ASC
+        `,
+        [tenantId]
+      ),
+      client.query(
+        `
+          SELECT
+            COUNT(*) FILTER (WHERE status IN ('pending', 'deferred', 'retrying')) AS pending_count,
+            COUNT(*) FILTER (WHERE status = 'failed') AS failed_count,
+            MIN(next_retry_at) FILTER (WHERE status IN ('pending', 'deferred', 'retrying')) AS next_retry_at
+          FROM sync_failure_backlog
+          WHERE tenant_id = $1
+        `,
+        [tenantId]
+      ),
+    ]);
+
+    const jobs = latestJobs.rows;
+    const latestBootstrap = jobs.find((job) => job.type === "bootstrap") || null;
+    const latestDelta = jobs.find((job) => job.type === "delta") || null;
+    const backlog = backlogStats.rows[0] || {
+      pending_count: "0",
+      failed_count: "0",
+      next_retry_at: null,
+    };
+
+    res.status(200).json({
+      success: true,
+      tenant_id: tenantId,
+      bootstrap: latestBootstrap,
+      delta: latestDelta,
+      endpoint_states: endpointStates.rows,
+      backlog: {
+        pending_count: Number(backlog.pending_count || 0),
+        failed_count: Number(backlog.failed_count || 0),
+        next_retry_at: backlog.next_retry_at || null,
+      },
+    });
+  } catch (error) {
+    next(error);
+  } finally {
+    client.release();
+  }
+});
+
 router.get("/api/projects/:projectId", requireTenantHost, requireAuth("access"), async (req, res, next) => {
   if (hasAccessContextMismatch(req)) {
     return next(createHttpError(403, "tenant_context_mismatch"));

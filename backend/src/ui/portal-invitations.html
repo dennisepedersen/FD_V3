@@ -233,6 +233,15 @@
       font-weight: 700;
     }
 
+    .wide-card {
+      margin-top: 18px;
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+    }
+
     @media (max-width: 900px) {
       .grid { grid-template-columns: 1fr; }
     }
@@ -351,6 +360,49 @@
         </table>
       </section>
     </div>
+
+    <section class="card wide-card">
+      <div class="list-toolbar">
+        <div>
+          <h2>Sync driftsoverblik</h2>
+          <p>Global status for bootstrap, delta, backlog og stuck jobs.</p>
+        </div>
+        <button id="refresh-sync-button" class="secondary" type="button">Opdater sync-overblik</button>
+      </div>
+
+      <div id="sync-overview-message" class="message" aria-live="polite"></div>
+      <table>
+        <thead>
+          <tr>
+            <th>Tenant</th>
+            <th>Bootstrap</th>
+            <th>Delta</th>
+            <th>Rows</th>
+            <th>Pending/Failed</th>
+            <th>Næste retry</th>
+            <th>Stuck</th>
+          </tr>
+        </thead>
+        <tbody id="sync-overview-rows"></tbody>
+      </table>
+
+      <h2 style="margin-top:18px;">Fejlede sider/items</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Tenant</th>
+            <th>Endpoint</th>
+            <th>Locator</th>
+            <th>Status</th>
+            <th>Retries</th>
+            <th>Næste retry</th>
+            <th>Fejl</th>
+            <th>Manual opfølgning</th>
+          </tr>
+        </thead>
+        <tbody id="sync-failure-rows"></tbody>
+      </table>
+    </section>
   </div>
 
   <script>
@@ -367,6 +419,10 @@
     const statusButton = document.getElementById("status-button");
     const statusId = document.getElementById("status-id");
     const statusBox = document.getElementById("status-box");
+    const refreshSyncButton = document.getElementById("refresh-sync-button");
+    const syncOverviewRows = document.getElementById("sync-overview-rows");
+    const syncFailureRows = document.getElementById("sync-failure-rows");
+    const syncOverviewMessage = document.getElementById("sync-overview-message");
 
     async function readJson(response) {
       const body = await response.json().catch(() => ({}));
@@ -418,6 +474,74 @@
         `;
         rows.appendChild(tr);
       });
+    }
+
+    function renderSyncOverview(tenants, stuckJobs) {
+      syncOverviewRows.innerHTML = "";
+      const stuckByTenant = new Map();
+      (stuckJobs || []).forEach((job) => {
+        const key = String(job.tenant_id || "");
+        if (!stuckByTenant.has(key)) {
+          stuckByTenant.set(key, 0);
+        }
+        stuckByTenant.set(key, stuckByTenant.get(key) + 1);
+      });
+
+      if (!Array.isArray(tenants) || tenants.length === 0) {
+        syncOverviewRows.innerHTML = '<tr><td colspan="7">Ingen tenants fundet.</td></tr>';
+        return;
+      }
+
+      tenants.forEach((row) => {
+        const tr = document.createElement("tr");
+        const stuck = stuckByTenant.get(String(row.tenant_id || "")) || 0;
+        tr.innerHTML = `
+          <td>${row.slug || "-"}</td>
+          <td>${row.bootstrap_status || "-"}</td>
+          <td>${row.delta_status || "-"}</td>
+          <td>${row.rows_persisted_total || 0}</td>
+          <td>${row.pending_failures || 0} / ${row.failed_backlog || 0}</td>
+          <td>${formatDate(row.next_retry_at)}</td>
+          <td>${stuck > 0 ? `${stuck} stuck` : "-"}</td>
+        `;
+        syncOverviewRows.appendChild(tr);
+      });
+    }
+
+    function renderSyncFailures(failures) {
+      syncFailureRows.innerHTML = "";
+      if (!Array.isArray(failures) || failures.length === 0) {
+        syncFailureRows.innerHTML = '<tr><td colspan="8">Ingen aktive sync-fejl.</td></tr>';
+        return;
+      }
+
+      failures.forEach((row) => {
+        const tr = document.createElement("tr");
+        const locator = row.locator_value || row.page_number || row.reference_value || "-";
+        tr.innerHTML = `
+          <td>${row.tenant_slug || "-"}</td>
+          <td>${row.endpoint_key || "-"}</td>
+          <td class="mono">${locator}</td>
+          <td>${row.status || "-"}</td>
+          <td>${row.attempts || 0}</td>
+          <td>${formatDate(row.next_retry_at)}</td>
+          <td>${row.error_message || "-"}</td>
+          <td>${row.manual_follow_up_required ? "Ja" : "Nej"}</td>
+        `;
+        syncFailureRows.appendChild(tr);
+      });
+    }
+
+    async function loadSyncOverview() {
+      setMessage(syncOverviewMessage, "Indlaeser sync-overblik...");
+      const [overviewBody, failuresBody] = await Promise.all([
+        readJson(await fetch("/v1/sync/overview")),
+        readJson(await fetch("/v1/sync/failures?limit=150")),
+      ]);
+
+      renderSyncOverview(overviewBody.tenants || [], overviewBody.stuck_jobs || []);
+      renderSyncFailures(failuresBody.failures || []);
+      setMessage(syncOverviewMessage, "Sync-overblik opdateret.", "success");
     }
 
     rows.addEventListener("click", async (event) => {
@@ -518,6 +642,12 @@
       });
     });
 
+    refreshSyncButton.addEventListener("click", () => {
+      loadSyncOverview().catch((error) => {
+        setMessage(syncOverviewMessage, error.message || "Kunne ikke opdatere sync-overblik", "error");
+      });
+    });
+
     statusFilter.addEventListener("change", () => {
       loadInvitations().catch((error) => {
         setMessage(listMessage, error.message || "Kunne ikke hente invitationer", "error");
@@ -560,7 +690,7 @@
       window.location.assign("/login");
     });
 
-    Promise.all([loadMe(), loadInvitations()]).catch((error) => {
+    Promise.all([loadMe(), loadInvitations(), loadSyncOverview()]).catch((error) => {
       setMessage(listMessage, error.message || "Kunne ikke initialisere portalen", "error");
     });
   </script>

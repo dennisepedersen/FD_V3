@@ -1,11 +1,13 @@
-async function claimNextBootstrapJob(client) {
+async function claimNextSyncJob(client) {
   const selectSql = `
-    SELECT id, tenant_id, status, retry_count
+    SELECT id, tenant_id, type, status, retry_count
     FROM sync_job
-    WHERE type = 'bootstrap'
+    WHERE type IN ('bootstrap', 'delta')
       AND status = 'queued'
       AND (next_retry_at IS NULL OR next_retry_at <= now())
-    ORDER BY created_at ASC
+    ORDER BY
+      CASE type WHEN 'bootstrap' THEN 0 ELSE 1 END,
+      created_at ASC
     FOR UPDATE SKIP LOCKED
     LIMIT 1
   `;
@@ -21,9 +23,11 @@ async function claimNextBootstrapJob(client) {
     SET
       status = 'running',
       started_at = now(),
+      finished_at = NULL,
       error_message = NULL,
       error = NULL,
       last_run = now(),
+      retry_count = COALESCE(retry_count, 0),
       updated_at = now()
     WHERE id = $1
     RETURNING id, tenant_id, type, status, retry_count
@@ -31,6 +35,17 @@ async function claimNextBootstrapJob(client) {
 
   const updated = await client.query(updateSql, [job.id]);
   return updated.rows[0] || null;
+}
+
+async function markJobHeartbeat(client, { jobId }) {
+  await client.query(
+    `
+      UPDATE sync_job
+      SET updated_at = now()
+      WHERE id = $1
+    `,
+    [jobId]
+  );
 }
 
 async function markJobProgress(client, { jobId, rowsProcessed, pagesProcessed }) {
@@ -87,7 +102,8 @@ async function markJobFailure(client, { jobId, errorMessage, nextStatus, nextRet
 }
 
 module.exports = {
-  claimNextBootstrapJob,
+  claimNextSyncJob,
+  markJobHeartbeat,
   markJobProgress,
   markJobSuccess,
   markJobFailure,
