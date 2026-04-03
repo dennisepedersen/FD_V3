@@ -18,6 +18,31 @@ function hasAccessContextMismatch(req) {
   return String(req.auth.tenant_id) !== String(req.context.tenant.id);
 }
 
+function safeSyncStatusResponse(tenantId) {
+  return {
+    success: true,
+    tenant_id: tenantId || null,
+    bootstrap: null,
+    delta: null,
+    endpoint_states: [],
+    endpoint_summary: {
+      overall_status: "idle",
+      endpoints: [],
+      current_job_id: null,
+      touched_count: 0,
+      running_count: 0,
+      failed_count: 0,
+      skipped_count: 0,
+      historical_failed_count: 0,
+    },
+    backlog: {
+      pending_count: 0,
+      failed_count: 0,
+      next_retry_at: null,
+    },
+  };
+}
+
 router.get("/login", requireTenantHost, (req, res) => {
   res.sendFile(path.join(tenantPublicDir, "login.html"));
 });
@@ -126,6 +151,8 @@ router.get("/api/sync/status", requireTenantHost, requireAuth("access"), async (
   }
 
   const client = await pool.connect();
+  let endpointRowsRaw = [];
+  let currentJobId = null;
   try {
     const tenantId = req.context.tenant.id;
 
@@ -165,8 +192,8 @@ router.get("/api/sync/status", requireTenantHost, requireAuth("access"), async (
             SELECT
               endpoint_key,
               COUNT(*) FILTER (WHERE status IN ('success', 'retry_success')) AS pages_processed,
-              COALESCE(SUM(rows_fetched), 0) FILTER (WHERE status IN ('success', 'retry_success')) AS rows_fetched,
-              COALESCE(SUM(rows_persisted), 0) FILTER (WHERE status IN ('success', 'retry_success')) AS rows_persisted
+              COALESCE(SUM(rows_fetched) FILTER (WHERE status IN ('success', 'retry_success')), 0) AS rows_fetched,
+              COALESCE(SUM(rows_persisted) FILTER (WHERE status IN ('success', 'retry_success')), 0) AS rows_persisted
             FROM sync_page_log
             WHERE tenant_id = $1
             GROUP BY endpoint_key
@@ -176,8 +203,8 @@ router.get("/api/sync/status", requireTenantHost, requireAuth("access"), async (
               job_id,
               endpoint_key,
               COUNT(*) FILTER (WHERE status IN ('success', 'retry_success')) AS pages_processed_last_job,
-              COALESCE(SUM(rows_fetched), 0) FILTER (WHERE status IN ('success', 'retry_success')) AS rows_fetched_last_job,
-              COALESCE(SUM(rows_persisted), 0) FILTER (WHERE status IN ('success', 'retry_success')) AS rows_persisted_last_job
+              COALESCE(SUM(rows_fetched) FILTER (WHERE status IN ('success', 'retry_success')), 0) AS rows_fetched_last_job,
+              COALESCE(SUM(rows_persisted) FILTER (WHERE status IN ('success', 'retry_success')), 0) AS rows_persisted_last_job
             FROM sync_page_log
             WHERE tenant_id = $1
             GROUP BY job_id, endpoint_key
@@ -209,13 +236,13 @@ router.get("/api/sync/status", requireTenantHost, requireAuth("access"), async (
             ses.last_job_id,
             (ses.last_job_id = lj.id) AS touched_by_current_job,
             CASE
-              WHEN ses.last_error LIKE 'endpoint_not_implemented:%' THEN 'not_implemented'
+              WHEN COALESCE(ses.last_error, '') LIKE 'endpoint_not_implemented:%' THEN 'not_implemented'
               WHEN ses.status = 'running' AND ses.last_attempt_at < now() - interval '3 minutes' THEN 'stale'
               WHEN ses.status = 'failed' AND ses.last_job_id IS DISTINCT FROM lj.id THEN 'historical_failed'
               ELSE ses.status
             END AS effective_status,
             CASE
-              WHEN ses.last_error LIKE 'endpoint_not_implemented:%' THEN 'skipped_by_design'
+              WHEN COALESCE(ses.last_error, '') LIKE 'endpoint_not_implemented:%' THEN 'skipped_by_design'
               WHEN ses.status = 'running' AND ses.last_attempt_at < now() - interval '3 minutes' THEN 'no_recent_heartbeat'
               WHEN ses.status = 'failed' AND ses.last_job_id IS DISTINCT FROM lj.id THEN 'historical_failure'
               WHEN ses.status = 'failed' THEN 'runtime_failure'
@@ -254,7 +281,21 @@ router.get("/api/sync/status", requireTenantHost, requireAuth("access"), async (
       next_retry_at: null,
     };
 
-    const endpointRows = endpointStates.rows;
+    endpointRowsRaw = Array.isArray(endpointStates?.rows) ? endpointStates.rows : [];
+    currentJobId = endpointRowsRaw[0]?.current_job_id || null;
+
+    console.log("[tenantSurfaceRoutes] sync_status_raw", {
+      tenant_id: tenantId,
+      endpoint_count: endpointRowsRaw.length,
+      current_job_id: currentJobId,
+      endpoints: endpointRowsRaw.map((row) => ({
+        endpoint_key: row?.endpoint_key || null,
+        last_job_id: row?.last_job_id || null,
+        last_error: row?.last_error || null,
+      })),
+    });
+
+    const endpointRows = endpointRowsRaw;
     const touchedRows = endpointRows.filter((row) => row.touched_by_current_job);
     const blockingRows = touchedRows.filter((row) => ["failed", "stale"].includes(String(row.effective_status || "")));
     const runningRows = touchedRows.filter((row) => String(row.effective_status || "") === "running");
@@ -290,7 +331,21 @@ router.get("/api/sync/status", requireTenantHost, requireAuth("access"), async (
       },
     });
   } catch (error) {
-    next(error);
+    const tenantId = req.context?.tenant?.id || req.auth?.tenant_id || null;
+    console.error("SYNC STATUS ERROR:", error);
+    console.error("SYNC STATUS ERROR CONTEXT:", {
+      tenant_id: tenantId,
+      current_job_id: currentJobId,
+      endpoints: Array.isArray(endpointRowsRaw)
+        ? endpointRowsRaw.map((row) => ({
+            endpoint_key: row?.endpoint_key || null,
+            last_job_id: row?.last_job_id || null,
+            last_error: row?.last_error || null,
+          }))
+        : [],
+    });
+
+    return res.status(200).json(safeSyncStatusResponse(tenantId));
   } finally {
     client.release();
   }
