@@ -154,17 +154,17 @@ async function markEndpointState(client, {
     `
       UPDATE sync_endpoint_state
       SET
-        status = COALESCE($3, status),
+        status = COALESCE($3::text, status),
         last_job_id = COALESCE($4, last_job_id),
         last_attempt_at = COALESCE($5, last_attempt_at),
         last_successful_sync_at = COALESCE($6, last_successful_sync_at),
         last_successful_page = COALESCE($7, last_successful_page),
-        last_successful_cursor = CASE WHEN $8 IS NULL THEN last_successful_cursor ELSE $8 END,
-        updated_after_watermark = CASE WHEN $9 IS NULL THEN updated_after_watermark ELSE $9 END,
+        last_successful_cursor = COALESCE($8::text, last_successful_cursor),
+        updated_after_watermark = COALESCE($9::timestamptz, updated_after_watermark),
         rows_fetched = rows_fetched + COALESCE($10, 0),
         rows_persisted = rows_persisted + COALESCE($11, 0),
-        next_planned_at = CASE WHEN $12 IS NULL THEN next_planned_at ELSE $12 END,
-        last_error = CASE WHEN $13 IS NULL THEN last_error ELSE $13 END,
+        next_planned_at = COALESCE($12::timestamptz, next_planned_at),
+        last_error = COALESCE($13::text, last_error),
         updated_at = now()
       WHERE tenant_id = $1 AND endpoint_key = $2
     `,
