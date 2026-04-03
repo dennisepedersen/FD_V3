@@ -143,22 +143,67 @@ router.get("/api/sync/status", requireTenantHost, requireAuth("access"), async (
       ),
       client.query(
         `
+          WITH backlog_by_endpoint AS (
+            SELECT
+              endpoint_key,
+              COUNT(*) FILTER (WHERE status IN ('pending', 'deferred', 'retrying')) AS pending_backlog,
+              COUNT(*) FILTER (WHERE status = 'failed') AS failed_backlog,
+              MIN(next_retry_at) FILTER (WHERE status IN ('pending', 'deferred', 'retrying')) AS next_retry_at
+            FROM sync_failure_backlog
+            WHERE tenant_id = $1
+            GROUP BY endpoint_key
+          ),
+          page_totals AS (
+            SELECT
+              endpoint_key,
+              COUNT(*) FILTER (WHERE status IN ('success', 'retry_success')) AS pages_processed,
+              COALESCE(SUM(rows_fetched), 0) FILTER (WHERE status IN ('success', 'retry_success')) AS rows_fetched,
+              COALESCE(SUM(rows_persisted), 0) FILTER (WHERE status IN ('success', 'retry_success')) AS rows_persisted
+            FROM sync_page_log
+            WHERE tenant_id = $1
+            GROUP BY endpoint_key
+          ),
+          page_last_job AS (
+            SELECT
+              job_id,
+              endpoint_key,
+              COUNT(*) FILTER (WHERE status IN ('success', 'retry_success')) AS pages_processed_last_job,
+              COALESCE(SUM(rows_fetched), 0) FILTER (WHERE status IN ('success', 'retry_success')) AS rows_fetched_last_job,
+              COALESCE(SUM(rows_persisted), 0) FILTER (WHERE status IN ('success', 'retry_success')) AS rows_persisted_last_job
+            FROM sync_page_log
+            WHERE tenant_id = $1
+            GROUP BY job_id, endpoint_key
+          )
           SELECT
-            endpoint_key,
-            status,
-            last_attempt_at,
-            last_successful_sync_at,
-            last_successful_page,
-            last_successful_cursor,
-            updated_after_watermark,
-            rows_fetched,
-            rows_persisted,
-            next_planned_at,
-            last_error,
-            updated_at
-          FROM sync_endpoint_state
-          WHERE tenant_id = $1
-          ORDER BY endpoint_key ASC
+            ses.endpoint_key,
+            ses.status,
+            sj.type AS sync_type,
+            ses.last_attempt_at,
+            ses.last_successful_sync_at,
+            ses.last_successful_page,
+            ses.last_successful_cursor,
+            ses.updated_after_watermark,
+            ses.rows_fetched,
+            ses.rows_persisted,
+            ses.next_planned_at,
+            ses.last_error,
+            ses.updated_at,
+            COALESCE(pt.pages_processed, 0) AS pages_processed,
+            COALESCE(pt.rows_fetched, 0) AS rows_fetched_logged,
+            COALESCE(pt.rows_persisted, 0) AS rows_persisted_logged,
+            COALESCE(plj.pages_processed_last_job, 0) AS pages_processed_last_job,
+            COALESCE(plj.rows_fetched_last_job, 0) AS rows_fetched_last_job,
+            COALESCE(plj.rows_persisted_last_job, 0) AS rows_persisted_last_job,
+            COALESCE(be.pending_backlog, 0) AS pending_backlog,
+            COALESCE(be.failed_backlog, 0) AS failed_backlog,
+            be.next_retry_at
+          FROM sync_endpoint_state ses
+          LEFT JOIN sync_job sj ON sj.id = ses.last_job_id
+          LEFT JOIN page_totals pt ON pt.endpoint_key = ses.endpoint_key
+          LEFT JOIN page_last_job plj ON plj.endpoint_key = ses.endpoint_key AND plj.job_id = ses.last_job_id
+          LEFT JOIN backlog_by_endpoint be ON be.endpoint_key = ses.endpoint_key
+          WHERE ses.tenant_id = $1
+          ORDER BY ses.endpoint_key ASC
         `,
         [tenantId]
       ),

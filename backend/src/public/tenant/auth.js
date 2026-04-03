@@ -171,6 +171,9 @@
     const scopeRow = document.getElementById("scopeRow");
     const scopeChips = document.getElementById("scopeChips");
     const refreshSyncBtn = document.getElementById("refreshSyncBtn");
+    const syncFilterSelect = document.getElementById("syncFilterSelect");
+    const syncSortSelect = document.getElementById("syncSortSelect");
+    const syncEndpointList = document.getElementById("syncEndpointList");
     const syncBootstrapText = document.getElementById("syncBootstrapText");
     const syncDeltaText = document.getElementById("syncDeltaText");
     const syncLastSuccessText = document.getElementById("syncLastSuccessText");
@@ -195,6 +198,9 @@
       ownerLabelMap: new Map(),
       drawerProjectId: null,
       showingClosedFallback: false,
+      syncEndpointStates: [],
+      syncFilterMode: "all",
+      syncSortMode: "endpoint",
     };
 
     const ACTIVITY_FIELD_CANDIDATES = [
@@ -284,6 +290,85 @@
     function isClosedStatus(project) {
       const status = String(project && project.status ? project.status : "").trim().toLowerCase();
       return status === "closed" || status === "lukket";
+    }
+
+    function normalizeSyncType(value) {
+      const type = String(value || "").trim().toLowerCase();
+      if (type === "bootstrap" || type === "delta") {
+        return type;
+      }
+      return "unknown";
+    }
+
+    function renderSyncEndpointList() {
+      if (!syncEndpointList) {
+        return;
+      }
+
+      let rows = Array.isArray(state.syncEndpointStates) ? state.syncEndpointStates.slice() : [];
+      const filterMode = state.syncFilterMode;
+
+      if (filterMode === "bootstrap") {
+        rows = rows.filter((row) => normalizeSyncType(row.sync_type) === "bootstrap");
+      } else if (filterMode === "delta") {
+        rows = rows.filter((row) => normalizeSyncType(row.sync_type) === "delta");
+      } else if (filterMode === "issues") {
+        rows = rows.filter((row) => {
+          const pending = Number(row.pending_backlog || 0);
+          const failed = Number(row.failed_backlog || 0);
+          const status = String(row.status || "").toLowerCase();
+          return pending > 0 || failed > 0 || status === "failed" || status === "partial";
+        });
+      }
+
+      if (state.syncSortMode === "activity_desc") {
+        rows.sort((a, b) => {
+          const left = new Date(a.last_attempt_at || a.last_successful_sync_at || 0).getTime();
+          const right = new Date(b.last_attempt_at || b.last_successful_sync_at || 0).getTime();
+          return right - left;
+        });
+      } else {
+        rows.sort((a, b) => String(a.endpoint_key || "").localeCompare(String(b.endpoint_key || ""), "da", { sensitivity: "base" }));
+      }
+
+      syncEndpointList.innerHTML = "";
+      if (rows.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "syncEndpointCard";
+        empty.textContent = "Ingen endpoint-status for valgt filter.";
+        syncEndpointList.appendChild(empty);
+        return;
+      }
+
+      rows.forEach((row) => {
+        const card = document.createElement("div");
+        card.className = "syncEndpointCard";
+
+        const title = document.createElement("div");
+        title.className = "syncEndpointTitle";
+
+        const endpointName = document.createElement("span");
+        endpointName.textContent = String(row.endpoint_key || "-");
+
+        const endpointStatus = document.createElement("span");
+        endpointStatus.textContent = `${String(row.status || "-")} · ${normalizeSyncType(row.sync_type)}`;
+
+        title.appendChild(endpointName);
+        title.appendChild(endpointStatus);
+
+        const line1 = document.createElement("div");
+        line1.className = "syncEndpointMeta";
+        line1.textContent = `Pages: ${row.pages_processed_last_job || 0} (job) / ${row.pages_processed || 0} (total) · Rows: ${row.rows_persisted_last_job || 0} persisted (job), ${row.rows_fetched || 0} fetched (total)`;
+
+        const line2 = document.createElement("div");
+        line2.className = "syncEndpointMeta";
+        line2.textContent = `Seneste succes: ${formatDateTimeValue(row.last_successful_sync_at)} · Næste retry: ${formatDateTimeValue(row.next_retry_at)} · Pending/failed backlog: ${Number(row.pending_backlog || 0)}/${Number(row.failed_backlog || 0)}`;
+
+        card.appendChild(title);
+        card.appendChild(line1);
+        card.appendChild(line2);
+        syncEndpointList.appendChild(card);
+      });
     }
 
     function getStatusView(project) {
@@ -889,6 +974,9 @@
         if (syncRowsText) {
           syncRowsText.textContent = String(persistedRows);
         }
+
+        state.syncEndpointStates = endpointStates;
+        renderSyncEndpointList();
       } catch (error) {
         if (handleAuthFailure(error)) {
           return;
@@ -901,6 +989,8 @@
         if (syncBacklogText) syncBacklogText.textContent = "-";
         if (syncNextRetryText) syncNextRetryText.textContent = "-";
         if (syncRowsText) syncRowsText.textContent = "-";
+        state.syncEndpointStates = [];
+        renderSyncEndpointList();
       }
     }
 
@@ -926,6 +1016,20 @@
       sortSelect.addEventListener("change", () => {
         state.sortMode = sortSelect.value;
         renderProjects();
+      });
+    }
+
+    if (syncFilterSelect) {
+      syncFilterSelect.addEventListener("change", () => {
+        state.syncFilterMode = syncFilterSelect.value;
+        renderSyncEndpointList();
+      });
+    }
+
+    if (syncSortSelect) {
+      syncSortSelect.addEventListener("change", () => {
+        state.syncSortMode = syncSortSelect.value;
+        renderSyncEndpointList();
       });
     }
 
