@@ -317,10 +317,24 @@
       if (row && row.touched_by_current_job) {
         return "Touched i aktuelt job";
       }
-      if (String(row && row.effective_status ? row.effective_status : "") === "historical_failed") {
-        return "Historisk status";
+      return "Historisk";
+    }
+
+    function computeOverallStatusFromEndpoints(rows) {
+      const values = (Array.isArray(rows) ? rows : []).map((row) =>
+        String(row && row.effective_status ? row.effective_status : row && row.status ? row.status : "").toLowerCase()
+      );
+
+      if (values.some((value) => value === "failed" || value === "stale")) {
+        return "failed";
       }
-      return "Ikke touched i aktuelt job";
+      if (values.some((value) => value === "running")) {
+        return "running";
+      }
+      if (values.some((value) => value === "success" || value === "partial" || value === "not_implemented")) {
+        return "success";
+      }
+      return "idle";
     }
 
     function renderSyncEndpointList() {
@@ -339,7 +353,7 @@
         rows = rows.filter((row) => {
           const pending = Number(row.pending_backlog || 0);
           const failed = Number(row.failed_backlog || 0);
-          const status = String(row.status || "").toLowerCase();
+          const status = String(row.effective_status || row.status || "").toLowerCase();
           return pending > 0 || failed > 0 || status === "failed" || status === "partial";
         });
       }
@@ -931,6 +945,7 @@
     }
 
     async function loadSyncStatus() {
+      if (syncOverallText) syncOverallText.textContent = "Indlæser...";
       if (syncBootstrapText) syncBootstrapText.textContent = "Indlæser...";
       if (syncDeltaText) syncDeltaText.textContent = "Indlæser...";
       if (syncLastSuccessText) syncLastSuccessText.textContent = "Indlæser...";
@@ -966,17 +981,17 @@
           .sort((a, b) => b.getTime() - a.getTime())[0];
 
         if (syncBootstrapText) {
-          const bootstrapStatus = bootstrap ? String(bootstrap.status || "-") : "-";
           const progress = bootstrap
             ? `${bootstrap.pages_processed || 0} sider / ${bootstrap.rows_processed || 0} rows`
             : "-";
-          syncBootstrapText.textContent = `${bootstrapStatus} (${progress})`;
+          syncBootstrapText.textContent = progress;
         }
 
         if (syncDeltaText) {
-          const deltaStatus = delta ? String(delta.status || "-") : "-";
-          const deltaAttempt = delta && delta.updated_at ? formatDateTimeValue(delta.updated_at) : "-";
-          syncDeltaText.textContent = `${deltaStatus} (senest: ${deltaAttempt})`;
+          const progress = delta
+            ? `${delta.pages_processed || 0} sider / ${delta.rows_processed || 0} rows`
+            : "-";
+          syncDeltaText.textContent = progress;
         }
 
         if (syncLastSuccessText) {
@@ -1000,7 +1015,9 @@
         }
 
         if (syncOverallText) {
-          const overall = endpointSummary ? String(endpointSummary.overall_status || "idle") : "idle";
+          const overall = endpointSummary && endpointSummary.overall_status
+            ? String(endpointSummary.overall_status)
+            : computeOverallStatusFromEndpoints(endpointStates);
           const touched = endpointSummary ? Number(endpointSummary.touched_count || 0) : 0;
           const skipped = endpointSummary ? Number(endpointSummary.skipped_count || 0) : 0;
           const failed = endpointSummary ? Number(endpointSummary.failed_count || 0) : 0;
@@ -1014,14 +1031,13 @@
           return;
         }
 
-        const msg = `Fejl: ${getErrorMessage(error, "request_failed")}`;
-        if (syncBootstrapText) syncBootstrapText.textContent = msg;
-        if (syncDeltaText) syncDeltaText.textContent = "-";
+        if (syncBootstrapText) syncBootstrapText.textContent = "Utilgængelig";
+        if (syncDeltaText) syncDeltaText.textContent = "Utilgængelig";
         if (syncLastSuccessText) syncLastSuccessText.textContent = "-";
         if (syncBacklogText) syncBacklogText.textContent = "-";
         if (syncNextRetryText) syncNextRetryText.textContent = "-";
         if (syncRowsText) syncRowsText.textContent = "-";
-        if (syncOverallText) syncOverallText.textContent = "-";
+        if (syncOverallText) syncOverallText.textContent = "Utilgængelig";
         state.syncEndpointStates = [];
         renderSyncEndpointList();
       }
