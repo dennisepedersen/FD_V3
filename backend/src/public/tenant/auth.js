@@ -187,6 +187,7 @@
       selectedOwnerIds: new Set(["__ALL__"]),
       ownerLabelMap: new Map(),
       drawerProjectId: null,
+      showingClosedFallback: false,
     };
 
     const ACTIVITY_FIELD_CANDIDATES = [
@@ -262,6 +263,15 @@
     function getStatusView(project) {
       const activityDate = getActivityDate(project);
       const inactivityDays = getInactivityDays(activityDate);
+
+      if (isClosedStatus(project)) {
+        return {
+          tone: "neutral",
+          label: "Lukket",
+          activityDate,
+          inactivityDays,
+        };
+      }
 
       if (typeof inactivityDays === "number" && inactivityDays >= 60) {
         return {
@@ -415,9 +425,11 @@
 
     function getFilteredProjects() {
       const openProjects = state.projects.filter((project) => !isClosedStatus(project));
+      const sourceProjects = openProjects.length > 0 ? openProjects : state.projects.slice();
+      state.showingClosedFallback = openProjects.length === 0 && state.projects.length > 0;
 
       const ownerSet = new Map();
-      openProjects.forEach((project) => {
+      sourceProjects.forEach((project) => {
         const ownerId = getOwnerId(project);
         if (ownerId) {
           ownerSet.set(ownerId, ownerLabel(project));
@@ -434,11 +446,11 @@
 
       const allSelected = state.selectedOwnerIds.has("__ALL__");
       if (allSelected) {
-        return sortProjects(openProjects);
+        return sortProjects(sourceProjects);
       }
 
       const selectedSet = state.selectedOwnerIds;
-      const filtered = openProjects.filter((project) => selectedSet.has(getOwnerId(project)));
+      const filtered = sourceProjects.filter((project) => selectedSet.has(getOwnerId(project)));
       return sortProjects(filtered);
     }
 
@@ -711,13 +723,14 @@
 
       if (listMetaText) {
         const modeText = groupMode ? "Grupperet visning" : "Enkelt visning";
-        listMetaText.textContent = `${visibleProjects.length} aktive sager · ${modeText}`;
+        const caseLabel = state.showingClosedFallback ? "lukkede sager" : "aktive sager";
+        listMetaText.textContent = `${visibleProjects.length} ${caseLabel} · ${modeText}`;
       }
 
       if (visibleProjects.length === 0) {
         const emptyState = document.createElement("div");
         emptyState.className = "emptyState";
-        emptyState.textContent = "Ingen aktive sager fundet.";
+        emptyState.textContent = "Ingen sager fundet.";
         projectsContainer.appendChild(emptyState);
         return;
       }
