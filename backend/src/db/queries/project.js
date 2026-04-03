@@ -12,11 +12,15 @@ async function listProjectsForUser(client, { tenantId, userId }) {
       pc.external_project_ref,
       pc.name,
       pc.status,
+      pc.is_closed,
+      pc.activity_date,
       pc.owner_user_id,
       pc.responsible_code,
       pc.responsible_name,
+      pc.responsible_id,
       pc.team_leader_code,
       pc.team_leader_name,
+      pc.team_leader_id,
       pc.created_at,
       pc.updated_at
     FROM project_core pc
@@ -26,7 +30,7 @@ async function listProjectsForUser(client, { tenantId, userId }) {
      AND pa.project_id = pc.project_id
     WHERE pc.tenant_id = $1
       AND (
-        (cu.username_ci IS NOT NULL AND lower(coalesce(pc.responsible_code, '')) = cu.username_ci)
+        (cu.username_ci IS NOT NULL AND lower(btrim(coalesce(pc.responsible_code, ''))) = cu.username_ci)
         OR
         pc.owner_user_id = $2
         OR pa.tenant_user_id = $2
@@ -53,11 +57,15 @@ async function findProjectForUser(client, { tenantId, userId, projectId }) {
       pc.external_project_ref,
       pc.name,
       pc.status,
+      pc.is_closed,
+      pc.activity_date,
       pc.owner_user_id,
       pc.responsible_code,
       pc.responsible_name,
+      pc.responsible_id,
       pc.team_leader_code,
       pc.team_leader_name,
+      pc.team_leader_id,
       pc.created_at,
       pc.updated_at
     FROM project_core pc
@@ -68,7 +76,7 @@ async function findProjectForUser(client, { tenantId, userId, projectId }) {
     WHERE pc.tenant_id = $1
       AND pc.project_id = $2
       AND (
-        (cu.username_ci IS NOT NULL AND lower(coalesce(pc.responsible_code, '')) = cu.username_ci)
+        (cu.username_ci IS NOT NULL AND lower(btrim(coalesce(pc.responsible_code, ''))) = cu.username_ci)
         OR
         pc.owner_user_id = $3
         OR pa.tenant_user_id = $3
