@@ -143,7 +143,15 @@ router.get("/api/sync/status", requireTenantHost, requireAuth("access"), async (
       ),
       client.query(
         `
-          WITH backlog_by_endpoint AS (
+          WITH latest_job AS (
+            SELECT id, type, status, created_at, started_at, finished_at, updated_at
+            FROM sync_job
+            WHERE tenant_id = $1
+              AND type IN ('bootstrap', 'delta')
+            ORDER BY created_at DESC
+            LIMIT 1
+          ),
+          backlog_by_endpoint AS (
             SELECT
               endpoint_key,
               COUNT(*) FILTER (WHERE status IN ('pending', 'deferred', 'retrying')) AS pending_backlog,
@@ -177,7 +185,7 @@ router.get("/api/sync/status", requireTenantHost, requireAuth("access"), async (
           SELECT
             ses.endpoint_key,
             ses.status,
-            sj.type AS sync_type,
+            COALESCE(lj.type, sj.type) AS sync_type,
             ses.last_attempt_at,
             ses.last_successful_sync_at,
             ses.last_successful_page,
@@ -196,8 +204,25 @@ router.get("/api/sync/status", requireTenantHost, requireAuth("access"), async (
             COALESCE(plj.rows_persisted_last_job, 0) AS rows_persisted_last_job,
             COALESCE(be.pending_backlog, 0) AS pending_backlog,
             COALESCE(be.failed_backlog, 0) AS failed_backlog,
-            be.next_retry_at
+            be.next_retry_at,
+            lj.id AS current_job_id,
+            ses.last_job_id,
+            (ses.last_job_id = lj.id) AS touched_by_current_job,
+            CASE
+              WHEN ses.last_error LIKE 'endpoint_not_implemented:%' THEN 'not_implemented'
+              WHEN ses.status = 'running' AND ses.last_attempt_at < now() - interval '3 minutes' THEN 'stale'
+              WHEN ses.status = 'failed' AND ses.last_job_id IS DISTINCT FROM lj.id THEN 'historical_failed'
+              ELSE ses.status
+            END AS effective_status,
+            CASE
+              WHEN ses.last_error LIKE 'endpoint_not_implemented:%' THEN 'skipped_by_design'
+              WHEN ses.status = 'running' AND ses.last_attempt_at < now() - interval '3 minutes' THEN 'no_recent_heartbeat'
+              WHEN ses.status = 'failed' AND ses.last_job_id IS DISTINCT FROM lj.id THEN 'historical_failure'
+              WHEN ses.status = 'failed' THEN 'runtime_failure'
+              ELSE 'normal'
+            END AS status_reason
           FROM sync_endpoint_state ses
+          LEFT JOIN latest_job lj ON true
           LEFT JOIN sync_job sj ON sj.id = ses.last_job_id
           LEFT JOIN page_totals pt ON pt.endpoint_key = ses.endpoint_key
           LEFT JOIN page_last_job plj ON plj.endpoint_key = ses.endpoint_key AND plj.job_id = ses.last_job_id
@@ -229,12 +254,35 @@ router.get("/api/sync/status", requireTenantHost, requireAuth("access"), async (
       next_retry_at: null,
     };
 
+    const endpointRows = endpointStates.rows;
+    const touchedRows = endpointRows.filter((row) => row.touched_by_current_job);
+    const blockingRows = touchedRows.filter((row) => ["failed", "stale"].includes(String(row.effective_status || "")));
+    const runningRows = touchedRows.filter((row) => String(row.effective_status || "") === "running");
+
+    let overallStatus = "idle";
+    if (blockingRows.length > 0) {
+      overallStatus = "failed";
+    } else if (runningRows.length > 0) {
+      overallStatus = "running";
+    } else if (touchedRows.length > 0) {
+      overallStatus = "success";
+    }
+
     res.status(200).json({
       success: true,
       tenant_id: tenantId,
       bootstrap: latestBootstrap,
       delta: latestDelta,
-      endpoint_states: endpointStates.rows,
+      endpoint_states: endpointRows,
+      endpoint_summary: {
+        current_job_id: endpointRows[0]?.current_job_id || null,
+        touched_count: touchedRows.length,
+        running_count: runningRows.length,
+        failed_count: blockingRows.length,
+        skipped_count: touchedRows.filter((row) => String(row.effective_status || "") === "not_implemented").length,
+        historical_failed_count: endpointRows.filter((row) => String(row.effective_status || "") === "historical_failed").length,
+        overall_status: overallStatus,
+      },
       backlog: {
         pending_count: Number(backlog.pending_count || 0),
         failed_count: Number(backlog.failed_count || 0),

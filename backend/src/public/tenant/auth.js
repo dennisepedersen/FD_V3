@@ -180,6 +180,7 @@
     const syncBacklogText = document.getElementById("syncBacklogText");
     const syncNextRetryText = document.getElementById("syncNextRetryText");
     const syncRowsText = document.getElementById("syncRowsText");
+    const syncOverallText = document.getElementById("syncOverallText");
     const drawerShell = document.getElementById("drawerShell");
     const drawerOverlay = document.getElementById("drawerOverlay");
     const drawerCloseBtn = document.getElementById("drawerCloseBtn");
@@ -300,6 +301,28 @@
       return "unknown";
     }
 
+    function mapEffectiveStatusLabel(row) {
+      const value = String(row && row.effective_status ? row.effective_status : row && row.status ? row.status : "").toLowerCase();
+      if (value === "not_implemented") return "Ikke implementeret";
+      if (value === "historical_failed") return "Historisk fejl";
+      if (value === "stale") return "Stale";
+      if (value === "running") return "Kører";
+      if (value === "failed") return "Fejlet";
+      if (value === "success") return "Success";
+      if (value === "partial") return "Delvis";
+      return value || "-";
+    }
+
+    function mapTouchedLabel(row) {
+      if (row && row.touched_by_current_job) {
+        return "Touched i aktuelt job";
+      }
+      if (String(row && row.effective_status ? row.effective_status : "") === "historical_failed") {
+        return "Historisk status";
+      }
+      return "Ikke touched i aktuelt job";
+    }
+
     function renderSyncEndpointList() {
       if (!syncEndpointList) {
         return;
@@ -351,7 +374,7 @@
         endpointName.textContent = String(row.endpoint_key || "-");
 
         const endpointStatus = document.createElement("span");
-        endpointStatus.textContent = `${String(row.status || "-")} · ${normalizeSyncType(row.sync_type)}`;
+        endpointStatus.textContent = `${mapEffectiveStatusLabel(row)} · ${normalizeSyncType(row.sync_type)}`;
 
         title.appendChild(endpointName);
         title.appendChild(endpointStatus);
@@ -362,7 +385,7 @@
 
         const line2 = document.createElement("div");
         line2.className = "syncEndpointMeta";
-        line2.textContent = `Seneste succes: ${formatDateTimeValue(row.last_successful_sync_at)} · Næste retry: ${formatDateTimeValue(row.next_retry_at)} · Pending/failed backlog: ${Number(row.pending_backlog || 0)}/${Number(row.failed_backlog || 0)}`;
+        line2.textContent = `${mapTouchedLabel(row)} · Seneste succes: ${formatDateTimeValue(row.last_successful_sync_at)} · Næste retry: ${formatDateTimeValue(row.next_retry_at)} · Pending/failed backlog: ${Number(row.pending_backlog || 0)}/${Number(row.failed_backlog || 0)}`;
 
         card.appendChild(title);
         card.appendChild(line1);
@@ -922,6 +945,7 @@
         const endpointStates = response && Array.isArray(response.endpoint_states)
           ? response.endpoint_states
           : [];
+        const endpointSummary = response && response.endpoint_summary ? response.endpoint_summary : null;
         const backlog = response && response.backlog ? response.backlog : null;
 
         const persistedRows = endpointStates.reduce((sum, row) => {
@@ -975,6 +999,14 @@
           syncRowsText.textContent = String(persistedRows);
         }
 
+        if (syncOverallText) {
+          const overall = endpointSummary ? String(endpointSummary.overall_status || "idle") : "idle";
+          const touched = endpointSummary ? Number(endpointSummary.touched_count || 0) : 0;
+          const skipped = endpointSummary ? Number(endpointSummary.skipped_count || 0) : 0;
+          const failed = endpointSummary ? Number(endpointSummary.failed_count || 0) : 0;
+          syncOverallText.textContent = `${overall} · touched ${touched} · skipped ${skipped} · failed ${failed}`;
+        }
+
         state.syncEndpointStates = endpointStates;
         renderSyncEndpointList();
       } catch (error) {
@@ -989,6 +1021,7 @@
         if (syncBacklogText) syncBacklogText.textContent = "-";
         if (syncNextRetryText) syncNextRetryText.textContent = "-";
         if (syncRowsText) syncRowsText.textContent = "-";
+        if (syncOverallText) syncOverallText.textContent = "-";
         state.syncEndpointStates = [];
         renderSyncEndpointList();
       }
