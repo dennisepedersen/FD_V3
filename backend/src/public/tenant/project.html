@@ -5,43 +5,328 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Fielddesk Project</title>
   <style>
+    :root {
+      --bg: #f3f5f8;
+      --surface: #ffffff;
+      --surface-2: #f8fafc;
+      --text: #1f2937;
+      --muted: #637083;
+      --border: #d7e0ea;
+      --brand: #0f4c81;
+      --brand-soft: #e8f2fb;
+      --badge-neutral-bg: #eef3f8;
+      --badge-neutral-text: #2f3a48;
+      --badge-warning-bg: #fff2df;
+      --badge-warning-text: #9a3e00;
+      --badge-critical-bg: #fde7e7;
+      --badge-critical-text: #991b1b;
+      --radius: 14px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
     body {
-      font-family: sans-serif;
-      max-width: 840px;
-      margin: 32px auto;
-      padding: 0 16px;
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      background:
+        radial-gradient(circle at 10% 0%, #eaf3ff 0%, rgba(234, 243, 255, 0) 38%),
+        var(--bg);
+      color: var(--text);
     }
 
-    button {
-      font: inherit;
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.92);
+      backdrop-filter: blur(6px);
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+    }
+
+    .brandMark {
+      width: 32px;
+      height: 32px;
+      border-radius: 10px;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(135deg, #1c5b8f, #133c66);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .topActions {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn {
+      border: 1px solid var(--border);
+      border-radius: 10px;
       padding: 10px 12px;
-      margin-right: 8px;
+      font: inherit;
+      background: #fff;
+      color: var(--text);
+      cursor: pointer;
+      text-decoration: none;
     }
 
-    #projectDetailBox {
-      background: #f5f5f5;
+    .btn:hover {
+      background: #f8fafc;
+    }
+
+    .page {
+      width: min(980px, 100%);
+      margin: 0 auto;
+      padding: 14px;
+      display: grid;
+      gap: 14px;
+    }
+
+    .panel {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      box-shadow: 0 1px 2px rgba(10, 25, 41, 0.06);
+    }
+
+    .headerPanel {
+      padding: 14px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .projectRef {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .projectName {
+      margin: 0;
+      font-size: 24px;
+      line-height: 1.2;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 28px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      padding: 0 10px;
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+      width: fit-content;
+    }
+
+    .badgeNeutral {
+      background: var(--badge-neutral-bg);
+      color: var(--badge-neutral-text);
+      border-color: #d8e0ea;
+    }
+
+    .badgeWarning {
+      background: var(--badge-warning-bg);
+      color: var(--badge-warning-text);
+      border-color: #f4b26a;
+    }
+
+    .badgeCritical {
+      background: var(--badge-critical-bg);
+      color: var(--badge-critical-text);
+      border-color: #ef9a9a;
+    }
+
+    .sectionPanel {
       padding: 12px;
+      display: grid;
+      gap: 8px;
     }
 
-    .fieldRow {
-      border-bottom: 1px solid #ddd;
-      padding: 8px 0;
+    .sectionTitle {
+      margin: 0;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
     }
 
-    .fieldRow:last-child {
-      border-bottom: none;
+    .fieldGrid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+    }
+
+    .field {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface-2);
+      padding: 10px;
+      display: grid;
+      gap: 5px;
     }
 
     .fieldLabel {
-      font-weight: 700;
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .fieldValue {
+      font-size: 14px;
+      font-weight: 600;
+      word-break: break-word;
+    }
+
+    .fieldValueMuted {
+      color: #b0bec8;
+    }
+
+    .placeholder {
+      border: 1px dashed var(--border);
+      border-radius: 10px;
+      background: var(--surface-2);
+      padding: 14px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    @media (min-width: 760px) {
+      .topbar {
+        padding: 12px 24px;
+      }
+
+      .page {
+        padding: 24px;
+      }
+
+      .headerPanel {
+        padding: 16px;
+      }
+
+      .sectionPanel {
+        padding: 14px;
+      }
+
+      .fieldGrid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
     }
   </style>
 </head>
 <body data-page="project">
-  <h1>Project Detail</h1>
-  <p><a href="/app">Back to app</a></p>
-  <button id="logoutBtn" type="button">Log out</button>
-  <div id="projectDetailBox">Loading...</div>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brandMark">FD</div>
+      <span>Fielddesk</span>
+    </div>
+    <div class="topActions">
+      <a class="btn" href="/app">Tilbage til sager</a>
+      <button id="logoutBtn" class="btn" type="button">Log ud</button>
+    </div>
+  </header>
+
+  <main class="page">
+    <section class="panel headerPanel">
+      <p id="projectHeaderRef" class="projectRef">Ref: -</p>
+      <h1 id="projectHeaderName" class="projectName">Indlæser sag...</h1>
+      <span id="projectStatusBadge" class="badge badgeNeutral">Indlæser</span>
+    </section>
+
+    <section class="panel sectionPanel">
+      <h2 class="sectionTitle">Ansvar</h2>
+      <div class="fieldGrid">
+        <div class="field">
+          <span class="fieldLabel">Ansvarlig</span>
+          <span id="detailResponsible" class="fieldValue">-</span>
+        </div>
+        <div class="field">
+          <span class="fieldLabel">Teamleder</span>
+          <span id="detailTeamLeader" class="fieldValue">-</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel sectionPanel">
+      <h2 class="sectionTitle">Relation</h2>
+      <div class="fieldGrid">
+        <div class="field">
+          <span class="fieldLabel">Parent projekt</span>
+          <span id="detailParentProject" class="fieldValue">-</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel sectionPanel">
+      <h2 class="sectionTitle">Aktivitet</h2>
+      <div class="fieldGrid">
+        <div class="field">
+          <span class="fieldLabel">Activity date</span>
+          <span id="detailActivityDate" class="fieldValue">-</span>
+        </div>
+        <div class="field">
+          <span class="fieldLabel">Last update</span>
+          <span id="detailUpdatedDate" class="fieldValue">-</span>
+        </div>
+        <div class="field">
+          <span class="fieldLabel">Dage siden aktivitet</span>
+          <span id="detailDaysSinceActivity" class="fieldValue">-</span>
+        </div>
+      </div>
+    </section>
+
+    <section id="economySection" class="panel sectionPanel" hidden>
+      <h2 class="sectionTitle">Økonomi</h2>
+      <div class="fieldGrid">
+        <div class="field">
+          <span class="fieldLabel">Margin</span>
+          <span id="detailMargin" class="fieldValue">-</span>
+        </div>
+        <div class="field">
+          <span class="fieldLabel">Cost</span>
+          <span id="detailCost" class="fieldValue">-</span>
+        </div>
+        <div class="field">
+          <span class="fieldLabel">Ongoing</span>
+          <span id="detailOngoing" class="fieldValue">-</span>
+        </div>
+        <div class="field">
+          <span class="fieldLabel">Billed</span>
+          <span id="detailBilled" class="fieldValue">-</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel sectionPanel">
+      <h2 class="sectionTitle">Fitters</h2>
+      <div class="placeholder">Tom sektion</div>
+    </section>
+
+    <section class="panel sectionPanel">
+      <h2 class="sectionTitle">Timer</h2>
+      <div class="placeholder">Tom sektion</div>
+    </section>
+  </main>
+
   <script src="/tenant/auth.js"></script>
 </body>
 </html>

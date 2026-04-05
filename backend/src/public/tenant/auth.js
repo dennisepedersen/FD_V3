@@ -73,6 +73,118 @@
     return decodeURIComponent(match[1]);
   }
 
+  function mapProjectToQuickViewModel(raw) {
+    if (!raw) {
+      return null;
+    }
+
+    function asString(value) {
+      if (value === null || value === undefined) {
+        return null;
+      }
+      const parsed = String(value).trim();
+      return parsed ? parsed : null;
+    }
+
+    function asNumber(value) {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+
+    function asDate(value) {
+      if (!value) {
+        return null;
+      }
+      const parsed = new Date(value);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+
+    function daysSince(date) {
+      if (!date) {
+        return null;
+      }
+      const now = new Date();
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const startOfDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+      const diffMs = startOfToday.getTime() - startOfDate.getTime();
+      if (diffMs < 0) {
+        return 0;
+      }
+      return Math.floor(diffMs / 86400000);
+    }
+
+    const statusRaw = asString(raw.status);
+    const isClosed = raw.is_closed === true
+      || String(raw.status || "").toLowerCase() === "closed"
+      || String(raw.status || "").toLowerCase() === "lukket";
+
+    const activityDate = asDate(raw.activity_date) || asDate(raw.last_registration) || asDate(raw.last_fitter_hour_date);
+    const updatedDate = asDate(raw.updated_at || raw.source_updated_at);
+    const daysSinceActivity = daysSince(activityDate);
+    const daysSinceLastRegistration = asNumber(raw.calculated_days_since_last_registration);
+
+    let statusTone = "neutral";
+    let statusLabel = isClosed ? "Lukket" : (statusRaw || "Aktiv");
+
+    if (!isClosed && typeof daysSinceActivity === "number" && daysSinceActivity >= 60) {
+      statusTone = "critical";
+      statusLabel = `OBS (${daysSinceActivity} dage)`;
+    } else if (!isClosed && typeof daysSinceActivity === "number" && daysSinceActivity >= 30) {
+      statusTone = "warning";
+      statusLabel = `Stille (${daysSinceActivity} dage)`;
+    }
+
+    const hasWip = raw.coverage != null || raw.margin != null || raw.costs != null
+      || raw.ongoing != null || raw.billed != null || raw.ready_to_bill != null
+      || raw.last_registration != null || raw.last_fitter_hour_date != null
+      || raw.hours_budget != null;
+
+    return {
+      projectId: asString(raw.project_id),
+      reference: asString(raw.external_project_ref),
+      projectName: asString(raw.name),
+      status: {
+        raw: statusRaw,
+        label: statusLabel,
+        tone: statusTone,
+      },
+      isClosed,
+      responsible: {
+        code: asString(raw.responsible_code),
+        name: asString(raw.responsible_name),
+        teamLeaderCode: asString(raw.team_leader_code),
+        teamLeaderName: asString(raw.team_leader_name),
+      },
+      relation: {
+        isSubproject: raw.is_subproject === true,
+        parentProjectEkId: asString(raw.parent_project_ek_id),
+      },
+      dates: {
+        lastActivityDate: activityDate,
+        updatedDate,
+        lastRegistrationDate: asDate(raw.last_registration),
+        lastFitterHourDate: asDate(raw.last_fitter_hour_date),
+        daysSinceActivity,
+        daysSinceLastRegistration: daysSinceLastRegistration !== null ? daysSinceLastRegistration : daysSinceActivity,
+      },
+      economy: {
+        _hasWip: hasWip,
+        coveragePercent: asNumber(raw.coverage),
+        budget: {
+          hours: asNumber(raw.hours_budget),
+          totalExpected: asNumber(raw.total_turn_over_exp),
+        },
+        wip: {
+          costs: asNumber(raw.costs),
+          ongoing: asNumber(raw.ongoing),
+          billed: asNumber(raw.billed),
+          margin: asNumber(raw.margin),
+          readyToBill: asNumber(raw.ready_to_bill),
+        },
+      },
+    };
+  }
+
   async function apiFetch(url, options) {
     const token = getToken();
     const response = await window.fetch(url, {
@@ -745,59 +857,7 @@
     }
 
     function mapProjectToDrawerViewModel(raw) {
-      if (!raw) return null;
-
-      function s(v) { return (v !== null && v !== undefined && String(v).trim() !== '') ? String(v).trim() : null; }
-      function n(v) { const x = Number(v); return Number.isFinite(x) ? x : null; }
-      function d(v) { if (!v) return null; const dt = new Date(v); return Number.isNaN(dt.getTime()) ? null : dt; }
-
-      const isClosed = raw.is_closed === true
-        || String(raw.status || '').toLowerCase() === 'closed'
-        || String(raw.status || '').toLowerCase() === 'lukket';
-
-      const hasWip = raw.coverage != null || raw.margin != null || raw.costs != null
-        || raw.ongoing != null || raw.billed != null || raw.ready_to_bill != null
-        || raw.last_registration != null || raw.last_fitter_hour_date != null
-        || raw.hours_budget != null;
-
-      return {
-        projectId: s(raw.project_id),
-        reference: s(raw.external_project_ref),
-        projectName: s(raw.name),
-        isClosed,
-        responsible: {
-          code: s(raw.responsible_code),
-          name: s(raw.responsible_name),
-          teamLeaderCode: s(raw.team_leader_code),
-          teamLeaderName: s(raw.team_leader_name),
-        },
-        relation: {
-          isSubproject: raw.is_subproject === true,
-          parentProjectEkId: s(raw.parent_project_ek_id),
-        },
-        dates: {
-          lastActivityDate: d(raw.activity_date),
-          updatedDate: d(raw.updated_at || raw.source_updated_at),
-          lastRegistrationDate: d(raw.last_registration),
-          lastFitterHourDate: d(raw.last_fitter_hour_date),
-          daysSinceLastRegistration: n(raw.calculated_days_since_last_registration),
-        },
-        economy: {
-          _hasWip: hasWip,
-          coveragePercent: n(raw.coverage),
-          budget: {
-            hours: n(raw.hours_budget),
-            totalExpected: n(raw.total_turn_over_exp),
-          },
-          wip: {
-            costs: n(raw.costs),
-            ongoing: n(raw.ongoing),
-            billed: n(raw.billed),
-            margin: n(raw.margin),
-            readyToBill: n(raw.ready_to_bill),
-          },
-        },
-      };
+      return mapProjectToQuickViewModel(raw);
     }
 
     function renderDrawerWithViewModel(vm) {
@@ -1432,37 +1492,112 @@
     }
   }
 
-  function renderProjectDetail(project) {
-    const box = document.getElementById("projectDetailBox");
-    if (!box) {
-      return;
+  function renderProjectDetail(vm) {
+    function el(id) {
+      return document.getElementById(id);
     }
 
-    box.innerHTML = "";
+    function setValue(id, value) {
+      const node = el(id);
+      if (!node) {
+        return;
+      }
+      const safe = value === null || value === undefined || value === "" ? "\u2014" : String(value);
+      node.textContent = safe;
+      if (safe === "\u2014") {
+        node.classList.add("fieldValueMuted");
+      } else {
+        node.classList.remove("fieldValueMuted");
+      }
+    }
 
-    const rows = [
-      { label: "Navn", value: project && project.name ? project.name : "-" },
-      { label: "Reference", value: project && project.external_project_ref ? project.external_project_ref : "-" },
-      { label: "Status", value: project && project.status ? project.status : "-" },
-      { label: "Sags-ID", value: project && project.project_id ? project.project_id : "-" },
-      { label: "Opdateret", value: project && project.updated_at ? project.updated_at : "-" },
-    ];
+    function formatDate(value) {
+      if (!value) {
+        return null;
+      }
+      try {
+        return new Intl.DateTimeFormat("da-DK", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+        }).format(value);
+      } catch (_error) {
+        return null;
+      }
+    }
 
-    rows.forEach((item) => {
-      const row = document.createElement("div");
-      row.className = "fieldRow";
+    function formatMoney(value) {
+      if (value === null || value === undefined) {
+        return null;
+      }
+      return `${Number(value).toLocaleString("da-DK", {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0,
+      })} kr.`;
+    }
 
-      const label = document.createElement("div");
-      label.className = "fieldLabel";
-      label.textContent = item.label;
+    const headerRef = el("projectHeaderRef");
+    const headerName = el("projectHeaderName");
+    const statusBadge = el("projectStatusBadge");
+    const economySection = el("economySection");
 
-      const value = document.createElement("div");
-      value.textContent = item.value;
+    if (headerRef) {
+      headerRef.textContent = `Ref: ${vm && vm.reference ? vm.reference : "-"}`;
+    }
 
-      row.appendChild(label);
-      row.appendChild(value);
-      box.appendChild(row);
-    });
+    if (headerName) {
+      headerName.textContent = vm && vm.projectName ? vm.projectName : "(uden navn)";
+    }
+
+    if (statusBadge) {
+      const toneClass = vm && vm.status && vm.status.tone === "critical"
+        ? "badgeCritical"
+        : vm && vm.status && vm.status.tone === "warning"
+          ? "badgeWarning"
+          : "badgeNeutral";
+      statusBadge.className = `badge ${toneClass}`;
+      statusBadge.textContent = vm && vm.status && vm.status.label ? vm.status.label : "Aktiv";
+    }
+
+    const responsibleText = vm
+      ? [vm.responsible.code, vm.responsible.name].filter(Boolean).join(" · ")
+      : null;
+    const teamLeaderText = vm
+      ? [vm.responsible.teamLeaderCode, vm.responsible.teamLeaderName].filter(Boolean).join(" · ")
+      : null;
+
+    setValue("detailResponsible", responsibleText);
+    setValue("detailTeamLeader", teamLeaderText);
+    setValue("detailParentProject", vm && vm.relation ? vm.relation.parentProjectEkId : null);
+    setValue("detailActivityDate", vm && vm.dates ? formatDate(vm.dates.lastActivityDate) : null);
+    setValue("detailUpdatedDate", vm && vm.dates ? formatDate(vm.dates.updatedDate) : null);
+    setValue(
+      "detailDaysSinceActivity",
+      vm && vm.dates && typeof vm.dates.daysSinceActivity === "number"
+        ? String(vm.dates.daysSinceActivity)
+        : null
+    );
+
+    if (economySection) {
+      economySection.hidden = !(vm && vm.economy && vm.economy._hasWip);
+    }
+
+    setValue("detailMargin", vm && vm.economy ? formatMoney(vm.economy.wip.margin) : null);
+    setValue("detailCost", vm && vm.economy ? formatMoney(vm.economy.wip.costs) : null);
+    setValue("detailOngoing", vm && vm.economy ? formatMoney(vm.economy.wip.ongoing) : null);
+    setValue("detailBilled", vm && vm.economy ? formatMoney(vm.economy.wip.billed) : null);
+  }
+
+  function renderProjectDetailError(message) {
+    const headerName = document.getElementById("projectHeaderName");
+    const statusBadge = document.getElementById("projectStatusBadge");
+    if (headerName) {
+      headerName.textContent = message;
+    }
+    if (statusBadge) {
+      statusBadge.className = "badge badgeCritical";
+      statusBadge.textContent = "Fejl";
+    }
   }
 
   async function initProjectPage() {
@@ -1470,31 +1605,27 @@
       return;
     }
 
-    const projectDetailBox = document.getElementById("projectDetailBox");
     const logoutBtn = document.getElementById("logoutBtn");
     const projectId = getProjectIdFromPath();
 
     if (!projectId) {
-      if (projectDetailBox) {
-        projectDetailBox.textContent = "Ugyldig sagssti";
-      }
+      renderProjectDetailError("Ugyldig sagssti");
       return;
-    }
-
-    if (projectDetailBox) {
-      projectDetailBox.textContent = "Indlæser...";
     }
 
     try {
       const response = await apiFetch(`/api/projects/${encodeURIComponent(projectId)}`, { method: "GET" });
-      renderProjectDetail(response && response.project ? response.project : null);
+      const vm = mapProjectToQuickViewModel(response && response.project ? response.project : null);
+      if (!vm) {
+        renderProjectDetailError("Projektdata mangler");
+      } else {
+        renderProjectDetail(vm);
+      }
     } catch (error) {
       if (handleAuthFailure(error)) {
         return;
       }
-      if (projectDetailBox) {
-        projectDetailBox.textContent = `Kunne ikke hente sag: ${getErrorMessage(error, "request_failed")}`;
-      }
+      renderProjectDetailError(`Kunne ikke hente sag: ${getErrorMessage(error, "request_failed")}`);
     }
 
     if (logoutBtn) {
