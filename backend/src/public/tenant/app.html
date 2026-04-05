@@ -608,6 +608,65 @@
         font-size: 16px;
       }
     }
+
+    .drawerSection {
+      display: grid;
+      gap: 6px;
+    }
+
+    .drawerSectionTitle {
+      margin: 0;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.09em;
+      color: var(--muted);
+      padding: 2px 2px 0;
+    }
+
+    .drawerPendingField {
+      border: 1px dashed var(--border);
+      border-radius: 10px;
+      background: var(--surface-2);
+      padding: 8px 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .drawerPendingLabel {
+      color: var(--muted);
+      font-size: 13px;
+      flex: 1;
+    }
+
+    .drawerPendingBadge {
+      font-size: 11px;
+      color: #7a8fa0;
+      background: #e6ecf2;
+      border-radius: 999px;
+      padding: 2px 8px;
+      white-space: nowrap;
+      border: 1px solid #ccd7e2;
+    }
+
+    .drawerFieldGrid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+
+    .drawerValueMuted {
+      display: block;
+      font-size: 14px;
+      color: #b0bec8;
+    }
+
+    .drawerBadges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
   </style>
 </head>
 <body data-page="app">

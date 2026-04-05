@@ -211,6 +211,48 @@
       "activity_at",
       "activity_date",
     ];
+    const PIPELINE_TRACE_REFS = new Set(["80229", "80229-001"]);
+    const PROJECT_LIST_DEBUG_ENABLED = true;
+
+    function normalizeRef(ref) {
+      return String(ref || "").trim();
+    }
+
+    function summarizeTrackedProjects(projects) {
+      const rows = [];
+      (Array.isArray(projects) ? projects : []).forEach((project) => {
+        const ref = normalizeRef(project && project.external_project_ref);
+        if (!PIPELINE_TRACE_REFS.has(ref)) {
+          return;
+        }
+        rows.push({
+          ref,
+          project_id: project && project.project_id ? String(project.project_id) : "",
+          status: project && project.status ? String(project.status) : null,
+          is_closed: project && Object.prototype.hasOwnProperty.call(project, "is_closed")
+            ? project.is_closed
+            : null,
+          owner_user_id: project && project.owner_user_id ? String(project.owner_user_id) : "",
+        });
+      });
+      return rows;
+    }
+
+    function logProjectPipeline(stage, projects, extra) {
+      if (!PROJECT_LIST_DEBUG_ENABLED) {
+        return;
+      }
+
+      const list = Array.isArray(projects) ? projects : [];
+      const tracked = summarizeTrackedProjects(list);
+      const payload = {
+        stage,
+        count: list.length,
+        tracked,
+        extra: extra || null,
+      };
+      console.info("[projects-mine-pipeline]", payload);
+    }
 
     function toDate(value) {
       if (!value) {
@@ -289,6 +331,12 @@
     }
 
     function isClosedStatus(project) {
+      if (project && project.is_closed === true) {
+        return true;
+      }
+      if (project && project.is_closed === false) {
+        return false;
+      }
       const status = String(project && project.status ? project.status : "").trim().toLowerCase();
       return status === "closed" || status === "lukket";
     }
@@ -572,12 +620,25 @@
     }
 
     function getFilteredProjects() {
+      logProjectPipeline("raw-api", state.projects, {
+        selected_owner_ids: Array.from(state.selectedOwnerIds),
+      });
+
       const openProjects = state.projects.filter((project) => !isClosedStatus(project));
+      logProjectPipeline("open-only", openProjects, {
+        raw_count: state.projects.length,
+      });
+
       const sourceProjects = openProjects.length > 0 ? openProjects : state.projects.slice();
       state.showingClosedFallback = openProjects.length === 0 && state.projects.length > 0;
 
+      const mappedProjects = sourceProjects.map((project) => project);
+      logProjectPipeline("after-mapping", mappedProjects, {
+        showing_closed_fallback: state.showingClosedFallback,
+      });
+
       const ownerSet = new Map();
-      sourceProjects.forEach((project) => {
+      mappedProjects.forEach((project) => {
         const ownerId = getOwnerId(project);
         if (ownerId) {
           ownerSet.set(ownerId, ownerLabel(project));
@@ -592,14 +653,26 @@
         state.selectedOwnerIds = new Set(["__ALL__"]);
       }
 
+      const sortedProjects = sortProjects(mappedProjects);
+      logProjectPipeline("after-sorting", sortedProjects, {
+        sort_mode: state.sortMode,
+      });
+
       const allSelected = state.selectedOwnerIds.has("__ALL__");
       if (allSelected) {
-        return sortProjects(sourceProjects);
+        logProjectPipeline("after-filtering", sortedProjects, {
+          filter_mode: "all-owners",
+        });
+        return sortedProjects;
       }
 
       const selectedSet = state.selectedOwnerIds;
-      const filtered = sourceProjects.filter((project) => selectedSet.has(getOwnerId(project)));
-      return sortProjects(filtered);
+      const filtered = sortedProjects.filter((project) => selectedSet.has(getOwnerId(project)));
+      logProjectPipeline("after-filtering", filtered, {
+        filter_mode: "owner-selection",
+        selected_owner_ids: Array.from(selectedSet),
+      });
+      return filtered;
     }
 
     function makeBadge(statusView) {
@@ -671,32 +744,245 @@
       ], false);
     }
 
+    function mapProjectToDrawerViewModel(raw) {
+      if (!raw) return null;
+
+      function s(v) { return (v !== null && v !== undefined && String(v).trim() !== '') ? String(v).trim() : null; }
+      function n(v) { const x = Number(v); return Number.isFinite(x) ? x : null; }
+      function d(v) { if (!v) return null; const dt = new Date(v); return Number.isNaN(dt.getTime()) ? null : dt; }
+
+      const isClosed = raw.is_closed === true
+        || String(raw.status || '').toLowerCase() === 'closed'
+        || String(raw.status || '').toLowerCase() === 'lukket';
+
+      const hasWip = raw.coverage != null || raw.margin != null || raw.costs != null
+        || raw.ongoing != null || raw.billed != null || raw.ready_to_bill != null
+        || raw.last_registration != null || raw.last_fitter_hour_date != null
+        || raw.hours_budget != null;
+
+      return {
+        projectId: s(raw.project_id),
+        reference: s(raw.external_project_ref),
+        projectName: s(raw.name),
+        isClosed,
+        responsible: {
+          code: s(raw.responsible_code),
+          name: s(raw.responsible_name),
+          teamLeaderCode: s(raw.team_leader_code),
+          teamLeaderName: s(raw.team_leader_name),
+        },
+        relation: {
+          isSubproject: raw.is_subproject === true,
+          parentProjectEkId: s(raw.parent_project_ek_id),
+        },
+        dates: {
+          lastActivityDate: d(raw.activity_date),
+          updatedDate: d(raw.updated_at || raw.source_updated_at),
+          lastRegistrationDate: d(raw.last_registration),
+          lastFitterHourDate: d(raw.last_fitter_hour_date),
+          daysSinceLastRegistration: n(raw.calculated_days_since_last_registration),
+        },
+        economy: {
+          _hasWip: hasWip,
+          coveragePercent: n(raw.coverage),
+          budget: {
+            hours: n(raw.hours_budget),
+            totalExpected: n(raw.total_turn_over_exp),
+          },
+          wip: {
+            costs: n(raw.costs),
+            ongoing: n(raw.ongoing),
+            billed: n(raw.billed),
+            margin: n(raw.margin),
+            readyToBill: n(raw.ready_to_bill),
+          },
+        },
+      };
+    }
+
+    function renderDrawerWithViewModel(vm) {
+      if (!drawerBody) return;
+      drawerBody.innerHTML = '';
+
+      function fmtD(dt) {
+        if (!dt) return null;
+        try { return new Intl.DateTimeFormat('da-DK', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(dt); }
+        catch (_) { return null; }
+      }
+
+      function fmtN(num, decimals) {
+        if (num === null || num === undefined) return null;
+        return num.toLocaleString('da-DK', { minimumFractionDigits: decimals || 0, maximumFractionDigits: decimals || 0 });
+      }
+
+      function makeSection(title) {
+        const el = document.createElement('div');
+        el.className = 'drawerSection';
+        if (title) {
+          const h = document.createElement('p');
+          h.className = 'drawerSectionTitle';
+          h.textContent = title;
+          el.appendChild(h);
+        }
+        return el;
+      }
+
+      function makeField(label, value) {
+        const wrap = document.createElement('div');
+        wrap.className = 'drawerField';
+        const l = document.createElement('span');
+        l.className = 'drawerLabel';
+        l.textContent = label;
+        const v = document.createElement('span');
+        if (value === null || value === undefined || value === '') {
+          v.className = 'drawerValue drawerValueMuted';
+          v.textContent = '\u2014';
+        } else {
+          v.className = 'drawerValue';
+          v.textContent = String(value);
+        }
+        wrap.appendChild(l);
+        wrap.appendChild(v);
+        return wrap;
+      }
+
+      function makePending(label) {
+        const wrap = document.createElement('div');
+        wrap.className = 'drawerPendingField';
+        const l = document.createElement('span');
+        l.className = 'drawerPendingLabel';
+        l.textContent = label;
+        const badge = document.createElement('span');
+        badge.className = 'drawerPendingBadge';
+        badge.textContent = 'Afventer data';
+        wrap.appendChild(l);
+        wrap.appendChild(badge);
+        return wrap;
+      }
+
+      function makeGrid() {
+        const grid = document.createElement('div');
+        grid.className = 'drawerFieldGrid';
+        for (let i = 0; i < arguments.length; i++) { grid.appendChild(arguments[i]); }
+        return grid;
+      }
+
+      // Status badges
+      const statusSection = makeSection(null);
+      const badgeRow = document.createElement('div');
+      badgeRow.className = 'drawerBadges';
+
+      const days = vm.dates.daysSinceLastRegistration;
+      let statusLabel, statusCls;
+      if (vm.isClosed) {
+        statusLabel = 'Lukket'; statusCls = 'badgeNeutral';
+      } else if (days !== null && days >= 60) {
+        statusLabel = 'OBS (' + days + ' dage)'; statusCls = 'badgeCritical';
+      } else if (days !== null && days >= 30) {
+        statusLabel = 'Stille (' + days + ' dage)'; statusCls = 'badgeWarning';
+      } else {
+        statusLabel = 'Aktiv'; statusCls = 'badgeNeutral';
+      }
+      const sb = document.createElement('span');
+      sb.className = 'badge ' + statusCls;
+      sb.textContent = statusLabel;
+      badgeRow.appendChild(sb);
+
+      if (vm.relation.isSubproject) {
+        const ub = document.createElement('span');
+        ub.className = 'badge badgeNeutral';
+        ub.textContent = 'Underprojekt';
+        badgeRow.appendChild(ub);
+      }
+      statusSection.appendChild(badgeRow);
+      drawerBody.appendChild(statusSection);
+
+      // Ansvarlig
+      const responsibleSection = makeSection('Ansvarlig');
+      const respLine = [vm.responsible.code, vm.responsible.name].filter(Boolean).join(' \u00b7 ') || null;
+      responsibleSection.appendChild(makeField('Ansvarlig', respLine));
+      const tlLine = [vm.responsible.teamLeaderCode, vm.responsible.teamLeaderName].filter(Boolean).join(' \u00b7 ') || null;
+      if (tlLine) {
+        responsibleSection.appendChild(makeField('Teamleder', tlLine));
+      }
+      drawerBody.appendChild(responsibleSection);
+
+      // Relation
+      if (vm.relation.isSubproject || vm.relation.parentProjectEkId) {
+        const relSection = makeSection('Relation');
+        relSection.appendChild(makeField('Overordnet projekt (EK nr.)', vm.relation.parentProjectEkId));
+        relSection.appendChild(makePending('Overordnet ref. / antal underprojekter'));
+        drawerBody.appendChild(relSection);
+      }
+
+      // Datoer
+      const datesSection = makeSection('Datoer');
+      datesSection.appendChild(makeGrid(
+        makeField('Sidste aktivitet', fmtD(vm.dates.lastActivityDate)),
+        makeField('Sidst opdateret', fmtD(vm.dates.updatedDate)),
+        makeField('Seneste registrering', fmtD(vm.dates.lastRegistrationDate)),
+        makeField('Seneste montørtime', fmtD(vm.dates.lastFitterHourDate))
+      ));
+      if (vm.dates.daysSinceLastRegistration !== null) {
+        datesSection.appendChild(makeField('Dage siden registrering', String(vm.dates.daysSinceLastRegistration)));
+      }
+      datesSection.appendChild(makeGrid(
+        makePending('Startdato'),
+        makePending('Slutdato')
+      ));
+      drawerBody.appendChild(datesSection);
+
+      // Budget & WIP
+      const econSection = makeSection('Budget & WIP');
+      if (vm.economy._hasWip) {
+        econSection.appendChild(makeGrid(
+          makeField('D\u00e6kning', vm.economy.coveragePercent !== null ? fmtN(vm.economy.coveragePercent, 1) + ' %' : null),
+          makeField('Margin', vm.economy.wip.margin !== null ? fmtN(vm.economy.wip.margin, 0) + ' kr.' : null),
+          makeField('Kost', vm.economy.wip.costs !== null ? fmtN(vm.economy.wip.costs, 0) + ' kr.' : null),
+          makeField('Igangv\u00e6rende', vm.economy.wip.ongoing !== null ? fmtN(vm.economy.wip.ongoing, 0) + ' kr.' : null),
+          makeField('Faktureret', vm.economy.wip.billed !== null ? fmtN(vm.economy.wip.billed, 0) + ' kr.' : null),
+          makeField('Klar fakturering', vm.economy.wip.readyToBill !== null ? fmtN(vm.economy.wip.readyToBill, 0) + ' kr.' : null)
+        ));
+        econSection.appendChild(makeGrid(
+          makeField('Budget timer', vm.economy.budget.hours !== null ? fmtN(vm.economy.budget.hours, 1) + ' t.' : null),
+          makeField('Forventet omsætning', vm.economy.budget.totalExpected !== null ? fmtN(vm.economy.budget.totalExpected, 0) + ' kr.' : null)
+        ));
+      } else {
+        econSection.appendChild(makePending('Budget & WIP'));
+        if (vm.economy.budget.totalExpected !== null) {
+          econSection.appendChild(makeField('Forventet omsætning (V4)', fmtN(vm.economy.budget.totalExpected, 0) + ' kr.'));
+        }
+      }
+      drawerBody.appendChild(econSection);
+
+      // Kunde — V3 pending
+      const customerSection = makeSection('Kunde');
+      customerSection.appendChild(makePending('Kundenavn'));
+      customerSection.appendChild(makePending('Kontaktperson / telefon / e-mail'));
+      drawerBody.appendChild(customerSection);
+
+      // Adresse — V3 pending
+      const addressSection = makeSection('Adresse');
+      addressSection.appendChild(makePending('Adresse'));
+      drawerBody.appendChild(addressSection);
+    }
+
     function renderDrawerProject(project) {
-      const statusView = getStatusView(project);
+      const vm = mapProjectToDrawerViewModel(project);
+      if (!vm) {
+        renderDrawerError('Projektdata kunne ikke vises.');
+        return;
+      }
       if (drawerTitle) {
-        drawerTitle.textContent = project && project.name ? project.name : "Sag";
+        drawerTitle.textContent = vm.projectName || 'Sag';
       }
       if (drawerRef) {
-        drawerRef.textContent = `Ref: ${project && project.external_project_ref ? project.external_project_ref : "-"}`;
+        drawerRef.textContent = 'Ref: ' + (vm.reference || '-');
       }
-
-      const fields = [
-        { label: "Status", value: statusView.label },
-        { label: "Sidste aktivitet", value: formatActivityDate(statusView.activityDate) },
-      ];
-
-      if (state.ownerOptions.length > 1) {
-        fields.push({ label: "Ejer", value: ownerLabel(project) });
+      if (openProjectPageLink && vm.projectId) {
+        openProjectPageLink.href = '/project/' + encodeURIComponent(vm.projectId);
       }
-
-      const selectedCount = state.selectedOwnerIds.has("__ALL__")
-        ? state.ownerOptions.length
-        : state.selectedOwnerIds.size;
-      if (selectedCount > 1 && hasTeamLeaderValue(project)) {
-        fields.push({ label: "Teamleder", value: getTeamLeaderValue(project) });
-      }
-
-      renderDrawerFields(fields, false);
+      renderDrawerWithViewModel(vm);
     }
 
     function renderDrawerNotFound() {
@@ -829,6 +1115,9 @@
       const card = document.createElement("button");
       card.type = "button";
       card.className = "projectCard";
+      if (project && project.project_id) {
+        card.dataset.projectId = String(project.project_id);
+      }
 
       const name = document.createElement("h3");
       name.className = "projectName";
@@ -887,6 +1176,14 @@
         visibleProjects.forEach((project) => {
           projectsContainer.appendChild(createProjectCard(project));
         });
+        const renderedCards = projectsContainer.querySelectorAll(".projectCard").length;
+        logProjectPipeline("after-grouping-dedup", visibleProjects, {
+          group_mode: false,
+          dedup_applied: false,
+        });
+        logProjectPipeline("final-render", visibleProjects, {
+          rendered_cards: renderedCards,
+        });
         return;
       }
 
@@ -919,6 +1216,17 @@
 
         projectsContainer.appendChild(block);
       });
+
+      const groupedCount = Array.from(groups.values()).reduce((sum, items) => sum + items.length, 0);
+      const renderedCards = projectsContainer.querySelectorAll(".projectCard").length;
+      logProjectPipeline("after-grouping-dedup", visibleProjects, {
+        group_mode: true,
+        dedup_applied: false,
+        grouped_count: groupedCount,
+      });
+      logProjectPipeline("final-render", visibleProjects, {
+        rendered_cards: renderedCards,
+      });
     }
 
     async function loadProjects() {
@@ -931,6 +1239,9 @@
         const response = await apiFetch("/api/projects?scope=mine", { method: "GET" });
         state.projects = response && Array.isArray(response.projects) ? response.projects : [];
         state.ownerLabelMap.clear();
+        logProjectPipeline("raw-api-fetch", state.projects, {
+          endpoint: "/api/projects?scope=mine",
+        });
         renderProjects();
       } catch (error) {
         if (handleAuthFailure(error)) {
