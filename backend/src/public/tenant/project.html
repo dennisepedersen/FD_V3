@@ -210,6 +210,91 @@
       font-size: 14px;
     }
 
+    .sectionState {
+      border: 1px dashed var(--border);
+      border-radius: 10px;
+      background: var(--surface-2);
+      padding: 10px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .miniBadgeRow {
+      display: inline-flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .miniBadge {
+      border: 1px solid #d8e0ea;
+      background: #eef3f8;
+      color: #2f3a48;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      white-space: nowrap;
+    }
+
+    .miniBadgePending {
+      background: #fff2df;
+      color: #9a3e00;
+      border-color: #f4b26a;
+    }
+
+    .itemList {
+      display: grid;
+      gap: 8px;
+    }
+
+    .itemCard {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface-2);
+      padding: 10px;
+      display: grid;
+      gap: 6px;
+    }
+
+    .itemTitle {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .itemMeta {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .summaryRow {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .summaryCard {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface-2);
+      padding: 8px 10px;
+      display: grid;
+      gap: 4px;
+    }
+
+    .summaryLabel {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+    }
+
+    .summaryValue {
+      font-size: 14px;
+      font-weight: 700;
+    }
+
     @media (min-width: 760px) {
       .topbar {
         padding: 12px 24px;
@@ -318,12 +403,28 @@
 
     <section class="panel sectionPanel">
       <h2 class="sectionTitle">Fitters</h2>
-      <div class="placeholder">Tom sektion</div>
+      <div id="fittersState" class="sectionState">Indlæser teknikerdata...</div>
+      <div id="fittersList" class="itemList"></div>
     </section>
 
     <section class="panel sectionPanel">
       <h2 class="sectionTitle">Timer</h2>
-      <div class="placeholder">Tom sektion</div>
+      <div class="summaryRow">
+        <div class="summaryCard">
+          <span class="summaryLabel">Total timer</span>
+          <span id="hoursTotal" class="summaryValue">—</span>
+        </div>
+        <div class="summaryCard">
+          <span class="summaryLabel">Registreringer</span>
+          <span id="hoursCount" class="summaryValue">—</span>
+        </div>
+        <div class="summaryCard">
+          <span class="summaryLabel">Seneste registrering</span>
+          <span id="hoursLatest" class="summaryValue">—</span>
+        </div>
+      </div>
+      <div id="hoursState" class="sectionState">Indlæser timer...</div>
+      <div id="hoursList" class="itemList"></div>
     </section>
   </main>
 

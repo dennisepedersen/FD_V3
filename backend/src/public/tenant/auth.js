@@ -185,6 +185,307 @@
     };
   }
 
+  function mapProjectToFittersSection(rawProject, options) {
+    const isLoaded = Boolean(options && options.isLoaded);
+    if (!isLoaded) {
+      return {
+        items: [],
+        totalCount: null,
+        hasData: false,
+        isPending: false,
+        emptyReason: "not_loaded",
+      };
+    }
+
+    if (!rawProject) {
+      return {
+        items: [],
+        totalCount: 0,
+        hasData: false,
+        isPending: false,
+        emptyReason: "no_fitters",
+      };
+    }
+
+    function asString(value) {
+      if (value === null || value === undefined) {
+        return null;
+      }
+      const parsed = String(value).trim();
+      return parsed ? parsed : null;
+    }
+
+    const candidates = Array.isArray(rawProject.fitters)
+      ? rawProject.fitters
+      : Array.isArray(rawProject.fitterList)
+        ? rawProject.fitterList
+        : [];
+
+    const items = [];
+    const seen = new Set();
+
+    function makeKey(item) {
+      return [
+        asString(item.id),
+        asString(item.employeeCode),
+        asString(item.name),
+      ].join("|");
+    }
+
+    function addItem(item) {
+      const key = makeKey(item);
+      if (seen.has(key)) {
+        return;
+      }
+      seen.add(key);
+      items.push(item);
+    }
+
+    const responsibleCode = asString(rawProject.responsible_code);
+    const responsibleName = asString(rawProject.responsible_name);
+    if (responsibleCode || responsibleName) {
+      addItem({
+        id: null,
+        employeeCode: responsibleCode,
+        name: responsibleName,
+        role: "Ansvarlig",
+        relationType: "responsible",
+        isResponsible: true,
+        isTeamLeader: false,
+        isPending: false,
+        source: "v4",
+      });
+    }
+
+    const teamLeaderCode = asString(rawProject.team_leader_code);
+    const teamLeaderName = asString(rawProject.team_leader_name);
+    if (teamLeaderCode || teamLeaderName) {
+      addItem({
+        id: null,
+        employeeCode: teamLeaderCode,
+        name: teamLeaderName,
+        role: "Teamleder",
+        relationType: "team_leader",
+        isResponsible: false,
+        isTeamLeader: true,
+        isPending: false,
+        source: "v4",
+      });
+    }
+
+    candidates.forEach((row) => {
+      if (!row || typeof row !== "object") {
+        return;
+      }
+      addItem({
+        id: asString(row.id || row.fitterID || row.fitterId),
+        employeeCode: asString(row.employeeCode || row.code || row.fitterCode || row.initials),
+        name: asString(row.name || row.employeeName || row.fitterName),
+        role: asString(row.role || row.relation || "Tekniker"),
+        relationType: "fitter",
+        isResponsible: false,
+        isTeamLeader: false,
+        isPending: false,
+        source: "v3",
+      });
+    });
+
+    const hasData = items.length > 0;
+    const hasFitterArrayInPayload = Object.prototype.hasOwnProperty.call(rawProject, "fitters")
+      || Object.prototype.hasOwnProperty.call(rawProject, "fitterList");
+
+    if (!hasData && !hasFitterArrayInPayload) {
+      return {
+        items: [],
+        totalCount: null,
+        hasData: false,
+        isPending: true,
+        emptyReason: "missing_enrichment",
+      };
+    }
+
+    if (!hasData) {
+      return {
+        items: [],
+        totalCount: 0,
+        hasData: false,
+        isPending: false,
+        emptyReason: "no_fitters",
+      };
+    }
+
+    return {
+      items,
+      totalCount: items.length,
+      hasData: true,
+      isPending: false,
+      emptyReason: "none",
+    };
+  }
+
+  function mapProjectToFitterHoursSection(rawProject, options) {
+    const isLoaded = Boolean(options && options.isLoaded);
+    if (!isLoaded) {
+      return {
+        items: [],
+        summary: {
+          totalHours: null,
+          latestEntryDate: null,
+          entryCount: null,
+          groupedByEmployee: [],
+        },
+        hasData: false,
+        isPending: false,
+        emptyReason: "not_loaded",
+      };
+    }
+
+    if (!rawProject) {
+      return {
+        items: [],
+        summary: {
+          totalHours: 0,
+          latestEntryDate: null,
+          entryCount: 0,
+          groupedByEmployee: [],
+        },
+        hasData: false,
+        isPending: false,
+        emptyReason: "no_hours",
+      };
+    }
+
+    function asString(value) {
+      if (value === null || value === undefined) {
+        return null;
+      }
+      const parsed = String(value).trim();
+      return parsed ? parsed : null;
+    }
+
+    function asNumber(value) {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+
+    function asDate(value) {
+      if (!value) {
+        return null;
+      }
+      const parsed = new Date(value);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+
+    const rawRows = Array.isArray(rawProject.fitterhours)
+      ? rawProject.fitterhours
+      : Array.isArray(rawProject.fitterHours)
+        ? rawProject.fitterHours
+        : Array.isArray(rawProject.hours)
+          ? rawProject.hours
+          : [];
+
+    const items = rawRows
+      .filter((row) => row && typeof row === "object")
+      .map((row) => ({
+        id: asString(row.id || row.fitterHourID || row.fitterHourId),
+        date: asString(row.date || row.registrationDate || row.workDate),
+        employeeCode: asString(row.employeeCode || row.fitterCode || row.initials),
+        employeeName: asString(row.employeeName || row.fitterName || row.name),
+        hours: asNumber(row.hours || row.registeredHours || row.totalHours),
+        note: asString(row.note || row.description),
+        source: "v3",
+        isPending: false,
+      }));
+
+    const hasArrayInPayload = Object.prototype.hasOwnProperty.call(rawProject, "fitterhours")
+      || Object.prototype.hasOwnProperty.call(rawProject, "fitterHours")
+      || Object.prototype.hasOwnProperty.call(rawProject, "hours");
+
+    if (items.length === 0 && !hasArrayInPayload) {
+      return {
+        items: [],
+        summary: {
+          totalHours: null,
+          latestEntryDate: null,
+          entryCount: null,
+          groupedByEmployee: [],
+        },
+        hasData: false,
+        isPending: true,
+        emptyReason: "missing_enrichment",
+      };
+    }
+
+    if (items.length === 0) {
+      return {
+        items: [],
+        summary: {
+          totalHours: 0,
+          latestEntryDate: null,
+          entryCount: 0,
+          groupedByEmployee: [],
+        },
+        hasData: false,
+        isPending: false,
+        emptyReason: "no_hours",
+      };
+    }
+
+    const groupedMap = new Map();
+    let totalHours = 0;
+    let latestDate = null;
+
+    items.forEach((item) => {
+      if (typeof item.hours === "number") {
+        totalHours += item.hours;
+      }
+      const parsedDate = asDate(item.date);
+      if (parsedDate && (!latestDate || parsedDate > latestDate)) {
+        latestDate = parsedDate;
+      }
+
+      const key = `${item.employeeCode || ""}|${item.employeeName || ""}`;
+      const prev = groupedMap.get(key) || {
+        employeeCode: item.employeeCode,
+        employeeName: item.employeeName,
+        totalHours: 0,
+        entryCount: 0,
+      };
+      prev.entryCount += 1;
+      prev.totalHours += typeof item.hours === "number" ? item.hours : 0;
+      groupedMap.set(key, prev);
+    });
+
+    return {
+      items,
+      summary: {
+        totalHours,
+        latestEntryDate: latestDate ? latestDate.toISOString() : null,
+        entryCount: items.length,
+        groupedByEmployee: Array.from(groupedMap.values()),
+      },
+      hasData: true,
+      isPending: false,
+      emptyReason: "none",
+    };
+  }
+
+  function getSectionEmptyStateText(sectionName, emptyReason) {
+    if (emptyReason === "not_loaded") {
+      return `${sectionName} er ikke hentet endnu.`;
+    }
+    if (emptyReason === "missing_enrichment") {
+      return `${sectionName} afventer enrichment.`;
+    }
+    if (emptyReason === "no_fitters") {
+      return "Ingen teknikere registreret.";
+    }
+    if (emptyReason === "no_hours") {
+      return "Ingen timer registreret.";
+    }
+    return "Ingen data.";
+  }
+
   async function apiFetch(url, options) {
     const token = getToken();
     const response = await window.fetch(url, {
@@ -1588,6 +1889,152 @@
     setValue("detailBilled", vm && vm.economy ? formatMoney(vm.economy.wip.billed) : null);
   }
 
+  function renderFittersSection(sectionVm) {
+    const stateNode = document.getElementById("fittersState");
+    const listNode = document.getElementById("fittersList");
+    if (!stateNode || !listNode) {
+      return;
+    }
+
+    listNode.innerHTML = "";
+
+    if (!sectionVm || !sectionVm.hasData) {
+      stateNode.hidden = false;
+      stateNode.textContent = getSectionEmptyStateText("Teknikerdata", sectionVm ? sectionVm.emptyReason : "not_loaded");
+      return;
+    }
+
+    stateNode.hidden = true;
+
+    sectionVm.items.forEach((item) => {
+      const card = document.createElement("div");
+      card.className = "itemCard";
+
+      const title = document.createElement("p");
+      title.className = "itemTitle";
+      title.textContent = item.name || "Ukendt tekniker";
+
+      const meta = document.createElement("p");
+      meta.className = "itemMeta";
+      meta.textContent = [item.employeeCode, item.role].filter(Boolean).join(" · ") || "—";
+
+      const badgeRow = document.createElement("div");
+      badgeRow.className = "miniBadgeRow";
+
+      if (item.isResponsible) {
+        const b = document.createElement("span");
+        b.className = "miniBadge";
+        b.textContent = "Ansvarlig";
+        badgeRow.appendChild(b);
+      }
+
+      if (item.isTeamLeader) {
+        const b = document.createElement("span");
+        b.className = "miniBadge";
+        b.textContent = "Teamleder";
+        badgeRow.appendChild(b);
+      }
+
+      if (item.isPending) {
+        const b = document.createElement("span");
+        b.className = "miniBadge miniBadgePending";
+        b.textContent = "Afventer enrichment";
+        badgeRow.appendChild(b);
+      }
+
+      card.appendChild(title);
+      card.appendChild(meta);
+      if (badgeRow.childElementCount > 0) {
+        card.appendChild(badgeRow);
+      }
+      listNode.appendChild(card);
+    });
+  }
+
+  function renderFitterHoursSection(sectionVm) {
+    const stateNode = document.getElementById("hoursState");
+    const listNode = document.getElementById("hoursList");
+    const totalNode = document.getElementById("hoursTotal");
+    const countNode = document.getElementById("hoursCount");
+    const latestNode = document.getElementById("hoursLatest");
+    if (!stateNode || !listNode || !totalNode || !countNode || !latestNode) {
+      return;
+    }
+
+    function setSummary(node, value) {
+      const safe = value === null || value === undefined || value === "" ? "\u2014" : String(value);
+      node.textContent = safe;
+    }
+
+    function formatDate(value) {
+      if (!value) {
+        return null;
+      }
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) {
+        return null;
+      }
+      try {
+        return new Intl.DateTimeFormat("da-DK", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+        }).format(parsed);
+      } catch (_error) {
+        return null;
+      }
+    }
+
+    function formatHours(value) {
+      if (value === null || value === undefined) {
+        return null;
+      }
+      return Number(value).toLocaleString("da-DK", {
+        minimumFractionDigits: 1,
+        maximumFractionDigits: 1,
+      });
+    }
+
+    listNode.innerHTML = "";
+
+    setSummary(totalNode, sectionVm && sectionVm.summary ? formatHours(sectionVm.summary.totalHours) : null);
+    setSummary(countNode, sectionVm && sectionVm.summary ? sectionVm.summary.entryCount : null);
+    setSummary(latestNode, sectionVm && sectionVm.summary ? formatDate(sectionVm.summary.latestEntryDate) : null);
+
+    if (!sectionVm || !sectionVm.hasData) {
+      stateNode.hidden = false;
+      stateNode.textContent = getSectionEmptyStateText("Timer", sectionVm ? sectionVm.emptyReason : "not_loaded");
+      return;
+    }
+
+    stateNode.hidden = true;
+
+    sectionVm.items.forEach((item) => {
+      const card = document.createElement("div");
+      card.className = "itemCard";
+
+      const title = document.createElement("p");
+      title.className = "itemTitle";
+      title.textContent = [formatDate(item.date), item.employeeName || item.employeeCode].filter(Boolean).join(" · ") || "Timeregistrering";
+
+      const meta = document.createElement("p");
+      meta.className = "itemMeta";
+      meta.textContent = `${formatHours(item.hours) || "—"} timer`;
+
+      card.appendChild(title);
+      card.appendChild(meta);
+
+      if (item.note) {
+        const note = document.createElement("p");
+        note.className = "itemMeta";
+        note.textContent = item.note;
+        card.appendChild(note);
+      }
+
+      listNode.appendChild(card);
+    });
+  }
+
   function renderProjectDetailError(message) {
     const headerName = document.getElementById("projectHeaderName");
     const statusBadge = document.getElementById("projectStatusBadge");
@@ -1615,17 +2062,24 @@
 
     try {
       const response = await apiFetch(`/api/projects/${encodeURIComponent(projectId)}`, { method: "GET" });
-      const vm = mapProjectToQuickViewModel(response && response.project ? response.project : null);
+      const rawProject = response && response.project ? response.project : null;
+      const vm = mapProjectToQuickViewModel(rawProject);
+      const fittersVm = mapProjectToFittersSection(rawProject, { isLoaded: true });
+      const hoursVm = mapProjectToFitterHoursSection(rawProject, { isLoaded: true });
       if (!vm) {
         renderProjectDetailError("Projektdata mangler");
       } else {
         renderProjectDetail(vm);
+        renderFittersSection(fittersVm);
+        renderFitterHoursSection(hoursVm);
       }
     } catch (error) {
       if (handleAuthFailure(error)) {
         return;
       }
       renderProjectDetailError(`Kunne ikke hente sag: ${getErrorMessage(error, "request_failed")}`);
+      renderFittersSection(mapProjectToFittersSection(null, { isLoaded: false }));
+      renderFitterHoursSection(mapProjectToFitterHoursSection(null, { isLoaded: false }));
     }
 
     if (logoutBtn) {
