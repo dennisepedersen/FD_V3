@@ -241,38 +241,7 @@
       items.push(item);
     }
 
-    const responsibleCode = asString(rawProject.responsible_code);
-    const responsibleName = asString(rawProject.responsible_name);
-    if (responsibleCode || responsibleName) {
-      addItem({
-        id: null,
-        employeeCode: responsibleCode,
-        name: responsibleName,
-        role: "Ansvarlig",
-        relationType: "responsible",
-        isResponsible: true,
-        isTeamLeader: false,
-        isPending: false,
-        source: "v4",
-      });
-    }
-
-    const teamLeaderCode = asString(rawProject.team_leader_code);
-    const teamLeaderName = asString(rawProject.team_leader_name);
-    if (teamLeaderCode || teamLeaderName) {
-      addItem({
-        id: null,
-        employeeCode: teamLeaderCode,
-        name: teamLeaderName,
-        role: "Teamleder",
-        relationType: "team_leader",
-        isResponsible: false,
-        isTeamLeader: true,
-        isPending: false,
-        source: "v4",
-      });
-    }
-
+    // Only add items from actual fitter arrays, never from responsible/team_leader fields
     candidates.forEach((row) => {
       if (!row || typeof row !== "object") {
         return;
