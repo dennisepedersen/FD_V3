@@ -1130,7 +1130,7 @@
       return mapProjectToQuickViewModel(raw);
     }
 
-    function renderDrawerWithViewModel(vm) {
+    function renderDrawerWithViewModel(vm, summary) {
       if (!drawerBody) return;
       drawerBody.innerHTML = '';
 
@@ -1285,6 +1285,30 @@
       }
       drawerBody.appendChild(econSection);
 
+      // Timer & Teknikere
+      const timerSection = makeSection('Timer & Teknikere');
+      if (summary && typeof summary === 'object') {
+        const totalHoursNum = summary.total_project_relevant_hours !== null && summary.total_project_relevant_hours !== undefined
+          ? Number(summary.total_project_relevant_hours)
+          : null;
+        const totalHoursLabel = totalHoursNum !== null
+          ? totalHoursNum.toLocaleString('da-DK', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' t.'
+          : null;
+        timerSection.appendChild(makeField('Projekttimer', totalHoursLabel));
+        const fitterNames = Array.isArray(summary.fitter_names) ? summary.fitter_names : [];
+        if (fitterNames.length > 0) {
+          timerSection.appendChild(makeField('Teknikere (' + fitterNames.length + ')', fitterNames.join(' \u00b7 ')));
+        } else {
+          timerSection.appendChild(makeField('Teknikere', 'Ingen'));
+        }
+      } else {
+        const noTimerMsg = document.createElement('p');
+        noTimerMsg.className = 'sectionState';
+        noTimerMsg.textContent = 'Kunne ikke hente timer';
+        timerSection.appendChild(noTimerMsg);
+      }
+      drawerBody.appendChild(timerSection);
+
       // Kunde — V3 pending
       const customerSection = makeSection('Kunde');
       customerSection.appendChild(makePending('Kundenavn'));
@@ -1297,7 +1321,7 @@
       drawerBody.appendChild(addressSection);
     }
 
-    function renderDrawerProject(project) {
+    function renderDrawerProject(project, summary) {
       const vm = mapProjectToDrawerViewModel(project);
       if (!vm) {
         renderDrawerError('Projektdata kunne ikke vises.');
@@ -1312,7 +1336,7 @@
       if (openProjectPageLink && vm.projectId) {
         openProjectPageLink.href = '/project/' + encodeURIComponent(vm.projectId);
       }
-      renderDrawerWithViewModel(vm);
+      renderDrawerWithViewModel(vm, summary);
     }
 
     function renderDrawerNotFound() {
@@ -1345,26 +1369,33 @@
       renderDrawerLoading(project);
       openDrawer();
 
-      try {
-        const response = await apiFetch(`/api/projects/${encodeURIComponent(state.drawerProjectId)}`, {
-          method: "GET",
-        });
-        const detail = response && response.project ? response.project : null;
-        if (!detail) {
-          renderDrawerError("Projektdata mangler.");
-          return;
-        }
-        renderDrawerProject(detail);
-      } catch (error) {
-        if (handleAuthFailure(error)) {
-          return;
-        }
+      const [projectResult, summaryResult] = await Promise.allSettled([
+        apiFetch(`/api/projects/${encodeURIComponent(state.drawerProjectId)}`, { method: "GET" }),
+        apiFetch(`/api/projects/${encodeURIComponent(state.drawerProjectId)}/fitterhours/summary`, { method: "GET" }),
+      ]);
+
+      if (projectResult.status === "rejected") {
+        const error = projectResult.reason;
+        if (handleAuthFailure(error)) return;
         if (error && error.status === 404) {
           renderDrawerNotFound();
           return;
         }
         renderDrawerError(`Kunne ikke hente projektet: ${getErrorMessage(error, "request_failed")}`);
+        return;
       }
+
+      const detail = projectResult.value && projectResult.value.project ? projectResult.value.project : null;
+      if (!detail) {
+        renderDrawerError("Projektdata mangler.");
+        return;
+      }
+
+      const summary = summaryResult.status === "fulfilled" && summaryResult.value
+        ? summaryResult.value.summary
+        : null;
+
+      renderDrawerProject(detail, summary);
     }
 
     function setSelectedOwners(ownerIds) {
@@ -2004,6 +2035,97 @@
     });
   }
 
+  function renderFittersSectionFromBreakdown(breakdown) {
+    if (!breakdown || !Array.isArray(breakdown.fitters)) {
+      renderFittersSection({
+        items: [],
+        totalCount: 0,
+        hasData: false,
+        isPending: false,
+        emptyReason: breakdown === null ? "no_fitters" : "not_loaded",
+      });
+      return;
+    }
+
+    const items = breakdown.fitters
+      .map(function (f) {
+        return {
+          id: f.fitter_id || null,
+          employeeCode: null,
+          name: f.fitter_name || "Ukendt tekniker",
+          role: f.total_hours !== null && f.total_hours !== undefined
+            ? Number(f.total_hours).toLocaleString("da-DK", { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + " t."
+            : null,
+          relationType: "fitter",
+          isResponsible: false,
+          isTeamLeader: false,
+          isPending: false,
+          source: "business",
+        };
+      })
+      .sort(function (a, b) {
+        return (a.name || "").localeCompare(b.name || "", "da");
+      });
+
+    renderFittersSection({
+      items: items,
+      totalCount: items.length,
+      hasData: items.length > 0,
+      isPending: false,
+      emptyReason: items.length === 0 ? "no_fitters" : "none",
+    });
+  }
+
+  function renderHoursSectionFromBreakdown(breakdown) {
+    if (!breakdown) {
+      renderFitterHoursSection({
+        items: [],
+        summary: { totalHours: null, latestEntryDate: null, entryCount: null, groupedByEmployee: [] },
+        hasData: false,
+        isPending: false,
+        emptyReason: "no_hours",
+      });
+      return;
+    }
+
+    const fitters = Array.isArray(breakdown.fitters) ? breakdown.fitters : [];
+    const totalHours = breakdown.total_project_relevant_hours !== null && breakdown.total_project_relevant_hours !== undefined
+      ? Number(breakdown.total_project_relevant_hours)
+      : null;
+
+    if (fitters.length === 0) {
+      renderFitterHoursSection({
+        items: [],
+        summary: { totalHours: totalHours !== null ? totalHours : 0, latestEntryDate: null, entryCount: null, groupedByEmployee: [] },
+        hasData: false,
+        isPending: false,
+        emptyReason: "no_hours",
+      });
+      return;
+    }
+
+    const items = fitters.map(function (f) {
+      return {
+        id: f.fitter_key || f.fitter_id || null,
+        date: null,
+        employeeCode: null,
+        employeeName: f.fitter_name || "Ukendt tekniker",
+        hours: f.total_hours !== null && f.total_hours !== undefined ? Number(f.total_hours) : null,
+        note: null,
+        source: "business",
+        isPending: false,
+      };
+    });
+
+    renderFitterHoursSection({
+      items: items,
+      summary: { totalHours: totalHours, latestEntryDate: null, entryCount: null, groupedByEmployee: [] },
+      hasData: true,
+      isPending: false,
+      emptyReason: "none",
+    });
+  }
+
   function renderProjectDetailError(message) {
     const headerName = document.getElementById("projectHeaderName");
     const statusBadge = document.getElementById("projectStatusBadge");
@@ -2030,25 +2152,35 @@
     }
 
     try {
-      const response = await apiFetch(`/api/projects/${encodeURIComponent(projectId)}`, { method: "GET" });
-      const rawProject = response && response.project ? response.project : null;
+      const [projectResult, breakdownResult] = await Promise.allSettled([
+        apiFetch(`/api/projects/${encodeURIComponent(projectId)}`, { method: "GET" }),
+        apiFetch(`/api/projects/${encodeURIComponent(projectId)}/fitterhours/breakdown`, { method: "GET" }),
+      ]);
+
+      if (projectResult.status === "rejected") {
+        throw projectResult.reason;
+      }
+
+      const rawProject = projectResult.value && projectResult.value.project ? projectResult.value.project : null;
       const vm = mapProjectToQuickViewModel(rawProject);
-      const fittersVm = mapProjectToFittersSection(rawProject, { isLoaded: true });
-      const hoursVm = mapProjectToFitterHoursSection(rawProject, { isLoaded: true });
       if (!vm) {
         renderProjectDetailError("Projektdata mangler");
       } else {
         renderProjectDetail(vm);
-        renderFittersSection(fittersVm);
-        renderFitterHoursSection(hoursVm);
       }
+
+      const breakdown = breakdownResult.status === "fulfilled" && breakdownResult.value
+        ? breakdownResult.value.breakdown
+        : null;
+      renderFittersSectionFromBreakdown(breakdown);
+      renderHoursSectionFromBreakdown(breakdown);
     } catch (error) {
       if (handleAuthFailure(error)) {
         return;
       }
       renderProjectDetailError(`Kunne ikke hente sag: ${getErrorMessage(error, "request_failed")}`);
-      renderFittersSection(mapProjectToFittersSection(null, { isLoaded: false }));
-      renderFitterHoursSection(mapProjectToFitterHoursSection(null, { isLoaded: false }));
+      renderFittersSectionFromBreakdown(null);
+      renderHoursSectionFromBreakdown(null);
     }
 
     if (logoutBtn) {
