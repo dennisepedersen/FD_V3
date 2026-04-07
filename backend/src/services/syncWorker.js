@@ -2425,10 +2425,6 @@ async function runReadOnlyEndpoint({ job, cfg, endpointKey, mode, cutoffContext 
 
         const rowsFetched = parsed.rows.length;
         let rowsPersisted = 0;
-        const stopForCutoff = endpointKey === "fitterhours"
-          ? shouldStopHistoricalPaging(parsed.rows, cutoffIso)
-          : false;
-
         if (strategyMeta.materialized && rowsFetched > 0) {
           if (isFitterCategories) {
             const mappedRows = parsed.rows
@@ -2543,13 +2539,6 @@ async function runReadOnlyEndpoint({ job, cfg, endpointKey, mode, cutoffContext 
         console.log(
           `[syncWorker] endpoint=${endpointKey} source=${endpointBase} page=${page} nextPage=${parsed.nextPage} pageCount=${parsed.total == null ? "unknown" : parsed.total} rowsPersisted=${rowsPersisted} collectedOrPersistedTotal=${strategyMeta.materialized ? rowsPersistedTotal : rowsFetchedTotal}`
         );
-
-        if (stopForCutoff) {
-          console.log(
-            `[syncWorker] endpoint=${endpointKey} cutoff_reached=true cutoff=${cutoffIso} stop_at_page=${page}`
-          );
-          break;
-        }
 
         page = parsed.nextPage != null && Number.isFinite(Number(parsed.nextPage))
           ? Number(parsed.nextPage)

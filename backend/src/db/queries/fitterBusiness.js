@@ -56,7 +56,7 @@ async function listFitterCategoryBusinessRows(client, {
         fc.show_in_app,
         fc.is_only_for_internal_projects,
         fc.is_on_invoice,
-        lower(trim(concat_ws(' ', fc.reference, fc.description, fc.display))) AS text_blob
+        lower(translate(trim(concat_ws(' ', fc.reference, fc.description, fc.display)), 'ÆØÅæøå', 'EOAeoa')) AS text_blob
       FROM fitter_category fc
       WHERE fc.tenant_id = $1
     )
@@ -77,9 +77,13 @@ async function listFitterCategoryBusinessRows(client, {
         text_blob ~* '(kursus|moede|mode|vaerksted|verksted|fri|intern)'
       ) AS is_non_project_activity,
       (
+        text_blob ~* '(tilleg|tillaeg|formandstilleg|formandstillaeg|stedtilleg|stedtillaeg)'
+      ) AS is_allowance,
+      (
         COALESCE(is_only_for_internal_projects, false) = false
         AND (text_blob ~* '(ferie|syg|sygedag|sygdom|barsel|orlov|omsorg|hospital|barns|fri uden lon|fri u/lon|fritvalg|absence|leave)') = false
         AND (text_blob ~* '(kursus|moede|mode|vaerksted|verksted|fri|intern)') = false
+        AND (text_blob ~* '(tilleg|tillaeg|formandstilleg|formandstillaeg|stedtilleg|stedtillaeg)') = false
         AND (
           COALESCE(is_on_invoice, false) = true
           OR is_on_invoice IS NULL
@@ -130,13 +134,13 @@ function buildProjectRelevantHoursCte() {
         COALESCE(fh.hours, fh.quantity, 0)::numeric AS hour_value,
         COALESCE(fc.is_only_for_internal_projects, false) AS is_internal_only,
         COALESCE(fc.is_on_invoice, false) AS is_invoice_relevant,
-        lower(trim(concat_ws(' ',
+        lower(translate(trim(concat_ws(' ',
           fc.reference,
           fc.description,
           fh.raw_payload_json ->> 'CategoryName',
           fh.description,
           fh.note
-        ))) AS category_text_blob
+        )), 'ÆØÅæøå', 'EOAeoa')) AS category_text_blob
       FROM project_target pt
       JOIN fitter_hour fh
         ON fh.tenant_id = $1
@@ -176,9 +180,13 @@ function buildProjectRelevantHoursCte() {
           category_text_blob ~* '(kursus|moede|mode|vaerksted|verksted|fri|intern)'
         ) AS is_non_project_activity,
         (
+          category_text_blob ~* '(tilleg|tillaeg|formandstilleg|formandstillaeg|stedtilleg|stedtillaeg)'
+        ) AS is_allowance,
+        (
           is_internal_only = false
           AND (category_text_blob ~* '(ferie|syg|sygedag|sygdom|barsel|orlov|omsorg|hospital|barns|fri uden lon|fri u/lon|fritvalg|absence|leave)') = false
           AND (category_text_blob ~* '(kursus|moede|mode|vaerksted|verksted|fri|intern)') = false
+          AND (category_text_blob ~* '(tilleg|tillaeg|formandstilleg|formandstillaeg|stedtilleg|stedtillaeg)') = false
           AND is_invoice_relevant = true
         ) AS is_project_hour_candidate
       FROM matched_hours

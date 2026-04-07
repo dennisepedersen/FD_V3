@@ -1238,9 +1238,8 @@
       drawerBody.appendChild(responsibleSection);
 
       // Relation
-      if (vm.relation.isSubproject || vm.relation.parentProjectEkId) {
+      if (vm.relation.isSubproject) {
         const relSection = makeSection('Relation');
-        relSection.appendChild(makeField('Overordnet projekt (EK nr.)', vm.relation.parentProjectEkId));
         relSection.appendChild(makePending('Overordnet ref. / antal underprojekter'));
         drawerBody.appendChild(relSection);
       }
@@ -1869,7 +1868,7 @@
 
     setValue("detailResponsible", responsibleText);
     setValue("detailTeamLeader", teamLeaderText);
-    setValue("detailParentProject", vm && vm.relation ? vm.relation.parentProjectEkId : null);
+    setValue("detailParentProject", null);
     setValue("detailActivityDate", vm && vm.dates ? formatDate(vm.dates.lastActivityDate) : null);
     setValue("detailUpdatedDate", vm && vm.dates ? formatDate(vm.dates.updatedDate) : null);
     setValue(
