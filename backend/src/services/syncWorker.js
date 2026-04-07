@@ -8,6 +8,12 @@ const POLL_INTERVAL_MS = 12_000;
 const PAGE_SIZE = 200;
 const MAX_JOB_RETRIES = 3;
 const HTTP_RETRY_COUNT = 3;
+const V3_PROJECT_429_RETRY_DELAYS_MS = [5_000, 10_000, 15_000, 20_000, 25_000];
+const FITTER_PAGE_SIZE_PRIMARY = 50;
+const FITTER_PAGE_SIZE_FALLBACK = 25;
+const FITTER_429_RETRY_DELAYS_MS = [5_000, 10_000, 15_000, 20_000, 25_000];
+const FITTER_CATEGORY_429_RETRY_DELAYS_MS = [5_000, 10_000, 15_000, 20_000, 25_000];
+const FITTERHOURS_429_RETRY_DELAYS_MS = [5_000, 10_000, 15_000, 20_000, 25_000];
 const MAX_BACKLOG_ATTEMPTS = 8;
 const BACKLOG_RETRY_BATCH_SIZE = 40;
 const DELTA_INTERVAL_MS = 10 * 60 * 1000;
@@ -51,6 +57,7 @@ const SYNC_STRATEGIES = {
 const READ_ONLY_ENDPOINT_KEYS = new Set([
   "users",
   "fitters",
+  "fittercategories",
   "fitterhours",
   "worksheets",
   "invoices",
@@ -60,8 +67,9 @@ const ENDPOINT_STRATEGY = {
   projects_v4: { supportsDelta: true, strategy: SYNC_STRATEGIES.DELTA_SUPPORTED, materialized: true },
   projects_v3: { supportsDelta: true, strategy: SYNC_STRATEGIES.DELTA_SUPPORTED, materialized: true },
   users: { supportsDelta: false, strategy: SYNC_STRATEGIES.RECONCILE_SCAN, materialized: false },
-  fitters: { supportsDelta: false, strategy: SYNC_STRATEGIES.RECONCILE_SCAN, materialized: false },
-  fitterhours: { supportsDelta: false, strategy: SYNC_STRATEGIES.RECONCILE_SCAN, materialized: false },
+  fitters: { supportsDelta: false, strategy: SYNC_STRATEGIES.RECONCILE_SCAN, materialized: true },
+  fittercategories: { supportsDelta: false, strategy: SYNC_STRATEGIES.RECONCILE_SCAN, materialized: true },
+  fitterhours: { supportsDelta: false, strategy: SYNC_STRATEGIES.RECONCILE_SCAN, materialized: true },
   invoices: { supportsDelta: false, strategy: SYNC_STRATEGIES.RECONCILE_SCAN, materialized: false },
   purchaseinvoices: { supportsDelta: false, strategy: SYNC_STRATEGIES.RECONCILE_SCAN, materialized: false },
   worksheets: { supportsDelta: false, strategy: SYNC_STRATEGIES.RECONCILE_SCAN, materialized: false },
@@ -70,6 +78,7 @@ const ENDPOINT_STRATEGY = {
 let started = false;
 let timer = null;
 let tickInFlight = false;
+const projectEndpointCompatibilityCache = new Map();
 
 function encryptionKey() {
   return crypto.createHash("sha256").update(env.JWT_SECRET).digest();
@@ -145,6 +154,59 @@ function computeBacklogRetryAt(kind, attempts) {
   const cappedAttempts = Math.min(Math.max(1, attempts), 10);
   const waitMs = base * Math.pow(2, cappedAttempts - 1);
   return new Date(Date.now() + Math.min(waitMs, 6 * 60 * 60 * 1000));
+}
+
+function resolveRetryAfterMs(retryAfterHeader) {
+  if (retryAfterHeader == null) {
+    return null;
+  }
+
+  const parsedSeconds = Number(retryAfterHeader);
+  if (Number.isFinite(parsedSeconds) && parsedSeconds >= 0) {
+    return Math.floor(parsedSeconds * 1000);
+  }
+
+  return null;
+}
+
+function getProjectsRetryPolicy(endpointKey) {
+  if (endpointKey !== "projects_v3") {
+    return null;
+  }
+
+  return {
+    maxAttempts: V3_PROJECT_429_RETRY_DELAYS_MS.length + 1,
+    retry429DelaysMs: V3_PROJECT_429_RETRY_DELAYS_MS,
+    tag: "projects_v3",
+  };
+}
+
+function getReadEndpointRetryPolicy(endpointKey, pageSize) {
+  if (endpointKey === "fittercategories") {
+    return {
+      maxAttempts: FITTER_CATEGORY_429_RETRY_DELAYS_MS.length + 1,
+      retry429DelaysMs: FITTER_CATEGORY_429_RETRY_DELAYS_MS,
+      tag: `fittercategories_ps${pageSize}`,
+    };
+  }
+
+  if (endpointKey === "fitters") {
+    return {
+      maxAttempts: FITTER_429_RETRY_DELAYS_MS.length + 1,
+      retry429DelaysMs: FITTER_429_RETRY_DELAYS_MS,
+      tag: `fitters_ps${pageSize}`,
+    };
+  }
+
+  if (endpointKey === "fitterhours") {
+    return {
+      maxAttempts: FITTERHOURS_429_RETRY_DELAYS_MS.length + 1,
+      retry429DelaysMs: FITTERHOURS_429_RETRY_DELAYS_MS,
+      tag: `fitterhours_ps${pageSize}`,
+    };
+  }
+
+  return null;
 }
 
 function normalizeLocator({ page, cursor, reference }) {
@@ -498,7 +560,15 @@ async function listEnabledEndpoints(client, tenantId) {
     `,
     [tenantId]
   );
-  return rows.map((row) => row.endpoint_key).filter(Boolean);
+  const selected = rows.map((row) => row.endpoint_key).filter(Boolean);
+  const seen = new Set(selected);
+
+  // Fitter categories are required lookup metadata for fitter/fitterhours enrichment and should follow those selections.
+  if (!seen.has("fittercategories") && (seen.has("fitters") || seen.has("fitterhours"))) {
+    selected.push("fittercategories");
+  }
+
+  return selected;
 }
 
 function orderEndpointExecution(endpointKeys) {
@@ -517,8 +587,12 @@ function orderEndpointExecution(endpointKeys) {
     ordered.push("projects");
   }
 
+  if (seen.has("fittercategories")) {
+    ordered.push("fittercategories");
+  }
+
   for (const key of unique) {
-    if (key === "projects" || key === "fitterhours") {
+    if (key === "projects" || key === "fittercategories" || key === "fitterhours") {
       continue;
     }
     ordered.push(key);
@@ -696,6 +770,824 @@ function buildGenericEndpointVariants(baseUrl, endpointKey) {
   return [...new Set(variants)];
 }
 
+function buildFitterCategoryEndpointVariants(baseUrl) {
+  const normalized = normalizeBase(baseUrl);
+  const variants = [
+    `${normalized}/api/v3.0/fittercategories`,
+    `${normalized}/api/v3.0/fitterCategories`,
+    `${normalized}/api/v3/fittercategories`,
+    `${normalized}/api/v3/fitterCategories`,
+    `${normalized}/api/v4.0/fittercategories`,
+    `${normalized}/api/v4.0/fitterCategories`,
+    `${normalized}/api/v4/fittercategories`,
+    `${normalized}/api/v4/fitterCategories`,
+  ].map((url) => url.replace(/([^:]\/)(\/+)/g, "$1"));
+  return [...new Set(variants)];
+}
+
+function buildFittersEndpointVariants(baseUrl) {
+  const normalized = normalizeBase(baseUrl);
+  const variants = [
+    `${normalized}/api/v3.0/fitters`,
+    `${normalized}/api/v3/fitters`,
+    `${normalized}/api/v4.0/fitters`,
+    `${normalized}/api/v4/fitters`,
+  ].map((url) => url.replace(/([^:]\/)(\/+)/g, "$1"));
+  return [...new Set(variants)];
+}
+
+function buildFitterHoursEndpointVariants(baseUrl) {
+  const normalized = normalizeBase(baseUrl);
+  const variants = [
+    `${normalized}/api/v3.0/fitterhours`,
+    `${normalized}/api/v3/fitterhours`,
+    `${normalized}/api/v4.0/fitterhours`,
+    `${normalized}/api/v4/fitterhours`,
+  ].map((url) => url.replace(/([^:]\/)(\/+)/g, "$1"));
+  return [...new Set(variants)];
+}
+
+function pickAny(raw, keys) {
+  for (const key of keys) {
+    if (raw && Object.prototype.hasOwnProperty.call(raw, key)) {
+      const value = raw[key];
+      if (value !== undefined) {
+        return value;
+      }
+    }
+  }
+  return null;
+}
+
+function asNullableText(value) {
+  if (value == null) return null;
+  const text = String(value).trim();
+  return text || null;
+}
+
+function asNullableBoolean(value) {
+  if (value == null) return null;
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  const text = String(value).trim().toLowerCase();
+  if (["true", "1", "yes", "y"].includes(text)) return true;
+  if (["false", "0", "no", "n"].includes(text)) return false;
+  return null;
+}
+
+function asNullableNumeric(value) {
+  if (value == null || value === "") return null;
+  const normalized = typeof value === "string" ? value.replace(",", ".") : value;
+  const num = Number(normalized);
+  return Number.isFinite(num) ? num : null;
+}
+
+function asNullableTimestamp(value) {
+  if (value == null || value === "") return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString();
+}
+
+function normalizeLookupKey(value) {
+  const text = asNullableText(value);
+  return text ? text.toLowerCase() : null;
+}
+
+function asNullableJsonArray(value) {
+  if (value == null) return null;
+  if (Array.isArray(value)) return value;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed;
+      }
+    } catch (_error) {
+      // Fall back to comma-splitting for simple list values.
+    }
+    return trimmed
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  return [value];
+}
+
+function deriveIsActiveFromEndDate(endDateIso) {
+  if (!endDateIso) {
+    return true;
+  }
+  const parsed = new Date(endDateIso);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+  return parsed.getTime() >= Date.now();
+}
+
+function mapFitterRow(raw) {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+
+  const fitterId = asNullableText(pickAny(raw, [
+    "FitterID",
+    "FitterId",
+    "fitterID",
+    "fitterId",
+    "ID",
+    "Id",
+    "id",
+  ]));
+  if (!fitterId) {
+    return null;
+  }
+
+  const endDate = asNullableTimestamp(pickAny(raw, ["EndDate", "endDate"]));
+
+  return {
+    fitterId,
+    name: asNullableText(pickAny(raw, ["Name", "name"])),
+    username: asNullableText(pickAny(raw, ["Username", "username", "Initials", "initials"])),
+    email: asNullableText(pickAny(raw, ["Email", "email"])),
+    phone: asNullableText(pickAny(raw, ["Phone", "phone", "PhoneNumber", "phoneNumber"])),
+    salaryId: asNullableText(pickAny(raw, ["SalaryID", "SalaryId", "salaryID", "salaryId"])),
+    oldReference: asNullableText(pickAny(raw, ["OldReference", "oldReference"])),
+    jobPosition: asNullableText(pickAny(raw, ["JobPosition", "jobPosition", "Title", "title"])),
+    startDate: asNullableTimestamp(pickAny(raw, ["StartDate", "startDate"])),
+    endDate,
+    isActiveDerived: deriveIsActiveFromEndDate(endDate),
+    isPlannable: asNullableBoolean(pickAny(raw, ["IsPlannable", "isPlannable"])),
+    includeInExport: asNullableBoolean(pickAny(raw, ["IncludeInExport", "includeInExport"])),
+    salaryPeriodTypeId: asNullableText(pickAny(raw, ["SalaryPeriodTypeID", "SalaryPeriodTypeId", "salaryPeriodTypeID", "salaryPeriodTypeId"])),
+    salaryPeriodTypeName: asNullableText(pickAny(raw, ["SalaryPeriodTypeName", "salaryPeriodTypeName"])),
+    isSalesPerson: asNullableBoolean(pickAny(raw, ["IsSalesPerson", "isSalesPerson"])),
+    note: asNullableText(pickAny(raw, ["Note", "note"])),
+    showInHourSummaries: asNullableBoolean(pickAny(raw, ["ShowInHourSummaries", "showInHourSummaries"])),
+    sendEmailWhenCreatingFitterHour: asNullableBoolean(pickAny(raw, ["SendEmailWhenCreatingFitterHour", "sendEmailWhenCreatingFitterHour"])),
+    attachFitterHourHistoryInSalaryEmail: asNullableBoolean(pickAny(raw, ["AttachFitterHourHistoryInSalaryEmail", "attachFitterHourHistoryInSalaryEmail"])),
+    ressourceGroupString: asNullableText(pickAny(raw, ["RessourceGroupString", "ResourceGroupString", "ressourceGroupString", "resourceGroupString"])),
+    resourceGroupsJson: asNullableJsonArray(pickAny(raw, ["ResourceGroups", "resourceGroups"])),
+    locationNameString: asNullableText(pickAny(raw, ["LocationNameString", "locationNameString"])),
+    locationNamesJson: asNullableJsonArray(pickAny(raw, ["LocationNames", "locationNames"])),
+    locationIdsJson: asNullableJsonArray(pickAny(raw, ["LocationIDs", "LocationIds", "locationIDs", "locationIds"])),
+    fitterDefaultWorkHoursWeekDay: asNullableText(pickAny(raw, ["FitterDefaultWorkHoursWeekDay", "fitterDefaultWorkHoursWeekDay"])),
+    fitterDefaultWorkHours: asNullableNumeric(pickAny(raw, ["FitterDefaultWorkHours", "fitterDefaultWorkHours"])),
+    fitterDefaultWorkHoursStartTime: asNullableText(pickAny(raw, ["FitterDefaultWorkHoursStartTime", "fitterDefaultWorkHoursStartTime"])),
+    fitterDefaultWorkHoursEndTime: asNullableText(pickAny(raw, ["FitterDefaultWorkHoursEndTime", "fitterDefaultWorkHoursEndTime"])),
+    showFitterRates: asNullableBoolean(pickAny(raw, ["ShowFitterRates", "showFitterRates"])),
+    showFitterCategoryConfiguration: asNullableBoolean(pickAny(raw, ["ShowFitterCategoryConfiguration", "showFitterCategoryConfiguration"])),
+    openBackgroundCheckDialog: asNullableBoolean(pickAny(raw, ["OpenBackgroundCheckDialog", "openBackgroundCheckDialog"])),
+    defaultCostCode: asNullableText(pickAny(raw, ["DefaultCostCode", "defaultCostCode"])),
+    costCodeId: asNullableText(pickAny(raw, ["CostCodeID", "CostCodeId", "costCodeID", "costCodeId"])),
+    sumCostCodeId: asNullableText(pickAny(raw, ["SumCostCodeID", "SumCostCodeId", "sumCostCodeID", "sumCostCodeId"])),
+    costCodeDisplay: asNullableText(pickAny(raw, ["CostCodeDisplay", "costCodeDisplay"])),
+    sumCostCodeDisplay: asNullableText(pickAny(raw, ["SumCostCodeDisplay", "sumCostCodeDisplay"])),
+    rawPayloadJson: raw,
+  };
+}
+
+async function upsertFitterBatch(client, { tenantId, mappedRows }) {
+  const rows = Array.isArray(mappedRows) ? mappedRows.filter(Boolean) : [];
+  if (!rows.length) {
+    return 0;
+  }
+
+  for (const chunk of chunkArray(rows, 80)) {
+    const values = [];
+    const params = [];
+
+    chunk.forEach((row, index) => {
+      const base = index * 39;
+      values.push(
+        `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10}, $${base + 11}, $${base + 12}, $${base + 13}, $${base + 14}, $${base + 15}, $${base + 16}, $${base + 17}, $${base + 18}, $${base + 19}, $${base + 20}, $${base + 21}, $${base + 22}, $${base + 23}::jsonb, $${base + 24}, $${base + 25}::jsonb, $${base + 26}::jsonb, $${base + 27}, $${base + 28}, $${base + 29}, $${base + 30}, $${base + 31}, $${base + 32}, $${base + 33}, $${base + 34}, $${base + 35}, $${base + 36}, $${base + 37}, $${base + 38}, $${base + 39}::jsonb, now())`
+      );
+      params.push(
+        tenantId,
+        row.fitterId,
+        row.name,
+        row.username,
+        row.email,
+        row.phone,
+        row.salaryId,
+        row.oldReference,
+        row.jobPosition,
+        row.startDate,
+        row.endDate,
+        row.isActiveDerived,
+        row.isPlannable,
+        row.includeInExport,
+        row.salaryPeriodTypeId,
+        row.salaryPeriodTypeName,
+        row.isSalesPerson,
+        row.note,
+        row.showInHourSummaries,
+        row.sendEmailWhenCreatingFitterHour,
+        row.attachFitterHourHistoryInSalaryEmail,
+        row.ressourceGroupString,
+        row.resourceGroupsJson == null ? null : JSON.stringify(row.resourceGroupsJson),
+        row.locationNameString,
+        row.locationNamesJson == null ? null : JSON.stringify(row.locationNamesJson),
+        row.locationIdsJson == null ? null : JSON.stringify(row.locationIdsJson),
+        row.fitterDefaultWorkHoursWeekDay,
+        row.fitterDefaultWorkHours,
+        row.fitterDefaultWorkHoursStartTime,
+        row.fitterDefaultWorkHoursEndTime,
+        row.showFitterRates,
+        row.showFitterCategoryConfiguration,
+        row.openBackgroundCheckDialog,
+        row.defaultCostCode,
+        row.costCodeId,
+        row.sumCostCodeId,
+        row.costCodeDisplay,
+        row.sumCostCodeDisplay,
+        JSON.stringify(row.rawPayloadJson || {})
+      );
+    });
+
+    await client.query(
+      `
+        INSERT INTO fitter (
+          tenant_id,
+          fitter_id,
+          name,
+          username,
+          email,
+          phone,
+          salary_id,
+          old_reference,
+          job_position,
+          start_date,
+          end_date,
+          is_active_derived,
+          is_plannable,
+          include_in_export,
+          salary_period_type_id,
+          salary_period_type_name,
+          is_sales_person,
+          note,
+          show_in_hour_summaries,
+          send_email_when_creating_fitter_hour,
+          attach_fitter_hour_history_in_salary_email,
+          ressource_group_string,
+          resource_groups_json,
+          location_name_string,
+          location_names_json,
+          location_ids_json,
+          fitter_default_work_hours_week_day,
+          fitter_default_work_hours,
+          fitter_default_work_hours_start_time,
+          fitter_default_work_hours_end_time,
+          show_fitter_rates,
+          show_fitter_category_configuration,
+          open_background_check_dialog,
+          default_cost_code,
+          cost_code_id,
+          sum_cost_code_id,
+          cost_code_display,
+          sum_cost_code_display,
+          raw_payload_json,
+          synced_at
+        )
+        VALUES ${values.join(",\n")}
+        ON CONFLICT (tenant_id, fitter_id)
+        DO UPDATE SET
+          name = EXCLUDED.name,
+          username = EXCLUDED.username,
+          email = EXCLUDED.email,
+          phone = EXCLUDED.phone,
+          salary_id = EXCLUDED.salary_id,
+          old_reference = EXCLUDED.old_reference,
+          job_position = EXCLUDED.job_position,
+          start_date = EXCLUDED.start_date,
+          end_date = EXCLUDED.end_date,
+          is_active_derived = EXCLUDED.is_active_derived,
+          is_plannable = EXCLUDED.is_plannable,
+          include_in_export = EXCLUDED.include_in_export,
+          salary_period_type_id = EXCLUDED.salary_period_type_id,
+          salary_period_type_name = EXCLUDED.salary_period_type_name,
+          is_sales_person = EXCLUDED.is_sales_person,
+          note = EXCLUDED.note,
+          show_in_hour_summaries = EXCLUDED.show_in_hour_summaries,
+          send_email_when_creating_fitter_hour = EXCLUDED.send_email_when_creating_fitter_hour,
+          attach_fitter_hour_history_in_salary_email = EXCLUDED.attach_fitter_hour_history_in_salary_email,
+          ressource_group_string = EXCLUDED.ressource_group_string,
+          resource_groups_json = EXCLUDED.resource_groups_json,
+          location_name_string = EXCLUDED.location_name_string,
+          location_names_json = EXCLUDED.location_names_json,
+          location_ids_json = EXCLUDED.location_ids_json,
+          fitter_default_work_hours_week_day = EXCLUDED.fitter_default_work_hours_week_day,
+          fitter_default_work_hours = EXCLUDED.fitter_default_work_hours,
+          fitter_default_work_hours_start_time = EXCLUDED.fitter_default_work_hours_start_time,
+          fitter_default_work_hours_end_time = EXCLUDED.fitter_default_work_hours_end_time,
+          show_fitter_rates = EXCLUDED.show_fitter_rates,
+          show_fitter_category_configuration = EXCLUDED.show_fitter_category_configuration,
+          open_background_check_dialog = EXCLUDED.open_background_check_dialog,
+          default_cost_code = EXCLUDED.default_cost_code,
+          cost_code_id = EXCLUDED.cost_code_id,
+          sum_cost_code_id = EXCLUDED.sum_cost_code_id,
+          cost_code_display = EXCLUDED.cost_code_display,
+          sum_cost_code_display = EXCLUDED.sum_cost_code_display,
+          raw_payload_json = EXCLUDED.raw_payload_json,
+          synced_at = EXCLUDED.synced_at,
+          updated_at = now()
+      `,
+      params
+    );
+  }
+
+  return rows.length;
+}
+
+function mapFitterCategoryRow(raw) {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+
+  const fitterCategoryId = asNullableText(pickAny(raw, [
+    "FitterCategoryID",
+    "FitterCategoryId",
+    "fitterCategoryID",
+    "fitterCategoryId",
+    "CategoryID",
+    "CategoryId",
+    "categoryID",
+    "categoryId",
+    "ID",
+    "Id",
+    "id",
+  ]));
+  if (!fitterCategoryId) {
+    return null;
+  }
+
+  return {
+    fitterCategoryId,
+    reference: asNullableText(pickAny(raw, ["Reference", "reference"])),
+    description: asNullableText(pickAny(raw, ["Description", "description"])),
+    display: asNullableText(pickAny(raw, ["Display", "display"])),
+    workTypeId: asNullableText(pickAny(raw, ["WorkTypeId", "WorkTypeID", "workTypeId"])),
+    unit: asNullableText(pickAny(raw, ["Unit", "unit"])),
+    unitId: asNullableText(pickAny(raw, ["UnitID", "UnitId", "unitID", "unitId"])),
+    isOnInvoice: asNullableBoolean(pickAny(raw, ["IsOnInvoice", "isOnInvoice"])),
+    includeIllness: asNullableBoolean(pickAny(raw, ["IncludeIllness", "includeIllness"])),
+    hourRate: asNullableNumeric(pickAny(raw, ["HourRate", "hourRate"])),
+    socialFee: asNullableNumeric(pickAny(raw, ["SocialFee", "socialFee"])),
+    salesPrice: asNullableNumeric(pickAny(raw, ["SalesPrice", "salesPrice"])),
+    showInApp: asNullableBoolean(pickAny(raw, ["ShowInApp", "showInApp"])),
+    isOnlyForInternalProjects: asNullableBoolean(pickAny(raw, ["IsOnlyForInternalProjects", "isOnlyForInternalProjects"])),
+    includeInSalaryCalculation: asNullableBoolean(pickAny(raw, ["IncludeInSalaryCalculation", "includeInSalaryCalculation"])),
+    salaryCompanyFitterCategory: asNullableText(pickAny(raw, ["SalaryCompanyFitterCategory", "salaryCompanyFitterCategory"])),
+    salaryCompanyGroupByDate: asNullableBoolean(pickAny(raw, ["SalaryCompanyGroupByDate", "salaryCompanyGroupByDate"])),
+    salaryCompanyAbsenceCode: asNullableText(pickAny(raw, ["SalaryCompanyAbsenceCode", "salaryCompanyAbsenceCode"])),
+    groupFitterCategoriesWithSameSalaryCategory: asNullableBoolean(pickAny(raw, ["GroupFitterCategoriesWithSameSalaryCategory", "groupFitterCategoriesWithSameSalaryCategory"])),
+    showAbsenceCode: asNullableBoolean(pickAny(raw, ["ShowAbsenceCode", "showAbsenceCode"])),
+    bluegardenSalaryType: asNullableText(pickAny(raw, ["BluegardenSalaryType", "bluegardenSalaryType"])),
+    vismaSalaryType: asNullableText(pickAny(raw, ["VismaSalaryType", "vismaSalaryType"])),
+    salaryCompanyUseAmount: asNullableBoolean(pickAny(raw, ["SalaryCompanyUseAmount", "salaryCompanyUseAmount"])),
+    salaryCompanyUseRate: asNullableBoolean(pickAny(raw, ["SalaryCompanyUseRate", "salaryCompanyUseRate"])),
+    salaryCompanyUseTotal: asNullableBoolean(pickAny(raw, ["SalaryCompanyUseTotal", "salaryCompanyUseTotal"])),
+    lessorType: asNullableText(pickAny(raw, ["LessorType", "lessorType"])),
+    lessorTypeId: asNullableText(pickAny(raw, ["LessorTypeID", "LessorTypeId", "lessorTypeID", "lessorTypeId"])),
+    link: asNullableText(pickAny(raw, ["Link", "link"])),
+    defaultCostCode: asNullableText(pickAny(raw, ["DefaultCostCode", "defaultCostCode"])),
+    costCodeId: asNullableText(pickAny(raw, ["CostCodeID", "CostCodeId", "costCodeID", "costCodeId"])),
+    costCodeName: asNullableText(pickAny(raw, ["CostCodeName", "costCodeName"])),
+    costCodeAlias: asNullableText(pickAny(raw, ["CostCodeAlias", "costCodeAlias"])),
+    sumCostCodeId: asNullableText(pickAny(raw, ["SumCostCodeID", "SumCostCodeId", "sumCostCodeID", "sumCostCodeId"])),
+    sumCostCodeName: asNullableText(pickAny(raw, ["SumCostCodeName", "sumCostCodeName"])),
+    sumCostCodeAlias: asNullableText(pickAny(raw, ["SumCostCodeAlias", "sumCostCodeAlias"])),
+    sumCostCodeDisplay: asNullableText(pickAny(raw, ["SumCostCodeDisplay", "sumCostCodeDisplay"])),
+    costCodeDisplay: asNullableText(pickAny(raw, ["CostCodeDisplay", "costCodeDisplay"])),
+    rawPayloadJson: raw,
+  };
+}
+
+async function upsertFitterCategoryBatch(client, { tenantId, mappedRows }) {
+  const rows = Array.isArray(mappedRows) ? mappedRows.filter(Boolean) : [];
+  if (!rows.length) {
+    return 0;
+  }
+
+  for (const chunk of chunkArray(rows, 100)) {
+    const values = [];
+    const params = [];
+
+    chunk.forEach((row, index) => {
+      const base = index * 39;
+      values.push(
+        `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10}, $${base + 11}, $${base + 12}, $${base + 13}, $${base + 14}, $${base + 15}, $${base + 16}, $${base + 17}, $${base + 18}, $${base + 19}, $${base + 20}, $${base + 21}, $${base + 22}, $${base + 23}, $${base + 24}, $${base + 25}, $${base + 26}, $${base + 27}, $${base + 28}, $${base + 29}, $${base + 30}, $${base + 31}, $${base + 32}, $${base + 33}, $${base + 34}, $${base + 35}, $${base + 36}, $${base + 37}, $${base + 38}, $${base + 39}, now())`
+      );
+      params.push(
+        tenantId,
+        row.fitterCategoryId,
+        row.reference,
+        row.description,
+        row.display,
+        row.workTypeId,
+        row.unit,
+        row.unitId,
+        row.isOnInvoice,
+        row.includeIllness,
+        row.hourRate,
+        row.socialFee,
+        row.salesPrice,
+        row.showInApp,
+        row.isOnlyForInternalProjects,
+        row.includeInSalaryCalculation,
+        row.salaryCompanyFitterCategory,
+        row.salaryCompanyGroupByDate,
+        row.salaryCompanyAbsenceCode,
+        row.groupFitterCategoriesWithSameSalaryCategory,
+        row.showAbsenceCode,
+        row.bluegardenSalaryType,
+        row.vismaSalaryType,
+        row.salaryCompanyUseAmount,
+        row.salaryCompanyUseRate,
+        row.salaryCompanyUseTotal,
+        row.lessorType,
+        row.lessorTypeId,
+        row.link,
+        row.defaultCostCode,
+        row.costCodeId,
+        row.costCodeName,
+        row.costCodeAlias,
+        row.sumCostCodeId,
+        row.sumCostCodeName,
+        row.sumCostCodeAlias,
+        row.sumCostCodeDisplay,
+        row.costCodeDisplay,
+        JSON.stringify(row.rawPayloadJson || {}),
+      );
+    });
+
+    await client.query(
+      `
+        INSERT INTO fitter_category (
+          tenant_id,
+          fitter_category_id,
+          reference,
+          description,
+          display,
+          work_type_id,
+          unit,
+          unit_id,
+          is_on_invoice,
+          include_illness,
+          hour_rate,
+          social_fee,
+          sales_price,
+          show_in_app,
+          is_only_for_internal_projects,
+          include_in_salary_calculation,
+          salary_company_fitter_category,
+          salary_company_group_by_date,
+          salary_company_absence_code,
+          group_fitter_categories_with_same_salary_category,
+          show_absence_code,
+          bluegarden_salary_type,
+          visma_salary_type,
+          salary_company_use_amount,
+          salary_company_use_rate,
+          salary_company_use_total,
+          lessor_type,
+          lessor_type_id,
+          link,
+          default_cost_code,
+          cost_code_id,
+          cost_code_name,
+          cost_code_alias,
+          sum_cost_code_id,
+          sum_cost_code_name,
+          sum_cost_code_alias,
+          sum_cost_code_display,
+          cost_code_display,
+          raw_payload_json,
+          synced_at
+        )
+        VALUES ${values.join(",\n")}
+        ON CONFLICT (tenant_id, fitter_category_id)
+        DO UPDATE SET
+          reference = EXCLUDED.reference,
+          description = EXCLUDED.description,
+          display = EXCLUDED.display,
+          work_type_id = EXCLUDED.work_type_id,
+          unit = EXCLUDED.unit,
+          unit_id = EXCLUDED.unit_id,
+          is_on_invoice = EXCLUDED.is_on_invoice,
+          include_illness = EXCLUDED.include_illness,
+          hour_rate = EXCLUDED.hour_rate,
+          social_fee = EXCLUDED.social_fee,
+          sales_price = EXCLUDED.sales_price,
+          show_in_app = EXCLUDED.show_in_app,
+          is_only_for_internal_projects = EXCLUDED.is_only_for_internal_projects,
+          include_in_salary_calculation = EXCLUDED.include_in_salary_calculation,
+          salary_company_fitter_category = EXCLUDED.salary_company_fitter_category,
+          salary_company_group_by_date = EXCLUDED.salary_company_group_by_date,
+          salary_company_absence_code = EXCLUDED.salary_company_absence_code,
+          group_fitter_categories_with_same_salary_category = EXCLUDED.group_fitter_categories_with_same_salary_category,
+          show_absence_code = EXCLUDED.show_absence_code,
+          bluegarden_salary_type = EXCLUDED.bluegarden_salary_type,
+          visma_salary_type = EXCLUDED.visma_salary_type,
+          salary_company_use_amount = EXCLUDED.salary_company_use_amount,
+          salary_company_use_rate = EXCLUDED.salary_company_use_rate,
+          salary_company_use_total = EXCLUDED.salary_company_use_total,
+          lessor_type = EXCLUDED.lessor_type,
+          lessor_type_id = EXCLUDED.lessor_type_id,
+          link = EXCLUDED.link,
+          default_cost_code = EXCLUDED.default_cost_code,
+          cost_code_id = EXCLUDED.cost_code_id,
+          cost_code_name = EXCLUDED.cost_code_name,
+          cost_code_alias = EXCLUDED.cost_code_alias,
+          sum_cost_code_id = EXCLUDED.sum_cost_code_id,
+          sum_cost_code_name = EXCLUDED.sum_cost_code_name,
+          sum_cost_code_alias = EXCLUDED.sum_cost_code_alias,
+          sum_cost_code_display = EXCLUDED.sum_cost_code_display,
+          cost_code_display = EXCLUDED.cost_code_display,
+          raw_payload_json = EXCLUDED.raw_payload_json,
+          synced_at = EXCLUDED.synced_at,
+          updated_at = now()
+      `,
+      params
+    );
+  }
+
+  return rows.length;
+}
+
+async function listActiveProjectReferenceKeys(client, tenantId) {
+  const { rows } = await client.query(
+    `
+      WITH active_projects AS (
+        SELECT project_id, external_project_ref
+        FROM project_core
+        WHERE tenant_id = $1
+          AND status = 'open'
+          AND COALESCE(is_closed, false) = false
+      )
+      SELECT DISTINCT lower(btrim(value_text)) AS project_ref_key
+      FROM (
+        SELECT external_project_ref::text AS value_text
+        FROM active_projects
+        WHERE external_project_ref IS NOT NULL
+
+        UNION ALL
+
+        SELECT pm.ek_project_id::text AS value_text
+        FROM active_projects ap
+        INNER JOIN project_masterdata_v4 pm
+          ON pm.project_id = ap.project_id
+         AND pm.tenant_id = $1
+        WHERE pm.ek_project_id IS NOT NULL
+      ) refs
+      WHERE value_text IS NOT NULL
+        AND btrim(value_text) <> ''
+    `,
+    [tenantId]
+  );
+
+  return new Set(rows.map((row) => row.project_ref_key).filter(Boolean));
+}
+
+function pickFitterHourDateIso(raw) {
+  return asNullableTimestamp(
+    pickAny(raw, [
+      "Date",
+      "date",
+      "WorkDate",
+      "workDate",
+      "HourDate",
+      "hourDate",
+      "RegistrationDate",
+      "registrationDate",
+      "StartDate",
+      "startDate",
+      "EndDate",
+      "endDate",
+    ])
+  );
+}
+
+function mapFitterHourRow(raw, { activeProjectReferenceKeys, cutoffIso }) {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+
+  const externalProjectRef = asNullableText(
+    pickAny(raw, [
+      "ProjectID",
+      "ProjectId",
+      "projectID",
+      "projectId",
+      "ProjectReference",
+      "projectReference",
+      "ExternalProjectRef",
+      "externalProjectRef",
+    ])
+  );
+
+  const normalizedProjectRef = normalizeLookupKey(externalProjectRef);
+  if (!normalizedProjectRef || !activeProjectReferenceKeys.has(normalizedProjectRef)) {
+    return null;
+  }
+
+  const workDate = pickFitterHourDateIso(raw);
+  const registrationDate = asNullableTimestamp(
+    pickAny(raw, ["RegistrationDate", "registrationDate", "CreatedDate", "createdDate", "UpdatedDate", "updatedDate"])
+  );
+  const effectiveDate = workDate || registrationDate;
+  const cutoffMs = parseTimestampCandidate(cutoffIso);
+  const effectiveDateMs = parseTimestampCandidate(effectiveDate);
+  if (effectiveDateMs == null) {
+    return null;
+  }
+  if (cutoffMs != null && effectiveDateMs < cutoffMs) {
+    return null;
+  }
+
+  const fitterHourId = asNullableText(
+    pickAny(raw, ["FitterHourID", "FitterHourId", "fitterHourID", "fitterHourId", "ID", "Id", "id"])
+  );
+  const fitterId = asNullableText(
+    pickAny(raw, ["FitterID", "FitterId", "fitterID", "fitterId", "UserID", "UserId", "userID", "userId"])
+  );
+  const fitterUsername = asNullableText(
+    pickAny(raw, ["Username", "username", "Initials", "initials", "FitterUsername", "fitterUsername"])
+  );
+  const fitterSalaryId = asNullableText(
+    pickAny(raw, ["FitterSalaryID", "FitterSalaryId", "fitterSalaryID", "fitterSalaryId", "SalaryID", "SalaryId", "salaryID", "salaryId"])
+  );
+  const fitterReference = asNullableText(
+    pickAny(raw, ["FitterReferenceNumber", "fitterReferenceNumber", "OldReference", "oldReference", "FitterReference", "fitterReference"])
+  );
+  const fitterCategoryId = asNullableText(
+    pickAny(raw, [
+      "FitterCategoryID",
+      "FitterCategoryId",
+      "fitterCategoryID",
+      "fitterCategoryId",
+      "CategoryID",
+      "CategoryId",
+      "categoryID",
+      "categoryId",
+    ])
+  );
+  const fitterCategoryReference = asNullableText(
+    pickAny(raw, ["FitterCategoryReference", "fitterCategoryReference", "CategoryReference", "categoryReference"])
+  );
+
+  const projectId = asNullableText(
+    pickAny(raw, ["ProjectID", "ProjectId", "projectID", "projectId"])
+  );
+  const hours = asNullableNumeric(
+    pickAny(raw, ["Hours", "hours", "NumberOfHours", "numberOfHours", "HourCount", "hourCount", "Quantity", "quantity"])
+  );
+  const quantity = asNullableNumeric(
+    pickAny(raw, ["Quantity", "quantity", "Amount", "amount"])
+  );
+  const unit = asNullableText(pickAny(raw, ["Unit", "unit"]));
+  const note = asNullableText(
+    pickAny(raw, ["Note", "note", "Text", "text", "Comment", "comment"])
+  );
+  const description = asNullableText(
+    pickAny(raw, ["Description", "description", "CategoryName", "categoryName", "ProjectDescription", "projectDescription"])
+  );
+
+  const sourceFingerprint = JSON.stringify({
+    project: externalProjectRef,
+    projectId,
+    fitter: fitterId,
+    fitterUsername,
+    fitterSalaryId,
+    fitterCategoryId,
+    fitterCategoryReference,
+    workDate,
+    registrationDate,
+    hours,
+    quantity,
+    note,
+    description,
+  });
+  const sourceKey = fitterHourId
+    ? `id:${fitterHourId}`
+    : `fp:${crypto.createHash("sha256").update(sourceFingerprint).digest("hex")}`;
+
+  return {
+    sourceKey,
+    fitterHourId,
+    externalProjectRef,
+    projectId,
+    fitterId,
+    fitterUsername,
+    fitterSalaryId,
+    fitterReference,
+    fitterCategoryId,
+    fitterCategoryReference,
+    workDate,
+    registrationDate,
+    hours,
+    quantity,
+    unit,
+    note,
+    description,
+    rawPayloadJson: raw,
+  };
+}
+
+async function upsertFitterHourBatch(client, { tenantId, mappedRows }) {
+  const rows = Array.isArray(mappedRows) ? mappedRows.filter(Boolean) : [];
+  if (!rows.length) {
+    return 0;
+  }
+
+  for (const chunk of chunkArray(rows, 100)) {
+    const values = [];
+    const params = [];
+
+    chunk.forEach((row, index) => {
+      const base = index * 19;
+      values.push(
+        `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10}, $${base + 11}, $${base + 12}, $${base + 13}, $${base + 14}, $${base + 15}, $${base + 16}, $${base + 17}, $${base + 18}, $${base + 19}::jsonb, now())`
+      );
+      params.push(
+        tenantId,
+        row.sourceKey,
+        row.fitterHourId,
+        row.externalProjectRef,
+        row.projectId,
+        row.fitterId,
+        row.fitterUsername,
+        row.fitterSalaryId,
+        row.fitterReference,
+        row.fitterCategoryId,
+        row.fitterCategoryReference,
+        row.workDate,
+        row.registrationDate,
+        row.hours,
+        row.quantity,
+        row.unit,
+        row.note,
+        row.description,
+        JSON.stringify(row.rawPayloadJson || {})
+      );
+    });
+
+    await client.query(
+      `
+        INSERT INTO fitter_hour (
+          tenant_id,
+          source_key,
+          fitter_hour_id,
+          external_project_ref,
+          project_id,
+          fitter_id,
+          fitter_username,
+          fitter_salary_id,
+          fitter_reference,
+          fitter_category_id,
+          fitter_category_reference,
+          work_date,
+          registration_date,
+          hours,
+          quantity,
+          unit,
+          note,
+          description,
+          raw_payload_json,
+          synced_at
+        )
+        VALUES ${values.join(",\n")}
+        ON CONFLICT (tenant_id, source_key)
+        DO UPDATE SET
+          fitter_hour_id = EXCLUDED.fitter_hour_id,
+          external_project_ref = EXCLUDED.external_project_ref,
+          project_id = EXCLUDED.project_id,
+          fitter_id = EXCLUDED.fitter_id,
+          fitter_username = EXCLUDED.fitter_username,
+          fitter_salary_id = EXCLUDED.fitter_salary_id,
+          fitter_reference = EXCLUDED.fitter_reference,
+          fitter_category_id = EXCLUDED.fitter_category_id,
+          fitter_category_reference = EXCLUDED.fitter_category_reference,
+          work_date = EXCLUDED.work_date,
+          registration_date = EXCLUDED.registration_date,
+          hours = EXCLUDED.hours,
+          quantity = EXCLUDED.quantity,
+          unit = EXCLUDED.unit,
+          note = EXCLUDED.note,
+          description = EXCLUDED.description,
+          raw_payload_json = EXCLUDED.raw_payload_json,
+          synced_at = EXCLUDED.synced_at,
+          updated_at = now()
+      `,
+      params
+    );
+  }
+
+  return rows.length;
+}
+
 function buildProjectDetailEndpointVariants(baseUrl, reference) {
   const normalized = normalizeBase(baseUrl);
   const encodedRef = encodeURIComponent(String(reference || "").trim());
@@ -711,6 +1603,7 @@ function buildProjectDetailEndpointVariants(baseUrl, reference) {
 function parsePagedPayload(payload) {
   let rows = [];
   let nextPage = null;
+  let total = null;
 
   if (Array.isArray(payload)) {
     rows = payload;
@@ -718,6 +1611,7 @@ function parsePagedPayload(payload) {
     if (payload.data.length > 0 && payload.data[0] && Array.isArray(payload.data[0].data)) {
       rows = payload.data[0].data;
       nextPage = payload.data[0].nextPage ?? null;
+      total = payload.data[0].total ?? payload.data[0].Total ?? null;
     } else {
       rows = payload.data;
     }
@@ -735,10 +1629,19 @@ function parsePagedPayload(payload) {
   if (nextPage == null && payload && payload.pagination && typeof payload.pagination.nextPage !== "undefined") {
     nextPage = payload.pagination.nextPage;
   }
+  if (total == null && payload && typeof payload.total !== "undefined") {
+    total = payload.total;
+  }
+  if (total == null && payload && payload.pagination && typeof payload.pagination.total !== "undefined") {
+    total = payload.pagination.total;
+  }
+
+  const normalizedTotal = total == null ? null : Number(total);
 
   return {
     rows: Array.isArray(rows) ? rows : [],
     nextPage: nextPage == null ? null : Number(nextPage),
+    total: Number.isFinite(normalizedTotal) ? normalizedTotal : null,
   };
 }
 
@@ -1094,7 +1997,7 @@ async function upsertProjectBatch(client, { tenantId, mappedRows, sourceEndpoint
   }
 }
 
-async function fetchProjectsPage({ endpointBase, page, pageSize, headers, updatedAfter }) {
+async function fetchProjectsPage({ endpointBase, page, pageSize, headers, updatedAfter, retryPolicy = null }) {
   const params = new URLSearchParams();
   params.set("page", String(page));
   params.set("pageSize", String(pageSize));
@@ -1103,11 +2006,11 @@ async function fetchProjectsPage({ endpointBase, page, pageSize, headers, update
   }
 
   const url = `${endpointBase}?${params.toString()}`;
-  const payload = await fetchJsonWithRetry(url, { headers });
+  const payload = await fetchJsonWithRetry(url, { headers, retryPolicy });
   return parsePagedPayload(payload);
 }
 
-async function fetchEndpointPage({ endpointBase, page, pageSize, headers, updatedAfter }) {
+async function fetchEndpointPage({ endpointBase, page, pageSize, headers, updatedAfter, retryPolicy = null }) {
   const params = new URLSearchParams();
   params.set("page", String(page));
   params.set("pageSize", String(pageSize));
@@ -1116,17 +2019,24 @@ async function fetchEndpointPage({ endpointBase, page, pageSize, headers, update
   }
 
   const url = `${endpointBase}?${params.toString()}`;
-  const payload = await fetchJsonWithRetry(url, { headers });
+  const payload = await fetchJsonWithRetry(url, { headers, retryPolicy });
   return parsePagedPayload(payload);
 }
 
-async function discoverCompatibleProjectEndpoints({ endpointBases, headers }) {
+async function discoverCompatibleProjectEndpoints({ endpointBases, headers, retryPolicy = null }) {
   const compatible = [];
   let lastError = null;
 
   for (const endpointBase of endpointBases) {
     try {
-      await fetchProjectsPage({ endpointBase, page: 1, pageSize: 1, headers, updatedAfter: null });
+      await fetchProjectsPage({
+        endpointBase,
+        page: 1,
+        pageSize: 1,
+        headers,
+        updatedAfter: null,
+        retryPolicy,
+      });
       compatible.push(endpointBase);
     } catch (error) {
       lastError = error;
@@ -1144,13 +2054,65 @@ async function discoverCompatibleProjectEndpoints({ endpointBases, headers }) {
   return compatible;
 }
 
-async function discoverCompatibleEndpoints({ endpointBases, headers }) {
+function projectEndpointCacheKey(tenantId, endpointKey) {
+  return `${String(tenantId || "")}:${String(endpointKey || "")}`;
+}
+
+function hasProjectResumeSignals(state) {
+  const lastSuccessfulPage = Number(state?.last_successful_page || 0);
+  const rowsPersisted = Number(state?.rows_persisted || 0);
+  return lastSuccessfulPage > 0 || rowsPersisted > 0;
+}
+
+async function resolveProjectCompatibleEndpoints({
+  job,
+  endpointKey,
+  endpointBases,
+  headers,
+  state,
+  retryPolicy = null,
+}) {
+  const cacheKey = projectEndpointCacheKey(job.tenant_id, endpointKey);
+  const cached = projectEndpointCompatibilityCache.get(cacheKey);
+  if (Array.isArray(cached) && cached.length > 0) {
+    return cached;
+  }
+
+  try {
+    const discovered = await discoverCompatibleProjectEndpoints({ endpointBases, headers, retryPolicy });
+    projectEndpointCompatibilityCache.set(cacheKey, discovered);
+    return discovered;
+  } catch (error) {
+    const isHttp429 = /\(429\)/.test(String(error?.message || ""));
+    if (isHttp429 && hasProjectResumeSignals(state)) {
+      const fallbackEndpoints = Array.isArray(endpointBases) ? endpointBases.filter(Boolean) : [];
+      if (fallbackEndpoints.length > 0) {
+        console.warn(
+          `[syncWorker] discovery_429_non_fatal endpoint=${endpointKey} tenant=${job.tenant_id} resume=true fallback_endpoints=${fallbackEndpoints.length}`
+        );
+        projectEndpointCompatibilityCache.set(cacheKey, fallbackEndpoints);
+        return fallbackEndpoints;
+      }
+    }
+
+    throw error;
+  }
+}
+
+async function discoverCompatibleEndpoints({ endpointBases, headers, retryPolicy = null }) {
   const compatible = [];
   let lastError = null;
 
   for (const endpointBase of endpointBases) {
     try {
-      await fetchEndpointPage({ endpointBase, page: 1, pageSize: 1, headers, updatedAfter: null });
+      await fetchEndpointPage({
+        endpointBase,
+        page: 1,
+        pageSize: 1,
+        headers,
+        updatedAfter: null,
+        retryPolicy,
+      });
       compatible.push(endpointBase);
     } catch (error) {
       lastError = error;
@@ -1168,20 +2130,40 @@ async function discoverCompatibleEndpoints({ endpointBases, headers }) {
   return compatible;
 }
 
-async function fetchJsonWithRetry(url, { headers }) {
+async function fetchJsonWithRetry(url, { headers, retryPolicy = null }) {
   let lastError = null;
+  const configuredMaxAttempts = Number(retryPolicy && retryPolicy.maxAttempts);
+  const maxAttempts = Number.isFinite(configuredMaxAttempts) && configuredMaxAttempts > 0
+    ? Math.floor(configuredMaxAttempts)
+    : HTTP_RETRY_COUNT;
+  const retry429Delays = Array.isArray(retryPolicy && retryPolicy.retry429DelaysMs)
+    ? retryPolicy.retry429DelaysMs
+    : null;
+  const retryTag = retryPolicy && retryPolicy.tag ? String(retryPolicy.tag) : "default";
 
-  for (let attempt = 1; attempt <= HTTP_RETRY_COUNT; attempt += 1) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
       const response = await fetch(url, { method: "GET", headers });
       if (response.ok) {
         return await response.json();
       }
 
-      if (response.status === 429 && attempt < HTTP_RETRY_COUNT) {
+      if (response.status === 429 && attempt < maxAttempts) {
         const retryHeader = response.headers.get("retry-after");
-        const waitMs = retryHeader ? Math.min(Number(retryHeader) * 1000, 30_000) : attempt * 1200;
-        await new Promise((resolve) => setTimeout(resolve, Number.isFinite(waitMs) ? waitMs : 1200));
+        const retryAfterMs = resolveRetryAfterMs(retryHeader);
+        const scheduledMs = retry429Delays && Number.isFinite(retry429Delays[attempt - 1])
+          ? Number(retry429Delays[attempt - 1])
+          : null;
+        const waitMs = Math.max(
+          0,
+          scheduledMs == null ? 0 : scheduledMs,
+          retryAfterMs == null ? 0 : retryAfterMs,
+          scheduledMs == null && retryAfterMs == null ? attempt * 1200 : 0
+        );
+        console.warn(
+          `[syncWorker] http_429_retry tag=${retryTag} attempt=${attempt + 1}/${maxAttempts} waitMs=${waitMs} url=${url}`
+        );
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
         continue;
       }
 
@@ -1189,7 +2171,7 @@ async function fetchJsonWithRetry(url, { headers }) {
       throw new Error(`E-Komplet request failed (${response.status}) ${body.slice(0, 300)}`);
     } catch (error) {
       lastError = error;
-      if (attempt < HTTP_RETRY_COUNT) {
+      if (attempt < maxAttempts) {
         await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
       }
     }
@@ -1230,11 +2212,11 @@ async function resolveTenantSyncConfig(client, tenantId) {
   };
 }
 
-async function fetchProjectDetailByReference({ ekBaseUrl, headers, reference }) {
+async function fetchProjectDetailByReference({ ekBaseUrl, headers, reference, retryPolicy = null }) {
   const endpoints = buildProjectDetailEndpointVariants(ekBaseUrl, reference);
   for (const endpoint of endpoints) {
     try {
-      const payload = await fetchJsonWithRetry(endpoint, { headers });
+      const payload = await fetchJsonWithRetry(endpoint, { headers, retryPolicy });
       const detailRaw = parseProjectDetailPayload(payload);
       const mapped = mapProjectRow(detailRaw);
       if (mapped) {
@@ -1250,7 +2232,7 @@ async function fetchProjectDetailByReference({ ekBaseUrl, headers, reference }) 
   return null;
 }
 
-async function enrichProjectIdentityFields({ ekBaseUrl, headers, rows }) {
+async function enrichProjectIdentityFields({ ekBaseUrl, headers, rows, retryPolicy = null }) {
   const enrichedRows = [];
   let enrichedCount = 0;
 
@@ -1265,6 +2247,7 @@ async function enrichProjectIdentityFields({ ekBaseUrl, headers, rows }) {
         ekBaseUrl,
         headers,
         reference: row.externalProjectRef,
+        retryPolicy,
       });
       if (detailMapped) {
         const merged = mergeIdentityFields(row, detailMapped);
@@ -1319,7 +2302,13 @@ async function getProjectSourceEndpointsAndHeaders({ cfg }) {
 }
 
 async function getGenericEndpointsAndHeaders({ cfg, endpointKey }) {
-  const endpointBases = buildGenericEndpointVariants(cfg.ekBaseUrl, endpointKey);
+  const endpointBases = endpointKey === "fittercategories"
+    ? buildFitterCategoryEndpointVariants(cfg.ekBaseUrl)
+    : endpointKey === "fitters"
+      ? buildFittersEndpointVariants(cfg.ekBaseUrl)
+      : endpointKey === "fitterhours"
+        ? buildFitterHoursEndpointVariants(cfg.ekBaseUrl)
+      : buildGenericEndpointVariants(cfg.ekBaseUrl, endpointKey);
   const headers = {
     apikey: cfg.ekApiKey,
     siteName: cfg.siteName,
@@ -1340,7 +2329,20 @@ async function runReadOnlyEndpoint({ job, cfg, endpointKey, mode, cutoffContext 
     materialized: false,
   };
   const { endpointBases, headers } = await getGenericEndpointsAndHeaders({ cfg, endpointKey });
-  const compatibleEndpoints = await discoverCompatibleEndpoints({ endpointBases, headers });
+  const isFitterCategories = endpointKey === "fittercategories";
+  const isFitters = endpointKey === "fitters";
+  const isFitterHours = endpointKey === "fitterhours";
+  const readEndpointPrimaryPageSize = (isFitterCategories || isFitters || isFitterHours)
+    ? FITTER_PAGE_SIZE_PRIMARY
+    : PAGE_SIZE;
+  const compatibleEndpoints = await discoverCompatibleEndpoints({
+    endpointBases,
+    headers,
+    retryPolicy: getReadEndpointRetryPolicy(
+      endpointKey,
+      readEndpointPrimaryPageSize
+    ),
+  });
 
   const state = await withTransaction(async (client) => getEndpointState(client, {
     tenantId: job.tenant_id,
@@ -1354,9 +2356,15 @@ async function runReadOnlyEndpoint({ job, cfg, endpointKey, mode, cutoffContext 
 
   let pagesProcessed = 0;
   let rowsFetchedTotal = 0;
+  let rowsPersistedTotal = 0;
   let retriesQueued = 0;
+  let http429Count = 0;
+  let pageSizeFallbackUsed = false;
   let lastSuccessfulPage = state && state.last_successful_page ? Number(state.last_successful_page) : null;
   const cutoffIso = cutoffContext && cutoffContext.cutoffIso ? cutoffContext.cutoffIso : null;
+  const activeProjectReferenceKeys = isFitterHours
+    ? await withTransaction(async (client) => listActiveProjectReferenceKeys(client, job.tenant_id))
+    : null;
 
   await withTransaction(async (client) => {
     await markEndpointState(client, {
@@ -1389,6 +2397,7 @@ async function runReadOnlyEndpoint({ job, cfg, endpointKey, mode, cutoffContext 
 
   for (const endpointBase of compatibleEndpoints) {
     let page = state && state.last_successful_page ? Number(state.last_successful_page) + 1 : 1;
+    let activePageSize = readEndpointPrimaryPageSize;
     if (normalizedMode === SYNC_MODES.BOOTSTRAP_INITIAL || normalizedMode === SYNC_MODES.MANUAL_FULL_RESYNC) {
       page = 1;
     }
@@ -1408,15 +2417,61 @@ async function runReadOnlyEndpoint({ job, cfg, endpointKey, mode, cutoffContext 
         const parsed = await fetchEndpointPage({
           endpointBase,
           page,
-          pageSize: PAGE_SIZE,
+          pageSize: activePageSize,
           headers,
           updatedAfter,
+          retryPolicy: getReadEndpointRetryPolicy(endpointKey, activePageSize),
         });
 
         const rowsFetched = parsed.rows.length;
+        let rowsPersisted = 0;
         const stopForCutoff = endpointKey === "fitterhours"
           ? shouldStopHistoricalPaging(parsed.rows, cutoffIso)
           : false;
+
+        if (strategyMeta.materialized && rowsFetched > 0) {
+          if (isFitterCategories) {
+            const mappedRows = parsed.rows
+              .map((row) => mapFitterCategoryRow(row))
+              .filter(Boolean);
+
+            await withTransaction(async (client) => {
+              rowsPersisted = await upsertFitterCategoryBatch(client, {
+                tenantId: job.tenant_id,
+                mappedRows,
+              });
+            });
+          } else if (isFitters) {
+            const mappedRows = parsed.rows
+              .map((row) => mapFitterRow(row))
+              .filter(Boolean);
+
+            await withTransaction(async (client) => {
+              rowsPersisted = await upsertFitterBatch(client, {
+                tenantId: job.tenant_id,
+                mappedRows,
+              });
+            });
+          } else if (isFitterHours) {
+            const mappedRows = parsed.rows
+              .map((row) => mapFitterHourRow(row, {
+                activeProjectReferenceKeys,
+                cutoffIso,
+              }))
+              .filter(Boolean);
+
+            await withTransaction(async (client) => {
+              rowsPersisted = await upsertFitterHourBatch(client, {
+                tenantId: job.tenant_id,
+                mappedRows,
+              });
+            });
+          }
+        }
+
+        const pageErrorMessage = strategyMeta.materialized
+          ? (pageSizeFallbackUsed ? `page_size_fallback:${activePageSize}` : null)
+          : "persist_skipped:no_supported_table";
 
         await withTransaction(async (client) => {
           await appendPageLog(client, {
@@ -1428,9 +2483,9 @@ async function runReadOnlyEndpoint({ job, cfg, endpointKey, mode, cutoffContext 
             nextPage: parsed.nextPage,
             status: "success",
             rowsFetched,
-            rowsPersisted: 0,
+            rowsPersisted,
             httpStatus: 200,
-            errorMessage: "persist_skipped:no_supported_table",
+            errorMessage: pageErrorMessage,
             retryCount: 0,
             startedAt: nowIso(),
             finishedAt: nowIso(),
@@ -1452,7 +2507,7 @@ async function runReadOnlyEndpoint({ job, cfg, endpointKey, mode, cutoffContext 
             lastSeenRemoteCursor: parsed.nextPage == null ? null : String(parsed.nextPage),
             updatedAfterWatermark: null,
             rowsFetchedDelta: rowsFetched,
-            rowsPersistedDelta: 0,
+            rowsPersistedDelta: rowsPersisted,
             pagesProcessedLastJob: null,
             rowsFetchedLastJob: null,
             retryCount: null,
@@ -1461,31 +2516,32 @@ async function runReadOnlyEndpoint({ job, cfg, endpointKey, mode, cutoffContext 
             lastHttpStatus: 200,
             heartbeatAt: nowIso(),
             nextPlannedAt: null,
-            errorMessage: "persist_skipped:no_supported_table",
+            errorMessage: pageErrorMessage,
           });
         });
 
         if (rowsFetched === 0) {
           console.log(
-            `[syncWorker] endpoint=${endpointKey} source=${endpointBase} page=${page} nextPage=${parsed.nextPage} pageCount=unknown rowsPersisted=0 collectedOrPersistedTotal=${rowsFetchedTotal}`
+            `[syncWorker] endpoint=${endpointKey} source=${endpointBase} page=${page} nextPage=${parsed.nextPage} pageCount=${parsed.total == null ? "unknown" : parsed.total} rowsPersisted=${rowsPersisted} collectedOrPersistedTotal=${strategyMeta.materialized ? rowsPersistedTotal : rowsFetchedTotal}`
           );
           break;
         }
 
         pagesProcessed += 1;
         rowsFetchedTotal += rowsFetched;
+        rowsPersistedTotal += rowsPersisted;
         lastSuccessfulPage = page;
 
         await withTransaction(async (client) => {
           await syncJobQueries.markJobProgress(client, {
             jobId: job.id,
-            rowsProcessed: rowsFetchedTotal,
+            rowsProcessed: strategyMeta.materialized ? rowsPersistedTotal : rowsFetchedTotal,
             pagesProcessed,
           });
         });
 
         console.log(
-          `[syncWorker] endpoint=${endpointKey} source=${endpointBase} page=${page} nextPage=${parsed.nextPage} pageCount=unknown rowsPersisted=0 collectedOrPersistedTotal=${rowsFetchedTotal}`
+          `[syncWorker] endpoint=${endpointKey} source=${endpointBase} page=${page} nextPage=${parsed.nextPage} pageCount=${parsed.total == null ? "unknown" : parsed.total} rowsPersisted=${rowsPersisted} collectedOrPersistedTotal=${strategyMeta.materialized ? rowsPersistedTotal : rowsFetchedTotal}`
         );
 
         if (stopForCutoff) {
@@ -1495,9 +2551,28 @@ async function runReadOnlyEndpoint({ job, cfg, endpointKey, mode, cutoffContext 
           break;
         }
 
-        page += 1;
+        page = parsed.nextPage != null && Number.isFinite(Number(parsed.nextPage))
+          ? Number(parsed.nextPage)
+          : page + 1;
       } catch (error) {
         const classification = classifyError(error);
+        if (classification.kind === "http_429") {
+          http429Count += 1;
+        }
+
+        if (
+          (isFitterCategories || isFitters || isFitterHours)
+          && classification.kind === "http_429"
+          && activePageSize === FITTER_PAGE_SIZE_PRIMARY
+        ) {
+          activePageSize = FITTER_PAGE_SIZE_FALLBACK;
+          pageSizeFallbackUsed = true;
+          console.warn(
+            `[syncWorker] endpoint=${endpointKey} page=${page} rate_limited=true pageSize_fallback=${FITTER_PAGE_SIZE_PRIMARY}->${FITTER_PAGE_SIZE_FALLBACK}`
+          );
+          continue;
+        }
+
         const nextRetryAt = classification.retryable ? computeBacklogRetryAt(classification.kind, 1) : null;
         const status = classification.retryable ? "deferred" : "failed";
 
@@ -1598,20 +2673,24 @@ async function runReadOnlyEndpoint({ job, cfg, endpointKey, mode, cutoffContext 
       rowsPersistedDelta: 0,
       pagesProcessedLastJob: pagesProcessed,
       rowsFetchedLastJob: rowsFetchedTotal,
-      retryCount: retriesQueued,
+      retryCount: retriesQueued + http429Count,
       pendingBacklogCount: Number(backlogCounts.pending_count || 0),
       failedPageCount: Number(backlogCounts.failed_count || 0),
       lastHttpStatus: null,
       heartbeatAt: nowIso(),
       nextPlannedAt: new Date(Date.now() + DELTA_INTERVAL_MS).toISOString(),
-      errorMessage: "persist_skipped:no_supported_table",
+      errorMessage: strategyMeta.materialized
+        ? (pageSizeFallbackUsed
+          ? `429_count:${http429Count};page_size_fallback:${FITTER_PAGE_SIZE_PRIMARY}->${FITTER_PAGE_SIZE_FALLBACK}`
+          : (http429Count > 0 ? `429_count:${http429Count}` : null))
+        : "persist_skipped:no_supported_table",
     });
   });
 
   return {
     pagesProcessed,
-    rowsProcessed: 0,
-    retriesQueued,
+    rowsProcessed: strategyMeta.materialized ? rowsPersistedTotal : 0,
+    retriesQueued: retriesQueued + http429Count,
   };
 }
 
@@ -1624,8 +2703,16 @@ async function persistProjectsPage({
   mode,
   page,
   updatedAfter,
+  retryPolicy = null,
 }) {
-  const parsed = await fetchProjectsPage({ endpointBase, page, pageSize: PAGE_SIZE, headers, updatedAfter });
+  const parsed = await fetchProjectsPage({
+    endpointBase,
+    page,
+    pageSize: PAGE_SIZE,
+    headers,
+    updatedAfter,
+    retryPolicy,
+  });
   const mappedRows = parsed.rows
     .map((row) => mapProjectRow(row, { sourceEndpointKey: endpointKey }))
     .filter((row) => Boolean(row && row.status));
@@ -1634,7 +2721,94 @@ async function persistProjectsPage({
     ekBaseUrl: cfg.ekBaseUrl,
     headers,
     rows: mappedRows,
+    retryPolicy,
   });
+
+  if (endpointKey === "projects_v3") {
+    let rowsPersisted = 0;
+    let rowFailures = 0;
+    const failureRefs = [];
+
+    for (const row of enriched.rows) {
+      try {
+        await withTransaction(async (client) => {
+          await upsertProjectBatch(client, {
+            tenantId: job.tenant_id,
+            mappedRows: [row],
+            sourceEndpointKey: endpointKey,
+          });
+        });
+        rowsPersisted += 1;
+      } catch (error) {
+        rowFailures += 1;
+        if (failureRefs.length < 10) {
+          failureRefs.push(String(row && row.externalProjectRef ? row.externalProjectRef : "unknown"));
+        }
+        console.error(
+          `[syncWorker] v3_project_persist_failed page=${page} ref=${row && row.externalProjectRef ? row.externalProjectRef : "unknown"} msg=${String(error.message || "persist_failed")}`
+        );
+      }
+    }
+
+    const partialError = rowFailures > 0
+      ? `v3_row_failures:${rowFailures} refs=${failureRefs.join(",")}`.slice(0, 2000)
+      : null;
+
+    await withTransaction(async (client) => {
+      await appendPageLog(client, {
+        tenantId: job.tenant_id,
+        jobId: job.id,
+        endpointKey,
+        mode,
+        pageNumber: page,
+        nextPage: parsed.nextPage,
+        status: "success",
+        rowsFetched: mappedRows.length,
+        rowsPersisted,
+        httpStatus: 200,
+        errorMessage: partialError,
+        retryCount: 0,
+        startedAt: nowIso(),
+        finishedAt: nowIso(),
+        attemptNo: 1,
+      });
+
+      await markEndpointState(client, {
+        tenantId: job.tenant_id,
+        endpointKey,
+        status: "running",
+        jobId: job.id,
+        currentJobId: job.id,
+        currentMode: mode,
+        syncStrategy: ENDPOINT_STRATEGY[endpointKey]?.strategy || SYNC_STRATEGIES.DELTA_SUPPORTED,
+        lastAttemptAt: nowIso(),
+        lastSuccessAt: null,
+        lastSuccessfulPage: page,
+        lastSuccessfulCursor: parsed.nextPage == null ? null : String(parsed.nextPage),
+        lastSeenRemoteCursor: parsed.nextPage == null ? null : String(parsed.nextPage),
+        updatedAfterWatermark: null,
+        rowsFetchedDelta: mappedRows.length,
+        rowsPersistedDelta: rowsPersisted,
+        pagesProcessedLastJob: null,
+        rowsFetchedLastJob: null,
+        retryCount: null,
+        pendingBacklogCount: null,
+        failedPageCount: null,
+        lastHttpStatus: 200,
+        heartbeatAt: nowIso(),
+        nextPlannedAt: null,
+        errorMessage: partialError,
+      });
+    });
+
+    return {
+      parsed,
+      rowsFetched: mappedRows.length,
+      rowsPersisted,
+      rowFailures,
+      enrichedCount: enriched.enrichedCount,
+    };
+  }
 
   await withTransaction(async (client) => {
     await upsertProjectBatch(client, {
@@ -1693,6 +2867,7 @@ async function persistProjectsPage({
     parsed,
     rowsFetched: mappedRows.length,
     rowsPersisted: enriched.rows.length,
+    rowFailures: 0,
     enrichedCount: enriched.enrichedCount,
   };
 }
@@ -1772,198 +2947,318 @@ async function runProjectsEndpoint({ job, cfg, mode }) {
   let pagesProcessed = 0;
   let rowsProcessed = 0;
   let retriesQueued = 0;
+  
+  // Architecture: Phase A (Bootstrap/V4) is critical, Phase B (Enrichment/V3) is optional
+  let bootstrapPhaseSucceeded = false;
+  const sourceResults = {};
 
   for (const source of sources) {
     const endpointKey = source.endpointKey;
-    const compatibleEndpoints = await discoverCompatibleProjectEndpoints({
-      endpointBases: source.endpointBases,
-      headers,
-    });
+    const isBootstrapPhase = endpointKey === "projects_v4";
+    const isEnrichmentPhase = endpointKey === "projects_v3";
 
-    const state = await withTransaction(async (client) =>
-      getEndpointState(client, {
-        tenantId: job.tenant_id,
-        endpointKey,
-      })
-    );
-
-    const hasKnownWatermark = Boolean(state && state.updated_after_watermark);
-    const hasBacklog = await withTransaction(async (client) => {
-      const { rows } = await client.query(
-        `
-          SELECT COUNT(*)::int AS c
-          FROM sync_failure_backlog
-          WHERE tenant_id = $1
-            AND endpoint_key = $2
-            AND status IN ('pending', 'deferred', 'retrying')
-        `,
-        [job.tenant_id, endpointKey]
-      );
-      return Number(rows[0]?.c || 0) > 0;
-    });
-
-    const isStrictDelta = normalizedMode === SYNC_MODES.DELTA && hasKnownWatermark && !hasBacklog;
-    const updatedAfter = isStrictDelta ? state.updated_after_watermark : null;
-    let page = state && state.last_successful_page ? Number(state.last_successful_page) + 1 : 1;
-    if (normalizedMode === SYNC_MODES.BOOTSTRAP_INITIAL || normalizedMode === SYNC_MODES.MANUAL_FULL_RESYNC) {
-      page = 1;
-    }
-
-    await withTransaction(async (client) => {
-      await markEndpointState(client, {
-        tenantId: job.tenant_id,
-        endpointKey,
-        status: "running",
-        jobId: job.id,
-        currentJobId: job.id,
-        currentMode: normalizedMode,
-        syncStrategy: source.strategy.strategy,
-        lastAttemptAt: nowIso(),
-        lastSuccessAt: null,
-        lastSuccessfulPage: null,
-        lastSuccessfulCursor: null,
-        lastSeenRemoteCursor: null,
-        updatedAfterWatermark: null,
-        rowsFetchedDelta: 0,
-        rowsPersistedDelta: 0,
-        pagesProcessedLastJob: 0,
-        rowsFetchedLastJob: 0,
-        retryCount: 0,
-        pendingBacklogCount: null,
-        failedPageCount: null,
-        lastHttpStatus: null,
-        heartbeatAt: nowIso(),
-        nextPlannedAt: normalizedMode === SYNC_MODES.DELTA ? new Date(Date.now() + DELTA_INTERVAL_MS).toISOString() : null,
-        errorMessage: null,
-      });
-    });
-
-    let sourcePagesProcessed = 0;
-    let sourceRowsFetched = 0;
-    let sourceRowsPersisted = 0;
-    let sourceRetries = 0;
-    let lastSuccessfulPage = state && state.last_successful_page ? Number(state.last_successful_page) : null;
-
-    for (const endpointBase of compatibleEndpoints) {
-      while (true) {
-        await heartbeat(job.id);
+    // Phase B (Enrichment/V3): Wrap in error handling so it doesn't fail bootstrap
+    if (isEnrichmentPhase && bootstrapPhaseSucceeded) {
+      try {
+        const enrichmentResult = await runProjectsSourceSync({
+          job,
+          cfg,
+          mode: normalizedMode,
+          source,
+          headers,
+        });
+        sourceResults[endpointKey] = enrichmentResult;
+        pagesProcessed += enrichmentResult.pagesProcessed;
+        rowsProcessed += enrichmentResult.rowsProcessed;
+        retriesQueued += enrichmentResult.retriesQueued;
+        console.log(`[syncWorker] ENRICHMENT-PHASE completed endpoint=${endpointKey} pages=${enrichmentResult.pagesProcessed} rows=${enrichmentResult.rowsProcessed}`);
+      } catch (error) {
+        // Enrichment failure does NOT fail the job if bootstrap succeeded
+        console.warn(`[syncWorker] ENRICHMENT-PHASE error (bootstrap succeeded, so non-fatal): endpoint=${endpointKey} msg=${error.message}`);
+        
         await withTransaction(async (client) => {
-          await markEndpointHeartbeat(client, {
+          await markEndpointState(client, {
             tenantId: job.tenant_id,
             endpointKey,
+            status: "partial",
             jobId: job.id,
+            currentJobId: null,
             currentMode: normalizedMode,
+            syncStrategy: source.strategy.strategy,
+            lastAttemptAt: nowIso(),
+            lastSuccessAt: null,
+            lastSuccessfulPage: null,
+            lastSuccessfulCursor: null,
+            lastSeenRemoteCursor: null,
+            updatedAfterWatermark: null,
+            rowsFetchedDelta: 0,
+            rowsPersistedDelta: 0,
+            pagesProcessedLastJob: 0,
+            rowsFetchedLastJob: 0,
+            retryCount: 0,
+            pendingBacklogCount: 0,
+            failedPageCount: 0,
+            lastHttpStatus: null,
+            heartbeatAt: nowIso(),
+            nextPlannedAt: new Date(Date.now() + DELTA_INTERVAL_MS).toISOString(),
+            errorMessage: `enrichment_phase_skipped: ${String(error.message || "unknown").slice(0, 200)}`,
           });
         });
-
-        try {
-          const result = await persistProjectsPage({
-            job,
-            cfg,
-            endpointBase,
-            headers,
-            endpointKey,
-            mode: normalizedMode,
-            page,
-            updatedAfter,
-          });
-
-          if (result.rowsFetched === 0) {
-            console.log(
-              `[syncWorker] endpoint=${endpointKey} source=${endpointBase} currentPage=${page} nextPage=${result.parsed.nextPage} pageCount=unknown rowsPersisted=0 collectedOrPersistedTotal=${rowsProcessed}`
-            );
-            break;
-          }
-
-          sourcePagesProcessed += 1;
-          sourceRowsFetched += result.rowsFetched;
-          sourceRowsPersisted += result.rowsPersisted;
-          pagesProcessed += 1;
-          rowsProcessed += result.rowsPersisted;
-          lastSuccessfulPage = page;
-
-          await withTransaction(async (client) => {
-            await syncJobQueries.markJobProgress(client, {
-              jobId: job.id,
-              rowsProcessed,
-              pagesProcessed,
-            });
-          });
-
-          console.log(
-            `[syncWorker] endpoint=${endpointKey} source=${endpointBase} currentPage=${page} nextPage=${result.parsed.nextPage} pageCount=unknown rowsPersisted=${result.rowsPersisted} collectedOrPersistedTotal=${rowsProcessed}`
-          );
-
-          page += 1;
-        } catch (error) {
-          const attemptNo = 1;
-          const failure = await logProjectsPageFailure({
-            job,
-            endpointKey,
-            mode: normalizedMode,
-            page,
-            error,
-            attempts: attemptNo,
-          });
-
-          sourceRetries += 1;
-          retriesQueued += 1;
-
-          console.error(
-            `[syncWorker] page failed endpoint=${endpointKey} source=${endpointBase} mode=${normalizedMode} page=${page} status=${failure.classification.kind} msg=${error.message}`
-          );
-
-          page += 1;
-        }
       }
+      continue;
     }
 
-    const backlogCounts = await withTransaction(async (client) => {
-      const { rows } = await client.query(
-        `
-          SELECT
-            COUNT(*) FILTER (WHERE status IN ('pending', 'deferred', 'retrying'))::int AS pending_count,
-            COUNT(*) FILTER (WHERE status = 'failed')::int AS failed_count
-          FROM sync_failure_backlog
-          WHERE tenant_id = $1
-            AND endpoint_key = $2
-        `,
-        [job.tenant_id, endpointKey]
-      );
-      return rows[0] || { pending_count: 0, failed_count: 0 };
-    });
+    // Phase A (Bootstrap/V4): CRITICAL - failure throws and fails job
+    if (isBootstrapPhase) {
+      try {
+        const bootstrapResult = await runProjectsSourceSync({
+          job,
+          cfg,
+          mode: normalizedMode,
+          source,
+          headers,
+        });
+        sourceResults[endpointKey] = bootstrapResult;
+        pagesProcessed += bootstrapResult.pagesProcessed;
+        rowsProcessed += bootstrapResult.rowsProcessed;
+        retriesQueued += bootstrapResult.retriesQueued;
+        bootstrapPhaseSucceeded = true;
+        console.log(`[syncWorker] BOOTSTRAP-PHASE completed endpoint=${endpointKey} pages=${bootstrapResult.pagesProcessed} rows=${bootstrapResult.rowsProcessed}`);
+      } catch (error) {
+        console.error(`[syncWorker] BOOTSTRAP-PHASE failed (FATAL): endpoint=${endpointKey} msg=${error.message}`);
+        throw error; // Bootstrap failure IS fatal
+      }
+      continue;
+    }
 
-    await withTransaction(async (client) => {
-      await markEndpointState(client, {
-        tenantId: job.tenant_id,
-        endpointKey,
-        status: Number(backlogCounts.pending_count || 0) > 0 ? "partial" : "success",
-        jobId: job.id,
-        currentJobId: null,
-        currentMode: normalizedMode,
-        syncStrategy: source.strategy.strategy,
-        lastAttemptAt: nowIso(),
-        lastSuccessAt: nowIso(),
-        lastSuccessfulPage,
-        lastSuccessfulCursor: null,
-        lastSeenRemoteCursor: null,
-        updatedAfterWatermark: source.strategy.supportsDelta ? nowIso() : null,
-        rowsFetchedDelta: 0,
-        rowsPersistedDelta: 0,
-        pagesProcessedLastJob: sourcePagesProcessed,
-        rowsFetchedLastJob: sourceRowsFetched,
-        retryCount: sourceRetries,
-        pendingBacklogCount: Number(backlogCounts.pending_count || 0),
-        failedPageCount: Number(backlogCounts.failed_count || 0),
-        lastHttpStatus: null,
-        heartbeatAt: nowIso(),
-        nextPlannedAt: new Date(Date.now() + DELTA_INTERVAL_MS).toISOString(),
-        errorMessage: Number(backlogCounts.pending_count || 0) > 0 ? "backlog_pending" : null,
-      });
+    // Handle any other sources (should not exist in current config)
+    const sourceResult = await runProjectsSourceSync({
+      job,
+      cfg,
+      mode: normalizedMode,
+      source,
+      headers,
     });
+    sourceResults[endpointKey] = sourceResult;
+    pagesProcessed += sourceResult.pagesProcessed;
+    rowsProcessed += sourceResult.rowsProcessed;
+    retriesQueued += sourceResult.retriesQueued;
   }
 
   return { pagesProcessed, rowsProcessed, retriesQueued };
+}
+
+// Helper: Sync a single project source (V4 or V3)
+async function runProjectsSourceSync({ job, cfg, mode: normalizedMode, source, headers }) {
+  const endpointKey = source.endpointKey;
+  const projectRetryPolicy = getProjectsRetryPolicy(endpointKey);
+  const state = await withTransaction(async (client) =>
+    getEndpointState(client, {
+      tenantId: job.tenant_id,
+      endpointKey,
+    })
+  );
+
+  const compatibleEndpoints = await resolveProjectCompatibleEndpoints({
+    job,
+    endpointKey,
+    endpointBases: source.endpointBases,
+    headers,
+    state,
+    retryPolicy: projectRetryPolicy,
+  });
+
+  const hasKnownWatermark = Boolean(state && state.updated_after_watermark);
+  const hasBacklog = await withTransaction(async (client) => {
+    const { rows } = await client.query(
+      `
+        SELECT COUNT(*)::int AS c
+        FROM sync_failure_backlog
+        WHERE tenant_id = $1
+          AND endpoint_key = $2
+          AND status IN ('pending', 'deferred', 'retrying')
+      `,
+      [job.tenant_id, endpointKey]
+    );
+    return Number(rows[0]?.c || 0) > 0;
+  });
+
+  const isStrictDelta = normalizedMode === SYNC_MODES.DELTA && hasKnownWatermark && !hasBacklog;
+  const updatedAfter = isStrictDelta ? state.updated_after_watermark : null;
+  let page = state && state.last_successful_page ? Number(state.last_successful_page) + 1 : 1;
+  if (normalizedMode === SYNC_MODES.BOOTSTRAP_INITIAL || normalizedMode === SYNC_MODES.MANUAL_FULL_RESYNC) {
+    page = 1;
+  }
+
+  await withTransaction(async (client) => {
+    await markEndpointState(client, {
+      tenantId: job.tenant_id,
+      endpointKey,
+      status: "running",
+      jobId: job.id,
+      currentJobId: job.id,
+      currentMode: normalizedMode,
+      syncStrategy: source.strategy.strategy,
+      lastAttemptAt: nowIso(),
+      lastSuccessAt: null,
+      lastSuccessfulPage: null,
+      lastSuccessfulCursor: null,
+      lastSeenRemoteCursor: null,
+      updatedAfterWatermark: null,
+      rowsFetchedDelta: 0,
+      rowsPersistedDelta: 0,
+      pagesProcessedLastJob: 0,
+      rowsFetchedLastJob: 0,
+      retryCount: 0,
+      pendingBacklogCount: null,
+      failedPageCount: null,
+      lastHttpStatus: null,
+      heartbeatAt: nowIso(),
+      nextPlannedAt: normalizedMode === SYNC_MODES.DELTA ? new Date(Date.now() + DELTA_INTERVAL_MS).toISOString() : null,
+      errorMessage: null,
+    });
+  });
+
+  let pagesProcessed = 0;
+  let rowsProcessed = 0;
+  let retriesQueued = 0;
+  let sourcePagesProcessed = 0;
+  let sourceRowsFetched = 0;
+  let sourceRowsPersisted = 0;
+  let sourceRetries = 0;
+  let lastSuccessfulPage = state && state.last_successful_page ? Number(state.last_successful_page) : null;
+
+  for (const endpointBase of compatibleEndpoints) {
+    while (true) {
+      await heartbeat(job.id);
+      await withTransaction(async (client) => {
+        await markEndpointHeartbeat(client, {
+          tenantId: job.tenant_id,
+          endpointKey,
+          jobId: job.id,
+          currentMode: normalizedMode,
+        });
+      });
+
+      try {
+        const result = await persistProjectsPage({
+          job,
+          cfg,
+          endpointBase,
+          headers,
+          endpointKey,
+          mode: normalizedMode,
+          page,
+          updatedAfter,
+          retryPolicy: projectRetryPolicy,
+        });
+
+        if (result.rowsFetched === 0) {
+          console.log(
+            `[syncWorker] endpoint=${endpointKey} source=${endpointBase} currentPage=${page} nextPage=${result.parsed.nextPage} pageCount=unknown rowsPersisted=0 collectedOrPersistedTotal=${rowsProcessed}`
+          );
+          break;
+        }
+
+        sourcePagesProcessed += 1;
+        sourceRowsFetched += result.rowsFetched;
+        sourceRowsPersisted += result.rowsPersisted;
+        pagesProcessed += 1;
+        rowsProcessed += result.rowsPersisted;
+        lastSuccessfulPage = page;
+
+        await withTransaction(async (client) => {
+          await syncJobQueries.markJobProgress(client, {
+            jobId: job.id,
+            rowsProcessed,
+            pagesProcessed,
+          });
+        });
+
+        console.log(
+          `[syncWorker] endpoint=${endpointKey} source=${endpointBase} currentPage=${page} nextPage=${result.parsed.nextPage} pageCount=unknown rowsPersisted=${result.rowsPersisted} collectedOrPersistedTotal=${rowsProcessed}`
+        );
+
+        if (result.rowFailures > 0) {
+          console.warn(
+            `[syncWorker] endpoint=${endpointKey} source=${endpointBase} currentPage=${page} rowFailures=${result.rowFailures} rowsPersisted=${result.rowsPersisted}`
+          );
+        }
+
+        page += 1;
+      } catch (error) {
+        const attemptNo = 1;
+        const failure = await logProjectsPageFailure({
+          job,
+          endpointKey,
+          mode: normalizedMode,
+          page,
+          error,
+          attempts: attemptNo,
+        });
+
+        sourceRetries += 1;
+        retriesQueued += 1;
+
+        console.error(
+          `[syncWorker] page failed endpoint=${endpointKey} source=${endpointBase} mode=${normalizedMode} page=${page} status=${failure.classification.kind} msg=${error.message}`
+        );
+
+        page += 1;
+      }
+    }
+  }
+
+  const backlogCounts = await withTransaction(async (client) => {
+    const { rows } = await client.query(
+      `
+        SELECT
+          COUNT(*) FILTER (WHERE status IN ('pending', 'deferred', 'retrying'))::int AS pending_count,
+          COUNT(*) FILTER (WHERE status = 'failed')::int AS failed_count
+        FROM sync_failure_backlog
+        WHERE tenant_id = $1
+          AND endpoint_key = $2
+      `,
+      [job.tenant_id, endpointKey]
+    );
+    return rows[0] || { pending_count: 0, failed_count: 0 };
+  });
+
+  await withTransaction(async (client) => {
+    await markEndpointState(client, {
+      tenantId: job.tenant_id,
+      endpointKey,
+      status: Number(backlogCounts.pending_count || 0) > 0 ? "partial" : "success",
+      jobId: job.id,
+      currentJobId: null,
+      currentMode: normalizedMode,
+      syncStrategy: source.strategy.strategy,
+      lastAttemptAt: nowIso(),
+      lastSuccessAt: nowIso(),
+      lastSuccessfulPage,
+      lastSuccessfulCursor: null,
+      lastSeenRemoteCursor: null,
+      updatedAfterWatermark: source.strategy.supportsDelta ? nowIso() : null,
+      rowsFetchedDelta: 0,
+      rowsPersistedDelta: 0,
+      pagesProcessedLastJob: sourcePagesProcessed,
+      rowsFetchedLastJob: sourceRowsFetched,
+      retryCount: sourceRetries,
+      pendingBacklogCount: Number(backlogCounts.pending_count || 0),
+      failedPageCount: Number(backlogCounts.failed_count || 0),
+      lastHttpStatus: null,
+      heartbeatAt: nowIso(),
+      nextPlannedAt: new Date(Date.now() + DELTA_INTERVAL_MS).toISOString(),
+      errorMessage: Number(backlogCounts.pending_count || 0) > 0 ? "backlog_pending" : null,
+    });
+  });
+
+  return { pagesProcessed, rowsProcessed, retriesQueued };
+}
+
+// DEPRECATED: Old runProjectsEndpoint implementation (replaced by phase-based architecture)
+async function runProjectsEndpoint_DEPRECATED({ job, cfg, mode }) {
+  return { pagesProcessed: 0, rowsProcessed: 0, retriesQueued: 0 };
 }
 
 async function runProjectsBacklogRetryRound({ job, cfg, endpointKey }) {
@@ -2001,7 +3296,23 @@ async function runProjectsBacklogRetryRound({ job, cfg, endpointKey }) {
   if (!source) {
     return { retried: 0, resolved: 0, stillFailed: dueFailures.length };
   }
-  const compatibleEndpoints = await discoverCompatibleProjectEndpoints({ endpointBases: source.endpointBases, headers });
+
+  const state = await withTransaction(async (client) =>
+    getEndpointState(client, {
+      tenantId: job.tenant_id,
+      endpointKey,
+    })
+  );
+
+  const compatibleEndpoints = await resolveProjectCompatibleEndpoints({
+    job,
+    endpointKey,
+    endpointBases: source.endpointBases,
+    headers,
+    state,
+    retryPolicy: getProjectsRetryPolicy(endpointKey),
+  });
+  const projectRetryPolicy = getProjectsRetryPolicy(endpointKey);
 
   let retried = 0;
   let resolved = 0;
@@ -2023,6 +3334,7 @@ async function runProjectsBacklogRetryRound({ job, cfg, endpointKey }) {
             pageSize: PAGE_SIZE,
             headers,
             updatedAfter: null,
+            retryPolicy: projectRetryPolicy,
           });
           break;
         } catch (error) {
@@ -2039,7 +3351,67 @@ async function runProjectsBacklogRetryRound({ job, cfg, endpointKey }) {
         ekBaseUrl: cfg.ekBaseUrl,
         headers,
         rows: mappedRows,
+        retryPolicy: projectRetryPolicy,
       });
+
+      if (endpointKey === "projects_v3") {
+        let rowsPersisted = 0;
+        let rowFailures = 0;
+        const failureRefs = [];
+
+        for (const row of enriched.rows) {
+          try {
+            await withTransaction(async (client) => {
+              await upsertProjectBatch(client, {
+                tenantId: job.tenant_id,
+                mappedRows: [row],
+                sourceEndpointKey: endpointKey,
+              });
+            });
+            rowsPersisted += 1;
+          } catch (error) {
+            rowFailures += 1;
+            if (failureRefs.length < 10) {
+              failureRefs.push(String(row && row.externalProjectRef ? row.externalProjectRef : "unknown"));
+            }
+            console.error(
+              `[syncWorker] v3_backlog_persist_failed page=${page} ref=${row && row.externalProjectRef ? row.externalProjectRef : "unknown"} msg=${String(error.message || "persist_failed")}`
+            );
+          }
+        }
+
+        const partialError = rowFailures > 0
+          ? `v3_row_failures:${rowFailures} refs=${failureRefs.join(",")}`.slice(0, 2000)
+          : null;
+
+        await withTransaction(async (client) => {
+          await resolveBacklogFailure(client, {
+            backlogId: failure.id,
+            jobId: job.id,
+          });
+
+          await appendPageLog(client, {
+            tenantId: job.tenant_id,
+            jobId: job.id,
+            endpointKey,
+            mode: SYNC_MODES.RETRY_BACKLOG,
+            pageNumber: page,
+            nextPage: parsed.nextPage,
+            status: "retry_success",
+            rowsFetched: mappedRows.length,
+            rowsPersisted,
+            httpStatus: 200,
+            errorMessage: partialError,
+            retryCount: Math.max(0, nextAttempt - 1),
+            startedAt: nowIso(),
+            finishedAt: nowIso(),
+            attemptNo: nextAttempt,
+          });
+        });
+
+        resolved += 1;
+        continue;
+      }
 
       await withTransaction(async (client) => {
         await upsertProjectBatch(client, {
@@ -2203,7 +3575,29 @@ async function runReadOnlyBacklogRetryRound({ job, cfg, endpointKey }) {
   }
 
   const { endpointBases, headers } = await getGenericEndpointsAndHeaders({ cfg, endpointKey });
-  const compatibleEndpoints = await discoverCompatibleEndpoints({ endpointBases, headers });
+  const isFitterCategories = endpointKey === "fittercategories";
+  const isFitters = endpointKey === "fitters";
+  const isFitterHours = endpointKey === "fitterhours";
+  const readEndpointPrimaryPageSize = (isFitterCategories || isFitters || isFitterHours)
+    ? FITTER_PAGE_SIZE_PRIMARY
+    : PAGE_SIZE;
+  const fitterhoursCutoffContext = isFitterHours
+    ? await withTransaction(async (client) => computeFitterhoursCutoff(client, job.tenant_id))
+    : null;
+  const fitterhoursCutoffIso = fitterhoursCutoffContext && fitterhoursCutoffContext.cutoffIso
+    ? fitterhoursCutoffContext.cutoffIso
+    : null;
+  const activeProjectReferenceKeys = isFitterHours
+    ? await withTransaction(async (client) => listActiveProjectReferenceKeys(client, job.tenant_id))
+    : null;
+  const compatibleEndpoints = await discoverCompatibleEndpoints({
+    endpointBases,
+    headers,
+    retryPolicy: getReadEndpointRetryPolicy(
+      endpointKey,
+      readEndpointPrimaryPageSize
+    ),
+  });
 
   let retried = 0;
   let resolved = 0;
@@ -2217,24 +3611,77 @@ async function runReadOnlyBacklogRetryRound({ job, cfg, endpointKey }) {
     try {
       let parsed = null;
       let lastEndpointError = null;
+      let activePageSize = readEndpointPrimaryPageSize;
+      let fallbackAttempted = false;
 
-      for (const endpointBase of compatibleEndpoints) {
-        try {
-          parsed = await fetchEndpointPage({
-            endpointBase,
-            page,
-            pageSize: PAGE_SIZE,
-            headers,
-            updatedAfter: null,
-          });
-          break;
-        } catch (error) {
-          lastEndpointError = error;
+      while (!parsed) {
+        lastEndpointError = null;
+
+        for (const endpointBase of compatibleEndpoints) {
+          try {
+            parsed = await fetchEndpointPage({
+              endpointBase,
+              page,
+              pageSize: activePageSize,
+              headers,
+              updatedAfter: null,
+              retryPolicy: getReadEndpointRetryPolicy(endpointKey, activePageSize),
+            });
+            break;
+          } catch (error) {
+            lastEndpointError = error;
+          }
         }
+
+        if (parsed) {
+          break;
+        }
+
+        const classification = classifyError(lastEndpointError || new Error("retry page fetch failed on all endpoints"));
+        if (
+          (isFitterCategories || isFitters || isFitterHours)
+          && classification.kind === "http_429"
+          && !fallbackAttempted
+          && activePageSize === FITTER_PAGE_SIZE_PRIMARY
+        ) {
+          fallbackAttempted = true;
+          activePageSize = FITTER_PAGE_SIZE_FALLBACK;
+          console.warn(
+            `[syncWorker] endpoint=${endpointKey} backlog_page=${page} rate_limited=true pageSize_fallback=${FITTER_PAGE_SIZE_PRIMARY}->${FITTER_PAGE_SIZE_FALLBACK}`
+          );
+          continue;
+        }
+
+        throw lastEndpointError || new Error("retry page fetch failed on all endpoints");
       }
 
-      if (!parsed) {
-        throw lastEndpointError || new Error("retry page fetch failed on all endpoints");
+      let rowsPersisted = 0;
+      if (parsed.rows.length > 0 && (isFitterCategories || isFitters || isFitterHours)) {
+        const mappedRows = isFitterCategories
+          ? parsed.rows.map((row) => mapFitterCategoryRow(row)).filter(Boolean)
+          : isFitters
+            ? parsed.rows.map((row) => mapFitterRow(row)).filter(Boolean)
+            : parsed.rows.map((row) => mapFitterHourRow(row, {
+              activeProjectReferenceKeys,
+              cutoffIso: fitterhoursCutoffIso,
+            })).filter(Boolean);
+
+        await withTransaction(async (client) => {
+          rowsPersisted = isFitterCategories
+            ? await upsertFitterCategoryBatch(client, {
+              tenantId: job.tenant_id,
+              mappedRows,
+            })
+            : isFitters
+              ? await upsertFitterBatch(client, {
+                tenantId: job.tenant_id,
+                mappedRows,
+              })
+              : await upsertFitterHourBatch(client, {
+                tenantId: job.tenant_id,
+                mappedRows,
+              });
+        });
       }
 
       await withTransaction(async (client) => {
@@ -2252,9 +3699,9 @@ async function runReadOnlyBacklogRetryRound({ job, cfg, endpointKey }) {
           nextPage: parsed.nextPage,
           status: "retry_success",
           rowsFetched: parsed.rows.length,
-          rowsPersisted: 0,
+          rowsPersisted,
           httpStatus: 200,
-          errorMessage: "persist_skipped:no_supported_table",
+          errorMessage: (isFitterCategories || isFitters || isFitterHours) ? null : "persist_skipped:no_supported_table",
           retryCount: Math.max(0, nextAttempt - 1),
           startedAt: nowIso(),
           finishedAt: nowIso(),

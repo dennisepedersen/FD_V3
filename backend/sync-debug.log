@@ -1,0 +1,42 @@
+[2026-04-04T20:53:34.821Z] [syncWorker] job picked c86e0782-795c-4d1c-a97c-5b35a47c8b91 tenant=f1f51c07-2d88-4ee4-a766-78eac833a9d0 type=bootstrap pid=67492
+[2026-04-04T20:53:34.827Z] [syncWorker] job started c86e0782-795c-4d1c-a97c-5b35a47c8b91
+[2026-04-04T20:53:34.827Z] [syncWorker] DEBUG awaiting pool.connect() for job=c86e0782-795c-4d1c-a97c-5b35a47c8b91
+[2026-04-04T20:53:34.828Z] [syncWorker] DEBUG pool.connect() complete for job=c86e0782-795c-4d1c-a97c-5b35a47c8b91
+[2026-04-04T20:53:34.829Z] [syncWorker] DEBUG awaiting listEnabledEndpoints() for job=c86e0782-795c-4d1c-a97c-5b35a47c8b91
+[2026-04-04T20:53:35.029Z] [syncWorker] DEBUG listEnabledEndpoints() returned 7 endpoints for job=c86e0782-795c-4d1c-a97c-5b35a47c8b91
+[2026-04-04T21:00:07.647Z] [syncWorker] job picked fc4795b7-e92c-460d-bfd8-c00b551ab056 tenant=f1f51c07-2d88-4ee4-a766-78eac833a9d0 type=bootstrap pid=65564
+[2026-04-04T21:00:07.652Z] [syncWorker] job started fc4795b7-e92c-460d-bfd8-c00b551ab056
+[2026-04-04T21:00:07.653Z] [syncWorker] DEBUG awaiting pool.connect() for job=fc4795b7-e92c-460d-bfd8-c00b551ab056
+[2026-04-04T21:00:07.653Z] [syncWorker] DEBUG pool.connect() complete for job=fc4795b7-e92c-460d-bfd8-c00b551ab056
+[2026-04-04T21:00:07.654Z] [syncWorker] DEBUG awaiting listEnabledEndpoints() for job=fc4795b7-e92c-460d-bfd8-c00b551ab056
+[2026-04-04T21:00:07.850Z] [syncWorker] DEBUG listEnabledEndpoints() returned 7 endpoints for job=fc4795b7-e92c-460d-bfd8-c00b551ab056
+[2026-04-04T21:02:51.502Z] [syncWorker] job picked 894e792d-1a90-4641-ad15-df49c26584e4 tenant=f1f51c07-2d88-4ee4-a766-78eac833a9d0 type=bootstrap pid=50300
+[2026-04-04T21:02:51.510Z] [syncWorker] job started 894e792d-1a90-4641-ad15-df49c26584e4
+[2026-04-04T21:02:51.511Z] [syncWorker] DEBUG awaiting pool.connect() for job=894e792d-1a90-4641-ad15-df49c26584e4
+[2026-04-04T21:02:51.512Z] [syncWorker] DEBUG pool.connect() complete for job=894e792d-1a90-4641-ad15-df49c26584e4
+[2026-04-04T21:02:51.512Z] [syncWorker] DEBUG awaiting listEnabledEndpoints() for job=894e792d-1a90-4641-ad15-df49c26584e4
+[2026-04-04T21:02:51.746Z] [syncWorker] DEBUG listEnabledEndpoints() returned 7 endpoints for job=894e792d-1a90-4641-ad15-df49c26584e4
+[2026-04-04T21:04:59.177Z] [syncWorker] job picked 6d0b7fcc-b94e-47a1-817f-727a7e519de7 tenant=f1f51c07-2d88-4ee4-a766-78eac833a9d0 type=bootstrap pid=33932
+[2026-04-04T21:04:59.184Z] [syncWorker] job started 6d0b7fcc-b94e-47a1-817f-727a7e519de7
+[2026-04-04T21:04:59.184Z] [syncWorker] DEBUG awaiting pool.connect() for job=6d0b7fcc-b94e-47a1-817f-727a7e519de7
+[2026-04-04T21:04:59.185Z] [syncWorker] DEBUG pool.connect() complete for job=6d0b7fcc-b94e-47a1-817f-727a7e519de7
+[2026-04-04T21:04:59.185Z] [syncWorker] DEBUG awaiting listEnabledEndpoints() for job=6d0b7fcc-b94e-47a1-817f-727a7e519de7
+[2026-04-04T21:04:59.403Z] [syncWorker] DEBUG listEnabledEndpoints() returned 7 endpoints for job=6d0b7fcc-b94e-47a1-817f-727a7e519de7
+[2026-04-04T21:14:38.679Z] [syncWorker] job picked 991350c4-0c13-4d67-817d-39d5783a3536 tenant=f1f51c07-2d88-4ee4-a766-78eac833a9d0 type=bootstrap pid=73452
+[2026-04-04T21:14:38.685Z] [syncWorker] job started 991350c4-0c13-4d67-817d-39d5783a3536
+[2026-04-04T21:14:38.686Z] [syncWorker] DEBUG awaiting pool.connect() for job=991350c4-0c13-4d67-817d-39d5783a3536
+[2026-04-04T21:14:38.686Z] [syncWorker] DEBUG pool.connect() complete for job=991350c4-0c13-4d67-817d-39d5783a3536
+[2026-04-04T21:14:38.687Z] [syncWorker] DEBUG awaiting listEnabledEndpoints() for job=991350c4-0c13-4d67-817d-39d5783a3536
+[2026-04-04T21:14:38.886Z] [syncWorker] DEBUG listEnabledEndpoints() returned 7 endpoints for job=991350c4-0c13-4d67-817d-39d5783a3536
+[2026-04-04T21:35:50.156Z] [syncWorker] job picked 991350c4-0c13-4d67-817d-39d5783a3536 tenant=f1f51c07-2d88-4ee4-a766-78eac833a9d0 type=bootstrap pid=73452
+[2026-04-04T21:35:50.157Z] [syncWorker] job started 991350c4-0c13-4d67-817d-39d5783a3536
+[2026-04-04T21:35:50.157Z] [syncWorker] DEBUG awaiting pool.connect() for job=991350c4-0c13-4d67-817d-39d5783a3536
+[2026-04-04T21:35:50.158Z] [syncWorker] DEBUG pool.connect() complete for job=991350c4-0c13-4d67-817d-39d5783a3536
+[2026-04-04T21:35:50.158Z] [syncWorker] DEBUG awaiting listEnabledEndpoints() for job=991350c4-0c13-4d67-817d-39d5783a3536
+[2026-04-04T21:35:50.368Z] [syncWorker] DEBUG listEnabledEndpoints() returned 7 endpoints for job=991350c4-0c13-4d67-817d-39d5783a3536
+[2026-04-04T21:57:51.256Z] [syncWorker] job picked 991350c4-0c13-4d67-817d-39d5783a3536 tenant=f1f51c07-2d88-4ee4-a766-78eac833a9d0 type=bootstrap pid=73452
+[2026-04-04T21:57:51.259Z] [syncWorker] job started 991350c4-0c13-4d67-817d-39d5783a3536
+[2026-04-04T21:57:51.260Z] [syncWorker] DEBUG awaiting pool.connect() for job=991350c4-0c13-4d67-817d-39d5783a3536
+[2026-04-04T21:57:51.261Z] [syncWorker] DEBUG pool.connect() complete for job=991350c4-0c13-4d67-817d-39d5783a3536
+[2026-04-04T21:57:51.261Z] [syncWorker] DEBUG awaiting listEnabledEndpoints() for job=991350c4-0c13-4d67-817d-39d5783a3536
+[2026-04-04T21:57:51.556Z] [syncWorker] DEBUG listEnabledEndpoints() returned 7 endpoints for job=991350c4-0c13-4d67-817d-39d5783a3536

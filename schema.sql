@@ -515,6 +515,19 @@ CREATE TABLE project_wip (
   current_stage text NULL,
   risk_level text NULL,
   notes text NULL,
+  last_registration timestamptz NULL,
+  last_fitter_hour_date timestamptz NULL,
+  calculated_days_since_last_registration integer NULL,
+  ready_to_bill boolean NULL,
+  margin numeric(14,2) NULL,
+  costs numeric(14,2) NULL,
+  ongoing numeric(14,2) NULL,
+  billed numeric(14,2) NULL,
+  coverage numeric(8,2) NULL,
+  hours_budget numeric(14,2) NULL,
+  hours_expected numeric(14,2) NULL,
+  hours_fitter_hour numeric(14,2) NULL,
+  remaining_hours numeric(14,2) NULL,
   updated_by_user_id uuid NULL,
   updated_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT fk_project_wip_project_tenant FOREIGN KEY (project_id, tenant_id) REFERENCES project_core(project_id, tenant_id) ON DELETE CASCADE,
@@ -524,6 +537,7 @@ CREATE TABLE project_wip (
 
 CREATE INDEX ix_project_wip_tenant_stage ON project_wip (tenant_id, current_stage);
 CREATE INDEX ix_project_wip_tenant_updated_by ON project_wip (tenant_id, updated_by_user_id);
+CREATE INDEX ix_project_wip_tenant_last_registration ON project_wip (tenant_id, last_registration DESC);
 
 CREATE TRIGGER trg_project_wip_set_updated_at
 BEFORE UPDATE ON project_wip
@@ -536,7 +550,47 @@ FOR EACH ROW
 EXECUTE FUNCTION prevent_immutable_update('project_id', 'tenant_id');
 
 -- ============================================================================
--- 13) project_assignment
+-- 13) project_masterdata_v4
+-- ============================================================================
+
+CREATE TABLE project_masterdata_v4 (
+  project_id uuid PRIMARY KEY,
+  tenant_id uuid NOT NULL,
+  ek_project_id bigint NULL,
+  parent_project_ek_id bigint NULL,
+  is_subproject boolean NULL,
+  is_closed boolean NULL,
+  responsible_name text NULL,
+  project_expected_values jsonb NULL,
+  project_budget jsonb NULL,
+  associated_address jsonb NULL,
+  associated_person jsonb NULL,
+  worksheet_ids jsonb NULL,
+  total_turn_over_exp numeric(14,2) NULL,
+  source_updated_at timestamptz NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT fk_project_masterdata_v4_project_tenant FOREIGN KEY (project_id, tenant_id) REFERENCES project_core(project_id, tenant_id) ON DELETE CASCADE
+);
+
+CREATE INDEX ix_project_masterdata_v4_tenant_parent ON project_masterdata_v4 (tenant_id, parent_project_ek_id);
+CREATE INDEX ix_project_masterdata_v4_tenant_ek_project_id ON project_masterdata_v4 (tenant_id, ek_project_id);
+CREATE UNIQUE INDEX uq_project_masterdata_v4_tenant_ek_project_id ON project_masterdata_v4 (tenant_id, ek_project_id) WHERE ek_project_id IS NOT NULL;
+CREATE INDEX ix_project_masterdata_v4_tenant_subproject ON project_masterdata_v4 (tenant_id, is_subproject);
+CREATE INDEX ix_project_masterdata_v4_tenant_total_turnover ON project_masterdata_v4 (tenant_id, total_turn_over_exp);
+
+CREATE TRIGGER trg_project_masterdata_v4_set_updated_at
+BEFORE UPDATE ON project_masterdata_v4
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER trg_project_masterdata_v4_prevent_immutable_update
+BEFORE UPDATE ON project_masterdata_v4
+FOR EACH ROW
+EXECUTE FUNCTION prevent_immutable_update('project_id', 'tenant_id', 'created_at');
+
+-- ============================================================================
+-- 14) project_assignment
 -- ============================================================================
 
 CREATE TABLE project_assignment (
@@ -568,7 +622,213 @@ FOR EACH ROW
 EXECUTE FUNCTION prevent_immutable_update('id', 'tenant_id', 'project_id', 'tenant_user_id', 'created_at');
 
 -- ============================================================================
--- 14) sync_endpoint_state
+-- 14) fitter_category
+-- ============================================================================
+
+CREATE TABLE fitter_category (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id uuid NOT NULL,
+  fitter_category_id text NOT NULL,
+  reference text NULL,
+  description text NULL,
+  display text NULL,
+  work_type_id text NULL,
+  unit text NULL,
+  unit_id text NULL,
+  is_on_invoice boolean NULL,
+  include_illness boolean NULL,
+  hour_rate numeric(14,4) NULL,
+  social_fee numeric(14,4) NULL,
+  sales_price numeric(14,4) NULL,
+  show_in_app boolean NULL,
+  is_only_for_internal_projects boolean NULL,
+  include_in_salary_calculation boolean NULL,
+  salary_company_fitter_category text NULL,
+  salary_company_group_by_date boolean NULL,
+  salary_company_absence_code text NULL,
+  group_fitter_categories_with_same_salary_category boolean NULL,
+  show_absence_code boolean NULL,
+  bluegarden_salary_type text NULL,
+  visma_salary_type text NULL,
+  salary_company_use_amount boolean NULL,
+  salary_company_use_rate boolean NULL,
+  salary_company_use_total boolean NULL,
+  lessor_type text NULL,
+  lessor_type_id text NULL,
+  link text NULL,
+  default_cost_code text NULL,
+  cost_code_id text NULL,
+  cost_code_name text NULL,
+  cost_code_alias text NULL,
+  sum_cost_code_id text NULL,
+  sum_cost_code_name text NULL,
+  sum_cost_code_alias text NULL,
+  sum_cost_code_display text NULL,
+  cost_code_display text NULL,
+  raw_payload_json jsonb NULL,
+  source_updated_at timestamptz NULL,
+  synced_at timestamptz NOT NULL DEFAULT now(),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT fk_fitter_category_tenant FOREIGN KEY (tenant_id) REFERENCES tenant(id) ON DELETE CASCADE,
+  CONSTRAINT ck_fitter_category_id_not_blank CHECK (btrim(fitter_category_id) <> '')
+);
+
+CREATE UNIQUE INDEX uq_fitter_category_tenant_external_id
+  ON fitter_category (tenant_id, fitter_category_id);
+
+CREATE INDEX ix_fitter_category_tenant_reference
+  ON fitter_category (tenant_id, reference);
+
+CREATE INDEX ix_fitter_category_tenant_updated
+  ON fitter_category (tenant_id, updated_at DESC);
+
+CREATE TRIGGER trg_fitter_category_set_updated_at
+BEFORE UPDATE ON fitter_category
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER trg_fitter_category_prevent_immutable_update
+BEFORE UPDATE ON fitter_category
+FOR EACH ROW
+EXECUTE FUNCTION prevent_immutable_update('id', 'tenant_id', 'fitter_category_id', 'created_at');
+
+-- ============================================================================
+-- 14b) fitter
+-- ============================================================================
+
+CREATE TABLE fitter (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id uuid NOT NULL,
+  fitter_id text NOT NULL,
+  name text NULL,
+  username text NULL,
+  email text NULL,
+  phone text NULL,
+  salary_id text NULL,
+  old_reference text NULL,
+  job_position text NULL,
+  start_date timestamptz NULL,
+  end_date timestamptz NULL,
+  is_active_derived boolean NULL,
+  is_plannable boolean NULL,
+  include_in_export boolean NULL,
+  salary_period_type_id text NULL,
+  salary_period_type_name text NULL,
+  is_sales_person boolean NULL,
+  note text NULL,
+  show_in_hour_summaries boolean NULL,
+  send_email_when_creating_fitter_hour boolean NULL,
+  attach_fitter_hour_history_in_salary_email boolean NULL,
+  ressource_group_string text NULL,
+  resource_groups_json jsonb NULL,
+  location_name_string text NULL,
+  location_names_json jsonb NULL,
+  location_ids_json jsonb NULL,
+  fitter_default_work_hours_week_day text NULL,
+  fitter_default_work_hours numeric(10,2) NULL,
+  fitter_default_work_hours_start_time text NULL,
+  fitter_default_work_hours_end_time text NULL,
+  show_fitter_rates boolean NULL,
+  show_fitter_category_configuration boolean NULL,
+  open_background_check_dialog boolean NULL,
+  default_cost_code text NULL,
+  cost_code_id text NULL,
+  sum_cost_code_id text NULL,
+  cost_code_display text NULL,
+  sum_cost_code_display text NULL,
+  raw_payload_json jsonb NULL,
+  synced_at timestamptz NOT NULL DEFAULT now(),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT fk_fitter_tenant FOREIGN KEY (tenant_id) REFERENCES tenant(id) ON DELETE CASCADE,
+  CONSTRAINT ck_fitter_id_not_blank CHECK (btrim(fitter_id) <> '')
+);
+
+CREATE UNIQUE INDEX uq_fitter_tenant_external_id
+  ON fitter (tenant_id, fitter_id);
+
+CREATE INDEX ix_fitter_tenant_username
+  ON fitter (tenant_id, username);
+
+CREATE INDEX ix_fitter_tenant_salary_id
+  ON fitter (tenant_id, salary_id);
+
+CREATE INDEX ix_fitter_tenant_end_date
+  ON fitter (tenant_id, end_date DESC);
+
+CREATE INDEX ix_fitter_tenant_name
+  ON fitter (tenant_id, name);
+
+CREATE TRIGGER trg_fitter_set_updated_at
+BEFORE UPDATE ON fitter
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER trg_fitter_prevent_immutable_update
+BEFORE UPDATE ON fitter
+FOR EACH ROW
+EXECUTE FUNCTION prevent_immutable_update('id', 'tenant_id', 'fitter_id', 'created_at');
+
+-- ============================================================================
+-- 14c) fitter_hour
+-- ============================================================================
+
+CREATE TABLE fitter_hour (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id uuid NOT NULL,
+  source_key text NOT NULL,
+  fitter_hour_id text NULL,
+  external_project_ref text NULL,
+  project_id text NULL,
+  fitter_id text NULL,
+  fitter_username text NULL,
+  fitter_salary_id text NULL,
+  fitter_reference text NULL,
+  fitter_category_id text NULL,
+  fitter_category_reference text NULL,
+  work_date timestamptz NULL,
+  registration_date timestamptz NULL,
+  hours numeric(12,2) NULL,
+  quantity numeric(12,2) NULL,
+  unit text NULL,
+  note text NULL,
+  description text NULL,
+  raw_payload_json jsonb NULL,
+  synced_at timestamptz NOT NULL DEFAULT now(),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT fk_fitter_hour_tenant FOREIGN KEY (tenant_id) REFERENCES tenant(id) ON DELETE CASCADE,
+  CONSTRAINT ck_fitter_hour_source_key_not_blank CHECK (btrim(source_key) <> '')
+);
+
+CREATE UNIQUE INDEX uq_fitter_hour_tenant_source_key
+  ON fitter_hour (tenant_id, source_key);
+
+CREATE INDEX ix_fitter_hour_tenant_work_date
+  ON fitter_hour (tenant_id, work_date DESC);
+
+CREATE INDEX ix_fitter_hour_tenant_project_ref
+  ON fitter_hour (tenant_id, external_project_ref);
+
+CREATE INDEX ix_fitter_hour_tenant_fitter_id
+  ON fitter_hour (tenant_id, fitter_id);
+
+CREATE INDEX ix_fitter_hour_tenant_fitter_category_id
+  ON fitter_hour (tenant_id, fitter_category_id);
+
+CREATE TRIGGER trg_fitter_hour_set_updated_at
+BEFORE UPDATE ON fitter_hour
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER trg_fitter_hour_prevent_immutable_update
+BEFORE UPDATE ON fitter_hour
+FOR EACH ROW
+EXECUTE FUNCTION prevent_immutable_update('id', 'tenant_id', 'source_key', 'created_at');
+
+-- ============================================================================
+-- 15) sync_endpoint_state
 -- ============================================================================
 
 CREATE TABLE sync_endpoint_state (
@@ -626,7 +886,7 @@ FOR EACH ROW
 EXECUTE FUNCTION prevent_immutable_update('id', 'tenant_id', 'endpoint_key', 'created_at');
 
 -- ============================================================================
--- 15) sync_failure_backlog
+-- 16) sync_failure_backlog
 -- ============================================================================
 
 CREATE TABLE sync_failure_backlog (
@@ -673,7 +933,7 @@ FOR EACH ROW
 EXECUTE FUNCTION prevent_immutable_update('id', 'tenant_id', 'endpoint_key', 'locator_type', 'locator_value', 'first_failed_at', 'created_at');
 
 -- ============================================================================
--- 16) sync_page_log
+-- 17) sync_page_log
 -- ============================================================================
 
 CREATE TABLE sync_page_log (

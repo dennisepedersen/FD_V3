@@ -1,0 +1,14 @@
+=== EK Raw Payloads for Project 80229-001 ===
+
+NOTE: V4 ref endpoint was a shortcut - now using authoritative paged V4 source only.
+
+V4 Paged Source: /api/v4.0/projects (paged scan, NOT ref endpoint)
+V4 Paged Endpoint: https://externalaccessapi.e-komplet.dk/api/v4.0/projects
+V4 Paged Page Number: 141
+V4 Paged HTTP Status: 200
+V4 Paged Top-level keys: 41
+V4 Paged Keys: projectID, customerID, reference, startDate, projectDescription, endDate, projectType, isClosed, offerID, projectName, projectGroupName, additionalInfo, requisitionNumber, isIntern, isComplaint, isWorkInProgress, coverageInPercent, dimensionCarrierID, dimensionDepartmentID, dimensionPurposeID, teamLeaderID, teamLeader, teamLeaderName, responsibleID, responsible, responsibleName, associatedPersonID, associatedAddressID, offerNumber, profitGroupID, updatedDate, parentProjectID, isSubproject, projectExpectedValues, projectBudget, projectCostCodes, associatedAddress, associatedPerson, projectNotes, fitterHours, worksheetIDs
+V4 Paged Reference: 80229-001
+V4 Paged ProjectID: 29167
+
+V4 Paged payload complete: YES (from paged endpoint, not ref)

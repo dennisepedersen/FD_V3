@@ -1,0 +1,25 @@
+{
+  "data": [
+    {
+      "projectID": 29167,
+      "projectName": "NN KA GC - De og- genmontage af MK+SW frysedør",
+      "responsible": "DEP",
+      "reference": "80229-001",
+      "customerName": "Novo Nordisk A/S",
+      "startDate": "2026-01-20T00:00:00",
+      "endDate": "2027-01-20T00:00:00",
+      "seller": null,
+      "teamLeader": null,
+      "firstOrderDate": null,
+      "lastOrderDate": null,
+      "firstHourRegistrationDate": "2026-01-20T00:00:00",
+      "lastHourRegistrationDate": "2026-01-27T00:00:00",
+      "firstInvoiceDate": null,
+      "lastInvoiceDate": null
+    }
+  ],
+  "errorMessage": null,
+  "validationErrors": [],
+  "modelStateErrors": {},
+  "hasErrors": false
+}

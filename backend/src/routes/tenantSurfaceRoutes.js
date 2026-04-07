@@ -5,6 +5,8 @@ const requireTenantHost = require("../middleware/requireTenantHost");
 const requireAuth = require("../middleware/requireAuth");
 const userQueries = require("../db/queries/user");
 const projectQueries = require("../db/queries/project");
+const fitterHourQueries = require("../db/queries/fitterHour");
+const fitterBusinessQueries = require("../db/queries/fitterBusiness");
 const { createHttpError } = require("../middleware/errorHandler");
 
 const router = express.Router();
@@ -133,6 +135,58 @@ router.get("/api/projects", requireTenantHost, requireAuth("access"), async (req
     console.error("[tenantSurfaceRoutes] request_failed", {
       route: "/api/projects",
       scope: req.query?.scope || "mine",
+      tenant_id: req.context?.tenant?.id || req.auth?.tenant_id || null,
+      user_id: req.auth?.sub || null,
+      role: req.auth?.role || null,
+      error_message: error?.message || null,
+      error_stack: error?.stack || null,
+    });
+    next(error);
+  } finally {
+    client.release();
+  }
+});
+
+router.get("/api/fitterhours", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  if (hasAccessContextMismatch(req)) {
+    return next(createHttpError(403, "tenant_context_mismatch"));
+  }
+
+  const scope = String(req.query.scope || "mine").trim().toLowerCase();
+  if (scope !== "mine" && scope !== "all") {
+    return next(createHttpError(400, "unsupported_fitterhours_scope"));
+  }
+
+  if (scope === "all" && req.auth?.role !== "tenant_admin") {
+    return next(createHttpError(403, "insufficient_scope_access"));
+  }
+
+  const client = await pool.connect();
+  try {
+    const result = await fitterHourQueries.listFitterHoursForUser(client, {
+      tenantId: req.context.tenant.id,
+      userId: req.auth.sub,
+      scope,
+      role: req.auth.role,
+      projectId: req.query.projectId,
+      projectRef: req.query.projectRef,
+      dateFrom: req.query.dateFrom,
+      dateTo: req.query.dateTo,
+      limit: req.query.limit,
+      offset: req.query.offset,
+    });
+
+    res.status(200).json({
+      success: true,
+      scope: result.scope,
+      limit: result.limit,
+      offset: result.offset,
+      rows: result.rows,
+    });
+  } catch (error) {
+    console.error("[tenantSurfaceRoutes] request_failed", {
+      route: "/api/fitterhours",
+      scope,
       tenant_id: req.context?.tenant?.id || req.auth?.tenant_id || null,
       user_id: req.auth?.sub || null,
       role: req.auth?.role || null,
@@ -403,6 +457,110 @@ router.get("/api/projects/:projectId", requireTenantHost, requireAuth("access"),
       project,
     });
   } catch (error) {
+    next(error);
+  } finally {
+    client.release();
+  }
+});
+
+router.get("/api/projects/:projectId/fitterhours/summary", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  if (hasAccessContextMismatch(req)) {
+    return next(createHttpError(403, "tenant_context_mismatch"));
+  }
+
+  const projectId = String(req.params.projectId || "").trim();
+  if (!projectId) {
+    return next(createHttpError(400, "project_id_required"));
+  }
+
+  const client = await pool.connect();
+  try {
+    const project = await projectQueries.findProjectForUser(client, {
+      tenantId: req.context.tenant.id,
+      userId: req.auth.sub,
+      projectId,
+    });
+
+    if (!project) {
+      return next(createHttpError(404, "project_not_found"));
+    }
+
+    const summary = await fitterBusinessQueries.getProjectDrawerOutput(client, {
+      tenantId: req.context.tenant.id,
+      projectId,
+    });
+
+    res.status(200).json({
+      success: true,
+      project: {
+        project_id: project.project_id,
+        external_project_ref: project.external_project_ref,
+        name: project.name,
+      },
+      summary,
+    });
+  } catch (error) {
+    console.error("[tenantSurfaceRoutes] request_failed", {
+      route: "/api/projects/:projectId/fitterhours/summary",
+      tenant_id: req.context?.tenant?.id || req.auth?.tenant_id || null,
+      user_id: req.auth?.sub || null,
+      role: req.auth?.role || null,
+      project_id: projectId,
+      error_message: error?.message || null,
+      error_stack: error?.stack || null,
+    });
+    next(error);
+  } finally {
+    client.release();
+  }
+});
+
+router.get("/api/projects/:projectId/fitterhours/breakdown", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  if (hasAccessContextMismatch(req)) {
+    return next(createHttpError(403, "tenant_context_mismatch"));
+  }
+
+  const projectId = String(req.params.projectId || "").trim();
+  if (!projectId) {
+    return next(createHttpError(400, "project_id_required"));
+  }
+
+  const client = await pool.connect();
+  try {
+    const project = await projectQueries.findProjectForUser(client, {
+      tenantId: req.context.tenant.id,
+      userId: req.auth.sub,
+      projectId,
+    });
+
+    if (!project) {
+      return next(createHttpError(404, "project_not_found"));
+    }
+
+    const breakdown = await fitterBusinessQueries.getProjectDetailHoursOutput(client, {
+      tenantId: req.context.tenant.id,
+      projectId,
+    });
+
+    res.status(200).json({
+      success: true,
+      project: {
+        project_id: project.project_id,
+        external_project_ref: project.external_project_ref,
+        name: project.name,
+      },
+      breakdown,
+    });
+  } catch (error) {
+    console.error("[tenantSurfaceRoutes] request_failed", {
+      route: "/api/projects/:projectId/fitterhours/breakdown",
+      tenant_id: req.context?.tenant?.id || req.auth?.tenant_id || null,
+      user_id: req.auth?.sub || null,
+      role: req.auth?.role || null,
+      project_id: projectId,
+      error_message: error?.message || null,
+      error_stack: error?.stack || null,
+    });
     next(error);
   } finally {
     client.release();

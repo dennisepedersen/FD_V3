@@ -1,5 +1,6 @@
 async function listProjectsForUser(client, { tenantId, userId }) {
   const sql = `
+    -- Tenant safety: always join on both project_id and tenant_id (defense-in-depth rule)
     WITH current_actor AS (
       SELECT lower(nullif(btrim(username), '')) AS username_ci
       FROM tenant_user
@@ -14,7 +15,24 @@ async function listProjectsForUser(client, { tenantId, userId }) {
         pc.name,
         pc.status,
         pc.is_closed,
-        pc.activity_date,
+        COALESCE(pw.last_registration, pw.last_fitter_hour_date) AS activity_date,
+        pw.last_registration,
+        pw.last_fitter_hour_date,
+        pw.calculated_days_since_last_registration,
+        pw.ready_to_bill,
+        pw.margin,
+        pw.costs,
+        pw.ongoing,
+        pw.billed,
+        pw.coverage,
+        pw.hours_budget,
+        pw.hours_expected,
+        pw.hours_fitter_hour,
+        pw.remaining_hours,
+        pm.parent_project_ek_id,
+        pm.is_subproject,
+        pm.total_turn_over_exp,
+        pm.source_updated_at,
         pc.owner_user_id,
         pc.responsible_code,
         pc.responsible_name,
@@ -29,6 +47,12 @@ async function listProjectsForUser(client, { tenantId, userId }) {
       LEFT JOIN project_assignment pa
         ON pa.tenant_id = pc.tenant_id
        AND pa.project_id = pc.project_id
+      LEFT JOIN project_wip pw
+        ON pw.project_id = pc.project_id
+       AND pw.tenant_id = pc.tenant_id
+      LEFT JOIN project_masterdata_v4 pm
+        ON pm.project_id = pc.project_id
+       AND pm.tenant_id = pc.tenant_id
       WHERE pc.tenant_id = $1
         AND (
           (cu.username_ci IS NOT NULL AND lower(btrim(coalesce(pc.responsible_code, ''))) = cu.username_ci)
@@ -46,6 +70,23 @@ async function listProjectsForUser(client, { tenantId, userId }) {
       status,
       is_closed,
       activity_date,
+      last_registration,
+      last_fitter_hour_date,
+      calculated_days_since_last_registration,
+      ready_to_bill,
+      margin,
+      costs,
+      ongoing,
+      billed,
+      coverage,
+      hours_budget,
+      hours_expected,
+      hours_fitter_hour,
+      remaining_hours,
+      parent_project_ek_id,
+      is_subproject,
+      total_turn_over_exp,
+      source_updated_at,
       owner_user_id,
       responsible_code,
       responsible_name,
@@ -84,7 +125,24 @@ async function findProjectForUser(client, { tenantId, userId, projectId }) {
       pc.name,
       pc.status,
       pc.is_closed,
-      pc.activity_date,
+      COALESCE(pw.last_registration, pw.last_fitter_hour_date) AS activity_date,
+      pw.last_registration,
+      pw.last_fitter_hour_date,
+      pw.calculated_days_since_last_registration,
+      pw.ready_to_bill,
+      pw.margin,
+      pw.costs,
+      pw.ongoing,
+      pw.billed,
+      pw.coverage,
+      pw.hours_budget,
+      pw.hours_expected,
+      pw.hours_fitter_hour,
+      pw.remaining_hours,
+      pm.parent_project_ek_id,
+      pm.is_subproject,
+      pm.total_turn_over_exp,
+      pm.source_updated_at,
       pc.owner_user_id,
       pc.responsible_code,
       pc.responsible_name,
@@ -99,6 +157,12 @@ async function findProjectForUser(client, { tenantId, userId, projectId }) {
     LEFT JOIN project_assignment pa
       ON pa.tenant_id = pc.tenant_id
      AND pa.project_id = pc.project_id
+    LEFT JOIN project_wip pw
+      ON pw.project_id = pc.project_id
+     AND pw.tenant_id = pc.tenant_id
+    LEFT JOIN project_masterdata_v4 pm
+      ON pm.project_id = pc.project_id
+     AND pm.tenant_id = pc.tenant_id
     WHERE pc.tenant_id = $1
       AND pc.project_id = $2
       AND (
