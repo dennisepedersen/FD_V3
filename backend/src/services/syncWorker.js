@@ -2540,9 +2540,11 @@ async function runReadOnlyEndpoint({ job, cfg, endpointKey, mode, cutoffContext 
           `[syncWorker] endpoint=${endpointKey} source=${endpointBase} page=${page} nextPage=${parsed.nextPage} pageCount=${parsed.total == null ? "unknown" : parsed.total} rowsPersisted=${rowsPersisted} collectedOrPersistedTotal=${strategyMeta.materialized ? rowsPersistedTotal : rowsFetchedTotal}`
         );
 
-        page = parsed.nextPage != null && Number.isFinite(Number(parsed.nextPage))
-          ? Number(parsed.nextPage)
-          : page + 1;
+        if (rowsFetched < activePageSize) {
+          break;
+        }
+
+        page += 1;
       } catch (error) {
         const classification = classifyError(error);
         if (classification.kind === "http_429") {
@@ -3174,6 +3176,10 @@ async function runProjectsSourceSync({ job, cfg, mode: normalizedMode, source, h
           );
         }
 
+        if (result.rowsFetched < PAGE_SIZE) {
+          break;
+        }
+
         page += 1;
       } catch (error) {
         const attemptNo = 1;
@@ -3242,7 +3248,11 @@ async function runProjectsSourceSync({ job, cfg, mode: normalizedMode, source, h
     });
   });
 
-  return { pagesProcessed, rowsProcessed, retriesQueued };
+  return {
+    pagesProcessed,
+    rowsProcessed,
+    retriesQueued,
+  };
 }
 
 // DEPRECATED: Old runProjectsEndpoint implementation (replaced by phase-based architecture)
@@ -3335,7 +3345,9 @@ async function runProjectsBacklogRetryRound({ job, cfg, endpointKey }) {
         throw lastEndpointError || new Error("retry page fetch failed on all endpoints");
       }
 
-      const mappedRows = parsed.rows.map(mapProjectRow).filter(Boolean);
+      const mappedRows = parsed.rows
+        .map((row) => mapProjectRow(row, { sourceEndpointKey: endpointKey }))
+        .filter((row) => Boolean(row && row.status));
       const enriched = await enrichProjectIdentityFields({
         ekBaseUrl: cfg.ekBaseUrl,
         headers,

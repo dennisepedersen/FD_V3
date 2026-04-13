@@ -1,0 +1,11 @@
+# Missing Business Semantics
+
+Date: 2026-04-11
+Status: targeted unresolved items only
+
+| endpoint | EK field | observed example/value source | current FD usage | why unclear | blocking | what needs IRL clarification |
+|---|---|---|---|---|---|---|
+| fitterhours | Year/year | backend/src/services/syncWorker.js pickFitterHourYear + mapFitterHourRow accept only 2025/2026 | rows outside 2025/2026 are dropped before persist | no documented business rule explaining fixed-year whitelist | medium | confirm if rule must be fixed years, rolling window, or unrestricted date with cutoff-only logic |
+| fitterhours | IsIntern/isIntern | backend/src/services/syncWorker.js pickFitterHourIsIntern + mapFitterHourRow require isIntern === false | intern or null intern rows are dropped | no business decision document for strict exclusion of intern rows | low-medium | confirm if intern rows should be excluded always, conditionally, or included with category filters |
+| projects_v4/projects_v3 -> project_wip | source field mapping for WIP metrics (ready_to_bill, margin, costs, ongoing, billed, coverage, hours_*) | project_wip is read in backend/src/db/queries/project.js; exhaustive search of all backend/src/**/*.js found NO INSERT/UPDATE/UPSERT on project_wip; only write found is backend/scripts/backfill_verify_80229_extended.js line 87 (one-off backfill script, not a production flow) | API exposes project_wip values when present; no active production writer | no production write-path exists in backend/src/; backfill script is the only concrete INSERT but is not wired to any service or worker | medium | implement production write-path in syncWorker or a dedicated sync job; define exact EK->FD field mapping for each project_wip metric |
+| projects_v4 | project_expected_values, project_budget | schema has project_masterdata_v4.project_expected_values/project_budget jsonb (schema.sql) but syncWorker has no explicit mapper/write path in current snapshot | values may exist in DB but are not traceable to an explicit mapping function here | contract for required keys/subfields and consuming queries is undocumented | low | define required subfields and which API/report uses them, or mark fields as non-authoritative storage-only |
