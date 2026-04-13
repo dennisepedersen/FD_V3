@@ -464,6 +464,7 @@ CREATE TABLE project_core (
   name text NOT NULL,
   status text NOT NULL,
   is_closed boolean NULL,
+  closed_observed_at timestamptz NULL,
   activity_date timestamptz NULL,
   responsible_code text NULL,
   responsible_name text NULL,
@@ -493,7 +494,11 @@ CREATE INDEX ix_project_core_tenant_status ON project_core (tenant_id, status);
 CREATE INDEX ix_project_core_owner ON project_core (tenant_id, owner_user_id);
 CREATE INDEX ix_project_core_tenant_responsible_code_ci ON project_core (tenant_id, lower(responsible_code));
 CREATE INDEX ix_project_core_tenant_responsible_id ON project_core (tenant_id, responsible_id);
+CREATE INDEX ix_project_core_tenant_team_leader_code_ci ON project_core (tenant_id, lower(btrim(team_leader_code)));
 CREATE INDEX ix_project_core_tenant_activity_date ON project_core (tenant_id, activity_date DESC);
+CREATE INDEX ix_project_core_tenant_closed_observed ON project_core (tenant_id, closed_observed_at DESC) WHERE is_closed = true;
+CREATE INDEX ix_project_core_tenant_visibility_updated ON project_core (tenant_id, has_v4, is_closed, closed_observed_at, updated_at DESC);
+CREATE INDEX ix_project_core_tenant_external_ref_norm ON project_core (tenant_id, lower(btrim(external_project_ref))) WHERE external_project_ref IS NOT NULL;
 
 CREATE TRIGGER trg_project_core_set_updated_at
 BEFORE UPDATE ON project_core
@@ -576,6 +581,7 @@ CREATE TABLE project_masterdata_v4 (
 CREATE INDEX ix_project_masterdata_v4_tenant_parent ON project_masterdata_v4 (tenant_id, parent_project_ek_id);
 CREATE INDEX ix_project_masterdata_v4_tenant_ek_project_id ON project_masterdata_v4 (tenant_id, ek_project_id);
 CREATE UNIQUE INDEX uq_project_masterdata_v4_tenant_ek_project_id ON project_masterdata_v4 (tenant_id, ek_project_id) WHERE ek_project_id IS NOT NULL;
+CREATE INDEX ix_project_masterdata_v4_tenant_ek_project_id_text ON project_masterdata_v4 (tenant_id, ((ek_project_id::text))) WHERE ek_project_id IS NOT NULL;
 CREATE INDEX ix_project_masterdata_v4_tenant_subproject ON project_masterdata_v4 (tenant_id, is_subproject);
 CREATE INDEX ix_project_masterdata_v4_tenant_total_turnover ON project_masterdata_v4 (tenant_id, total_turn_over_exp);
 
@@ -810,6 +816,14 @@ CREATE INDEX ix_fitter_hour_tenant_work_date
 
 CREATE INDEX ix_fitter_hour_tenant_project_ref
   ON fitter_hour (tenant_id, external_project_ref);
+
+CREATE INDEX ix_fitter_hour_tenant_external_ref_norm
+  ON fitter_hour (tenant_id, lower(btrim(external_project_ref)))
+  WHERE external_project_ref IS NOT NULL;
+
+CREATE INDEX ix_fitter_hour_tenant_project_id_norm
+  ON fitter_hour (tenant_id, lower(btrim(project_id)))
+  WHERE project_id IS NOT NULL;
 
 CREATE INDEX ix_fitter_hour_tenant_fitter_id
   ON fitter_hour (tenant_id, fitter_id);
