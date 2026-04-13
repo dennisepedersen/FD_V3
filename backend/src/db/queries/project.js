@@ -55,6 +55,14 @@ async function listProjectsForUser(client, { tenantId, userId }) {
        AND pm.tenant_id = pc.tenant_id
       WHERE pc.tenant_id = $1
         AND (
+          (COALESCE(pc.is_closed, false) = false AND pc.has_v4 = true)
+          OR (
+            pc.is_closed = true
+            AND pc.closed_observed_at IS NOT NULL
+            AND pc.closed_observed_at > (now() - interval '6 months')
+          )
+        )
+        AND (
           (cu.username_ci IS NOT NULL AND lower(btrim(coalesce(pc.responsible_code, ''))) = cu.username_ci)
           OR
           (cu.username_ci IS NOT NULL AND lower(btrim(coalesce(pc.team_leader_code, ''))) = cu.username_ci)
@@ -62,6 +70,15 @@ async function listProjectsForUser(client, { tenantId, userId }) {
           pc.owner_user_id = $2
           OR pa.tenant_user_id = $2
         )
+    ),
+    ranked_projects AS (
+      SELECT
+        sp.*,
+        ROW_NUMBER() OVER (
+          PARTITION BY COALESCE(nullif(btrim(sp.external_project_ref), ''), sp.project_id::text)
+          ORDER BY sp.updated_at DESC, sp.created_at DESC, sp.project_id DESC
+        ) AS rn
+      FROM scoped_projects sp
     )
     SELECT
       project_id,
@@ -96,12 +113,9 @@ async function listProjectsForUser(client, { tenantId, userId }) {
       team_leader_id,
       created_at,
       updated_at
-    FROM scoped_projects
+    FROM ranked_projects
+    WHERE rn = 1
     ORDER BY
-      CASE
-        WHEN COALESCE(is_closed, false) = false AND lower(coalesce(status, '')) <> 'closed' THEN 0
-        ELSE 1
-      END ASC,
       updated_at DESC,
       name ASC
   `;
@@ -165,6 +179,14 @@ async function findProjectForUser(client, { tenantId, userId, projectId }) {
      AND pm.tenant_id = pc.tenant_id
     WHERE pc.tenant_id = $1
       AND pc.project_id = $2
+      AND (
+        (COALESCE(pc.is_closed, false) = false AND pc.has_v4 = true)
+        OR (
+          pc.is_closed = true
+          AND pc.closed_observed_at IS NOT NULL
+          AND pc.closed_observed_at > (now() - interval '6 months')
+        )
+      )
       AND (
         (cu.username_ci IS NOT NULL AND lower(btrim(coalesce(pc.responsible_code, ''))) = cu.username_ci)
         OR
