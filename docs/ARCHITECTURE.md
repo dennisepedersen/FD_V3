@@ -1,0 +1,260 @@
+﻿# FD V3 Architecture
+
+Status: current architecture overview  
+Scope: canonical overview only; detailed decisions stay in linked docs
+
+## 1. What Fielddesk V3 Is
+
+Fielddesk V3 is the clean foundation for Fielddesk as a modular, multi-tenant SaaS platform.
+
+Current:
+- Node/Express backend.
+- PostgreSQL schema and migrations.
+- Static tenant/admin UI surfaces served by backend.
+- Tenant onboarding, tenant login, portal/global admin basics.
+- E-Komplet sync for project/fitter data.
+- Early module structure with QA in backend code and Restarbejde as documented module draft.
+
+Planned:
+- Stronger module governance.
+- Stronger RBAC/RLS enforcement.
+- More formal frontend/app shell direction.
+
+## 2. Core Platform Vs Modules
+
+Current core platform:
+- Tenant lifecycle.
+- Tenant domain resolution.
+- Auth and onboarding.
+- Project foundation.
+- Audit foundation.
+- Sync foundation.
+- Backend data access rules.
+
+Current modules:
+- QA exists as early backend module code.
+- Restarbejde exists as module definition only.
+
+Planned modules:
+- Restarbejde.
+- QA.
+- CO2/ESG.
+- Economy/finance.
+- Planning, documents, reports, intelligence, and other tenant-enabled modules.
+
+Rule: modules must not be mounted as routes only. They need documented purpose, owner, dependencies, permissions, data ownership, and disable behavior.
+
+## 3. Frontend Direction
+
+Current:
+- No complete frontend build pipeline.
+- Static HTML/CSS/JS tenant/admin surfaces are served by the backend.
+- Frontend renders API results and must not decide permissions.
+
+Planned:
+- A shared Fielddesk app shell.
+- Navigation driven by tenant features, entitlements, and backend permissions.
+- Project-centered module surfaces where relevant.
+
+Open:
+- Final frontend framework/app-shell implementation.
+- Final module navigation registry.
+- Token/session storage direction for tenant UI.
+
+## 4. Backend Direction
+
+Current:
+- Node.js + Express backend.
+- Backend is source of truth for auth, tenant, scope, RBAC, audit, and data contracts.
+- E-Komplet sync worker persists imported/enriched data.
+- Backend docs use evidence levels: verified, observed, hypothesis, unclear.
+
+Planned:
+- Centralized permission model instead of ad hoc role checks.
+- Explicit module route contracts.
+- Clearer API contracts before UI work.
+
+Rule: DB schema is approved before API implementation; API is approved before UI implementation.
+
+## 5. Database, Postgres, And RLS Direction
+
+Current:
+- PostgreSQL is the system database.
+- Tenant-owned tables use `tenant_id`.
+- Schema uses constraints, indexes, composite tenant foreign keys, and immutable-field triggers.
+- RLS is not yet active as full database policy.
+
+Planned:
+- RLS as defense-in-depth.
+- Tenant-aware indexes for all tenant-filtered hot paths.
+- More formal data policy for owned/imported/derived/audit/file data.
+
+Open:
+- Full RLS policy design.
+- Final RBAC matrix.
+- Final module data ownership rules.
+
+## 6. Tenant Isolation
+
+Current:
+- No implicit tenant.
+- No default tenant.
+- No fallback slug.
+- No fallback user.
+- Tenant resolution happens through tenant/domain records.
+- Backend denies when tenant, domain, lifecycle, or token context does not match.
+- Global admin is platform identity, not implicit tenant user.
+
+Planned:
+- Database RLS to backstop application-level tenant filtering.
+- Centralized RBAC/scope enforcement for all module APIs.
+
+Rule: frontend can hide UI, but backend and database enforce access.
+
+## 7. Project Model
+
+Current:
+- `project_core` is the canonical project representation.
+- `project_wip` is mutable work/enrichment data.
+- API reads use `project_core` as baseline and `project_wip` as supplement.
+- `project_assignment` defines project access for mine/team/tenant scopes.
+
+E-Komplet current:
+- `projects_v4` is authoritative for project existence and open/closed status.
+- `projects_v3` WorkInProgress is enrichment only for existing `project_core` rows.
+- v3 failure must not fail a successful v4 bootstrap.
+
+Known gap:
+- `project_wip` is read by APIs, but production write-path/mapping is still documented as incomplete.
+
+## 8. Module Strategy
+
+Current:
+- Module governance is started but not complete.
+- Restarbejde has `docs/modules/restarbejde/MODULE_DEFINITION.md` as draft module definition.
+- QA has backend module code but still needs formal module documentation.
+
+Planned:
+- Tenant-level module enablement.
+- Module contracts covering dependencies, permissions, data ownership, routes, audit events, file/storage needs, and disable behavior.
+
+Open:
+- Final module registry.
+- Which modules are core vs optional.
+- Which modules must run without E-Komplet.
+
+## 9. File And Storage Strategy
+
+Current:
+- No finalized FD file/storage architecture document.
+- Existing docs identify file/blob cleanup and future storage needs.
+- Prototype modules may use local/browser storage, but that is not production architecture.
+
+Planned:
+- Central file/storage service for drawings, photos, reports, and module files.
+- Tenant/project scoped metadata in Postgres.
+- Object/blob storage for binary files.
+- Safe download/upload authorization through backend.
+
+Open:
+- Final provider and storage contract.
+- File retention rules.
+- Virus scanning, signed URL, versioning, and report snapshot policy.
+
+## 10. Report And Export Strategy
+
+Current:
+- No canonical report/export service exists yet.
+- Reports/exports are recognized as audit-sensitive because they can contain tenant/project data.
+
+Planned:
+- Report/export actions must be permission-checked and audited.
+- Generated reports should be reproducible or stored with metadata where required.
+- Module reports should use module-owned data plus approved project context.
+
+Open:
+- Client-side vs server-side report rendering per module.
+- Report archive/storage policy.
+- Tenant branding strategy.
+
+## 11. Integration Strategy
+
+Current E-Komplet:
+- Primary active integration.
+- Tenant-specific credentials.
+- Imported data must be distinguishable from Fielddesk-owned data.
+- v4 project masterdata and v3 enrichment have separate semantics.
+
+Current Solar:
+- Solar product data docs have started, but status is new/unclear until reviewed.
+
+Planned:
+- Solar later for product/material-related features.
+- M365/SharePoint/Outlook later where module workflows need documents, mail, or calendar context.
+
+Rule: integrations may enrich Fielddesk, but must not silently become Fielddesk-owned truth.
+
+## 12. Prototype To FD Migration Principle
+
+Current:
+- Prototypes may exist outside FD to prove workflow and UX.
+- Prototype code is not automatically production code.
+
+Migration rule:
+- Move domain concepts first.
+- Define module contract, data model, RBAC, audit, storage, and API boundaries before moving UI/code.
+- Replace local/demo storage with backend-owned persistence.
+- Integrate into FD app shell and project context only after backend contracts are clear.
+
+Restarbejde example:
+- Placement, PDF preview, report preview, crop concept, and photo flow can inform module design.
+- LocalStorage, standalone app shell, frontend-owned scope, and dataUrl file storage are prototype-only.
+
+## 13. Not Decided Yet
+
+Open:
+- Final governance document structure beyond phase 1.
+- Full RBAC matrix.
+- Full RLS policy design.
+- Final module registry and module enablement model.
+- Fielddesk-native project creation/editing model.
+- Permanent AI/Codex governance document replacing `docs/AI_BOOTSTRAP_CONTEXT.md`.
+- Complete data policy.
+- Complete file/storage architecture.
+- Complete report/export architecture.
+- Final frontend framework/app shell.
+
+## 14. Relevant Docs
+
+Start here:
+- `docs/00_MASTER.md`
+- `docs/DOC_INDEX.md`
+- `docs/DECISIONS.md`
+
+Foundation:
+- `docs/V3_FOUNDATION_DESIGN.md`
+- `docs/AI_BOOTSTRAP_CONTEXT.md`
+- `docs/V3_BUILD_GATECHECK.md`
+- `docs/SECRET_HANDLING_RULES.md`
+
+Backend standards and decisions:
+- `backend/docs/standards/fd_implementation_rules.md`
+- `backend/docs/decisions/projects_endpoint_decision.md`
+- `backend/docs/decisions/sync_strategy_decision.md`
+- `backend/docs/decisions/data_retention_and_filtering_decision.md`
+- `backend/docs/decisions/database_indexing_decision.md`
+
+Integrations and mappings:
+- `backend/docs/integrations/ek/projects_v4_masterdata.md`
+- `backend/docs/integrations/ek/projects_v3_wip.md`
+- `backend/docs/integrations/ek/fitterhours.md`
+- `backend/docs/mappings/project_core_mapping.md`
+- `backend/docs/mappings/project_wip_mapping.md`
+- `backend/docs/mappings/scope_rules.md`
+
+Modules:
+- `docs/modules/restarbejde/MODULE_DEFINITION.md`
+
+Historical/reference:
+- `docs/RESET_DECISION.md`
+- `audit (read only)/*.md`
