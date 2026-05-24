@@ -14,6 +14,7 @@ Current:
 - Tenant onboarding, tenant login, portal/global admin basics.
 - E-Komplet sync for project/fitter data.
 - Early module structure with QA in backend code and Restarbejde as documented module draft.
+- Draft/Proposed shared contracts for project context, report/export, and module registry.
 
 Planned:
 - Stronger module governance.
@@ -58,7 +59,7 @@ Planned:
 
 Open:
 - Final frontend framework/app-shell implementation.
-- Final module navigation registry.
+- Final module navigation registry implementation.
 - Token/session storage direction for tenant UI.
 
 ## 4. Backend Direction
@@ -118,6 +119,7 @@ Current:
 - `project_wip` is mutable work/enrichment data.
 - API reads use `project_core` as baseline and `project_wip` as supplement.
 - `project_assignment` defines project access for mine/team/tenant scopes.
+- `docs/PROJECT_CONTEXT_CONTRACT.md` defines Draft/Proposed shared project context direction for modules.
 
 E-Komplet current:
 - `projects_v4` is authoritative for project existence and open/closed status.
@@ -131,6 +133,7 @@ Known gap:
 
 Current:
 - Module governance is started but not complete.
+- `docs/MODULE_REGISTRY_CONTRACT.md` defines Draft/Proposed module registry and enablement direction.
 - Restarbejde has `docs/modules/restarbejde/MODULE_DEFINITION.md` as draft module definition.
 - QA has backend module code but still needs formal module documentation.
 
@@ -139,7 +142,7 @@ Planned:
 - Module contracts covering dependencies, permissions, data ownership, routes, audit events, file/storage needs, and disable behavior.
 
 Open:
-- Final module registry.
+- Final module registry implementation.
 - Which modules are core vs optional.
 - Which modules must run without E-Komplet.
 
@@ -164,7 +167,8 @@ Open:
 ## 10. Report And Export Strategy
 
 Current:
-- No canonical report/export service exists yet.
+- `docs/REPORT_ENGINE_CONTRACT.md` defines Draft/Proposed shared report/export direction.
+- No implemented canonical report/export service exists yet.
 - Reports/exports are recognized as audit-sensitive because they can contain tenant/project data.
 
 Planned:
@@ -176,6 +180,7 @@ Open:
 - Client-side vs server-side report rendering per module.
 - Report archive/storage policy.
 - Tenant branding strategy.
+- Complete report/export implementation architecture.
 
 ## 11. Integration Strategy
 
@@ -216,12 +221,13 @@ Open:
 - Final governance document structure beyond phase 1.
 - Full RBAC matrix.
 - Full RLS policy design.
-- Final module registry and module enablement model.
+- Final module registry implementation and module enablement implementation.
 - Fielddesk-native project creation/editing model.
-- Permanent AI/Codex governance document replacing `docs/AI_BOOTSTRAP_CONTEXT.md`.
+- Permanent AI/Codex governance references replacing `docs/AI_BOOTSTRAP_CONTEXT.md` as bootstrap context everywhere.
 - Complete data policy.
+- Complete storage/file contract.
 - Complete file/storage architecture.
-- Complete report/export architecture.
+- Complete report/export implementation architecture.
 - Final frontend framework/app shell.
 
 ## 14. Relevant Docs
@@ -230,9 +236,13 @@ Start here:
 - `docs/00_MASTER.md`
 - `docs/DOC_INDEX.md`
 - `docs/DECISIONS.md`
+- `docs/PROJECT_CONTEXT_CONTRACT.md`
+- `docs/REPORT_ENGINE_CONTRACT.md`
+- `docs/MODULE_REGISTRY_CONTRACT.md`
 
 Foundation:
 - `docs/V3_FOUNDATION_DESIGN.md`
+- `docs/AI_GOVERNANCE.md`
 - `docs/AI_BOOTSTRAP_CONTEXT.md`
 - `docs/V3_BUILD_GATECHECK.md`
 - `docs/SECRET_HANDLING_RULES.md`
@@ -254,6 +264,7 @@ Integrations and mappings:
 
 Modules:
 - `docs/modules/restarbejde/MODULE_DEFINITION.md`
+- `docs/modules/restarbejde/BACKEND_MODULE_CONTRACT.md`
 
 Historical/reference:
 - `docs/RESET_DECISION.md`

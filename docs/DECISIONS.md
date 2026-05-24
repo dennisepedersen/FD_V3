@@ -42,6 +42,10 @@ Scope: links to decisions; does not duplicate full decisions
 | Modules must document purpose, owner, dependencies, permissions, data ownership, and disable behavior | `docs/AI_BOOTSTRAP_CONTEXT.md` |
 | Restarbejde is currently a draft standard-module definition, not an implementation spec | `docs/modules/restarbejde/MODULE_DEFINITION.md` |
 | Restarbejde prototype must not be copied in as one frontend blob; backend, tenant, RBAC, audit, storage, and AppShell integration must be lifted to FD standards first | `docs/modules/restarbejde/MODULE_DEFINITION.md` |
+| Shared project context contract is established as Draft/Proposed governance | `docs/PROJECT_CONTEXT_CONTRACT.md` |
+| Shared report engine/export contract is established as Draft/Proposed governance | `docs/REPORT_ENGINE_CONTRACT.md` |
+| Shared module registry contract is established as Draft/Proposed governance | `docs/MODULE_REGISTRY_CONTRACT.md` |
+| Restarbejde backend module contract is established as a draft module reference | `docs/modules/restarbejde/BACKEND_MODULE_CONTRACT.md` |
 
 ## Security And Governance Decisions
 
@@ -58,9 +62,10 @@ These are not decided yet and must not be assumed:
 
 - Final RBAC matrix.
 - Full RLS policy design.
-- Final module registry and module enablement model.
+- Final module registry and module enablement implementation.
 - Which modules are core versus optional.
 - Which modules must work without E-Komplet.
 - Fielddesk-native project creation/editing model.
 - Data policy for Fielddesk-owned, imported, derived, audit, credential, demo, and file data.
-- Permanent AI/Codex governance doc replacing `docs/AI_BOOTSTRAP_CONTEXT.md`.
+- Storage/file contract and implementation.
+- Permanent AI/Codex governance doc replacing `docs/AI_BOOTSTRAP_CONTEXT.md` as bootstrap context in all references.

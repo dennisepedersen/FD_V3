@@ -9,7 +9,11 @@ Scope: points to docs; does not replace them
 | --- | --- | --- |
 | `docs/00_MASTER.md` | First entrypoint and read order | Current |
 | `docs/V3_FOUNDATION_DESIGN.md` | Tenant, auth, RBAC, project, scope, audit, sync foundation | Current source of truth |
-| `docs/AI_BOOTSTRAP_CONTEXT.md` | Temporary Codex/AI governance and known foundation risks | Current bootstrap, later to be replaced |
+| `docs/AI_GOVERNANCE.md` | Canonical AI/Codex governance and working rules | Current |
+| `docs/AI_BOOTSTRAP_CONTEXT.md` | Bootstrap/historical transition context and known foundation risks | Context, not permanent canonical AI governance |
+| `docs/PROJECT_CONTEXT_CONTRACT.md` | Shared project context contract for modules | Draft/Proposed contract |
+| `docs/REPORT_ENGINE_CONTRACT.md` | Shared report/export contract for modules | Draft/Proposed contract |
+| `docs/MODULE_REGISTRY_CONTRACT.md` | Shared module registry, enablement and discovery contract | Draft/Proposed contract |
 | `docs/V3_BUILD_GATECHECK.md` | Build gate rules before implementation | Current |
 | `docs/SECRET_HANDLING_RULES.md` | Secret handling and commit checks | Current |
 | `backend/docs/standards/fd_implementation_rules.md` | Backend evidence, mapping, tenant filtering, no-guessing rules | Current |
@@ -23,6 +27,7 @@ Scope: points to docs; does not replace them
 | Doc | Use For | Status |
 | --- | --- | --- |
 | `docs/modules/restarbejde/MODULE_DEFINITION.md` | Restarbejde scope, workflows, data model, risks | Draft/proposal, not implementation spec |
+| `docs/modules/restarbejde/BACKEND_MODULE_CONTRACT.md` | Restarbejde backend/module contract for future FD integration | Draft/Proposed module contract |
 
 ## Backend Decision Docs
 

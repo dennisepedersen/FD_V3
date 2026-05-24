@@ -27,16 +27,21 @@ Do not infer architecture from code alone when a governance doc exists. If code 
 
 Current source-of-truth docs:
 - `docs/V3_FOUNDATION_DESIGN.md` - foundation blueprint for tenant, auth, RBAC, project, scope, audit, and sync.
-- `docs/AI_BOOTSTRAP_CONTEXT.md` - temporary AI/Codex governance until permanent docs replace it.
+- `docs/AI_GOVERNANCE.md` - canonical AI/Codex governance and working rules.
+- `docs/AI_BOOTSTRAP_CONTEXT.md` - bootstrap/historical transition context; not the permanent canonical AI governance source.
 - `docs/V3_BUILD_GATECHECK.md` - build gate principles.
 - `docs/SECRET_HANDLING_RULES.md` - secret handling and commit safety.
 - `backend/docs/standards/fd_implementation_rules.md` - backend implementation and evidence rules.
+- `docs/PROJECT_CONTEXT_CONTRACT.md` - shared project context contract for modules.
+- `docs/REPORT_ENGINE_CONTRACT.md` - shared report/export contract for modules.
+- `docs/MODULE_REGISTRY_CONTRACT.md` - shared module registry/enablement contract.
 - `backend/docs/decisions/` - verified backend decisions.
 - `backend/docs/integrations/ek/` - current E-Komplet integration contracts.
 - `backend/docs/mappings/` - current backend mapping notes.
 
 Module docs:
 - `docs/modules/restarbejde/MODULE_DEFINITION.md` - Restarbejde module definition draft.
+- `docs/modules/restarbejde/BACKEND_MODULE_CONTRACT.md` - Restarbejde backend/module contract draft.
 
 ## Codex Read Order
 
@@ -45,10 +50,12 @@ Before foundation, security, tenant, module, backend, sync, or integration work,
 1. `docs/00_MASTER.md`
 2. `docs/DOC_INDEX.md`
 3. `docs/V3_FOUNDATION_DESIGN.md`
-4. `docs/AI_BOOTSTRAP_CONTEXT.md`
-5. `backend/docs/standards/fd_implementation_rules.md`
-6. Relevant `backend/docs/decisions/*`
-7. Relevant module or integration docs
+4. `docs/AI_GOVERNANCE.md`
+5. Relevant shared contracts: `docs/PROJECT_CONTEXT_CONTRACT.md`, `docs/REPORT_ENGINE_CONTRACT.md`, `docs/MODULE_REGISTRY_CONTRACT.md`
+6. `docs/AI_BOOTSTRAP_CONTEXT.md` when bootstrap/historical context is needed
+7. `backend/docs/standards/fd_implementation_rules.md`
+8. Relevant `backend/docs/decisions/*`
+9. Relevant module or integration docs
 
 ## Hard Rules
 
