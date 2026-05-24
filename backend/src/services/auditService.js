@@ -1,0 +1,136 @@
+﻿const auditQueries = require("../db/queries/audit");
+
+const ALLOWED_EVENT_TYPES = Object.freeze([
+  "invitation_created",
+  "invitation_accepted",
+  "invitation_revoked",
+  "login_success",
+  "login_fail",
+  "tenant_status_changed",
+  "tenant_config_changed",
+  "role_changed",
+  "sync_success",
+  "sync_fail",
+  "support_access_denied",
+  "onboarding_created",
+  "onboarding_started",
+  "onboarding_completed",
+  "invitation_accept_success",
+  "logout",
+]);
+
+const TENANT_SCOPED_ACTOR_SCOPES = new Set(["tenant"]);
+const ALLOWED_OUTCOMES = new Set(["success", "fail", "deny"]);
+const ALLOWED_ACTOR_SCOPES = new Set(["global", "tenant", "system"]);
+
+function normalizeRequiredString(value, fieldName) {
+  const normalized = value == null ? "" : String(value).trim();
+  if (!normalized) {
+    throw new Error(`${fieldName}_required`);
+  }
+  return normalized;
+}
+
+function normalizeOptionalString(value) {
+  const normalized = value == null ? "" : String(value).trim();
+  return normalized || null;
+}
+
+function normalizeMetadata(metadata) {
+  if (metadata == null) {
+    return {};
+  }
+
+  if (typeof metadata !== "object" || Array.isArray(metadata)) {
+    throw new Error("audit_metadata_must_be_object");
+  }
+
+  return { ...metadata };
+}
+
+async function logAuditEvent({
+  client,
+  tenantId,
+  actorId,
+  actorType,
+  actorScope,
+  moduleKey,
+  eventType,
+  resourceType,
+  resourceId,
+  projectId,
+  outcome,
+  reason,
+  metadata,
+}) {
+  if (!client) {
+    throw new Error("audit_client_required");
+  }
+
+  const normalizedEventType = normalizeRequiredString(eventType, "event_type");
+  if (!ALLOWED_EVENT_TYPES.includes(normalizedEventType)) {
+    throw new Error("audit_event_type_not_allowed");
+  }
+
+  const normalizedActorId = normalizeRequiredString(actorId, "actor_id");
+  const normalizedActorScope = normalizeRequiredString(actorScope, "actor_scope");
+  if (!ALLOWED_ACTOR_SCOPES.has(normalizedActorScope)) {
+    throw new Error("audit_actor_scope_not_allowed");
+  }
+
+  const normalizedOutcome = normalizeRequiredString(outcome, "outcome");
+  if (!ALLOWED_OUTCOMES.has(normalizedOutcome)) {
+    throw new Error("audit_outcome_not_allowed");
+  }
+
+  const normalizedTenantId = normalizeOptionalString(tenantId);
+  if (TENANT_SCOPED_ACTOR_SCOPES.has(normalizedActorScope) && !normalizedTenantId) {
+    throw new Error("tenant_id_required_for_tenant_audit_event");
+  }
+
+  const normalizedResourceType = normalizeRequiredString(resourceType, "resource_type");
+  const normalizedReason = normalizeOptionalString(reason);
+  const normalizedMetadata = normalizeMetadata(metadata);
+
+  const mergedMetadata = {
+    ...normalizedMetadata,
+    actor_scope: normalizedActorScope,
+    outcome: normalizedOutcome,
+  };
+
+  const normalizedActorType = normalizeOptionalString(actorType);
+  if (normalizedActorType) {
+    mergedMetadata.actor_type = normalizedActorType;
+  }
+
+  const normalizedModuleKey = normalizeOptionalString(moduleKey);
+  if (normalizedModuleKey) {
+    mergedMetadata.module_key = normalizedModuleKey;
+  }
+
+  const normalizedProjectId = normalizeOptionalString(projectId);
+  if (normalizedProjectId) {
+    mergedMetadata.project_id = normalizedProjectId;
+  }
+
+  if (normalizedReason) {
+    mergedMetadata.reason = normalizedReason;
+  }
+
+  await auditQueries.insertAuditEvent(client, {
+    actorId: normalizedActorId,
+    actorScope: normalizedActorScope,
+    tenantId: normalizedTenantId,
+    eventType: normalizedEventType,
+    targetType: normalizedResourceType,
+    targetId: normalizeOptionalString(resourceId),
+    outcome: normalizedOutcome,
+    reason: normalizedReason,
+    metadata: mergedMetadata,
+  });
+}
+
+module.exports = {
+  ALLOWED_EVENT_TYPES,
+  logAuditEvent,
+};
