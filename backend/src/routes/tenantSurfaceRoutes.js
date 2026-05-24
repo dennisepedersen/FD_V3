@@ -7,6 +7,7 @@ const userQueries = require("../db/queries/user");
 const projectQueries = require("../db/queries/project");
 const fitterHourQueries = require("../db/queries/fitterHour");
 const fitterBusinessQueries = require("../db/queries/fitterBusiness");
+const projectAccessService = require("../services/projectAccessService");
 const { createHttpError } = require("../middleware/errorHandler");
 
 const router = express.Router();
@@ -435,26 +436,18 @@ router.get("/api/projects/:projectId", requireTenantHost, requireAuth("access"),
     return next(createHttpError(403, "tenant_context_mismatch"));
   }
 
-  const projectId = String(req.params.projectId || "").trim();
-  if (!projectId) {
-    return next(createHttpError(400, "project_id_required"));
-  }
-
   const client = await pool.connect();
   try {
-    const project = await projectQueries.findProjectForUser(client, {
+    const projectContext = await projectAccessService.requireProjectAccess({
+      client,
       tenantId: req.context.tenant.id,
       userId: req.auth.sub,
-      projectId,
+      projectId: req.params.projectId,
     });
-
-    if (!project) {
-      return next(createHttpError(404, "project_not_found"));
-    }
 
     res.status(200).json({
       success: true,
-      project,
+      project: projectContext.project,
     });
   } catch (error) {
     next(error);
