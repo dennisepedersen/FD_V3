@@ -141,6 +141,7 @@ CREATE TABLE tenant_invitation (
   created_at timestamptz NOT NULL DEFAULT now(),
   accepted_at timestamptz NULL,
   revoked_at timestamptz NULL,
+  suggested_login varchar(4) NULL,
   CONSTRAINT fk_tenant_invitation_tenant FOREIGN KEY (tenant_id) REFERENCES tenant(id) ON DELETE RESTRICT,
   CONSTRAINT ck_tenant_invitation_email_not_blank CHECK (btrim(email) <> ''),
   CONSTRAINT ck_tenant_invitation_status CHECK (status IN ('pending', 'accepted', 'expired', 'revoked')),
@@ -185,6 +186,7 @@ CREATE TABLE tenant_user (
   role text NOT NULL,
   status text NOT NULL,
   password_hash text NOT NULL,
+  username varchar(4) NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT fk_tenant_user_tenant FOREIGN KEY (tenant_id) REFERENCES tenant(id) ON DELETE RESTRICT,
@@ -200,6 +202,8 @@ ALTER TABLE tenant_user
 
 CREATE UNIQUE INDEX uq_tenant_user_tenant_email_ci ON tenant_user (tenant_id, lower(email));
 CREATE INDEX ix_tenant_user_tenant_role_status ON tenant_user (tenant_id, role, status);
+CREATE UNIQUE INDEX tenant_user_username_tenant_uniq ON tenant_user (tenant_id, lower(username)) WHERE username IS NOT NULL;
+CREATE INDEX tenant_user_username_idx ON tenant_user (tenant_id, username) WHERE username IS NOT NULL;
 
 CREATE TRIGGER trg_tenant_user_set_updated_at
 BEFORE UPDATE ON tenant_user
