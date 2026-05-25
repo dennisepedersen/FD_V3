@@ -1,6 +1,7 @@
 const pool = require("../../db/pool");
 const { withTransaction } = require("../../db/tx");
 const { createHttpError } = require("../../middleware/errorHandler");
+const auditService = require("../../services/auditService");
 const qaRepository = require("./qa.repository");
 
 const ALLOWED_STATUSES = new Set(["NEW", "WAITING", "ANSWERED", "CLOSED"]);
@@ -37,6 +38,36 @@ function normalizeStatus(value) {
     throw createHttpError(400, "invalid_qa_status");
   }
   return normalized;
+}
+
+async function logQaAuditEvent(client, {
+  tenantId,
+  userId,
+  eventType,
+  resourceType,
+  resourceId,
+  projectId,
+  reason,
+  metadata,
+}) {
+  await auditService.logAuditEvent({
+    client,
+    tenantId,
+    actorId: userId,
+    actorType: "tenant_user",
+    actorScope: "tenant",
+    moduleKey: "qa",
+    eventType,
+    resourceType,
+    resourceId,
+    projectId,
+    outcome: "success",
+    reason,
+    metadata: {
+      actor_user_id: userId,
+      ...metadata,
+    },
+  });
 }
 
 async function listThreadsForProject({ tenantId, userId, projectId }) {
@@ -133,6 +164,38 @@ async function createThread({ tenantId, userId, projectId, title, message, prior
       message: normalizedMessage,
     });
 
+    await logQaAuditEvent(client, {
+      tenantId,
+      userId,
+      eventType: "qa_thread_created",
+      resourceType: "qa_thread",
+      resourceId: thread.id,
+      projectId,
+      reason: "qa_thread_created",
+      metadata: {
+        thread_id: thread.id,
+        status: thread.status,
+        priority: thread.priority,
+        has_title: Boolean(thread.title),
+      },
+    });
+
+    await logQaAuditEvent(client, {
+      tenantId,
+      userId,
+      eventType: "qa_message_created",
+      resourceType: "qa_message",
+      resourceId: firstMessage.id,
+      projectId,
+      reason: "qa_message_created",
+      metadata: {
+        thread_id: thread.id,
+        message_id: firstMessage.id,
+        status: thread.status,
+        priority: thread.priority,
+      },
+    });
+
     const detail = await qaRepository.findThreadForUser(client, {
       tenantId,
       userId,
@@ -173,6 +236,22 @@ async function addMessage({ tenantId, userId, threadId, message }) {
       threadId,
     });
 
+    await logQaAuditEvent(client, {
+      tenantId,
+      userId,
+      eventType: "qa_message_created",
+      resourceType: "qa_message",
+      resourceId: createdMessage.id,
+      projectId: thread.project_id,
+      reason: "qa_message_created",
+      metadata: {
+        thread_id: threadId,
+        message_id: createdMessage.id,
+        status: thread.status,
+        priority: thread.priority,
+      },
+    });
+
     return {
       thread: await qaRepository.findThreadForUser(client, {
         tenantId,
@@ -202,6 +281,23 @@ async function updateStatus({ tenantId, userId, threadId, status }) {
       tenantId,
       threadId,
       status: normalizedStatus,
+    });
+
+    await logQaAuditEvent(client, {
+      tenantId,
+      userId,
+      eventType: "qa_thread_status_changed",
+      resourceType: "qa_thread",
+      resourceId: threadId,
+      projectId: thread.project_id,
+      reason: "qa_thread_status_changed",
+      metadata: {
+        thread_id: threadId,
+        status: updatedThread.status,
+        priority: updatedThread.priority,
+        previous_status: thread.status,
+        new_status: updatedThread.status,
+      },
     });
 
     return {
