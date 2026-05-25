@@ -8,6 +8,7 @@ const projectQueries = require("../db/queries/project");
 const fitterHourQueries = require("../db/queries/fitterHour");
 const fitterBusinessQueries = require("../db/queries/fitterBusiness");
 const projectAccessService = require("../services/projectAccessService");
+const qaRoutes = require("../modules/qa/qa.routes");
 const { createHttpError } = require("../middleware/errorHandler");
 
 const router = express.Router();
@@ -61,6 +62,8 @@ router.get("/project/:projectId", requireTenantHost, (req, res) => {
 router.get("/tenant/auth.js", requireTenantHost, (req, res) => {
   res.sendFile(path.join(tenantPublicDir, "auth.js"));
 });
+
+router.use(qaRoutes);
 
 router.get("/api/me", requireTenantHost, requireAuth("access"), async (req, res, next) => {
   if (hasAccessContextMismatch(req)) {
@@ -561,3 +564,4 @@ router.get("/api/projects/:projectId/fitterhours/breakdown", requireTenantHost, 
 });
 
 module.exports = router;
+
