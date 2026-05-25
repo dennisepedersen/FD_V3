@@ -17,6 +17,9 @@ const ALLOWED_EVENT_TYPES = Object.freeze([
   "onboarding_completed",
   "invitation_accept_success",
   "logout",
+  "qa_thread_created",
+  "qa_message_created",
+  "qa_thread_status_changed",
 ]);
 
 const TENANT_SCOPED_ACTOR_SCOPES = new Set(["tenant"]);

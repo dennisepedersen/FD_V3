@@ -400,7 +400,10 @@ CREATE TABLE audit_event (
       'onboarding_started',
       'onboarding_completed',
       'invitation_accept_success',
-      'logout'
+      'logout',
+      'qa_thread_created',
+      'qa_message_created',
+      'qa_thread_status_changed'
     )
   ),
   CONSTRAINT ck_audit_event_target_type_not_blank CHECK (btrim(target_type) <> ''),
