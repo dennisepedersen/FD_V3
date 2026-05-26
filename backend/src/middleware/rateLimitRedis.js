@@ -1,5 +1,6 @@
 const crypto = require("crypto");
 const fetch = global.fetch || require("node-fetch");
+const { simpleRateLimit } = require("./simpleRateLimit");
 
 function normalizeRedisBaseUrl(url) {
   return String(url || "").replace(/\/+$/, "");
@@ -47,12 +48,23 @@ function rateLimitRedis({ windowMs, maxRequests }) {
     throw new Error("rateLimitRedis: maxRequests must be a positive integer");
   }
 
+  const localFallback = simpleRateLimit({
+    prefix: "redis_fallback",
+    windowMs,
+    max: maxRequests,
+    message: "too_many_requests",
+  });
+
   return async function redisRateLimitMiddleware(req, res, next) {
     const redisUrl = process.env.REDIS_URL;
     const redisToken = process.env.REDIS_TOKEN;
 
     // Fail closed when Redis configuration is missing.
     if (!redisUrl || !redisToken) {
+      if (process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test") {
+        return localFallback(req, res, next);
+      }
+
       return res.status(429).json({
         success: false,
         error: { message: "too_many_requests" },
