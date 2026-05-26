@@ -434,17 +434,50 @@
       gap: 8px;
     }
 
+    .qaEmptyState {
+      border: 1px dashed #b8c8d8;
+      border-radius: 10px;
+      background: #f8fbfe;
+      padding: 14px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .qaEmptyTitle {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    .qaEmptyText {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .qaEmptyActions {
+      display: flex;
+      justify-content: flex-start;
+      margin-top: 2px;
+    }
+
     .qaThreadCard {
       width: 100%;
       border: 1px solid var(--border);
       border-radius: 10px;
       background: var(--surface-2);
-      padding: 10px;
+      padding: 11px;
       display: grid;
-      gap: 7px;
+      gap: 9px;
       text-align: left;
       color: var(--text);
       cursor: pointer;
+    }
+
+    .qaThreadCardWaiting {
+      border-color: #f4b26a;
+      background: #fffaf2;
     }
 
     .qaThreadCard:hover {
@@ -479,13 +512,51 @@
       align-items: center;
     }
 
-    .qaThreadPreview,
-    .qaThreadMeta {
+    .qaThreadPreview {
+      margin: 0;
+      color: #334155;
+      font-size: 13px;
+      line-height: 1.4;
+      overflow-wrap: anywhere;
+    }
+
+    .qaThreadPreviewLabel {
+      display: block;
+      margin-bottom: 2px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .qaThreadMetaRow {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 6px 10px;
+    }
+
+    .qaThreadMeta,
+    .qaThreadUpdated {
       margin: 0;
       color: var(--muted);
       font-size: 12px;
       line-height: 1.35;
       overflow-wrap: anywhere;
+    }
+
+    .qaThreadUpdated {
+      font-weight: 700;
+      color: #405166;
+    }
+
+    .qaWaitingHint {
+      margin: -1px 0 0;
+      color: #8a3a00;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1.35;
     }
 
     .qaBadge {
@@ -531,6 +602,18 @@
       background: #fde7e7;
       border-color: #ef9a9a;
       color: #991b1b;
+    }
+
+    .qaBadgeWaitingContext {
+      background: #fff7ed;
+      border-color: #fdba74;
+      color: #8a3a00;
+    }
+
+    .qaBadgeMuted {
+      background: #f8fafc;
+      border-color: #d8e0ea;
+      color: #64748b;
     }
 
     .qaDrawerShell {
@@ -618,17 +701,18 @@
     .qaDrawerBody {
       flex: 1;
       overflow: auto;
-      padding: 14px;
+      padding: 16px 14px;
       display: grid;
       align-content: start;
-      gap: 10px;
+      gap: 12px;
+      scroll-padding-bottom: 16px;
     }
 
     .qaMessageCard {
       border: 1px solid var(--border);
       border-radius: 10px;
       background: var(--surface-2);
-      padding: 10px;
+      padding: 11px;
       display: grid;
       gap: 6px;
     }
@@ -652,10 +736,44 @@
 
     .qaDrawerFooter {
       border-top: 1px solid var(--border);
-      padding: 12px 14px;
+      padding: 12px 14px max(12px, env(safe-area-inset-bottom));
       background: #fff;
       display: grid;
       gap: 8px;
+    }
+
+    .qaDrawerFooter .qaTextarea {
+      min-height: 76px;
+    }
+
+    @media (max-width: 520px) {
+      .qaHeaderRow {
+        align-items: stretch;
+      }
+
+      .qaHeaderRow .btn {
+        min-width: 104px;
+      }
+
+      .qaThreadCard {
+        padding: 12px;
+      }
+
+      .qaDrawerPanel {
+        width: 100vw;
+      }
+
+      .qaDrawerHeader {
+        padding: 12px;
+      }
+
+      .qaDrawerBody {
+        padding: 12px;
+      }
+
+      .qaDrawerFooter {
+        padding: 10px 12px max(10px, env(safe-area-inset-bottom));
+      }
     }
 
     @media (min-width: 760px) {

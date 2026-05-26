@@ -2196,6 +2196,20 @@
       high: { label: "Hoj", className: "qaBadgeHigh" },
     };
 
+    const QA_WAITING_CONTEXTS = {
+      technician: "Afventer tekniker",
+      fitter: "Afventer tekniker",
+      installer: "Afventer tekniker",
+      tekniker: "Afventer tekniker",
+      project_manager: "Afventer projektleder",
+      projectleader: "Afventer projektleder",
+      project_leader: "Afventer projektleder",
+      projektleder: "Afventer projektleder",
+      customer: "Afventer kunde",
+      client: "Afventer kunde",
+      kunde: "Afventer kunde",
+    };
+
     function getQaStatusView(status) {
       const normalized = String(status || "NEW").trim().toUpperCase();
       return QA_STATUS_OPTIONS.find((item) => item.value === normalized) || QA_STATUS_OPTIONS[0];
@@ -2204,6 +2218,31 @@
     function getQaPriorityView(priority) {
       const normalized = String(priority || "normal").trim().toLowerCase();
       return QA_PRIORITY_OPTIONS[normalized] || QA_PRIORITY_OPTIONS.normal;
+    }
+
+    function getQaWaitingContextView(source) {
+      const statusView = getQaStatusView(source && source.status);
+      if (statusView.value !== "WAITING") {
+        return { label: "Ingen afventer", className: "qaBadgeMuted", isActive: false };
+      }
+
+      const raw = source && (
+        source.waiting_on
+        || source.waitingOn
+        || source.awaiting
+        || source.awaiting_role
+        || source.awaitingRole
+        || source.waiting_context
+        || source.waitingContext
+        || source.assignee_type
+        || source.assigneeType
+      );
+      const normalized = String(raw || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+      return {
+        label: QA_WAITING_CONTEXTS[normalized] || "Afventer ikke angivet",
+        className: "qaBadgeWaitingContext",
+        isActive: true,
+      };
     }
 
     function formatQaDate(value) {
@@ -2225,6 +2264,44 @@
       } catch (_error) {
         return "-";
       }
+    }
+
+    function formatQaRelativeDate(value) {
+      if (!value) {
+        return "-";
+      }
+      const parsed = new Date(value);
+      const timestamp = parsed.getTime();
+      if (Number.isNaN(timestamp)) {
+        return "-";
+      }
+
+      const diffMs = Date.now() - timestamp;
+      const absDiffMs = Math.abs(diffMs);
+      const minuteMs = 60 * 1000;
+      const hourMs = 60 * minuteMs;
+      const dayMs = 24 * hourMs;
+
+      if (absDiffMs < minuteMs) {
+        return "Lige nu";
+      }
+      if (diffMs < 0) {
+        return formatQaDate(value);
+      }
+      if (diffMs < hourMs) {
+        const minutes = Math.max(1, Math.floor(diffMs / minuteMs));
+        return `${minutes} min siden`;
+      }
+      if (diffMs < dayMs) {
+        const hours = Math.max(1, Math.floor(diffMs / hourMs));
+        return hours === 1 ? "1 time siden" : `${hours} timer siden`;
+      }
+      if (diffMs < 7 * dayMs) {
+        const days = Math.max(1, Math.floor(diffMs / dayMs));
+        return days === 1 ? "1 dag siden" : `${days} dage siden`;
+      }
+
+      return formatQaDate(value);
     }
 
     function setQaStateMessage(message, isError) {
@@ -2274,6 +2351,16 @@
       }
     }
 
+    function openQaNewThreadForm(shouldFocus) {
+      if (!qaNewThreadForm) {
+        return;
+      }
+      qaNewThreadForm.hidden = false;
+      if (shouldFocus && qaNewThreadMessage) {
+        qaNewThreadMessage.focus();
+      }
+    }
+
     function renderQaSummary() {
       if (!qaSummaryGrid) {
         return;
@@ -2314,7 +2401,34 @@
       }
 
       if (count === 0) {
-        setQaStateMessage("Ingen QA threads paa projektet endnu.", false);
+        setQaStateMessage("", false);
+        const empty = document.createElement("div");
+        empty.className = "qaEmptyState";
+
+        const title = document.createElement("h3");
+        title.className = "qaEmptyTitle";
+        title.textContent = "Ingen QA endnu";
+
+        const text = document.createElement("p");
+        text.className = "qaEmptyText";
+        text.textContent = "Start den forste projektorienterede afklaring, saa dialogen bliver samlet her.";
+
+        const actions = document.createElement("div");
+        actions.className = "qaEmptyActions";
+
+        const action = document.createElement("button");
+        action.type = "button";
+        action.className = "btn btnPrimary btnCompact";
+        action.textContent = "Opret forste QA";
+        action.addEventListener("click", () => {
+          openQaNewThreadForm(true);
+        });
+
+        actions.appendChild(action);
+        empty.appendChild(title);
+        empty.appendChild(text);
+        empty.appendChild(actions);
+        qaThreadList.appendChild(empty);
         return;
       }
 
@@ -2323,9 +2437,12 @@
       qaState.threads.forEach((thread) => {
         const statusView = getQaStatusView(thread.status);
         const priorityView = getQaPriorityView(thread.priority);
+        const waitingView = getQaWaitingContextView(thread);
+        const activityAt = thread.updated_at || thread.latest_message_at || thread.created_at;
+        const messageCount = Number(thread.message_count || 0);
         const card = document.createElement("button");
         card.type = "button";
-        card.className = "qaThreadCard";
+        card.className = statusView.value === "WAITING" ? "qaThreadCard qaThreadCardWaiting" : "qaThreadCard";
 
         const top = document.createElement("div");
         top.className = "qaThreadTop";
@@ -2338,22 +2455,44 @@
         badges.className = "qaBadgeRow";
         badges.appendChild(makeQaBadge(statusView.label, statusView.className));
         badges.appendChild(makeQaBadge(priorityView.label, priorityView.className));
+        if (waitingView.isActive) {
+          badges.appendChild(makeQaBadge(waitingView.label, waitingView.className));
+        }
 
         top.appendChild(title);
         top.appendChild(badges);
 
         const preview = document.createElement("p");
         preview.className = "qaThreadPreview";
-        preview.textContent = thread.latest_message_preview || "Ingen beskedpreview.";
+        const previewLabel = document.createElement("span");
+        previewLabel.className = "qaThreadPreviewLabel";
+        previewLabel.textContent = "Seneste besked";
+        preview.appendChild(previewLabel);
+        preview.appendChild(document.createTextNode(thread.latest_message_preview || "Ingen beskedpreview."));
 
         const meta = document.createElement("p");
         meta.className = "qaThreadMeta";
-        const messageCount = Number(thread.message_count || 0);
-        meta.textContent = `${messageCount} beskeder · Opdateret ${formatQaDate(thread.updated_at || thread.latest_message_at || thread.created_at)}`;
+        meta.textContent = messageCount === 1 ? "1 besked" : `${messageCount} beskeder`;
+
+        const updated = document.createElement("p");
+        updated.className = "qaThreadUpdated";
+        updated.textContent = `Opdateret ${formatQaRelativeDate(activityAt)}`;
+        updated.title = formatQaDate(activityAt);
+
+        const metaRow = document.createElement("div");
+        metaRow.className = "qaThreadMetaRow";
+        metaRow.appendChild(meta);
+        metaRow.appendChild(updated);
 
         card.appendChild(top);
+        if (waitingView.isActive) {
+          const waitingHint = document.createElement("p");
+          waitingHint.className = "qaWaitingHint";
+          waitingHint.textContent = waitingView.label;
+          card.appendChild(waitingHint);
+        }
         card.appendChild(preview);
-        card.appendChild(meta);
+        card.appendChild(metaRow);
         card.addEventListener("click", () => {
           openQaDrawer(thread.id);
         });
@@ -2369,6 +2508,15 @@
       qaDrawerShell.classList.add("open");
       qaDrawerShell.setAttribute("aria-hidden", "false");
       document.body.classList.add("drawer-open");
+    }
+
+    function scrollQaDrawerToLatest() {
+      if (!qaDrawerBody) {
+        return;
+      }
+      window.requestAnimationFrame(() => {
+        qaDrawerBody.scrollTop = qaDrawerBody.scrollHeight;
+      });
     }
 
     function closeQaDrawer() {
@@ -2417,7 +2565,7 @@
       qaDrawerBody.prepend(notice);
     }
 
-    function renderQaDrawerDetail() {
+    function renderQaDrawerDetail(shouldScrollToLatest) {
       if (!qaDrawerBody) {
         return;
       }
@@ -2430,6 +2578,8 @@
 
       const statusView = getQaStatusView(thread.status);
       const priorityView = getQaPriorityView(thread.priority);
+      const waitingView = getQaWaitingContextView(thread);
+      const activityAt = thread.updated_at || thread.created_at;
 
       if (qaDrawerTitle) {
         qaDrawerTitle.textContent = thread.title || "QA thread";
@@ -2438,8 +2588,15 @@
         qaDrawerMeta.textContent = [
           statusView.label,
           priorityView.label,
-          `Opdateret ${formatQaDate(thread.updated_at || thread.created_at)}`,
-        ].join(" · ");
+          waitingView.isActive ? waitingView.label : null,
+          `Opdateret ${formatQaRelativeDate(activityAt)}`,
+        ].filter(Boolean).join(" · ");
+        qaDrawerMeta.title = [
+          statusView.label,
+          priorityView.label,
+          waitingView.isActive ? waitingView.label : null,
+          `Opdateret ${formatQaDate(activityAt)}`,
+        ].filter(Boolean).join(" · ");
       }
       if (qaStatusSelect) {
         qaStatusSelect.value = statusView.value;
@@ -2450,6 +2607,9 @@
       badgeRow.className = "qaBadgeRow";
       badgeRow.appendChild(makeQaBadge(statusView.label, statusView.className));
       badgeRow.appendChild(makeQaBadge(priorityView.label, priorityView.className));
+      if (waitingView.isActive) {
+        badgeRow.appendChild(makeQaBadge(waitingView.label, waitingView.className));
+      }
       qaDrawerBody.appendChild(badgeRow);
 
       if (qaState.messages.length === 0) {
@@ -2471,7 +2631,8 @@
         user.textContent = message.user_name || "Ukendt bruger";
 
         const date = document.createElement("span");
-        date.textContent = formatQaDate(message.created_at);
+        date.textContent = formatQaRelativeDate(message.created_at);
+        date.title = formatQaDate(message.created_at);
 
         const text = document.createElement("p");
         text.className = "qaMessageText";
@@ -2483,6 +2644,10 @@
         card.appendChild(text);
         qaDrawerBody.appendChild(card);
       });
+
+      if (shouldScrollToLatest) {
+        scrollQaDrawerToLatest();
+      }
     }
 
     async function loadQaThreads() {
@@ -2519,7 +2684,7 @@
       renderQaThreadList();
     }
 
-    async function loadQaThreadDetail(threadId) {
+    async function loadQaThreadDetail(threadId, options = {}) {
       if (!threadId) {
         return;
       }
@@ -2531,7 +2696,7 @@
         const response = await apiFetch(`/api/qa/threads/${encodeURIComponent(threadId)}`, { method: "GET" });
         qaState.detailThread = response && response.thread ? response.thread : null;
         qaState.messages = response && Array.isArray(response.messages) ? response.messages : [];
-        renderQaDrawerDetail();
+        renderQaDrawerDetail(Boolean(options.scrollToLatest));
       } catch (error) {
         const message = qaErrorMessage(error, "Kunne ikke hente QA thread.");
         if (!message) {
@@ -2546,7 +2711,7 @@
 
     function openQaDrawer(threadId) {
       openQaDrawerShell();
-      loadQaThreadDetail(threadId);
+      loadQaThreadDetail(threadId, { scrollToLatest: true });
     }
 
     async function createQaThread(event) {
@@ -2613,7 +2778,7 @@
           body: JSON.stringify({ message }),
         });
         qaMessageInput.value = "";
-        await loadQaThreadDetail(qaState.activeThreadId);
+        await loadQaThreadDetail(qaState.activeThreadId, { scrollToLatest: true });
         await loadQaThreads();
       } catch (error) {
         const errorMessage = qaErrorMessage(error, "Kunne ikke tilfoeje besked.");
@@ -2656,8 +2821,8 @@
     if (qaNewThreadToggle && qaNewThreadForm) {
       qaNewThreadToggle.addEventListener("click", () => {
         qaNewThreadForm.hidden = !qaNewThreadForm.hidden;
-        if (!qaNewThreadForm.hidden && qaNewThreadMessage) {
-          qaNewThreadMessage.focus();
+        if (!qaNewThreadForm.hidden) {
+          openQaNewThreadForm(true);
         }
       });
     }
