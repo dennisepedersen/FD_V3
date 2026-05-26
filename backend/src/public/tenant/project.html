@@ -6,20 +6,27 @@
   <title>Fielddesk Project</title>
   <style>
     :root {
-      --bg: #f3f5f8;
-      --surface: #ffffff;
-      --surface-2: #f8fafc;
-      --text: #1f2937;
-      --muted: #637083;
-      --border: #d7e0ea;
-      --brand: #0f4c81;
-      --brand-soft: #e8f2fb;
-      --badge-neutral-bg: #eef3f8;
-      --badge-neutral-text: #2f3a48;
-      --badge-warning-bg: #fff2df;
-      --badge-warning-text: #9a3e00;
-      --badge-critical-bg: #fde7e7;
-      --badge-critical-text: #991b1b;
+      --bg: #0b1725;
+      --bg-dark: #060b18;
+      --surface: rgba(24, 35, 54, 0.7);
+      --surface-solid: #111a2a;
+      --surface-2: rgba(31, 43, 62, 0.64);
+      --surface-3: rgba(45, 60, 82, 0.62);
+      --text: #f4f7fb;
+      --muted: #a6b1c1;
+      --border: rgba(188, 207, 229, 0.18);
+      --brand: #5ec8e5;
+      --brand-strong: #dff8ff;
+      --brand-soft: rgba(94, 200, 229, 0.14);
+      --glass-border: rgba(255, 255, 255, 0.16);
+      --shadow-soft: 0 22px 60px rgba(0, 0, 0, 0.34);
+      --shadow-card: 0 14px 34px rgba(0, 0, 0, 0.2);
+      --badge-neutral-bg: rgba(255, 255, 255, 0.08);
+      --badge-neutral-text: #d8e3ee;
+      --badge-warning-bg: rgba(248, 204, 87, 0.16);
+      --badge-warning-text: #f7d477;
+      --badge-critical-bg: rgba(248, 113, 113, 0.16);
+      --badge-critical-text: #ffb4b4;
       --radius: 14px;
     }
 
@@ -31,9 +38,11 @@
       margin: 0;
       font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
       background:
-        radial-gradient(circle at 10% 0%, #eaf3ff 0%, rgba(234, 243, 255, 0) 38%),
-        var(--bg);
+        radial-gradient(circle at 22% 8%, rgba(87, 118, 180, 0.22), rgba(87, 118, 180, 0) 34%),
+        radial-gradient(circle at 88% 18%, rgba(67, 148, 177, 0.18), rgba(67, 148, 177, 0) 30%),
+        linear-gradient(180deg, var(--bg-dark) 0, #0e1f33 42%, #111425 100%);
       color: var(--text);
+      min-height: 100vh;
     }
 
     body.drawer-open {
@@ -49,25 +58,29 @@
       justify-content: space-between;
       gap: 12px;
       padding: 12px 14px;
-      border-bottom: 1px solid var(--border);
-      background: rgba(255, 255, 255, 0.92);
-      backdrop-filter: blur(6px);
+      border-bottom: 1px solid rgba(188, 207, 229, 0.14);
+      background: rgba(9, 17, 33, 0.88);
+      backdrop-filter: blur(18px);
+      color: #f6fbff;
+      box-shadow: 0 18px 44px rgba(0, 0, 0, 0.26);
     }
 
     .brand {
       display: inline-flex;
       align-items: center;
       gap: 10px;
-      font-weight: 700;
+      font-weight: 800;
+      min-width: 0;
     }
 
     .brandMark {
       width: 32px;
       height: 32px;
-      border-radius: 10px;
+      border-radius: 9px;
       display: grid;
       place-items: center;
-      background: linear-gradient(135deg, #1c5b8f, #133c66);
+      background: linear-gradient(135deg, #6aa88f, #2e6f91 52%, #152844);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24), 0 10px 22px rgba(0, 0, 0, 0.34);
       color: #fff;
       font-size: 12px;
       font-weight: 700;
@@ -81,27 +94,40 @@
 
     .btn {
       border: 1px solid var(--border);
-      border-radius: 10px;
+      border-radius: 9px;
       padding: 10px 12px;
       font: inherit;
-      background: #fff;
+      background: rgba(255, 255, 255, 0.08);
       color: var(--text);
       cursor: pointer;
       text-decoration: none;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
     }
 
     .btn:hover {
-      background: #f8fafc;
+      background: rgba(255, 255, 255, 0.12);
     }
 
     .btnPrimary {
-      border-color: #105891;
-      background: #105891;
+      border-color: rgba(94, 200, 229, 0.44);
+      background: linear-gradient(180deg, rgba(52, 116, 151, 0.88), rgba(35, 70, 107, 0.88));
       color: #fff;
+      box-shadow: 0 10px 22px rgba(5, 14, 23, 0.26);
     }
 
     .btnPrimary:hover {
-      background: #0d4b7c;
+      background: linear-gradient(180deg, rgba(63, 132, 170, 0.92), rgba(42, 82, 122, 0.92));
+    }
+
+    .topbar .btn {
+      border-color: rgba(255, 255, 255, 0.16);
+      background: rgba(255, 255, 255, 0.08);
+      color: #eef7ff;
+      box-shadow: none;
+    }
+
+    .topbar .btn:hover {
+      background: rgba(255, 255, 255, 0.14);
     }
 
     .btnCompact {
@@ -113,34 +139,46 @@
     .page {
       width: min(980px, 100%);
       margin: 0 auto;
-      padding: 14px;
+      padding: 16px 12px 18px;
       display: grid;
-      gap: 14px;
+      gap: 12px;
     }
 
     .panel {
       border: 1px solid var(--border);
       border-radius: var(--radius);
       background: var(--surface);
-      box-shadow: 0 1px 2px rgba(10, 25, 41, 0.06);
+      box-shadow: var(--shadow-card);
+      backdrop-filter: blur(16px);
     }
 
     .headerPanel {
-      padding: 14px;
+      border-color: rgba(188, 207, 229, 0.2);
+      background:
+        linear-gradient(135deg, rgba(94, 200, 229, 0.16), rgba(255, 255, 255, 0.04)),
+        linear-gradient(135deg, rgba(28, 47, 76, 0.86), rgba(9, 17, 33, 0.9));
+      box-shadow: var(--shadow-soft);
+      color: #f7fbff;
+      padding: 16px;
       display: grid;
-      gap: 8px;
+      gap: 10px;
     }
 
     .projectRef {
       margin: 0;
-      color: var(--muted);
-      font-size: 13px;
+      color: rgba(231, 240, 247, 0.76);
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
     }
 
     .projectName {
       margin: 0;
-      font-size: 24px;
+      font-size: 25px;
       line-height: 1.2;
+      font-weight: 800;
+      overflow-wrap: anywhere;
     }
 
     .badge {
@@ -160,25 +198,25 @@
     .badgeNeutral {
       background: var(--badge-neutral-bg);
       color: var(--badge-neutral-text);
-      border-color: #d8e0ea;
+      border-color: var(--border);
     }
 
     .badgeWarning {
       background: var(--badge-warning-bg);
       color: var(--badge-warning-text);
-      border-color: #f4b26a;
+      border-color: rgba(248, 204, 87, 0.4);
     }
 
     .badgeCritical {
       background: var(--badge-critical-bg);
       color: var(--badge-critical-text);
-      border-color: #ef9a9a;
+      border-color: rgba(248, 113, 113, 0.42);
     }
 
     .sectionPanel {
       padding: 12px;
       display: grid;
-      gap: 8px;
+      gap: 10px;
     }
 
     .sectionTitle {
@@ -186,7 +224,8 @@
       font-size: 13px;
       text-transform: uppercase;
       letter-spacing: 0.08em;
-      color: var(--muted);
+      color: #bac8d6;
+      font-weight: 800;
     }
 
     .fieldGrid {
@@ -197,9 +236,9 @@
 
     .field {
       border: 1px solid var(--border);
-      border-radius: 10px;
+      border-radius: 9px;
       background: var(--surface-2);
-      padding: 10px;
+      padding: 10px 11px;
       display: grid;
       gap: 5px;
     }
@@ -218,12 +257,12 @@
     }
 
     .fieldValueMuted {
-      color: #b0bec8;
+      color: #6f7b8b;
     }
 
     .placeholder {
-      border: 1px dashed var(--border);
-      border-radius: 10px;
+      border: 1px solid var(--border);
+      border-radius: 9px;
       background: var(--surface-2);
       padding: 14px;
       color: var(--muted);
@@ -231,10 +270,10 @@
     }
 
     .sectionState {
-      border: 1px dashed var(--border);
-      border-radius: 10px;
-      background: var(--surface-2);
-      padding: 10px;
+      border: 1px solid rgba(188, 207, 229, 0.16);
+      border-radius: 9px;
+      background: rgba(255, 255, 255, 0.06);
+      padding: 11px;
       color: var(--muted);
       font-size: 13px;
     }
@@ -246,9 +285,9 @@
     }
 
     .miniBadge {
-      border: 1px solid #d8e0ea;
-      background: #eef3f8;
-      color: #2f3a48;
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.08);
+      color: #d8e3ee;
       border-radius: 999px;
       font-size: 11px;
       font-weight: 600;
@@ -257,9 +296,9 @@
     }
 
     .miniBadgePending {
-      background: #fff2df;
-      color: #9a3e00;
-      border-color: #f4b26a;
+      background: var(--badge-warning-bg);
+      color: var(--badge-warning-text);
+      border-color: rgba(248, 204, 87, 0.4);
     }
 
     .itemList {
@@ -269,7 +308,7 @@
 
     .itemCard {
       border: 1px solid var(--border);
-      border-radius: 10px;
+      border-radius: 9px;
       background: var(--surface-2);
       padding: 10px;
       display: grid;
@@ -296,7 +335,7 @@
 
     .summaryCard {
       border: 1px solid var(--border);
-      border-radius: 10px;
+      border-radius: 9px;
       background: var(--surface-2);
       padding: 8px 10px;
       display: grid;
@@ -317,6 +356,10 @@
 
     .qaPanel {
       gap: 12px;
+      border-color: rgba(94, 200, 229, 0.22);
+      background:
+        linear-gradient(135deg, rgba(94, 200, 229, 0.09), rgba(255, 255, 255, 0.03)),
+        var(--surface);
     }
 
     .qaHeaderRow {
@@ -346,8 +389,8 @@
 
     .qaSummaryCard {
       border: 1px solid var(--border);
-      border-radius: 10px;
-      background: var(--surface-2);
+      border-radius: 9px;
+      background: rgba(255, 255, 255, 0.06);
       padding: 9px 10px;
       display: grid;
       gap: 3px;
@@ -364,14 +407,14 @@
     .qaSummaryValue {
       font-size: 17px;
       font-weight: 700;
-      color: var(--text);
+      color: var(--brand-strong);
     }
 
     .qaComposer {
       border: 1px solid var(--border);
-      border-radius: 10px;
-      background: var(--surface-2);
-      padding: 10px;
+      border-radius: 9px;
+      background: rgba(255, 255, 255, 0.06);
+      padding: 11px;
       display: grid;
       gap: 8px;
     }
@@ -400,8 +443,8 @@
     .qaTextarea {
       width: 100%;
       border: 1px solid var(--border);
-      border-radius: 10px;
-      background: #fff;
+      border-radius: 9px;
+      background: rgba(7, 15, 27, 0.54);
       color: var(--text);
       font: inherit;
       font-size: 14px;
@@ -417,8 +460,8 @@
     .qaInput:focus,
     .qaSelect:focus,
     .qaTextarea:focus {
-      border-color: #1f6db1;
-      outline: 2px solid rgba(31, 109, 177, 0.18);
+      border-color: rgba(94, 200, 229, 0.64);
+      outline: 2px solid rgba(94, 200, 229, 0.16);
       outline-offset: 0;
     }
 
@@ -435,9 +478,9 @@
     }
 
     .qaEmptyState {
-      border: 1px dashed #b8c8d8;
-      border-radius: 10px;
-      background: #f8fbfe;
+      border: 1px solid rgba(94, 200, 229, 0.2);
+      border-radius: 9px;
+      background: linear-gradient(180deg, rgba(94, 200, 229, 0.1), rgba(255, 255, 255, 0.04));
       padding: 14px;
       display: grid;
       gap: 8px;
@@ -465,24 +508,25 @@
     .qaThreadCard {
       width: 100%;
       border: 1px solid var(--border);
-      border-radius: 10px;
-      background: var(--surface-2);
+      border-radius: 9px;
+      background: rgba(255, 255, 255, 0.07);
       padding: 11px;
       display: grid;
       gap: 9px;
       text-align: left;
       color: var(--text);
       cursor: pointer;
+      box-shadow: 0 8px 22px rgba(0, 0, 0, 0.1);
     }
 
     .qaThreadCardWaiting {
-      border-color: #f4b26a;
-      background: #fffaf2;
+      border-color: rgba(248, 204, 87, 0.36);
+      background: linear-gradient(180deg, rgba(248, 204, 87, 0.12), rgba(255, 255, 255, 0.05));
     }
 
     .qaThreadCard:hover {
-      border-color: #b6c5d6;
-      background: #fff;
+      border-color: rgba(188, 207, 229, 0.3);
+      background: rgba(255, 255, 255, 0.1);
     }
 
     .qaThreadCard:focus-visible {
@@ -514,7 +558,7 @@
 
     .qaThreadPreview {
       margin: 0;
-      color: #334155;
+      color: #d7e0ea;
       font-size: 13px;
       line-height: 1.4;
       overflow-wrap: anywhere;
@@ -548,12 +592,12 @@
 
     .qaThreadUpdated {
       font-weight: 700;
-      color: #405166;
+      color: #cbd8e4;
     }
 
     .qaWaitingHint {
       margin: -1px 0 0;
-      color: #8a3a00;
+      color: var(--badge-warning-text);
       font-size: 12px;
       font-weight: 700;
       line-height: 1.35;
@@ -565,9 +609,9 @@
       justify-content: center;
       min-height: 24px;
       border-radius: 999px;
-      border: 1px solid #d8e0ea;
-      background: #eef3f8;
-      color: #2f3a48;
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.08);
+      color: #d8e3ee;
       padding: 0 8px;
       font-size: 11px;
       font-weight: 700;
@@ -575,45 +619,45 @@
     }
 
     .qaBadgeNew {
-      background: #e8f2fb;
-      border-color: #b8d3ea;
-      color: #0f4c81;
+      background: rgba(94, 200, 229, 0.14);
+      border-color: rgba(94, 200, 229, 0.36);
+      color: #bdefff;
     }
 
     .qaBadgeWaiting {
-      background: #fff2df;
-      border-color: #f4b26a;
-      color: #9a3e00;
+      background: var(--badge-warning-bg);
+      border-color: rgba(248, 204, 87, 0.4);
+      color: var(--badge-warning-text);
     }
 
     .qaBadgeAnswered {
-      background: #e8f7ef;
-      border-color: #9bd4b7;
-      color: #166534;
+      background: rgba(74, 222, 128, 0.14);
+      border-color: rgba(74, 222, 128, 0.34);
+      color: #baf7c8;
     }
 
     .qaBadgeClosed {
-      background: #eef3f8;
-      border-color: #d8e0ea;
-      color: #4b5563;
+      background: rgba(255, 255, 255, 0.08);
+      border-color: var(--border);
+      color: #bcc8d5;
     }
 
     .qaBadgeHigh {
-      background: #fde7e7;
-      border-color: #ef9a9a;
-      color: #991b1b;
+      background: var(--badge-critical-bg);
+      border-color: rgba(248, 113, 113, 0.42);
+      color: var(--badge-critical-text);
     }
 
     .qaBadgeWaitingContext {
-      background: #fff7ed;
-      border-color: #fdba74;
-      color: #8a3a00;
+      background: rgba(248, 204, 87, 0.13);
+      border-color: rgba(248, 204, 87, 0.35);
+      color: var(--badge-warning-text);
     }
 
     .qaBadgeMuted {
-      background: #f8fafc;
-      border-color: #d8e0ea;
-      color: #64748b;
+      background: rgba(255, 255, 255, 0.06);
+      border-color: var(--border);
+      color: #8f9cac;
     }
 
     .qaDrawerShell {
@@ -630,9 +674,10 @@
     .qaDrawerOverlay {
       position: absolute;
       inset: 0;
-      background: rgba(10, 25, 41, 0.45);
+      background: rgba(5, 14, 23, 0.58);
       opacity: 0;
       transition: opacity 0.18s ease;
+      backdrop-filter: blur(3px);
     }
 
     .qaDrawerShell.open .qaDrawerOverlay {
@@ -645,12 +690,15 @@
       right: 0;
       width: min(520px, 100vw);
       height: 100%;
-      background: var(--surface);
-      border-left: 1px solid var(--border);
+      background:
+        linear-gradient(180deg, rgba(18, 27, 43, 0.96), rgba(13, 19, 33, 0.96)),
+        var(--surface-solid);
+      border-left: 1px solid rgba(188, 207, 229, 0.18);
       transform: translateX(100%);
       transition: transform 0.22s ease;
       display: flex;
       flex-direction: column;
+      box-shadow: -28px 0 64px rgba(0, 0, 0, 0.4);
     }
 
     .qaDrawerShell.open .qaDrawerPanel {
@@ -658,8 +706,10 @@
     }
 
     .qaDrawerHeader {
-      padding: 14px;
-      border-bottom: 1px solid var(--border);
+      padding: 15px;
+      border-bottom: 1px solid rgba(188, 207, 229, 0.16);
+      background: rgba(10, 18, 31, 0.72);
+      backdrop-filter: blur(12px);
       display: grid;
       grid-template-columns: 1fr auto;
       gap: 10px;
@@ -668,8 +718,9 @@
 
     .qaDrawerTitle {
       margin: 0;
-      font-size: 20px;
+      font-size: 19px;
       line-height: 1.2;
+      color: var(--text);
       overflow-wrap: anywhere;
     }
 
@@ -689,9 +740,9 @@
     .iconBtn {
       min-width: 38px;
       height: 38px;
-      border-radius: 10px;
+      border-radius: 9px;
       border: 1px solid var(--border);
-      background: #fff;
+      background: rgba(255, 255, 255, 0.08);
       font-size: 20px;
       line-height: 1;
       cursor: pointer;
@@ -701,7 +752,7 @@
     .qaDrawerBody {
       flex: 1;
       overflow: auto;
-      padding: 16px 14px;
+      padding: 16px 15px;
       display: grid;
       align-content: start;
       gap: 12px;
@@ -710,8 +761,8 @@
 
     .qaMessageCard {
       border: 1px solid var(--border);
-      border-radius: 10px;
-      background: var(--surface-2);
+      border-radius: 9px;
+      background: rgba(255, 255, 255, 0.07);
       padding: 11px;
       display: grid;
       gap: 6px;
@@ -735,9 +786,10 @@
     }
 
     .qaDrawerFooter {
-      border-top: 1px solid var(--border);
-      padding: 12px 14px max(12px, env(safe-area-inset-bottom));
-      background: #fff;
+      border-top: 1px solid rgba(188, 207, 229, 0.16);
+      padding: 12px 15px max(12px, env(safe-area-inset-bottom));
+      background: rgba(10, 18, 31, 0.78);
+      backdrop-filter: blur(12px);
       display: grid;
       gap: 8px;
     }
@@ -747,6 +799,45 @@
     }
 
     @media (max-width: 520px) {
+      .topbar {
+        padding: 10px 12px;
+      }
+
+      .brand {
+        gap: 8px;
+      }
+
+      .brandMark {
+        width: 30px;
+        height: 30px;
+      }
+
+      .topActions {
+        gap: 6px;
+      }
+
+      .topbar .btn {
+        padding: 8px 9px;
+        font-size: 13px;
+      }
+
+      .page {
+        padding: 12px 10px 16px;
+        gap: 10px;
+      }
+
+      .headerPanel {
+        padding: 14px;
+      }
+
+      .projectName {
+        font-size: 22px;
+      }
+
+      .sectionPanel {
+        padding: 11px;
+      }
+
       .qaHeaderRow {
         align-items: stretch;
       }
@@ -769,6 +860,7 @@
 
       .qaDrawerBody {
         padding: 12px;
+        gap: 10px;
       }
 
       .qaDrawerFooter {
@@ -783,10 +875,11 @@
 
       .page {
         padding: 24px;
+        gap: 16px;
       }
 
       .headerPanel {
-        padding: 16px;
+        padding: 18px;
       }
 
       .sectionPanel {
