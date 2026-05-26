@@ -36,6 +36,10 @@
       color: var(--text);
     }
 
+    body.drawer-open {
+      overflow: hidden;
+    }
+
     .topbar {
       position: sticky;
       top: 0;
@@ -88,6 +92,22 @@
 
     .btn:hover {
       background: #f8fafc;
+    }
+
+    .btnPrimary {
+      border-color: #105891;
+      background: #105891;
+      color: #fff;
+    }
+
+    .btnPrimary:hover {
+      background: #0d4b7c;
+    }
+
+    .btnCompact {
+      min-height: 38px;
+      padding: 8px 10px;
+      font-size: 13px;
     }
 
     .page {
@@ -295,6 +315,349 @@
       font-weight: 700;
     }
 
+    .qaPanel {
+      gap: 12px;
+    }
+
+    .qaHeaderRow {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .qaHeaderCopy {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .qaMetaText {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .qaSummaryGrid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .qaSummaryCard {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface-2);
+      padding: 9px 10px;
+      display: grid;
+      gap: 3px;
+      min-width: 0;
+    }
+
+    .qaSummaryLabel {
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .qaSummaryValue {
+      font-size: 17px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .qaComposer {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface-2);
+      padding: 10px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .qaComposer[hidden] {
+      display: none;
+    }
+
+    .qaFormGrid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+    }
+
+    .qaLabel {
+      display: grid;
+      gap: 5px;
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .qaInput,
+    .qaSelect,
+    .qaTextarea {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #fff;
+      color: var(--text);
+      font: inherit;
+      font-size: 14px;
+      padding: 10px 11px;
+    }
+
+    .qaTextarea {
+      min-height: 92px;
+      resize: vertical;
+      line-height: 1.4;
+    }
+
+    .qaInput:focus,
+    .qaSelect:focus,
+    .qaTextarea:focus {
+      border-color: #1f6db1;
+      outline: 2px solid rgba(31, 109, 177, 0.18);
+      outline-offset: 0;
+    }
+
+    .qaFormActions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .qaThreadList {
+      display: grid;
+      gap: 8px;
+    }
+
+    .qaThreadCard {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface-2);
+      padding: 10px;
+      display: grid;
+      gap: 7px;
+      text-align: left;
+      color: var(--text);
+      cursor: pointer;
+    }
+
+    .qaThreadCard:hover {
+      border-color: #b6c5d6;
+      background: #fff;
+    }
+
+    .qaThreadCard:focus-visible {
+      outline: 2px solid #1f6db1;
+      outline-offset: 1px;
+    }
+
+    .qaThreadTop {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .qaThreadTitle {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 700;
+      line-height: 1.25;
+      overflow-wrap: anywhere;
+    }
+
+    .qaBadgeRow {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .qaThreadPreview,
+    .qaThreadMeta {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+
+    .qaBadge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 24px;
+      border-radius: 999px;
+      border: 1px solid #d8e0ea;
+      background: #eef3f8;
+      color: #2f3a48;
+      padding: 0 8px;
+      font-size: 11px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .qaBadgeNew {
+      background: #e8f2fb;
+      border-color: #b8d3ea;
+      color: #0f4c81;
+    }
+
+    .qaBadgeWaiting {
+      background: #fff2df;
+      border-color: #f4b26a;
+      color: #9a3e00;
+    }
+
+    .qaBadgeAnswered {
+      background: #e8f7ef;
+      border-color: #9bd4b7;
+      color: #166534;
+    }
+
+    .qaBadgeClosed {
+      background: #eef3f8;
+      border-color: #d8e0ea;
+      color: #4b5563;
+    }
+
+    .qaBadgeHigh {
+      background: #fde7e7;
+      border-color: #ef9a9a;
+      color: #991b1b;
+    }
+
+    .qaDrawerShell {
+      position: fixed;
+      inset: 0;
+      z-index: 60;
+      pointer-events: none;
+    }
+
+    .qaDrawerShell.open {
+      pointer-events: auto;
+    }
+
+    .qaDrawerOverlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(10, 25, 41, 0.45);
+      opacity: 0;
+      transition: opacity 0.18s ease;
+    }
+
+    .qaDrawerShell.open .qaDrawerOverlay {
+      opacity: 1;
+    }
+
+    .qaDrawerPanel {
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: min(520px, 100vw);
+      height: 100%;
+      background: var(--surface);
+      border-left: 1px solid var(--border);
+      transform: translateX(100%);
+      transition: transform 0.22s ease;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .qaDrawerShell.open .qaDrawerPanel {
+      transform: translateX(0);
+    }
+
+    .qaDrawerHeader {
+      padding: 14px;
+      border-bottom: 1px solid var(--border);
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      align-items: start;
+    }
+
+    .qaDrawerTitle {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.2;
+      overflow-wrap: anywhere;
+    }
+
+    .qaDrawerMeta {
+      margin: 7px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .qaDrawerControls {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+    }
+
+    .iconBtn {
+      min-width: 38px;
+      height: 38px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: #fff;
+      font-size: 20px;
+      line-height: 1;
+      cursor: pointer;
+      color: var(--text);
+    }
+
+    .qaDrawerBody {
+      flex: 1;
+      overflow: auto;
+      padding: 14px;
+      display: grid;
+      align-content: start;
+      gap: 10px;
+    }
+
+    .qaMessageCard {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface-2);
+      padding: 10px;
+      display: grid;
+      gap: 6px;
+    }
+
+    .qaMessageMeta {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      flex-wrap: wrap;
+    }
+
+    .qaMessageText {
+      margin: 0;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      font-size: 14px;
+      line-height: 1.42;
+    }
+
+    .qaDrawerFooter {
+      border-top: 1px solid var(--border);
+      padding: 12px 14px;
+      background: #fff;
+      display: grid;
+      gap: 8px;
+    }
+
     @media (min-width: 760px) {
       .topbar {
         padding: 12px 24px;
@@ -314,6 +677,19 @@
 
       .fieldGrid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .qaSummaryGrid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+
+      .qaFormGrid {
+        grid-template-columns: minmax(0, 1fr) 150px;
+      }
+
+      .qaDrawerControls {
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: end;
       }
     }
   </style>
@@ -335,6 +711,46 @@
       <p id="projectHeaderRef" class="projectRef">Ref: -</p>
       <h1 id="projectHeaderName" class="projectName">Indlæser sag...</h1>
       <span id="projectStatusBadge" class="badge badgeNeutral">Indlæser</span>
+    </section>
+
+    <section id="qaSection" class="panel sectionPanel qaPanel">
+      <div class="qaHeaderRow">
+        <div class="qaHeaderCopy">
+          <h2 class="sectionTitle">QA</h2>
+          <p id="qaMetaText" class="qaMetaText">Indlaeser QA...</p>
+        </div>
+        <button id="qaNewThreadToggle" class="btn btnPrimary btnCompact" type="button">Ny thread</button>
+      </div>
+
+      <div id="qaSummaryGrid" class="qaSummaryGrid" aria-live="polite"></div>
+
+      <form id="qaNewThreadForm" class="qaComposer" hidden>
+        <div class="qaFormGrid">
+          <label class="qaLabel">
+            Titel
+            <input id="qaNewThreadTitle" class="qaInput" type="text" maxlength="180" placeholder="Kort titel" />
+          </label>
+          <label class="qaLabel">
+            Prioritet
+            <select id="qaNewThreadPriority" class="qaSelect">
+              <option value="normal">Normal</option>
+              <option value="high">Hoj</option>
+              <option value="low">Lav</option>
+            </select>
+          </label>
+        </div>
+        <label class="qaLabel">
+          Besked
+          <textarea id="qaNewThreadMessage" class="qaTextarea" required placeholder="Skriv QA-sporgsmaal eller afklaring"></textarea>
+        </label>
+        <div class="qaFormActions">
+          <button id="qaCancelNewThreadBtn" class="btn btnCompact" type="button">Annuller</button>
+          <button id="qaCreateThreadBtn" class="btn btnPrimary btnCompact" type="submit">Opret</button>
+        </div>
+      </form>
+
+      <div id="qaState" class="sectionState">Indlaeser QA...</div>
+      <div id="qaThreadList" class="qaThreadList"></div>
     </section>
 
     <section class="panel sectionPanel">
@@ -427,6 +843,43 @@
       <div id="hoursList" class="itemList"></div>
     </section>
   </main>
+
+  <div id="qaDrawerShell" class="qaDrawerShell" aria-hidden="true">
+    <div id="qaDrawerOverlay" class="qaDrawerOverlay"></div>
+    <aside class="qaDrawerPanel" aria-modal="true" role="dialog" aria-labelledby="qaDrawerTitle">
+      <div class="qaDrawerHeader">
+        <div>
+          <h2 id="qaDrawerTitle" class="qaDrawerTitle">QA thread</h2>
+          <p id="qaDrawerMeta" class="qaDrawerMeta">-</p>
+        </div>
+        <button id="qaDrawerCloseBtn" class="iconBtn" type="button" aria-label="Luk">×</button>
+        <div class="qaDrawerControls">
+          <label class="qaLabel">
+            Status
+            <select id="qaStatusSelect" class="qaSelect">
+              <option value="NEW">Ny</option>
+              <option value="WAITING">Venter</option>
+              <option value="ANSWERED">Besvaret</option>
+              <option value="CLOSED">Lukket</option>
+            </select>
+          </label>
+          <button id="qaStatusSaveBtn" class="btn btnCompact" type="button">Gem status</button>
+        </div>
+      </div>
+      <div id="qaDrawerBody" class="qaDrawerBody">
+        <div class="sectionState">Vaelg en QA thread.</div>
+      </div>
+      <form id="qaMessageForm" class="qaDrawerFooter">
+        <label class="qaLabel">
+          Svar
+          <textarea id="qaMessageInput" class="qaTextarea" required placeholder="Skriv svar eller opdatering"></textarea>
+        </label>
+        <div class="qaFormActions">
+          <button id="qaAddMessageBtn" class="btn btnPrimary btnCompact" type="submit">Send</button>
+        </div>
+      </form>
+    </aside>
+  </div>
 
   <script src="/tenant/auth.js"></script>
 </body>

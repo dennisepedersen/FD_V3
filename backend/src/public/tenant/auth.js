@@ -2144,11 +2144,555 @@
 
     const logoutBtn = document.getElementById("logoutBtn");
     const projectId = getProjectIdFromPath();
+    const qaSummaryGrid = document.getElementById("qaSummaryGrid");
+    const qaMetaText = document.getElementById("qaMetaText");
+    const qaStateNode = document.getElementById("qaState");
+    const qaThreadList = document.getElementById("qaThreadList");
+    const qaNewThreadToggle = document.getElementById("qaNewThreadToggle");
+    const qaNewThreadForm = document.getElementById("qaNewThreadForm");
+    const qaNewThreadTitle = document.getElementById("qaNewThreadTitle");
+    const qaNewThreadPriority = document.getElementById("qaNewThreadPriority");
+    const qaNewThreadMessage = document.getElementById("qaNewThreadMessage");
+    const qaCancelNewThreadBtn = document.getElementById("qaCancelNewThreadBtn");
+    const qaCreateThreadBtn = document.getElementById("qaCreateThreadBtn");
+    const qaDrawerShell = document.getElementById("qaDrawerShell");
+    const qaDrawerOverlay = document.getElementById("qaDrawerOverlay");
+    const qaDrawerCloseBtn = document.getElementById("qaDrawerCloseBtn");
+    const qaDrawerTitle = document.getElementById("qaDrawerTitle");
+    const qaDrawerMeta = document.getElementById("qaDrawerMeta");
+    const qaDrawerBody = document.getElementById("qaDrawerBody");
+    const qaStatusSelect = document.getElementById("qaStatusSelect");
+    const qaStatusSaveBtn = document.getElementById("qaStatusSaveBtn");
+    const qaMessageForm = document.getElementById("qaMessageForm");
+    const qaMessageInput = document.getElementById("qaMessageInput");
+    const qaAddMessageBtn = document.getElementById("qaAddMessageBtn");
 
     if (!projectId) {
       renderProjectDetailError("Ugyldig sagssti");
       return;
     }
+
+    const qaUi = Boolean(qaSummaryGrid && qaMetaText && qaStateNode && qaThreadList);
+    const qaState = {
+      summary: { NEW: 0, WAITING: 0, ANSWERED: 0, CLOSED: 0 },
+      threads: [],
+      detailThread: null,
+      messages: [],
+      activeThreadId: null,
+      isLoadingThreads: false,
+      isSaving: false,
+    };
+
+    const QA_STATUS_OPTIONS = [
+      { value: "NEW", label: "Ny", className: "qaBadgeNew" },
+      { value: "WAITING", label: "Venter", className: "qaBadgeWaiting" },
+      { value: "ANSWERED", label: "Besvaret", className: "qaBadgeAnswered" },
+      { value: "CLOSED", label: "Lukket", className: "qaBadgeClosed" },
+    ];
+
+    const QA_PRIORITY_OPTIONS = {
+      low: { label: "Lav", className: "" },
+      normal: { label: "Normal", className: "" },
+      high: { label: "Hoj", className: "qaBadgeHigh" },
+    };
+
+    function getQaStatusView(status) {
+      const normalized = String(status || "NEW").trim().toUpperCase();
+      return QA_STATUS_OPTIONS.find((item) => item.value === normalized) || QA_STATUS_OPTIONS[0];
+    }
+
+    function getQaPriorityView(priority) {
+      const normalized = String(priority || "normal").trim().toLowerCase();
+      return QA_PRIORITY_OPTIONS[normalized] || QA_PRIORITY_OPTIONS.normal;
+    }
+
+    function formatQaDate(value) {
+      if (!value) {
+        return "-";
+      }
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) {
+        return "-";
+      }
+      try {
+        return new Intl.DateTimeFormat("da-DK", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        }).format(parsed);
+      } catch (_error) {
+        return "-";
+      }
+    }
+
+    function setQaStateMessage(message, isError) {
+      if (!qaStateNode) {
+        return;
+      }
+      qaStateNode.hidden = !message;
+      qaStateNode.textContent = message || "";
+      qaStateNode.style.borderColor = isError ? "#f2b3b3" : "";
+      qaStateNode.style.background = isError ? "#fff0f0" : "";
+      qaStateNode.style.color = isError ? "#991b1b" : "";
+    }
+
+    function makeQaBadge(label, className) {
+      const badge = document.createElement("span");
+      badge.className = `qaBadge ${className || ""}`.trim();
+      badge.textContent = label;
+      return badge;
+    }
+
+    function qaErrorMessage(error, fallback) {
+      if (error && error.status === 401) {
+        logout();
+        return null;
+      }
+
+      if (error && error.status === 403) {
+        if (error.code === "module_access_denied") {
+          return "QA er ikke tilgaengelig for din rolle.";
+        }
+        return "Du har ikke adgang til denne QA handling.";
+      }
+
+      if (error && error.status === 404) {
+        return "QA data blev ikke fundet for dette projekt.";
+      }
+
+      return getErrorMessage(error, fallback);
+    }
+
+    function setQaListActionsDisabled(disabled) {
+      if (qaNewThreadToggle) {
+        qaNewThreadToggle.disabled = Boolean(disabled);
+      }
+      if (qaCreateThreadBtn) {
+        qaCreateThreadBtn.disabled = Boolean(disabled);
+      }
+    }
+
+    function renderQaSummary() {
+      if (!qaSummaryGrid) {
+        return;
+      }
+      qaSummaryGrid.innerHTML = "";
+      QA_STATUS_OPTIONS.forEach((status) => {
+        const card = document.createElement("div");
+        card.className = "qaSummaryCard";
+
+        const label = document.createElement("span");
+        label.className = "qaSummaryLabel";
+        label.textContent = status.label;
+
+        const value = document.createElement("span");
+        value.className = "qaSummaryValue";
+        value.textContent = String(Number(qaState.summary[status.value] || 0));
+
+        card.appendChild(label);
+        card.appendChild(value);
+        qaSummaryGrid.appendChild(card);
+      });
+    }
+
+    function renderQaThreadList() {
+      if (!qaThreadList || !qaMetaText) {
+        return;
+      }
+
+      qaThreadList.innerHTML = "";
+      renderQaSummary();
+
+      const count = qaState.threads.length;
+      qaMetaText.textContent = count === 1 ? "1 thread" : `${count} threads`;
+
+      if (qaState.isLoadingThreads) {
+        setQaStateMessage("Indlaeser QA threads...", false);
+        return;
+      }
+
+      if (count === 0) {
+        setQaStateMessage("Ingen QA threads paa projektet endnu.", false);
+        return;
+      }
+
+      setQaStateMessage("", false);
+
+      qaState.threads.forEach((thread) => {
+        const statusView = getQaStatusView(thread.status);
+        const priorityView = getQaPriorityView(thread.priority);
+        const card = document.createElement("button");
+        card.type = "button";
+        card.className = "qaThreadCard";
+
+        const top = document.createElement("div");
+        top.className = "qaThreadTop";
+
+        const title = document.createElement("h3");
+        title.className = "qaThreadTitle";
+        title.textContent = thread.title || thread.latest_message_preview || "QA thread";
+
+        const badges = document.createElement("div");
+        badges.className = "qaBadgeRow";
+        badges.appendChild(makeQaBadge(statusView.label, statusView.className));
+        badges.appendChild(makeQaBadge(priorityView.label, priorityView.className));
+
+        top.appendChild(title);
+        top.appendChild(badges);
+
+        const preview = document.createElement("p");
+        preview.className = "qaThreadPreview";
+        preview.textContent = thread.latest_message_preview || "Ingen beskedpreview.";
+
+        const meta = document.createElement("p");
+        meta.className = "qaThreadMeta";
+        const messageCount = Number(thread.message_count || 0);
+        meta.textContent = `${messageCount} beskeder · Opdateret ${formatQaDate(thread.updated_at || thread.latest_message_at || thread.created_at)}`;
+
+        card.appendChild(top);
+        card.appendChild(preview);
+        card.appendChild(meta);
+        card.addEventListener("click", () => {
+          openQaDrawer(thread.id);
+        });
+
+        qaThreadList.appendChild(card);
+      });
+    }
+
+    function openQaDrawerShell() {
+      if (!qaDrawerShell) {
+        return;
+      }
+      qaDrawerShell.classList.add("open");
+      qaDrawerShell.setAttribute("aria-hidden", "false");
+      document.body.classList.add("drawer-open");
+    }
+
+    function closeQaDrawer() {
+      if (!qaDrawerShell) {
+        return;
+      }
+      qaDrawerShell.classList.remove("open");
+      qaDrawerShell.setAttribute("aria-hidden", "true");
+      document.body.classList.remove("drawer-open");
+      qaState.activeThreadId = null;
+      qaState.detailThread = null;
+      qaState.messages = [];
+      if (qaMessageInput) {
+        qaMessageInput.value = "";
+      }
+    }
+
+    function setQaDrawerLoading() {
+      if (qaDrawerTitle) {
+        qaDrawerTitle.textContent = "QA thread";
+      }
+      if (qaDrawerMeta) {
+        qaDrawerMeta.textContent = "Indlaeser...";
+      }
+      if (qaDrawerBody) {
+        qaDrawerBody.innerHTML = "";
+        const state = document.createElement("div");
+        state.className = "sectionState";
+        state.textContent = "Indlaeser thread...";
+        qaDrawerBody.appendChild(state);
+      }
+    }
+
+    function renderQaDrawerNotice(message, isError) {
+      if (!qaDrawerBody || !message) {
+        return;
+      }
+      const notice = document.createElement("div");
+      notice.className = "sectionState";
+      notice.textContent = message;
+      if (isError) {
+        notice.style.borderColor = "#f2b3b3";
+        notice.style.background = "#fff0f0";
+        notice.style.color = "#991b1b";
+      }
+      qaDrawerBody.prepend(notice);
+    }
+
+    function renderQaDrawerDetail() {
+      if (!qaDrawerBody) {
+        return;
+      }
+
+      const thread = qaState.detailThread;
+      if (!thread) {
+        setQaDrawerLoading();
+        return;
+      }
+
+      const statusView = getQaStatusView(thread.status);
+      const priorityView = getQaPriorityView(thread.priority);
+
+      if (qaDrawerTitle) {
+        qaDrawerTitle.textContent = thread.title || "QA thread";
+      }
+      if (qaDrawerMeta) {
+        qaDrawerMeta.textContent = [
+          statusView.label,
+          priorityView.label,
+          `Opdateret ${formatQaDate(thread.updated_at || thread.created_at)}`,
+        ].join(" · ");
+      }
+      if (qaStatusSelect) {
+        qaStatusSelect.value = statusView.value;
+      }
+
+      qaDrawerBody.innerHTML = "";
+      const badgeRow = document.createElement("div");
+      badgeRow.className = "qaBadgeRow";
+      badgeRow.appendChild(makeQaBadge(statusView.label, statusView.className));
+      badgeRow.appendChild(makeQaBadge(priorityView.label, priorityView.className));
+      qaDrawerBody.appendChild(badgeRow);
+
+      if (qaState.messages.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "sectionState";
+        empty.textContent = "Ingen beskeder endnu.";
+        qaDrawerBody.appendChild(empty);
+        return;
+      }
+
+      qaState.messages.forEach((message) => {
+        const card = document.createElement("div");
+        card.className = "qaMessageCard";
+
+        const meta = document.createElement("div");
+        meta.className = "qaMessageMeta";
+
+        const user = document.createElement("span");
+        user.textContent = message.user_name || "Ukendt bruger";
+
+        const date = document.createElement("span");
+        date.textContent = formatQaDate(message.created_at);
+
+        const text = document.createElement("p");
+        text.className = "qaMessageText";
+        text.textContent = message.message || "";
+
+        meta.appendChild(user);
+        meta.appendChild(date);
+        card.appendChild(meta);
+        card.appendChild(text);
+        qaDrawerBody.appendChild(card);
+      });
+    }
+
+    async function loadQaThreads() {
+      if (!qaUi) {
+        return;
+      }
+
+      qaState.isLoadingThreads = true;
+      renderQaThreadList();
+
+      try {
+        const response = await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/qa/threads`, { method: "GET" });
+        qaState.summary = response && response.summary ? response.summary : { NEW: 0, WAITING: 0, ANSWERED: 0, CLOSED: 0 };
+        qaState.threads = response && Array.isArray(response.threads) ? response.threads : [];
+        setQaListActionsDisabled(false);
+      } catch (error) {
+        const message = qaErrorMessage(error, "Kunne ikke hente QA threads.");
+        if (!message) {
+          return;
+        }
+        qaState.summary = { NEW: 0, WAITING: 0, ANSWERED: 0, CLOSED: 0 };
+        qaState.threads = [];
+        qaMetaText.textContent = "QA utilgaengelig";
+        renderQaSummary();
+        setQaStateMessage(message, true);
+        if (error && error.status === 403) {
+          setQaListActionsDisabled(true);
+        }
+        return;
+      } finally {
+        qaState.isLoadingThreads = false;
+      }
+
+      renderQaThreadList();
+    }
+
+    async function loadQaThreadDetail(threadId) {
+      if (!threadId) {
+        return;
+      }
+
+      qaState.activeThreadId = String(threadId);
+      setQaDrawerLoading();
+
+      try {
+        const response = await apiFetch(`/api/qa/threads/${encodeURIComponent(threadId)}`, { method: "GET" });
+        qaState.detailThread = response && response.thread ? response.thread : null;
+        qaState.messages = response && Array.isArray(response.messages) ? response.messages : [];
+        renderQaDrawerDetail();
+      } catch (error) {
+        const message = qaErrorMessage(error, "Kunne ikke hente QA thread.");
+        if (!message) {
+          return;
+        }
+        if (qaDrawerBody) {
+          qaDrawerBody.innerHTML = "";
+          renderQaDrawerNotice(message, true);
+        }
+      }
+    }
+
+    function openQaDrawer(threadId) {
+      openQaDrawerShell();
+      loadQaThreadDetail(threadId);
+    }
+
+    async function createQaThread(event) {
+      event.preventDefault();
+      if (!qaNewThreadMessage || !qaCreateThreadBtn) {
+        return;
+      }
+
+      const message = qaNewThreadMessage.value.trim();
+      if (!message) {
+        setQaStateMessage("Besked er paakraevet.", true);
+        return;
+      }
+
+      qaCreateThreadBtn.disabled = true;
+      try {
+        const response = await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/qa/threads`, {
+          method: "POST",
+          body: JSON.stringify({
+            title: qaNewThreadTitle ? qaNewThreadTitle.value.trim() || null : null,
+            message,
+            priority: qaNewThreadPriority ? qaNewThreadPriority.value : "normal",
+          }),
+        });
+
+        if (qaNewThreadForm) {
+          qaNewThreadForm.hidden = true;
+        }
+        if (qaNewThreadTitle) qaNewThreadTitle.value = "";
+        if (qaNewThreadMessage) qaNewThreadMessage.value = "";
+        if (qaNewThreadPriority) qaNewThreadPriority.value = "normal";
+
+        await loadQaThreads();
+        const threadId = response && response.thread ? response.thread.id : null;
+        if (threadId) {
+          openQaDrawer(threadId);
+        }
+      } catch (error) {
+        const errorMessage = qaErrorMessage(error, "Kunne ikke oprette QA thread.");
+        if (errorMessage) {
+          setQaStateMessage(errorMessage, true);
+        }
+      } finally {
+        qaCreateThreadBtn.disabled = false;
+      }
+    }
+
+    async function addQaMessage(event) {
+      event.preventDefault();
+      if (!qaState.activeThreadId || !qaMessageInput || !qaAddMessageBtn) {
+        return;
+      }
+
+      const message = qaMessageInput.value.trim();
+      if (!message) {
+        renderQaDrawerNotice("Besked er paakraevet.", true);
+        return;
+      }
+
+      qaAddMessageBtn.disabled = true;
+      try {
+        await apiFetch(`/api/qa/threads/${encodeURIComponent(qaState.activeThreadId)}/messages`, {
+          method: "POST",
+          body: JSON.stringify({ message }),
+        });
+        qaMessageInput.value = "";
+        await loadQaThreadDetail(qaState.activeThreadId);
+        await loadQaThreads();
+      } catch (error) {
+        const errorMessage = qaErrorMessage(error, "Kunne ikke tilfoeje besked.");
+        if (errorMessage) {
+          renderQaDrawerNotice(errorMessage, true);
+        }
+      } finally {
+        qaAddMessageBtn.disabled = false;
+      }
+    }
+
+    async function saveQaStatus() {
+      if (!qaState.activeThreadId || !qaStatusSelect || !qaStatusSaveBtn) {
+        return;
+      }
+
+      qaStatusSaveBtn.disabled = true;
+      try {
+        await apiFetch(`/api/qa/threads/${encodeURIComponent(qaState.activeThreadId)}/status`, {
+          method: "PATCH",
+          body: JSON.stringify({ status: qaStatusSelect.value }),
+        });
+        await loadQaThreadDetail(qaState.activeThreadId);
+        await loadQaThreads();
+      } catch (error) {
+        const errorMessage = qaErrorMessage(error, "Kunne ikke opdatere status.");
+        if (errorMessage) {
+          renderQaDrawerNotice(errorMessage, true);
+        }
+      } finally {
+        qaStatusSaveBtn.disabled = false;
+      }
+    }
+
+    if (qaUi) {
+      renderQaSummary();
+      renderQaThreadList();
+    }
+
+    if (qaNewThreadToggle && qaNewThreadForm) {
+      qaNewThreadToggle.addEventListener("click", () => {
+        qaNewThreadForm.hidden = !qaNewThreadForm.hidden;
+        if (!qaNewThreadForm.hidden && qaNewThreadMessage) {
+          qaNewThreadMessage.focus();
+        }
+      });
+    }
+
+    if (qaCancelNewThreadBtn && qaNewThreadForm) {
+      qaCancelNewThreadBtn.addEventListener("click", () => {
+        qaNewThreadForm.hidden = true;
+      });
+    }
+
+    if (qaNewThreadForm) {
+      qaNewThreadForm.addEventListener("submit", createQaThread);
+    }
+
+    if (qaDrawerOverlay) {
+      qaDrawerOverlay.addEventListener("click", closeQaDrawer);
+    }
+
+    if (qaDrawerCloseBtn) {
+      qaDrawerCloseBtn.addEventListener("click", closeQaDrawer);
+    }
+
+    if (qaMessageForm) {
+      qaMessageForm.addEventListener("submit", addQaMessage);
+    }
+
+    if (qaStatusSaveBtn) {
+      qaStatusSaveBtn.addEventListener("click", saveQaStatus);
+    }
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && qaDrawerShell && qaDrawerShell.classList.contains("open")) {
+        closeQaDrawer();
+      }
+    });
 
     try {
       const [projectResult, breakdownResult] = await Promise.allSettled([
@@ -2173,6 +2717,7 @@
         : null;
       renderFittersSectionFromBreakdown(breakdown);
       renderHoursSectionFromBreakdown(breakdown);
+      await loadQaThreads();
     } catch (error) {
       if (handleAuthFailure(error)) {
         return;
