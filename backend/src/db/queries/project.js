@@ -15,7 +15,21 @@ async function listProjectsForUser(client, { tenantId, userId }) {
         pc.name,
         pc.status,
         pc.is_closed,
+        pc.is_closed AS administrative_closed,
+        pw.is_work_in_progress AS financial_wip,
+        (pc.is_closed = false) AS active_project,
+        CASE
+          WHEN pw.ready_to_bill = true THEN 'ready_to_bill'
+          WHEN pw.last_registration IS NOT NULL OR pw.last_fitter_hour_date IS NOT NULL THEN 'activity_observed'
+          ELSE 'unknown'
+        END AS activity_status,
+        CASE
+          WHEN pw.ready_to_bill = true THEN 'ready_to_bill'
+          WHEN pw.last_registration IS NULL AND pw.last_fitter_hour_date IS NULL THEN 'no_activity_signal'
+          ELSE NULL
+        END AS operational_attention,
         COALESCE(pw.last_registration, pw.last_fitter_hour_date) AS activity_date,
+        pw.is_work_in_progress,
         pw.last_registration,
         pw.last_fitter_hour_date,
         pw.calculated_days_since_last_registration,
@@ -86,7 +100,13 @@ async function listProjectsForUser(client, { tenantId, userId }) {
       name,
       status,
       is_closed,
+      administrative_closed,
+      financial_wip,
+      active_project,
+      activity_status,
+      operational_attention,
       activity_date,
+      is_work_in_progress,
       last_registration,
       last_fitter_hour_date,
       calculated_days_since_last_registration,
@@ -139,7 +159,21 @@ async function findProjectForUser(client, { tenantId, userId, projectId }) {
       pc.name,
       pc.status,
       pc.is_closed,
+      pc.is_closed AS administrative_closed,
+      pw.is_work_in_progress AS financial_wip,
+      (pc.is_closed = false) AS active_project,
+      CASE
+        WHEN pw.ready_to_bill = true THEN 'ready_to_bill'
+        WHEN pw.last_registration IS NOT NULL OR pw.last_fitter_hour_date IS NOT NULL THEN 'activity_observed'
+        ELSE 'unknown'
+      END AS activity_status,
+      CASE
+        WHEN pw.ready_to_bill = true THEN 'ready_to_bill'
+        WHEN pw.last_registration IS NULL AND pw.last_fitter_hour_date IS NULL THEN 'no_activity_signal'
+        ELSE NULL
+      END AS operational_attention,
       COALESCE(pw.last_registration, pw.last_fitter_hour_date) AS activity_date,
+      pw.is_work_in_progress,
       pw.last_registration,
       pw.last_fitter_hour_date,
       pw.calculated_days_since_last_registration,

@@ -6,6 +6,8 @@ const PROJECT_CORE_FIELDS = [
   "name",
   "status",
   "is_closed",
+  "administrative_closed",
+  "active_project",
   "owner_user_id",
   "responsible_code",
   "responsible_name",
@@ -19,6 +21,10 @@ const PROJECT_CORE_FIELDS = [
 
 const PROJECT_WIP_FIELDS = [
   "activity_date",
+  "is_work_in_progress",
+  "financial_wip",
+  "activity_status",
+  "operational_attention",
   "last_registration",
   "last_fitter_hour_date",
   "calculated_days_since_last_registration",

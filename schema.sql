@@ -527,6 +527,7 @@ CREATE TABLE project_wip (
   current_stage text NULL,
   risk_level text NULL,
   notes text NULL,
+  is_work_in_progress boolean NULL,
   last_registration timestamptz NULL,
   last_fitter_hour_date timestamptz NULL,
   calculated_days_since_last_registration integer NULL,
@@ -549,6 +550,7 @@ CREATE TABLE project_wip (
 
 CREATE INDEX ix_project_wip_tenant_stage ON project_wip (tenant_id, current_stage);
 CREATE INDEX ix_project_wip_tenant_updated_by ON project_wip (tenant_id, updated_by_user_id);
+CREATE INDEX ix_project_wip_tenant_is_work_in_progress ON project_wip (tenant_id, is_work_in_progress);
 CREATE INDEX ix_project_wip_tenant_last_registration ON project_wip (tenant_id, last_registration DESC);
 
 CREATE TRIGGER trg_project_wip_set_updated_at

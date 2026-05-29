@@ -747,9 +747,8 @@ function buildProjectSourceEndpointVariants(baseUrl) {
     `${normalized}/api/v4/projects`,
   ].map((url) => url.replace(/([^:]\/)(\/+)/g, "$1"));
   const v3 = [
-    `${normalized}/Management/WorkInProgress`,
-    `${normalized}/api/v3.0/Management/WorkInProgress`,
-    `${normalized}/api/v3/Management/WorkInProgress`,
+    `${normalized}/api/v3.0/projects`,
+    `${normalized}/api/v3/projects`,
   ].map((url) => url.replace(/([^:]\/)(\/+)/g, "$1"));
 
   return {
@@ -1793,7 +1792,7 @@ function mapProjectRow(raw, { sourceEndpointKey } = {}) {
     null;
 
   const isClosedV4 = pickBooleanValue(raw, ["isClosed", "IsClosed"]);
-  const isWorkInProgressV3 = pickBooleanValue(raw, ["IsWorkInProgress", "isWorkInProgress"]);
+  const isWorkInProgress = pickBooleanValue(raw, ["IsWorkInProgress", "isWorkInProgress"]);
 
   let resolvedStatus = null;
   let resolvedIsClosed = null;
@@ -1811,14 +1810,9 @@ function mapProjectRow(raw, { sourceEndpointKey } = {}) {
       resolvedIsClosed = null;
     }
   } else if (sourceEndpointKey === "projects_v3") {
-    // v3 WorkInProgress endpoint only proves active/open when true.
-    if (isWorkInProgressV3 === true) {
-      resolvedStatus = "open";
-      resolvedIsClosed = false;
-    } else {
-      resolvedStatus = null;
-      resolvedIsClosed = null;
-    }
+    // v3 is enrichment/fallback only. It must never decide lifecycle open/closed.
+    resolvedStatus = null;
+    resolvedIsClosed = null;
   } else {
     resolvedStatus = mapProjectStatus(statusRaw, isClosedV4);
     resolvedIsClosed = isClosedV4;
@@ -1884,6 +1878,7 @@ function mapProjectRow(raw, { sourceEndpointKey } = {}) {
     name: String(name).trim() || `Project ${externalRef}`,
     status: resolvedStatus,
     isClosed: resolvedIsClosed,
+    isWorkInProgress,
     activityDate,
     responsibleCode,
     responsibleName,
@@ -1900,6 +1895,7 @@ function mergeIdentityFields(baseRow, detailRow) {
     ...baseRow,
     status: baseRow.status || detailRow.status,
     isClosed: baseRow.isClosed == null ? detailRow.isClosed : baseRow.isClosed,
+    isWorkInProgress: baseRow.isWorkInProgress == null ? detailRow.isWorkInProgress : baseRow.isWorkInProgress,
     activityDate: baseRow.activityDate || detailRow.activityDate,
     responsibleCode: baseRow.responsibleCode || detailRow.responsibleCode,
     responsibleName: baseRow.responsibleName || detailRow.responsibleName,
@@ -1925,7 +1921,7 @@ async function upsertProjectBatch(client, { tenantId, mappedRows, sourceEndpoint
     const values = [];
     const params = [];
     chunk.forEach((row, index) => {
-      const offset = index * 14;
+      const offset = index * 15;
       params.push(
         tenantId,
         row.externalProjectRef,
@@ -1940,15 +1936,16 @@ async function upsertProjectBatch(client, { tenantId, mappedRows, sourceEndpoint
         row.teamLeaderName,
         row.teamLeaderId,
         fromV4,
-        fromV3
+        fromV3,
+        row.isWorkInProgress
       );
       values.push(
-        `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9}, $${offset + 10}, $${offset + 11}, $${offset + 12}, $${offset + 13}, $${offset + 14})`
+        `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9}, $${offset + 10}, $${offset + 11}, $${offset + 12}, $${offset + 13}, $${offset + 14}, $${offset + 15})`
       );
     });
 
     const sql = `
-      INSERT INTO project_core (
+      WITH input_rows (
         tenant_id,
         external_project_ref,
         name,
@@ -1962,9 +1959,48 @@ async function upsertProjectBatch(client, { tenantId, mappedRows, sourceEndpoint
         team_leader_name,
         team_leader_id,
         has_v4,
+        has_v3,
+        is_work_in_progress
+      ) AS (
+        VALUES ${values.join(",\n")}
+      ),
+      upserted_core AS (
+      INSERT INTO project_core (
+        tenant_id,
+        external_project_ref,
+        name,
+        status,
+        activity_date,
+        is_closed,
+        closed_observed_at,
+        responsible_code,
+        responsible_name,
+        responsible_id,
+        team_leader_code,
+        team_leader_name,
+        team_leader_id,
+        has_v4,
         has_v3
       )
-      VALUES ${values.join(",\n")}
+      SELECT
+        tenant_id,
+        external_project_ref,
+        name,
+        status,
+        activity_date,
+        is_closed,
+        CASE WHEN has_v4 = true AND is_closed = true THEN now() ELSE NULL END,
+        responsible_code,
+        responsible_name,
+        responsible_id,
+        team_leader_code,
+        team_leader_name,
+        team_leader_id,
+        has_v4,
+        has_v3
+      FROM input_rows
+      WHERE has_v4 = true
+         OR status IS NOT NULL
       ON CONFLICT (tenant_id, external_project_ref)
       WHERE external_project_ref IS NOT NULL
       DO UPDATE SET
@@ -1979,8 +2015,12 @@ async function upsertProjectBatch(client, { tenantId, mappedRows, sourceEndpoint
         is_closed = CASE
           WHEN EXCLUDED.has_v4 THEN COALESCE(EXCLUDED.is_closed, project_core.is_closed)
           WHEN EXCLUDED.has_v3 AND project_core.has_v4 THEN project_core.is_closed
-          WHEN EXCLUDED.has_v3 AND EXCLUDED.is_closed = false THEN false
           ELSE project_core.is_closed
+        END,
+        closed_observed_at = CASE
+          WHEN EXCLUDED.has_v4 AND EXCLUDED.is_closed = true AND project_core.is_closed IS DISTINCT FROM true THEN now()
+          WHEN EXCLUDED.has_v4 AND EXCLUDED.is_closed = false THEN NULL
+          ELSE project_core.closed_observed_at
         END,
         responsible_code = EXCLUDED.responsible_code,
         responsible_name = EXCLUDED.responsible_name,
@@ -1990,6 +2030,39 @@ async function upsertProjectBatch(client, { tenantId, mappedRows, sourceEndpoint
         team_leader_id = EXCLUDED.team_leader_id,
         has_v4 = project_core.has_v4 OR EXCLUDED.has_v4,
         has_v3 = project_core.has_v3 OR EXCLUDED.has_v3,
+        updated_at = now()
+      RETURNING project_id, tenant_id, external_project_ref
+      ),
+      matched_projects AS (
+        SELECT uc.project_id, uc.tenant_id, ir.is_work_in_progress
+        FROM upserted_core uc
+        INNER JOIN input_rows ir
+          ON ir.tenant_id = uc.tenant_id
+         AND ir.external_project_ref = uc.external_project_ref
+        WHERE ir.is_work_in_progress IS NOT NULL
+
+        UNION
+
+        SELECT pc.project_id, pc.tenant_id, ir.is_work_in_progress
+        FROM input_rows ir
+        INNER JOIN project_core pc
+          ON pc.tenant_id = ir.tenant_id
+         AND pc.external_project_ref = ir.external_project_ref
+        WHERE ir.is_work_in_progress IS NOT NULL
+      )
+      INSERT INTO project_wip (
+        project_id,
+        tenant_id,
+        is_work_in_progress
+      )
+      SELECT DISTINCT ON (project_id)
+        project_id,
+        tenant_id,
+        is_work_in_progress
+      FROM matched_projects
+      ON CONFLICT (project_id)
+      DO UPDATE SET
+        is_work_in_progress = EXCLUDED.is_work_in_progress,
         updated_at = now()
     `;
 
@@ -2706,7 +2779,7 @@ async function persistProjectsPage({
   });
   const mappedRows = parsed.rows
     .map((row) => mapProjectRow(row, { sourceEndpointKey: endpointKey }))
-    .filter((row) => Boolean(row && row.status));
+    .filter((row) => Boolean(row && (endpointKey === "projects_v3" ? row.externalProjectRef : row.status)));
 
   const enriched = await enrichProjectIdentityFields({
     ekBaseUrl: cfg.ekBaseUrl,
