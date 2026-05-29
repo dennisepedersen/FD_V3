@@ -1,44 +1,183 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="da">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Fielddesk</title>
   <style>
     :root {
-      --bg: #f3f5f8;
-      --surface: #ffffff;
-      --surface-2: #f8fafc;
-      --text: #1f2937;
-      --muted: #637083;
-      --border: #d7e0ea;
-      --brand: #0f4c81;
-      --brand-soft: #e8f2fb;
-      --badge-neutral-bg: #eef3f8;
-      --badge-neutral-text: #2f3a48;
-      --badge-warning-bg: #fff2df;
-      --badge-warning-text: #9a3e00;
-      --badge-critical-bg: #fde7e7;
-      --badge-critical-text: #991b1b;
-      --radius: 14px;
-      --drawer-width: min(480px, 100vw);
+      --bg: #070d1b;
+      --bg-2: #0d2035;
+      --surface: rgba(22, 33, 52, 0.72);
+      --surface-solid: #111b2c;
+      --surface-2: rgba(34, 47, 69, 0.66);
+      --surface-3: rgba(47, 63, 88, 0.58);
+      --text: #f5f8fc;
+      --muted: #a8b5c6;
+      --muted-2: #7f8fa4;
+      --border: rgba(191, 212, 234, 0.18);
+      --border-strong: rgba(191, 212, 234, 0.28);
+      --brand: #5ec8e5;
+      --brand-strong: #dff8ff;
+      --brand-soft: rgba(94, 200, 229, 0.14);
+      --green: #72d6a0;
+      --yellow: #f6d453;
+      --pink: #f06aa9;
+      --radius: 16px;
+      --drawer-width: min(520px, 100vw);
+      --shadow-soft: 0 24px 70px rgba(0, 0, 0, 0.34);
+      --shadow-card: 0 16px 40px rgba(0, 0, 0, 0.22);
     }
 
     * {
       box-sizing: border-box;
     }
 
+    [hidden] {
+      display: none !important;
+    }
+
     body {
       margin: 0;
+      min-height: 100vh;
       font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
       background:
-        radial-gradient(circle at 10% 0%, #eaf3ff 0%, rgba(234, 243, 255, 0) 38%),
-        var(--bg);
+        radial-gradient(circle at 16% 10%, rgba(71, 96, 176, 0.24), rgba(71, 96, 176, 0) 34%),
+        radial-gradient(circle at 86% 12%, rgba(74, 173, 207, 0.2), rgba(74, 173, 207, 0) 31%),
+        linear-gradient(180deg, var(--bg) 0%, var(--bg-2) 46%, #111222 100%);
       color: var(--text);
     }
 
     body.drawer-open {
       overflow: hidden;
+    }
+
+    a {
+      color: inherit;
+    }
+
+    .appShell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 1fr;
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      border-bottom: 1px solid rgba(191, 212, 234, 0.14);
+      background: rgba(7, 13, 27, 0.88);
+      backdrop-filter: blur(18px);
+    }
+
+    .sideInner {
+      display: grid;
+      gap: 12px;
+      padding: 12px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .brandMark {
+      width: 38px;
+      height: 38px;
+      border-radius: 12px;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(135deg, #7cad94, #2d6f91 54%, #172844);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 800;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24), 0 12px 26px rgba(0, 0, 0, 0.32);
+      flex: 0 0 auto;
+    }
+
+    .brandText {
+      min-width: 0;
+    }
+
+    .brandName {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 850;
+      letter-spacing: 0.01em;
+    }
+
+    .brandSub {
+      margin: 1px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .sideNav {
+      display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: minmax(150px, 1fr);
+      gap: 8px;
+      overflow-x: auto;
+      padding-bottom: 2px;
+      scrollbar-width: thin;
+    }
+
+    .navSection {
+      display: contents;
+    }
+
+    .navLabel {
+      display: none;
+    }
+
+    .navItem {
+      min-height: 54px;
+      display: grid;
+      align-content: center;
+      gap: 2px;
+      border: 1px solid rgba(191, 212, 234, 0.14);
+      border-radius: 14px;
+      padding: 9px 11px;
+      background: rgba(255, 255, 255, 0.045);
+      color: #dce7f1;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    .navItem:hover,
+    .navItem.active {
+      border-color: rgba(94, 200, 229, 0.34);
+      background:
+        linear-gradient(135deg, rgba(84, 74, 168, 0.24), rgba(94, 200, 229, 0.13)),
+        rgba(255, 255, 255, 0.06);
+    }
+
+    .navItem.navMuted {
+      opacity: 0.74;
+    }
+
+    .navItem strong {
+      font-size: 13px;
+      line-height: 1.2;
+    }
+
+    .navItem span {
+      color: var(--muted);
+      font-size: 12px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .mainShell {
+      min-width: 0;
+      display: grid;
+      grid-template-rows: auto 1fr;
     }
 
     .topbar {
@@ -49,61 +188,100 @@
       align-items: center;
       justify-content: space-between;
       gap: 12px;
-      padding: 12px 14px;
-      border-bottom: 1px solid var(--border);
-      background: rgba(255, 255, 255, 0.92);
-      backdrop-filter: blur(6px);
+      padding: 12px;
+      border-bottom: 1px solid rgba(191, 212, 234, 0.14);
+      background: rgba(8, 17, 33, 0.82);
+      backdrop-filter: blur(18px);
+      box-shadow: 0 18px 44px rgba(0, 0, 0, 0.22);
     }
 
-    .brand {
-      display: inline-flex;
+    .topSearch {
+      min-width: 0;
+      flex: 1;
+      display: flex;
       align-items: center;
-      gap: 10px;
-      font-weight: 700;
-    }
-
-    .brandMark {
-      width: 32px;
-      height: 32px;
-      border-radius: 10px;
-      display: grid;
-      place-items: center;
-      background: linear-gradient(135deg, #1c5b8f, #133c66);
-      color: #fff;
-      font-size: 12px;
-      font-weight: 700;
+      min-height: 42px;
+      border: 1px solid rgba(191, 212, 234, 0.17);
+      border-radius: 999px;
+      padding: 0 14px;
+      background: rgba(255, 255, 255, 0.055);
+      color: var(--muted);
+      font-size: 13px;
     }
 
     .topActions {
       display: inline-flex;
       align-items: center;
       gap: 8px;
+      flex: 0 0 auto;
+    }
+
+    .statusPill,
+    .userPill {
+      max-width: 100%;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 38px;
+      padding: 0 12px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.06);
+      color: #dce7f1;
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .statusDot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--yellow);
+      box-shadow: 0 0 18px rgba(246, 212, 83, 0.42);
+      flex: 0 0 auto;
     }
 
     .btn {
       border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 10px 12px;
+      border-radius: 11px;
+      min-height: 40px;
+      padding: 9px 12px;
       font: inherit;
-      background: #fff;
+      background: rgba(255, 255, 255, 0.08);
       color: var(--text);
       cursor: pointer;
+      text-decoration: none;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
     }
 
     .btn:hover {
-      background: #f8fafc;
+      background: rgba(255, 255, 255, 0.12);
     }
 
     .btnPrimary {
-      border-color: #105891;
-      background: #105891;
+      border-color: rgba(94, 200, 229, 0.44);
+      background: linear-gradient(180deg, rgba(52, 116, 151, 0.88), rgba(35, 70, 107, 0.88));
       color: #fff;
+      box-shadow: 0 10px 22px rgba(5, 14, 23, 0.26);
+    }
+
+    .btnCompact {
+      min-height: 36px;
+      padding: 7px 10px;
+      font-size: 13px;
     }
 
     .page {
-      width: min(980px, 100%);
+      width: min(1220px, 100%);
       margin: 0 auto;
-      padding: 14px;
+      padding: 16px 12px 22px;
+      display: grid;
+      gap: 14px;
+    }
+
+    .view {
       display: grid;
       gap: 14px;
     }
@@ -112,13 +290,212 @@
       border: 1px solid var(--border);
       border-radius: var(--radius);
       background: var(--surface);
-      box-shadow: 0 1px 2px rgba(10, 25, 41, 0.06);
+      box-shadow: var(--shadow-card);
+      backdrop-filter: blur(16px);
+    }
+
+    .heroPanel {
+      padding: 18px;
+      display: grid;
+      gap: 16px;
+      border-color: rgba(191, 212, 234, 0.22);
+      background:
+        linear-gradient(135deg, rgba(94, 200, 229, 0.16), rgba(255, 255, 255, 0.035)),
+        linear-gradient(135deg, rgba(28, 47, 76, 0.9), rgba(9, 17, 33, 0.92));
+      box-shadow: var(--shadow-soft);
+    }
+
+    .heroTitle {
+      margin: 0;
+      font-size: 30px;
+      line-height: 1.08;
+      letter-spacing: 0;
+    }
+
+    .heroText,
+    .subtitle {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .heroMeta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 34px;
+      width: fit-content;
+      padding: 0 11px;
+      border: 1px solid rgba(191, 212, 234, 0.17);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.07);
+      color: #d8e3ee;
+      font-size: 12px;
+    }
+
+    .sectionHeader {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 2px 2px 0;
+    }
+
+    .sectionHeader h2 {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.2;
+    }
+
+    .moduleGrid,
+    .infoGrid,
+    .projectStats {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+    }
+
+    .moduleCard,
+    .infoCard,
+    .statCard,
+    .syncItem,
+    .projectCard,
+    .syncEndpointCard {
+      border: 1px solid rgba(191, 212, 234, 0.16);
+      border-radius: 15px;
+      background:
+        linear-gradient(135deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.018)),
+        var(--surface-2);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    }
+
+    .moduleCard {
+      min-height: 128px;
+      padding: 14px;
+      display: grid;
+      align-content: space-between;
+      gap: 12px;
+      color: inherit;
+      text-decoration: none;
+      transition: transform 0.14s ease, border-color 0.14s ease, background 0.14s ease;
+    }
+
+    .moduleCard:hover {
+      transform: translateY(-1px);
+      border-color: rgba(94, 200, 229, 0.34);
+      background:
+        linear-gradient(135deg, rgba(94, 200, 229, 0.14), rgba(255, 255, 255, 0.035)),
+        var(--surface-2);
+    }
+
+    .moduleCard.disabled {
+      opacity: 0.72;
+      cursor: default;
+    }
+
+    .moduleCard.disabled:hover {
+      transform: none;
+      border-color: rgba(191, 212, 234, 0.16);
+    }
+
+    .moduleTop {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .moduleName,
+    .infoLabel,
+    .projectName {
+      margin: 0;
+      color: var(--text);
+      font-weight: 800;
+      line-height: 1.22;
+    }
+
+    .moduleName {
+      font-size: 17px;
+    }
+
+    .moduleText,
+    .infoHint,
+    .projectRef,
+    .activityText,
+    .syncLabel,
+    .syncEndpointMeta,
+    .scopeRowLabel {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .moduleText,
+    .infoHint {
+      margin: 0;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 0 9px;
+      border: 1px solid rgba(191, 212, 234, 0.18);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.06);
+      color: #d6e2ee;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .tagLive {
+      border-color: rgba(94, 200, 229, 0.32);
+      color: #b8efff;
+      background: rgba(94, 200, 229, 0.11);
+    }
+
+    .tagPreview {
+      border-color: rgba(246, 212, 83, 0.28);
+      color: #f6d453;
+      background: rgba(246, 212, 83, 0.09);
+    }
+
+    .infoCard,
+    .statCard {
+      padding: 14px;
+      display: grid;
+      gap: 8px;
+      min-height: 112px;
+    }
+
+    .infoValue,
+    .statValue {
+      margin: 0;
+      color: #fff;
+      font-size: 28px;
+      line-height: 1;
+      font-weight: 850;
+    }
+
+    .infoCard.disabled .infoValue,
+    .infoCard.disabled .infoLabel {
+      color: #b0bac7;
     }
 
     .headerPanel {
-      padding: 14px;
+      padding: 16px;
       display: grid;
-      gap: 10px;
+      gap: 11px;
+      background:
+        linear-gradient(135deg, rgba(94, 200, 229, 0.12), rgba(255, 255, 255, 0.03)),
+        var(--surface);
     }
 
     .titleRow {
@@ -130,30 +507,8 @@
 
     .titleRow h1 {
       margin: 0;
-      font-size: 22px;
+      font-size: 23px;
       line-height: 1.15;
-    }
-
-    .subtitle {
-      margin: 0;
-      color: var(--muted);
-      font-size: 14px;
-    }
-
-    .userPill {
-      max-width: 100%;
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 9px 11px;
-      border: 1px solid var(--border);
-      border-radius: 999px;
-      background: var(--surface-2);
-      font-size: 12px;
-      color: var(--muted);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
     }
 
     .toolbar {
@@ -162,22 +517,28 @@
       gap: 10px;
     }
 
-    .sortSelect {
+    .sortSelect,
+    .syncSelect {
       width: 100%;
       min-height: 44px;
-      border: 1px solid var(--border);
-      border-radius: 10px;
+      border: 1px solid rgba(191, 212, 234, 0.18);
+      border-radius: 12px;
       padding: 0 12px;
       font: inherit;
-      background: #fff;
+      background: rgba(4, 10, 22, 0.38);
       color: var(--text);
     }
 
-    .metaRow {
+    .metaRow,
+    .projectLineTwo,
+    .syncEndpointTitle {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 10px;
+    }
+
+    .metaRow {
       color: var(--muted);
       font-size: 13px;
       min-height: 20px;
@@ -191,13 +552,13 @@
     .syncPanel {
       padding: 12px;
       display: grid;
-      gap: 8px;
+      gap: 9px;
     }
 
     .syncSummaryRow {
       display: flex;
       flex-wrap: wrap;
-      gap: 6px;
+      gap: 8px;
     }
 
     .syncGrid {
@@ -207,27 +568,24 @@
     }
 
     .syncItem {
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      background: var(--surface-2);
-      padding: 8px 10px;
+      padding: 9px 10px;
       font-size: 13px;
       color: var(--text);
     }
 
     .syncDetails {
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      background: #fff;
+      border: 1px solid rgba(191, 212, 234, 0.16);
+      border-radius: 13px;
+      background: rgba(4, 10, 22, 0.22);
     }
 
     .syncDetails summary {
       cursor: pointer;
       list-style: none;
-      padding: 8px 10px;
+      padding: 10px;
       color: var(--muted);
       font-size: 12px;
-      border-bottom: 1px solid var(--border);
+      border-bottom: 1px solid rgba(191, 212, 234, 0.12);
     }
 
     .syncDetails summary::-webkit-details-marker {
@@ -235,7 +593,7 @@
     }
 
     .syncDetailsContent {
-      padding: 8px;
+      padding: 10px;
       display: grid;
       gap: 8px;
     }
@@ -246,18 +604,6 @@
       gap: 8px;
     }
 
-    .syncSelect {
-      width: 100%;
-      min-height: 34px;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 0 8px;
-      font: inherit;
-      color: var(--text);
-      background: #fff;
-      font-size: 12px;
-    }
-
     .syncEndpointList {
       display: grid;
       gap: 6px;
@@ -266,34 +612,11 @@
     }
 
     .syncEndpointCard {
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 8px;
-      background: var(--surface-2);
+      padding: 9px;
       font-size: 12px;
       color: var(--text);
       display: grid;
       gap: 4px;
-    }
-
-    .syncEndpointTitle {
-      display: flex;
-      justify-content: space-between;
-      gap: 8px;
-      font-weight: 600;
-    }
-
-    .syncEndpointMeta {
-      color: var(--muted);
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-
-    .syncLabel {
-      color: var(--muted);
-      font-size: 12px;
-      margin-right: 6px;
     }
 
     .groupBlock {
@@ -325,16 +648,6 @@
       gap: 8px;
     }
 
-    .scopeRow[hidden] {
-      display: none;
-    }
-
-    .scopeRowLabel {
-      color: var(--muted);
-      font-size: 12px;
-      margin: 0;
-    }
-
     .scopeChips {
       display: flex;
       flex-wrap: wrap;
@@ -342,8 +655,8 @@
     }
 
     .scopeChip {
-      border: 1px solid var(--border);
-      background: #fff;
+      border: 1px solid rgba(191, 212, 234, 0.18);
+      background: rgba(255, 255, 255, 0.07);
       color: var(--text);
       border-radius: 999px;
       min-height: 34px;
@@ -353,56 +666,46 @@
     }
 
     .scopeChip.active {
-      border-color: #105891;
+      border-color: rgba(94, 200, 229, 0.44);
       background: var(--brand-soft);
-      color: #0e4d80;
-      font-weight: 600;
+      color: var(--brand-strong);
+      font-weight: 700;
     }
 
     .projectCard {
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      background: var(--surface);
+      width: 100%;
       text-align: left;
-      padding: 10px;
+      padding: 12px;
       display: grid;
-      gap: 7px;
+      gap: 8px;
       cursor: pointer;
+      color: var(--text);
       transition: border-color 0.14s ease, transform 0.14s ease;
+      font: inherit;
     }
 
     .projectCard:hover {
-      border-color: #b6c5d6;
+      border-color: rgba(94, 200, 229, 0.34);
       transform: translateY(-1px);
     }
 
-    .projectCard:focus-visible {
-      outline: 2px solid #1f6db1;
-      outline-offset: 1px;
+    .projectCard:focus-visible,
+    .moduleCard:focus-visible,
+    .navItem:focus-visible,
+    .btn:focus-visible {
+      outline: 2px solid var(--brand);
+      outline-offset: 2px;
     }
 
     .projectName {
-      margin: 0;
       font-size: 15px;
-      line-height: 1.25;
     }
 
     .projectRef {
       margin: 0;
-      color: var(--muted);
-      font-size: 12px;
-    }
-
-    .projectLineTwo {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
     }
 
     .activityText {
-      color: var(--muted);
-      font-size: 12px;
       min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -418,35 +721,35 @@
       border: 1px solid transparent;
       padding: 0 10px;
       font-size: 12px;
-      font-weight: 600;
+      font-weight: 700;
       white-space: nowrap;
     }
 
     .badgeNeutral {
-      background: var(--badge-neutral-bg);
-      color: var(--badge-neutral-text);
-      border-color: #d8e0ea;
+      background: rgba(255, 255, 255, 0.08);
+      color: #d8e3ee;
+      border-color: rgba(191, 212, 234, 0.18);
     }
 
     .badgeWarning {
-      background: var(--badge-warning-bg);
-      color: var(--badge-warning-text);
-      border-color: #f4b26a;
+      background: rgba(246, 212, 83, 0.14);
+      color: #f8dc75;
+      border-color: rgba(246, 212, 83, 0.34);
     }
 
     .badgeCritical {
-      background: var(--badge-critical-bg);
-      color: var(--badge-critical-text);
-      border-color: #ef9a9a;
+      background: rgba(240, 106, 169, 0.13);
+      color: #ffb6d7;
+      border-color: rgba(240, 106, 169, 0.34);
     }
 
     .emptyState {
-      border: 1px dashed var(--border);
-      border-radius: 12px;
-      background: #f8fbff;
+      border: 1px solid rgba(191, 212, 234, 0.16);
+      border-radius: 15px;
+      background: rgba(255, 255, 255, 0.045);
       color: var(--muted);
       text-align: center;
-      padding: 22px 12px;
+      padding: 24px 12px;
     }
 
     .drawerShell {
@@ -463,7 +766,7 @@
     .drawerOverlay {
       position: absolute;
       inset: 0;
-      background: rgba(10, 25, 41, 0.45);
+      background: rgba(3, 7, 16, 0.68);
       opacity: 0;
       transition: opacity 0.18s ease;
     }
@@ -478,12 +781,13 @@
       right: 0;
       width: var(--drawer-width);
       height: 100%;
-      background: var(--surface);
+      background: #0d1424;
       transform: translateX(100%);
       transition: transform 0.22s ease;
       display: flex;
       flex-direction: column;
-      border-left: 1px solid var(--border);
+      border-left: 1px solid var(--border-strong);
+      box-shadow: -24px 0 70px rgba(0, 0, 0, 0.42);
     }
 
     .drawerShell.open .drawerPanel {
@@ -491,12 +795,13 @@
     }
 
     .drawerHeader {
-      padding: 14px;
-      border-bottom: 1px solid var(--border);
+      padding: 16px;
+      border-bottom: 1px solid rgba(191, 212, 234, 0.14);
       display: flex;
       align-items: flex-start;
       justify-content: space-between;
       gap: 10px;
+      background: rgba(255, 255, 255, 0.03);
     }
 
     .drawerTitle {
@@ -512,11 +817,11 @@
     }
 
     .iconBtn {
-      min-width: 38px;
-      height: 38px;
-      border-radius: 10px;
+      min-width: 40px;
+      height: 40px;
+      border-radius: 12px;
       border: 1px solid var(--border);
-      background: #fff;
+      background: rgba(255, 255, 255, 0.08);
       font-size: 20px;
       line-height: 1;
       cursor: pointer;
@@ -531,10 +836,11 @@
       gap: 10px;
     }
 
-    .drawerField {
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      background: var(--surface-2);
+    .drawerField,
+    .drawerPendingField {
+      border: 1px solid rgba(191, 212, 234, 0.16);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.055);
       padding: 10px;
     }
 
@@ -550,36 +856,172 @@
     .drawerValue {
       display: block;
       font-size: 14px;
-      font-weight: 600;
+      font-weight: 700;
       word-break: break-word;
     }
 
+    .drawerValueMuted {
+      display: block;
+      font-size: 14px;
+      color: var(--muted);
+    }
+
     .drawerError {
-      border-color: #f2b3b3;
-      background: #fff0f0;
-      color: #991b1b;
+      border-color: rgba(255, 136, 136, 0.34);
+      background: rgba(255, 92, 92, 0.1);
+      color: #ffc3c3;
     }
 
     .drawerFooter {
-      border-top: 1px solid var(--border);
+      border-top: 1px solid rgba(191, 212, 234, 0.14);
       padding: 12px 14px;
       display: flex;
       gap: 10px;
       justify-content: flex-end;
-      background: #fff;
+      background: rgba(255, 255, 255, 0.035);
     }
 
-    @media (min-width: 760px) {
+    .drawerSection {
+      display: grid;
+      gap: 7px;
+    }
+
+    .drawerSectionTitle {
+      margin: 0;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.09em;
+      color: var(--muted);
+      padding: 2px 2px 0;
+    }
+
+    .drawerPendingField {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .drawerPendingLabel {
+      color: var(--muted);
+      font-size: 13px;
+      flex: 1;
+    }
+
+    .drawerPendingBadge {
+      font-size: 11px;
+      color: #b9c8d7;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 999px;
+      padding: 2px 8px;
+      white-space: nowrap;
+      border: 1px solid rgba(191, 212, 234, 0.14);
+    }
+
+    .drawerFieldGrid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 7px;
+    }
+
+    .drawerBadges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .sectionState {
+      color: var(--muted);
+      margin: 0;
+    }
+
+    @media (min-width: 680px) {
+      .moduleGrid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .infoGrid,
+      .projectStats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
       .page {
-        padding: 24px;
+        padding: 18px;
+      }
+    }
+
+    @media (min-width: 980px) {
+      .appShell {
+        grid-template-columns: 280px minmax(0, 1fr);
+      }
+
+      .sidebar {
+        height: 100vh;
+        border-right: 1px solid rgba(191, 212, 234, 0.14);
+        border-bottom: 0;
+        background:
+          radial-gradient(circle at 100% 0%, rgba(80, 62, 156, 0.18), rgba(80, 62, 156, 0) 34%),
+          rgba(6, 10, 22, 0.92);
+      }
+
+      .sideInner {
+        height: 100vh;
+        align-content: start;
+        padding: 18px 14px;
+        overflow: auto;
+      }
+
+      .sideNav {
+        grid-auto-flow: row;
+        grid-auto-columns: unset;
+        grid-auto-rows: auto;
+        overflow: visible;
+        gap: 8px;
+      }
+
+      .navSection {
+        display: grid;
+        gap: 8px;
+      }
+
+      .navLabel {
+        display: block;
+        margin: 12px 6px 2px;
+        color: var(--muted-2);
+        font-size: 11px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
       }
 
       .topbar {
-        padding: 12px 24px;
+        padding: 14px 18px;
       }
 
-      .headerPanel {
-        padding: 16px;
+      .page {
+        padding: 22px;
+      }
+
+      .heroPanel {
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: end;
+        padding: 22px;
+      }
+
+      .heroTitle {
+        font-size: 40px;
+      }
+
+      .moduleGrid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+
+      .infoGrid {
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+      }
+
+      .projectStats {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
       }
 
       .toolbar {
@@ -595,162 +1037,290 @@
         grid-column: 1 / -1;
       }
 
-      .projectCard {
-        padding: 12px;
-        gap: 8px;
-      }
-
       .syncGrid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
-
-      .projectName {
-        font-size: 16px;
-      }
-    }
-
-    .drawerSection {
-      display: grid;
-      gap: 6px;
-    }
-
-    .drawerSectionTitle {
-      margin: 0;
-      font-size: 11px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.09em;
-      color: var(--muted);
-      padding: 2px 2px 0;
-    }
-
-    .drawerPendingField {
-      border: 1px dashed var(--border);
-      border-radius: 10px;
-      background: var(--surface-2);
-      padding: 8px 10px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .drawerPendingLabel {
-      color: var(--muted);
-      font-size: 13px;
-      flex: 1;
-    }
-
-    .drawerPendingBadge {
-      font-size: 11px;
-      color: #7a8fa0;
-      background: #e6ecf2;
-      border-radius: 999px;
-      padding: 2px 8px;
-      white-space: nowrap;
-      border: 1px solid #ccd7e2;
-    }
-
-    .drawerFieldGrid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 6px;
-    }
-
-    .drawerValueMuted {
-      display: block;
-      font-size: 14px;
-      color: #b0bec8;
-    }
-
-    .drawerBadges {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
     }
   </style>
 </head>
 <body data-page="app">
-  <header class="topbar">
-    <div class="brand">
-      <div class="brandMark">FD</div>
-      <span>Fielddesk</span>
-    </div>
-    <div class="topActions">
-      <button id="logoutBtn" class="btn" type="button">Log ud</button>
-    </div>
-  </header>
-
-  <main class="page">
-    <section class="panel headerPanel">
-      <div class="titleRow">
-        <div>
-          <h1>Sagsoversigt</h1>
-          <p class="subtitle">Tryk på en sag for hurtig visning i sidepanel.</p>
-        </div>
-      </div>
-      <div id="userPill" class="userPill">Indlæser bruger...</div>
-    </section>
-
-    <section class="panel toolbar">
-      <div class="metaRow" id="listMetaText">Indlæser sager...</div>
-      <label>
-        <span class="subtitle">Sortering</span>
-        <select id="sortSelect" class="sortSelect">
-          <option value="ref_asc">Projektnr. (stigende)</option>
-          <option value="ref_desc">Projektnr. (faldende)</option>
-          <option value="activity_desc">Sidste aktivitet (nyeste)</option>
-          <option value="activity_asc">Sidste aktivitet (ældste)</option>
-        </select>
-      </label>
-      <div id="scopeRow" class="scopeRow" hidden>
-        <p class="scopeRowLabel">Visning</p>
-        <div id="scopeChips" class="scopeChips"></div>
-      </div>
-    </section>
-
-    <section class="panel syncPanel" aria-live="polite">
-      <div class="metaRow">
-        <strong>Sync-status</strong>
-        <button id="refreshSyncBtn" class="btn" type="button">Opdater sync</button>
-      </div>
-      <div id="syncGrid" class="syncGrid syncSummaryRow">
-        <div class="syncItem"><span class="syncLabel">Aktuel endpoint-status:</span><span id="syncOverallText">Indlæser...</span></div>
-        <div class="syncItem"><span class="syncLabel">Bootstrap (total):</span><span id="syncBootstrapText">Indlæser...</span></div>
-        <div class="syncItem"><span class="syncLabel">Delta (total):</span><span id="syncDeltaText">Indlæser...</span></div>
-        <div class="syncItem"><span class="syncLabel">Seneste succes:</span><span id="syncLastSuccessText">Indlæser...</span></div>
-        <div class="syncItem"><span class="syncLabel">Backlog (total):</span><span id="syncBacklogText">Indlæser...</span></div>
-        <div class="syncItem"><span class="syncLabel">Næste retry:</span><span id="syncNextRetryText">Indlæser...</span></div>
-        <div class="syncItem"><span class="syncLabel">Rows persisteret (total):</span><span id="syncRowsText">Indlæser...</span></div>
-      </div>
-
-      <details id="syncDetails" class="syncDetails">
-        <summary><strong>Endpoint-status</strong> (klik for detaljer)</summary>
-        <div class="syncDetailsContent">
-          <div class="syncControls">
-            <label>
-              <span class="syncLabel">Filter</span>
-              <select id="syncFilterSelect" class="syncSelect">
-                <option value="all">Vis alle</option>
-                <option value="bootstrap">Kun bootstrap</option>
-                <option value="delta">Kun delta</option>
-                <option value="issues">Kun fejl/pending</option>
-              </select>
-            </label>
-            <label>
-              <span class="syncLabel">Sortering</span>
-              <select id="syncSortSelect" class="syncSelect">
-                <option value="endpoint">Endpoint-navn</option>
-                <option value="activity_desc">Seneste aktivitet</option>
-              </select>
-            </label>
+  <div class="appShell">
+    <aside class="sidebar" aria-label="Fielddesk navigation">
+      <div class="sideInner">
+        <div class="brand">
+          <div class="brandMark">FD</div>
+          <div class="brandText">
+            <p class="brandName">Fielddesk</p>
+            <p class="brandSub">Platform cockpit</p>
           </div>
-          <div id="syncEndpointList" class="syncEndpointList"></div>
         </div>
-      </details>
-    </section>
 
-    <section id="projectsContainer" class="projectList" aria-live="polite"></section>
-  </main>
+        <nav class="sideNav" aria-label="Moduler">
+          <div class="navSection">
+            <span class="navLabel">Overblik</span>
+            <a class="navItem active" href="#dashboard" data-view-link="dashboard">
+              <strong>Dashboard</strong>
+              <span>Mit cockpit</span>
+            </a>
+            <a class="navItem" href="#projects" data-view-link="projects">
+              <strong>Projekter</strong>
+              <span>Sagsoversigt</span>
+            </a>
+            <a class="navItem navMuted" href="#dashboard" aria-disabled="true">
+              <strong>QA</strong>
+              <span>Via projekt</span>
+            </a>
+            <a class="navItem navMuted" href="#dashboard" aria-disabled="true">
+              <strong>Dokumenter</strong>
+              <span>Preview</span>
+            </a>
+          </div>
+          <div class="navSection">
+            <span class="navLabel">Drift</span>
+            <a class="navItem navMuted" href="#dashboard" aria-disabled="true">
+              <strong>Økonomi</strong>
+              <span>Preview</span>
+            </a>
+            <a class="navItem navMuted" href="#dashboard" aria-disabled="true">
+              <strong>CO2 / ESG</strong>
+              <span>Teaser</span>
+            </a>
+            <a class="navItem navMuted" href="#dashboard" aria-disabled="true">
+              <strong>Kalender</strong>
+              <span>Kommer senere</span>
+            </a>
+            <a class="navItem navMuted" href="#dashboard" aria-disabled="true">
+              <strong>Admin</strong>
+              <span>Indstillinger</span>
+            </a>
+          </div>
+        </nav>
+      </div>
+    </aside>
+
+    <div class="mainShell">
+      <header class="topbar">
+        <div class="topSearch" aria-label="Søgning">Søg sag, dokument eller QA (kommer senere)</div>
+        <div class="topActions">
+          <div class="statusPill"><span class="statusDot"></span><span>Data: tenant</span></div>
+          <button id="logoutBtn" class="btn btnCompact" type="button">Log ud</button>
+        </div>
+      </header>
+
+      <main class="page">
+        <section id="dashboardView" class="view" data-view="dashboard">
+          <section class="heroPanel panel">
+            <div>
+              <p class="subtitle">Fielddesk dashboard</p>
+              <h1 class="heroTitle">God arbejdsdag, <span id="dashboardWelcomeName">Fielddesk</span>.</h1>
+              <p class="heroText">Et roligt cockpit til sager, QA, dokumentation, økonomi og kommende CO2-overblik.</p>
+            </div>
+            <div class="heroMeta">
+              <span id="dashboardDateText" class="pill">Indlæser dato...</span>
+              <span id="dashboardSyncStatus" class="pill">Sync: indlæser</span>
+            </div>
+          </section>
+
+          <div class="sectionHeader">
+            <div>
+              <h2>Moduler</h2>
+              <p class="subtitle">Vælg område uden at miste platformsoverblikket.</p>
+            </div>
+          </div>
+
+          <section class="moduleGrid" aria-label="Fielddesk moduler">
+            <a class="moduleCard" href="#projects" data-view-link="projects">
+              <div class="moduleTop">
+                <p class="moduleName">Projekter / Sagsoversigt</p>
+                <span class="tag tagLive">Aktiv</span>
+              </div>
+              <p id="moduleProjectsMeta" class="moduleText">Indlæser sager...</p>
+            </a>
+            <article class="moduleCard disabled">
+              <div class="moduleTop">
+                <p class="moduleName">QA</p>
+                <span class="tag tagLive">Projektflow</span>
+              </div>
+              <p class="moduleText">Åbnes fra en sag, hvor tråde, svar og status ligger i projektkonteksten.</p>
+            </article>
+            <article class="moduleCard disabled">
+              <div class="moduleTop">
+                <p class="moduleName">Dokumenter</p>
+                <span class="tag tagPreview">Preview</span>
+              </div>
+              <p class="moduleText">Reserveret til søgning, dokumentstatus og tekniske filer.</p>
+            </article>
+            <article class="moduleCard disabled">
+              <div class="moduleTop">
+                <p class="moduleName">Økonomi</p>
+                <span class="tag tagPreview">Preview</span>
+              </div>
+              <p class="moduleText">Kommende samlet billede af budget, forbrug, timer og afvigelser.</p>
+            </article>
+            <article class="moduleCard disabled">
+              <div class="moduleTop">
+                <p class="moduleName">CO2 / ESG</p>
+                <span class="tag tagPreview">Teaser</span>
+              </div>
+              <p class="moduleText">Foreløbigt projekt-CO2, datakvalitet og verificerede snapshots kommer senere.</p>
+            </article>
+            <article class="moduleCard disabled">
+              <div class="moduleTop">
+                <p class="moduleName">Kalender</p>
+                <span class="tag">Kommer senere</span>
+              </div>
+              <p class="moduleText">Plan, fravær og deadlines får plads her, når modulet modnes.</p>
+            </article>
+            <article class="moduleCard disabled">
+              <div class="moduleTop">
+                <p class="moduleName">Medarbejdere</p>
+                <span class="tag">Kommer senere</span>
+              </div>
+              <p class="moduleText">Kontakt, roller og kapacitet skal senere samles i et roligt overblik.</p>
+            </article>
+            <article class="moduleCard disabled">
+              <div class="moduleTop">
+                <p class="moduleName">Indstillinger / Admin</p>
+                <span class="tag">Tenant</span>
+              </div>
+              <p class="moduleText">Moduladgang, brugere og platformskonfiguration bliver et eget spor.</p>
+            </article>
+          </section>
+
+          <div class="sectionHeader">
+            <div>
+              <h2>Mine info cards</h2>
+              <p class="subtitle">Layoutet er klar til fremtidig personlig tilpasning.</p>
+            </div>
+          </div>
+
+          <section class="infoGrid" aria-label="Personlige info cards">
+            <article class="infoCard">
+              <p class="infoLabel">Mine åbne sager</p>
+              <p id="dashboardOpenCount" class="infoValue">-</p>
+              <p class="infoHint">Fra eksisterende sagsliste.</p>
+            </article>
+            <article class="infoCard">
+              <p class="infoLabel">QA der afventer mig</p>
+              <p id="dashboardQaStatus" class="infoValue">-</p>
+              <p class="infoHint">Projektbaseret QA, ingen global inbox endnu.</p>
+            </article>
+            <article class="infoCard">
+              <p class="infoLabel">Timer til godkendelse</p>
+              <p class="infoValue">Preview</p>
+              <p class="infoHint">Reserveret til timeflow.</p>
+            </article>
+            <article class="infoCard disabled">
+              <p class="infoLabel">Total CO2</p>
+              <p id="dashboardCo2Total" class="infoValue">Teaser</p>
+              <p class="infoHint">Kræver CO2-modul og datagrundlag.</p>
+            </article>
+            <article class="infoCard disabled">
+              <p class="infoLabel">Gns. CO2 pr. sag</p>
+              <p id="dashboardCo2Average" class="infoValue">Teaser</p>
+              <p class="infoHint">Foreløbig placeholder.</p>
+            </article>
+          </section>
+        </section>
+
+        <section id="projectsView" class="view" data-view="projects" hidden>
+          <section class="panel headerPanel">
+            <div class="titleRow">
+              <div>
+                <h1>Sagsoversigt</h1>
+                <p class="subtitle">Sagsoversigten er nu et modul i Fielddesk-cockpittet.</p>
+              </div>
+              <a class="btn btnCompact" href="#dashboard" data-view-link="dashboard">Dashboard</a>
+            </div>
+            <div id="userPill" class="userPill">Indlæser bruger...</div>
+          </section>
+
+          <section class="projectStats" aria-label="Projekt status">
+            <article class="statCard">
+              <p class="infoLabel">Sager</p>
+              <p id="dashboardProjectCount" class="statValue">-</p>
+              <p class="infoHint">Alle hentede sager.</p>
+            </article>
+            <article class="statCard">
+              <p class="infoLabel">Aktive</p>
+              <p id="projectOpenCount" class="statValue">-</p>
+              <p class="infoHint">Ikke markeret lukket.</p>
+            </article>
+            <article class="statCard">
+              <p class="infoLabel">Kræver blik</p>
+              <p id="dashboardAttentionCount" class="statValue">-</p>
+              <p class="infoHint">Stille eller OBS.</p>
+            </article>
+            <article class="statCard">
+              <p class="infoLabel">Visning</p>
+              <p class="statValue">Mine</p>
+              <p class="infoHint">Eksisterende scope.</p>
+            </article>
+          </section>
+
+          <section class="panel toolbar">
+            <div class="metaRow" id="listMetaText">Indlæser sager...</div>
+            <label>
+              <span class="subtitle">Sortering</span>
+              <select id="sortSelect" class="sortSelect">
+                <option value="ref_asc">Projektnr. (stigende)</option>
+                <option value="ref_desc">Projektnr. (faldende)</option>
+                <option value="activity_desc">Sidste aktivitet (nyeste)</option>
+                <option value="activity_asc">Sidste aktivitet (ældste)</option>
+              </select>
+            </label>
+            <div id="scopeRow" class="scopeRow" hidden>
+              <p class="scopeRowLabel">Visning</p>
+              <div id="scopeChips" class="scopeChips"></div>
+            </div>
+          </section>
+
+          <section class="panel syncPanel" aria-live="polite">
+            <div class="metaRow">
+              <strong>Sync-status</strong>
+              <button id="refreshSyncBtn" class="btn btnCompact" type="button">Opdater sync</button>
+            </div>
+            <div id="syncGrid" class="syncGrid syncSummaryRow">
+              <div class="syncItem"><span class="syncLabel">Aktuel endpoint-status:</span> <span id="syncOverallText">Indlæser...</span></div>
+              <div class="syncItem"><span class="syncLabel">Bootstrap:</span> <span id="syncBootstrapText">Indlæser...</span></div>
+              <div class="syncItem"><span class="syncLabel">Delta:</span> <span id="syncDeltaText">Indlæser...</span></div>
+              <div class="syncItem"><span class="syncLabel">Seneste succes:</span> <span id="syncLastSuccessText">Indlæser...</span></div>
+              <div class="syncItem"><span class="syncLabel">Backlog:</span> <span id="syncBacklogText">Indlæser...</span></div>
+              <div class="syncItem"><span class="syncLabel">Næste retry:</span> <span id="syncNextRetryText">Indlæser...</span></div>
+              <div class="syncItem"><span class="syncLabel">Rows persisteret:</span> <span id="syncRowsText">Indlæser...</span></div>
+            </div>
+
+            <details id="syncDetails" class="syncDetails">
+              <summary><strong>Endpoint-status</strong> (klik for detaljer)</summary>
+              <div class="syncDetailsContent">
+                <div class="syncControls">
+                  <label>
+                    <span class="syncLabel">Filter</span>
+                    <select id="syncFilterSelect" class="syncSelect">
+                      <option value="all">Vis alle</option>
+                      <option value="bootstrap">Kun bootstrap</option>
+                      <option value="delta">Kun delta</option>
+                      <option value="issues">Kun fejl/pending</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span class="syncLabel">Sortering</span>
+                    <select id="syncSortSelect" class="syncSelect">
+                      <option value="endpoint">Endpoint-navn</option>
+                      <option value="activity_desc">Seneste aktivitet</option>
+                    </select>
+                  </label>
+                </div>
+                <div id="syncEndpointList" class="syncEndpointList"></div>
+              </div>
+            </details>
+          </section>
+
+          <section id="projectsContainer" class="projectList" aria-live="polite"></section>
+        </section>
+      </main>
+    </div>
+  </div>
 
   <div id="drawerShell" class="drawerShell" aria-hidden="true">
     <div id="drawerOverlay" class="drawerOverlay"></div>

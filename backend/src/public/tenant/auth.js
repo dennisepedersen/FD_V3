@@ -509,6 +509,7 @@
     if (!form) {
       return;
     }
+    const loginSubmitBtn = document.getElementById("loginSubmitBtn");
 
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -516,6 +517,10 @@
 
       const login = document.getElementById("login").value.trim();
       const password = document.getElementById("password").value;
+      if (loginSubmitBtn) {
+        loginSubmitBtn.disabled = true;
+        loginSubmitBtn.textContent = "Logger ind...";
+      }
 
       try {
         const data = await apiFetch("/v1/auth/login", {
@@ -532,6 +537,11 @@
         window.location.href = "/app";
       } catch (error) {
         showError(getErrorMessage(error, "login_failed"));
+      } finally {
+        if (loginSubmitBtn) {
+          loginSubmitBtn.disabled = false;
+          loginSubmitBtn.textContent = "Åbn Fielddesk";
+        }
       }
     });
   }
@@ -548,6 +558,18 @@
 
     const userPill = document.getElementById("userPill");
     const logoutBtn = document.getElementById("logoutBtn");
+    const dashboardView = document.getElementById("dashboardView");
+    const projectsView = document.getElementById("projectsView");
+    const viewLinks = Array.from(document.querySelectorAll("[data-view-link]"));
+    const dashboardWelcomeName = document.getElementById("dashboardWelcomeName");
+    const dashboardDateText = document.getElementById("dashboardDateText");
+    const dashboardProjectCount = document.getElementById("dashboardProjectCount");
+    const dashboardOpenCount = document.getElementById("dashboardOpenCount");
+    const projectOpenCount = document.getElementById("projectOpenCount");
+    const dashboardAttentionCount = document.getElementById("dashboardAttentionCount");
+    const dashboardQaStatus = document.getElementById("dashboardQaStatus");
+    const dashboardSyncStatus = document.getElementById("dashboardSyncStatus");
+    const moduleProjectsMeta = document.getElementById("moduleProjectsMeta");
     const sortSelect = document.getElementById("sortSelect");
     const listMetaText = document.getElementById("listMetaText");
     const scopeRow = document.getElementById("scopeRow");
@@ -584,6 +606,7 @@
       syncEndpointStates: [],
       syncFilterMode: "all",
       syncSortMode: "endpoint",
+      currentView: "dashboard",
     };
 
     const ACTIVITY_FIELD_CANDIDATES = [
@@ -595,6 +618,49 @@
     ];
     const PIPELINE_TRACE_REFS = new Set(["80229", "80229-001"]);
     const PROJECT_LIST_DEBUG_ENABLED = true;
+
+    function setText(node, value) {
+      if (node) {
+        node.textContent = value;
+      }
+    }
+
+    function getCurrentAppViewFromHash() {
+      const hash = String(window.location.hash || "").replace(/^#/, "").toLowerCase();
+      if (hash === "projects") {
+        return "projects";
+      }
+      return "dashboard";
+    }
+
+    function setActiveAppView(view) {
+      const activeView = view === "projects" ? "projects" : "dashboard";
+      state.currentView = activeView;
+
+      if (dashboardView) {
+        dashboardView.hidden = activeView !== "dashboard";
+      }
+      if (projectsView) {
+        projectsView.hidden = activeView !== "projects";
+      }
+
+      viewLinks.forEach((link) => {
+        const target = String(link.dataset.viewLink || "").toLowerCase();
+        link.classList.toggle("active", target === activeView);
+      });
+    }
+
+    function formatDashboardDate() {
+      try {
+        return new Intl.DateTimeFormat("da-DK", {
+          weekday: "long",
+          day: "2-digit",
+          month: "long",
+        }).format(new Date());
+      } catch (_error) {
+        return new Date().toISOString().slice(0, 10);
+      }
+    }
 
     function normalizeRef(ref) {
       return String(ref || "").trim();
@@ -1508,10 +1574,36 @@
       return card;
     }
 
+    function renderDashboard() {
+      const name = state.me && state.me.name ? String(state.me.name) : "Fielddesk";
+      const firstName = name.split(" ").filter(Boolean)[0] || name;
+      const totalProjects = state.projects.length;
+      const openProjects = state.projects.filter((project) => !isClosedStatus(project));
+      const attentionProjects = openProjects.filter((project) => {
+        const statusView = getStatusView(project);
+        return statusView.tone === "warning" || statusView.tone === "critical";
+      });
+
+      setText(dashboardWelcomeName, firstName);
+      setText(dashboardDateText, formatDashboardDate());
+      setText(dashboardProjectCount, String(totalProjects));
+      setText(dashboardOpenCount, String(openProjects.length));
+      setText(projectOpenCount, String(openProjects.length));
+      setText(dashboardAttentionCount, String(attentionProjects.length));
+      setText(dashboardQaStatus, totalProjects > 0 ? "Via sag" : "-");
+      setText(
+        moduleProjectsMeta,
+        totalProjects > 0
+          ? `${openProjects.length} aktive sager · ${totalProjects} i alt`
+          : "Ingen sager hentet endnu"
+      );
+    }
+
     function renderProjects() {
       const visibleProjects = getFilteredProjects();
       projectsContainer.innerHTML = "";
       renderScopeChips();
+      renderDashboard();
 
       const selectedCount = state.selectedOwnerIds.has("__ALL__")
         ? state.ownerOptions.length
@@ -1693,6 +1785,7 @@
           const skipped = endpointSummary ? Number(endpointSummary.skipped_count || 0) : 0;
           const failed = endpointSummary ? Number(endpointSummary.failed_count || 0) : 0;
           syncOverallText.textContent = `${overall} · touched ${touched} · skipped ${skipped} · failed ${failed}`;
+          setText(dashboardSyncStatus, `Sync: ${overall}`);
         }
 
         state.syncEndpointStates = endpointStates;
@@ -1709,6 +1802,7 @@
         if (syncNextRetryText) syncNextRetryText.textContent = "-";
         if (syncRowsText) syncRowsText.textContent = "-";
         if (syncOverallText) syncOverallText.textContent = "Utilgængelig";
+        setText(dashboardSyncStatus, "Sync: utilgængelig");
         state.syncEndpointStates = [];
         renderSyncEndpointList();
       }
@@ -1722,6 +1816,7 @@
         const role = state.me && state.me.role ? state.me.role : "rolle ukendt";
         userPill.textContent = `${name} · ${role}`;
       }
+      renderDashboard();
     } catch (error) {
       if (handleAuthFailure(error)) {
         return;
@@ -1731,6 +1826,11 @@
       }
       return;
     }
+
+    setActiveAppView(getCurrentAppViewFromHash());
+    window.addEventListener("hashchange", () => {
+      setActiveAppView(getCurrentAppViewFromHash());
+    });
 
     if (sortSelect) {
       sortSelect.addEventListener("change", () => {

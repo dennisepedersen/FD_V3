@@ -5,47 +5,376 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Fielddesk Login</title>
   <style>
+    :root {
+      --bg: #070d1b;
+      --surface: rgba(20, 32, 52, 0.72);
+      --surface-strong: rgba(28, 43, 67, 0.86);
+      --text: #f5f8fc;
+      --muted: #a8b5c6;
+      --border: rgba(191, 212, 234, 0.18);
+      --brand: #5ec8e5;
+      --brand-soft: rgba(94, 200, 229, 0.14);
+      --warning: #f6d453;
+      --shadow: 0 28px 80px rgba(0, 0, 0, 0.36);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
     body {
-      font-family: sans-serif;
-      max-width: 480px;
-      margin: 48px auto;
-      padding: 0 16px;
+      min-height: 100vh;
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      background:
+        radial-gradient(circle at 18% 12%, rgba(70, 98, 175, 0.28), rgba(70, 98, 175, 0) 34%),
+        radial-gradient(circle at 84% 18%, rgba(74, 173, 207, 0.2), rgba(74, 173, 207, 0) 30%),
+        linear-gradient(180deg, #070d1b 0%, #0d2035 48%, #111222 100%);
+      color: var(--text);
+    }
+
+    .loginShell {
+      width: min(1080px, 100%);
+      min-height: 100vh;
+      margin: 0 auto;
+      padding: 24px 16px;
+      display: grid;
+      align-items: center;
+      gap: 18px;
+    }
+
+    .brandBar {
+      position: fixed;
+      inset: 0 0 auto;
+      z-index: 1;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 14px 16px;
+      border-bottom: 1px solid rgba(191, 212, 234, 0.12);
+      background: rgba(7, 13, 27, 0.82);
+      backdrop-filter: blur(18px);
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .brandMark {
+      width: 38px;
+      height: 38px;
+      border-radius: 12px;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(135deg, #7cad94, #2d6f91 54%, #172844);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 800;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24), 0 12px 26px rgba(0, 0, 0, 0.3);
+    }
+
+    .brandText {
+      min-width: 0;
+    }
+
+    .brandName {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 800;
+      letter-spacing: 0.02em;
+    }
+
+    .brandSub {
+      margin: 1px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .envPill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 38px;
+      padding: 0 12px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.06);
+      color: #dbe7f2;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .envDot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--warning);
+      box-shadow: 0 0 18px rgba(246, 212, 83, 0.42);
+    }
+
+    .loginGrid {
+      position: relative;
+      z-index: 2;
+      display: grid;
+      gap: 16px;
+      padding-top: 74px;
+    }
+
+    .introPanel,
+    .loginPanel {
+      border: 1px solid var(--border);
+      border-radius: 22px;
+      background:
+        linear-gradient(135deg, rgba(94, 200, 229, 0.12), rgba(255, 255, 255, 0.03)),
+        var(--surface);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(18px);
+    }
+
+    .introPanel {
+      padding: 22px;
+      display: grid;
+      gap: 14px;
+      align-content: end;
+      min-height: 260px;
+    }
+
+    .eyebrow {
+      margin: 0;
+      color: #9de7f7;
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+    }
+
+    h1 {
+      margin: 0;
+      max-width: 680px;
+      font-size: 34px;
+      line-height: 1.05;
+      letter-spacing: 0;
+    }
+
+    .lead {
+      margin: 0;
+      max-width: 620px;
+      color: #c2cedc;
+      font-size: 15px;
+      line-height: 1.6;
+    }
+
+    .signalRow {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 4px;
+    }
+
+    .signal {
+      display: inline-flex;
+      align-items: center;
+      min-height: 34px;
+      padding: 0 11px;
+      border: 1px solid rgba(191, 212, 234, 0.17);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.07);
+      color: #d8e3ee;
+      font-size: 12px;
+    }
+
+    .loginPanel {
+      padding: 18px;
+    }
+
+    .formHeader {
+      margin-bottom: 18px;
+    }
+
+    .formHeader h2 {
+      margin: 0;
+      font-size: 23px;
+      line-height: 1.2;
+    }
+
+    .formHeader p {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.45;
     }
 
     form {
       display: grid;
-      gap: 12px;
+      gap: 13px;
+    }
+
+    label {
+      display: grid;
+      gap: 7px;
+      color: #dbe6f0;
+      font-size: 13px;
+      font-weight: 650;
     }
 
     input,
     button {
       font: inherit;
-      padding: 10px 12px;
     }
 
-    pre {
+    input {
+      width: 100%;
+      min-height: 48px;
+      border: 1px solid rgba(191, 212, 234, 0.18);
+      border-radius: 13px;
+      padding: 0 13px;
+      background: rgba(4, 10, 22, 0.42);
+      color: var(--text);
+      outline: none;
+    }
+
+    input::placeholder {
+      color: #77879a;
+    }
+
+    input:focus {
+      border-color: rgba(94, 200, 229, 0.7);
+      box-shadow: 0 0 0 3px rgba(94, 200, 229, 0.12);
+    }
+
+    .loginButton {
+      min-height: 50px;
+      border: 1px solid rgba(94, 200, 229, 0.46);
+      border-radius: 14px;
+      padding: 0 16px;
+      background: linear-gradient(180deg, rgba(61, 130, 169, 0.96), rgba(33, 74, 115, 0.96));
+      color: #fff;
+      cursor: pointer;
+      font-weight: 800;
+      box-shadow: 0 16px 34px rgba(5, 14, 23, 0.34);
+    }
+
+    .loginButton:hover {
+      background: linear-gradient(180deg, rgba(72, 147, 188, 0.98), rgba(40, 86, 130, 0.98));
+    }
+
+    .loginButton:disabled {
+      cursor: wait;
+      opacity: 0.72;
+    }
+
+    .errorBox {
+      margin: 14px 0 0;
       white-space: pre-wrap;
       word-break: break-word;
-      background: #f5f5f5;
+      border: 1px solid rgba(255, 136, 136, 0.32);
+      border-radius: 13px;
+      background: rgba(255, 92, 92, 0.1);
+      color: #ffc3c3;
       padding: 12px;
+      font-size: 13px;
+    }
+
+    .securityNote {
+      margin: 14px 0 0;
+      color: #8392a6;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    [hidden] {
+      display: none !important;
+    }
+
+    @media (min-width: 820px) {
+      .loginShell {
+        padding: 30px;
+      }
+
+      .brandBar {
+        padding: 16px 30px;
+      }
+
+      .loginGrid {
+        grid-template-columns: minmax(0, 1.18fr) minmax(340px, 0.72fr);
+        align-items: stretch;
+      }
+
+      .introPanel,
+      .loginPanel {
+        border-radius: 26px;
+      }
+
+      .introPanel {
+        padding: 30px;
+        min-height: 520px;
+      }
+
+      .loginPanel {
+        padding: 24px;
+        align-self: center;
+      }
+
+      h1 {
+        font-size: 50px;
+      }
     }
   </style>
 </head>
 <body data-page="login">
-  <h1>Log ind</h1>
-  <form id="loginForm">
-    <label>
-      Brugernavn
-      <input id="login" name="login" type="text" autocomplete="username" required maxlength="4" placeholder="dep">
-    </label>
-    <label>
-      Adgangskode
-      <input id="password" name="password" type="password" autocomplete="current-password" required>
-    </label>
-    <button type="submit">Log ind</button>
-  </form>
-  <pre id="errorBox" hidden></pre>
+  <header class="brandBar">
+    <div class="brand">
+      <div class="brandMark">FD</div>
+      <div class="brandText">
+        <p class="brandName">Fielddesk</p>
+        <p class="brandSub">Operational platform</p>
+      </div>
+    </div>
+    <div class="envPill" aria-label="Tenant status">
+      <span class="envDot"></span>
+      <span>Tenant login</span>
+    </div>
+  </header>
+
+  <main class="loginShell">
+    <div class="loginGrid">
+      <section class="introPanel" aria-labelledby="loginIntroTitle">
+        <p class="eyebrow">Fielddesk</p>
+        <h1 id="loginIntroTitle">Dit projektcockpit for drift, sager og dokumentation.</h1>
+        <p class="lead">Log ind til et samlet overblik, hvor projekter, QA, økonomi, dokumenter og kommende ESG-signaler kan leve i samme rolige arbejdsoverflade.</p>
+        <div class="signalRow" aria-label="Platform signaler">
+          <span class="signal">Tenant-isoleret</span>
+          <span class="signal">Projektorienteret</span>
+          <span class="signal">Audit-aware</span>
+        </div>
+      </section>
+
+      <section class="loginPanel" aria-labelledby="loginTitle">
+        <div class="formHeader">
+          <h2 id="loginTitle">Log ind</h2>
+          <p>Brug din Fielddesk-bruger til at åbne dashboardet.</p>
+        </div>
+        <form id="loginForm">
+          <label>
+            Brugernavn
+            <input id="login" name="login" type="text" autocomplete="username" required maxlength="64" placeholder="dep">
+          </label>
+          <label>
+            Adgangskode
+            <input id="password" name="password" type="password" autocomplete="current-password" required>
+          </label>
+          <button id="loginSubmitBtn" class="loginButton" type="submit">Åbn Fielddesk</button>
+        </form>
+        <pre id="errorBox" class="errorBox" hidden></pre>
+        <p class="securityNote">Login bruger eksisterende tenant host, session og adgangskontrol.</p>
+      </section>
+    </div>
+  </main>
+
   <script src="/tenant/auth.js"></script>
 </body>
 </html>
-
