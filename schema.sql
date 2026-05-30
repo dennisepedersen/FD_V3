@@ -794,6 +794,7 @@ CREATE TABLE fitter_hour (
   tenant_id uuid NOT NULL,
   source_key text NOT NULL,
   fitter_hour_id text NULL,
+  fd_project_id uuid NULL,
   external_project_ref text NULL,
   project_id text NULL,
   fitter_id text NULL,
@@ -833,6 +834,14 @@ CREATE INDEX ix_fitter_hour_tenant_external_ref_norm
 CREATE INDEX ix_fitter_hour_tenant_project_id_norm
   ON fitter_hour (tenant_id, lower(btrim(project_id)))
   WHERE project_id IS NOT NULL;
+
+CREATE INDEX ix_fitter_hour_tenant_fd_project
+  ON fitter_hour (tenant_id, fd_project_id)
+  WHERE fd_project_id IS NOT NULL;
+
+CREATE INDEX ix_fitter_hour_tenant_fd_project_work_date
+  ON fitter_hour (tenant_id, fd_project_id, work_date DESC, registration_date DESC)
+  WHERE fd_project_id IS NOT NULL;
 
 CREATE INDEX ix_fitter_hour_tenant_fitter_id
   ON fitter_hour (tenant_id, fitter_id);
