@@ -5,7 +5,9 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "NODE_ENV=development node src/server.js"
+    "dev": "NODE_ENV=development node src/server.js",
+    "db:migrate": "node scripts/db_migrate.js",
+    "db:migrate:status": "node scripts/db_migrate.js --status"
   },
   "engines": {
     "node": "20.x"

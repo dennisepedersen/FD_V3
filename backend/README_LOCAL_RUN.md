@@ -26,29 +26,9 @@ CREATE DATABASE fielddesk_v3;
 \q
 ```
 
-Default connection assumes `postgres:postgres` on `localhost:5432`. Adjust in step 4 if your setup differs.
+Default connection assumes `postgres:postgres` on `localhost:5432`. Adjust `DATABASE_URL` in step 3 if your setup differs.
 
-## Step 3: Run Initial Migration
-
-Apply the Phase-1 schema and initial setup:
-
-```bash
-psql -U postgres -d fielddesk_v3 -f ../migrations/0001_init.sql
-```
-
-This creates:
-- Schema tables: `tenant`, `tenant_domain`, `tenant_invitation`, `tenant_user`, `tenant_config`, `tenant_config_snapshot`, `audit_event`, etc.
-- Triggers and constraints for data integrity
-- Indexes for performance
-
-Verify tables were created:
-```bash
-psql -U postgres -d fielddesk_v3 -c "\dt"
-```
-
-You should see ~14 tables listed.
-
-## Step 4: Set Environment Variables
+## Step 3: Set Environment Variables
 
 Copy `.env.example` to `.env` and fill in:
 
@@ -70,6 +50,44 @@ JWT_SECRET=local-dev-secret
 ROOT_DOMAIN=localhost:3000
 PORT=3000
 NODE_ENV=development
+```
+
+## Step 4: Run Database Migrations
+
+Fielddesk uses the explicit Node migration runner in `backend/scripts/db_migrate.js`.
+It reads `DATABASE_URL`, creates the `schema_migration` tracking table, and applies
+pending SQL files from `../migrations` in filename order.
+
+Apply all pending migrations:
+
+```bash
+npm run db:migrate
+```
+
+Check migration status:
+
+```bash
+npm run db:migrate:status
+```
+
+For an existing database that was created before migration tracking existed, baseline
+the already-applied migrations explicitly, then run pending migrations:
+
+```bash
+npm run db:migrate -- --baseline-through 0019
+npm run db:migrate
+```
+
+Use baseline only when the database schema is known to already include the migrations
+being marked. Baseline records history only; it does not execute SQL.
+
+For Render/production, run the same commands as an explicit one-off command or shell
+task with Render's `DATABASE_URL` environment variable. Do not run migrations at app
+startup, and do not use `schema.sql` to reset or recreate production schema.
+
+Verify tables were created:
+```bash
+psql -U postgres -d fielddesk_v3 -c "\dt"
 ```
 
 ## Step 5: Start the Backend
