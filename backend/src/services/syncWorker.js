@@ -1326,15 +1326,15 @@ async function listActiveProjectReferenceKeys(client, tenantId) {
           AND status = 'open'
           AND COALESCE(is_closed, false) = false
       )
-      SELECT DISTINCT lower(btrim(value_text)) AS project_ref_key
+      SELECT DISTINCT key_type, lower(btrim(value_text)) AS project_ref_key
       FROM (
-        SELECT external_project_ref::text AS value_text
+        SELECT 'project_reference' AS key_type, external_project_ref::text AS value_text
         FROM active_projects
         WHERE external_project_ref IS NOT NULL
 
         UNION ALL
 
-        SELECT pm.ek_project_id::text AS value_text
+        SELECT 'source_project_id' AS key_type, pm.ek_project_id::text AS value_text
         FROM active_projects ap
         INNER JOIN project_masterdata_v4 pm
           ON pm.project_id = ap.project_id
@@ -1347,7 +1347,20 @@ async function listActiveProjectReferenceKeys(client, tenantId) {
     [tenantId]
   );
 
-  return new Set(rows.map((row) => row.project_ref_key).filter(Boolean));
+  return {
+    projectReferences: new Set(
+      rows
+        .filter((row) => row.key_type === "project_reference")
+        .map((row) => row.project_ref_key)
+        .filter(Boolean)
+    ),
+    sourceProjectIds: new Set(
+      rows
+        .filter((row) => row.key_type === "source_project_id")
+        .map((row) => row.project_ref_key)
+        .filter(Boolean)
+    ),
+  };
 }
 
 function pickFitterHourDateIso(raw) {
@@ -1376,10 +1389,6 @@ function mapFitterHourRow(raw, { activeProjectReferenceKeys, cutoffIso }) {
 
   const externalProjectRef = asNullableText(
     pickAny(raw, [
-      "ProjectID",
-      "ProjectId",
-      "projectID",
-      "projectId",
       "ProjectReference",
       "projectReference",
       "ExternalProjectRef",
@@ -1387,8 +1396,17 @@ function mapFitterHourRow(raw, { activeProjectReferenceKeys, cutoffIso }) {
     ])
   );
 
+  const projectId = asNullableText(
+    pickAny(raw, ["ProjectID", "ProjectId", "projectID", "projectId"])
+  );
+
   const normalizedProjectRef = normalizeLookupKey(externalProjectRef);
-  if (!normalizedProjectRef || !activeProjectReferenceKeys.has(normalizedProjectRef)) {
+  const normalizedSourceProjectId = normalizeLookupKey(projectId);
+  const matchesProjectReference = normalizedProjectRef
+    && activeProjectReferenceKeys.projectReferences.has(normalizedProjectRef);
+  const matchesSourceProjectId = normalizedSourceProjectId
+    && activeProjectReferenceKeys.sourceProjectIds.has(normalizedSourceProjectId);
+  if (!matchesProjectReference && !matchesSourceProjectId) {
     return null;
   }
 
@@ -1437,9 +1455,6 @@ function mapFitterHourRow(raw, { activeProjectReferenceKeys, cutoffIso }) {
     pickAny(raw, ["FitterCategoryReference", "fitterCategoryReference", "CategoryReference", "categoryReference"])
   );
 
-  const projectId = asNullableText(
-    pickAny(raw, ["ProjectID", "ProjectId", "projectID", "projectId"])
-  );
   const hours = asNullableNumeric(
     pickAny(raw, ["Hours", "hours", "NumberOfHours", "numberOfHours", "HourCount", "hourCount", "Quantity", "quantity"])
   );

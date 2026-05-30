@@ -132,6 +132,20 @@ function buildProjectRelevantHoursCte() {
         fh.fitter_username,
         COALESCE(f.name, fh.raw_payload_json ->> 'FitterName', fh.fitter_username, fh.fitter_id, 'Unknown fitter') AS fitter_name,
         COALESCE(fh.hours, fh.quantity, 0)::numeric AS hour_value,
+        COALESCE(
+          NULLIF(btrim(fh.raw_payload_json ->> 'ProjectReference'), ''),
+          NULLIF(btrim(fh.raw_payload_json ->> 'projectReference'), ''),
+          NULLIF(btrim(fh.raw_payload_json ->> 'ExternalProjectRef'), ''),
+          NULLIF(btrim(fh.raw_payload_json ->> 'externalProjectRef'), ''),
+          NULLIF(btrim(fh.external_project_ref), '')
+        ) AS source_project_ref,
+        COALESCE(
+          NULLIF(btrim(fh.raw_payload_json ->> 'ProjectID'), ''),
+          NULLIF(btrim(fh.raw_payload_json ->> 'ProjectId'), ''),
+          NULLIF(btrim(fh.raw_payload_json ->> 'projectID'), ''),
+          NULLIF(btrim(fh.raw_payload_json ->> 'projectId'), ''),
+          NULLIF(btrim(fh.project_id), '')
+        ) AS source_project_id,
         COALESCE(fc.is_only_for_internal_projects, false) AS is_internal_only,
         COALESCE(fc.is_on_invoice, false) AS is_invoice_relevant,
         lower(translate(trim(concat_ws(' ',
@@ -145,10 +159,26 @@ function buildProjectRelevantHoursCte() {
       JOIN fitter_hour fh
         ON fh.tenant_id = $1
        AND (
-         lower(btrim(coalesce(fh.external_project_ref, ''))) = lower(btrim(coalesce(pt.external_project_ref, '')))
-         OR lower(btrim(coalesce(fh.external_project_ref, ''))) = lower(btrim(coalesce(pt.ek_project_id_text, '')))
-         OR lower(btrim(coalesce(fh.project_id, ''))) = lower(btrim(coalesce(pt.external_project_ref, '')))
-         OR lower(btrim(coalesce(fh.project_id, ''))) = lower(btrim(coalesce(pt.ek_project_id_text, '')))
+         (
+           NULLIF(btrim(pt.external_project_ref), '') IS NOT NULL
+           AND lower(btrim(coalesce(
+             NULLIF(btrim(fh.raw_payload_json ->> 'ProjectReference'), ''),
+             NULLIF(btrim(fh.raw_payload_json ->> 'projectReference'), ''),
+             NULLIF(btrim(fh.raw_payload_json ->> 'ExternalProjectRef'), ''),
+             NULLIF(btrim(fh.raw_payload_json ->> 'externalProjectRef'), ''),
+             NULLIF(btrim(fh.external_project_ref), '')
+           , ''))) = lower(btrim(pt.external_project_ref))
+         )
+         OR (
+           NULLIF(btrim(pt.ek_project_id_text), '') IS NOT NULL
+           AND lower(btrim(coalesce(
+             NULLIF(btrim(fh.raw_payload_json ->> 'ProjectID'), ''),
+             NULLIF(btrim(fh.raw_payload_json ->> 'ProjectId'), ''),
+             NULLIF(btrim(fh.raw_payload_json ->> 'projectID'), ''),
+             NULLIF(btrim(fh.raw_payload_json ->> 'projectId'), ''),
+             NULLIF(btrim(fh.project_id), '')
+           , ''))) = lower(btrim(pt.ek_project_id_text))
+         )
        )
       LEFT JOIN fitter f
         ON f.tenant_id = $1
@@ -170,6 +200,8 @@ function buildProjectRelevantHoursCte() {
         fitter_id,
         fitter_username,
         fitter_name,
+        source_project_ref,
+        source_project_id,
         hour_value,
         is_internal_only,
         is_invoice_relevant,

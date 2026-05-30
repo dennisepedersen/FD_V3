@@ -86,7 +86,20 @@ async function listFitterHoursForUser(client, {
       fh.note,
       fh.description,
       sp.project_id,
-      fh.external_project_ref,
+      COALESCE(
+        NULLIF(btrim(fh.raw_payload_json ->> 'ProjectReference'), ''),
+        NULLIF(btrim(fh.raw_payload_json ->> 'projectReference'), ''),
+        NULLIF(btrim(fh.raw_payload_json ->> 'ExternalProjectRef'), ''),
+        NULLIF(btrim(fh.raw_payload_json ->> 'externalProjectRef'), ''),
+        NULLIF(btrim(fh.external_project_ref), '')
+      ) AS external_project_ref,
+      COALESCE(
+        NULLIF(btrim(fh.raw_payload_json ->> 'ProjectID'), ''),
+        NULLIF(btrim(fh.raw_payload_json ->> 'ProjectId'), ''),
+        NULLIF(btrim(fh.raw_payload_json ->> 'projectID'), ''),
+        NULLIF(btrim(fh.raw_payload_json ->> 'projectId'), ''),
+        NULLIF(btrim(fh.project_id), '')
+      ) AS source_project_id,
       sp.project_name,
       fh.fitter_id,
       COALESCE(f.name, fh.raw_payload_json ->> 'FitterName') AS fitter_name,
@@ -100,10 +113,26 @@ async function listFitterHoursForUser(client, {
     FROM fitter_hour fh
     INNER JOIN scoped_projects sp
       ON (
-        lower(btrim(coalesce(fh.external_project_ref, ''))) = lower(btrim(coalesce(sp.external_project_ref, '')))
-        OR lower(btrim(coalesce(fh.external_project_ref, ''))) = lower(btrim(coalesce(sp.ek_project_id_text, '')))
-        OR lower(btrim(coalesce(fh.project_id, ''))) = lower(btrim(coalesce(sp.external_project_ref, '')))
-        OR lower(btrim(coalesce(fh.project_id, ''))) = lower(btrim(coalesce(sp.ek_project_id_text, '')))
+        (
+          NULLIF(btrim(sp.external_project_ref), '') IS NOT NULL
+          AND lower(btrim(coalesce(
+            NULLIF(btrim(fh.raw_payload_json ->> 'ProjectReference'), ''),
+            NULLIF(btrim(fh.raw_payload_json ->> 'projectReference'), ''),
+            NULLIF(btrim(fh.raw_payload_json ->> 'ExternalProjectRef'), ''),
+            NULLIF(btrim(fh.raw_payload_json ->> 'externalProjectRef'), ''),
+            NULLIF(btrim(fh.external_project_ref), '')
+          , ''))) = lower(btrim(sp.external_project_ref))
+        )
+        OR (
+          NULLIF(btrim(sp.ek_project_id_text), '') IS NOT NULL
+          AND lower(btrim(coalesce(
+            NULLIF(btrim(fh.raw_payload_json ->> 'ProjectID'), ''),
+            NULLIF(btrim(fh.raw_payload_json ->> 'ProjectId'), ''),
+            NULLIF(btrim(fh.raw_payload_json ->> 'projectID'), ''),
+            NULLIF(btrim(fh.raw_payload_json ->> 'projectId'), ''),
+            NULLIF(btrim(fh.project_id), '')
+          , ''))) = lower(btrim(sp.ek_project_id_text))
+        )
       )
     LEFT JOIN fitter f
       ON f.tenant_id = $1
