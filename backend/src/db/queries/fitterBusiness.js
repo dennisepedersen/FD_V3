@@ -275,43 +275,61 @@ async function getProjectDetailHoursOutput(client, {
 
   const sql = `
     ${buildProjectRelevantHoursCte()}
+    , fitter_breakdown AS (
+      SELECT
+        COALESCE(fitter_id, fitter_username, lower(fitter_name)) AS fitter_key,
+        fitter_id,
+        fitter_username,
+        fitter_name,
+        COALESCE(SUM(hour_value), 0)::numeric(14,2) AS total_hours
+      FROM evaluated_hours
+      WHERE is_project_hour_candidate
+      GROUP BY COALESCE(fitter_id, fitter_username, lower(fitter_name)), fitter_id, fitter_username, fitter_name
+    ),
+    summary AS (
+      SELECT
+        COALESCE(MAX(project_id::text), $2::text) AS project_id,
+        MAX(project_external_ref) AS project_ref,
+        MAX(project_name) AS project_name,
+        COALESCE(SUM(hour_value) FILTER (WHERE is_project_hour_candidate), 0)::numeric(14,2) AS total_project_relevant_hours
+      FROM evaluated_hours
+    )
     SELECT
-      COALESCE(MAX(project_id::text), $2::text) AS project_id,
-      MAX(project_external_ref) AS project_ref,
-      MAX(project_name) AS project_name,
-      COALESCE(SUM(hour_value) FILTER (WHERE is_project_hour_candidate), 0)::numeric(14,2) AS total_project_relevant_hours
-    FROM evaluated_hours
+      summary.project_id,
+      summary.project_ref,
+      summary.project_name,
+      summary.total_project_relevant_hours,
+      COALESCE(
+        jsonb_agg(
+          jsonb_build_object(
+            'fitter_key', fitter_breakdown.fitter_key,
+            'fitter_id', fitter_breakdown.fitter_id,
+            'fitter_username', fitter_breakdown.fitter_username,
+            'fitter_name', fitter_breakdown.fitter_name,
+            'total_hours', fitter_breakdown.total_hours::text
+          )
+          ORDER BY fitter_breakdown.total_hours DESC, fitter_breakdown.fitter_name ASC
+        ) FILTER (WHERE fitter_breakdown.fitter_key IS NOT NULL),
+        '[]'::jsonb
+      ) AS fitters
+    FROM summary
+    LEFT JOIN fitter_breakdown ON true
+    GROUP BY summary.project_id, summary.project_ref, summary.project_name, summary.total_project_relevant_hours
   `;
 
-  const breakdownSql = `
-    ${buildProjectRelevantHoursCte()}
-    SELECT
-      COALESCE(fitter_id, fitter_username, lower(fitter_name)) AS fitter_key,
-      fitter_id,
-      fitter_username,
-      fitter_name,
-      COALESCE(SUM(hour_value), 0)::numeric(14,2) AS total_hours
-    FROM evaluated_hours
-    WHERE is_project_hour_candidate
-    GROUP BY COALESCE(fitter_id, fitter_username, lower(fitter_name)), fitter_id, fitter_username, fitter_name
-    ORDER BY total_hours DESC, fitter_name ASC
-  `;
+  const { rows } = await client.query(sql, [tenantId, normalizedProjectId, normalizedProjectRef]);
 
-  const [summary, breakdown] = await Promise.all([
-    client.query(sql, [tenantId, normalizedProjectId, normalizedProjectRef]),
-    client.query(breakdownSql, [tenantId, normalizedProjectId, normalizedProjectRef]),
-  ]);
-
-  const summaryRow = summary.rows[0] || {
+  const summaryRow = rows[0] || {
     project_id: normalizedProjectId,
     project_ref: normalizedProjectRef,
     project_name: null,
     total_project_relevant_hours: "0.00",
+    fitters: [],
   };
 
   return {
     ...summaryRow,
-    fitters: breakdown.rows,
+    fitters: Array.isArray(summaryRow.fitters) ? summaryRow.fitters : [],
   };
 }
 
