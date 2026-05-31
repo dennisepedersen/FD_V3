@@ -54,3 +54,23 @@ Consumer: backend/src/services/syncWorker.js
 - Scope=mine and project detail source enrichment through project_core/project_masterdata_v4.
 - Dashboard/project active counts through `IsClosed=false`.
 - Future fitterhours retention classification using project-level `is_internal`; ProjectID-targeted all-time fitterhour sync remains pending.
+
+## Narrow v4 Project Resync Tooling
+
+`backend/scripts/resync_projects_v4_only.js` is a tenant-scoped operational helper
+for revisiting EK v4 LIST project rows without running bootstrap or other endpoint
+families.
+
+Allowed use:
+
+- Re-read `/api/v4.0/projects` for one tenant.
+- Persist `isIntern` / `IsInternal` into `project_core.is_internal` and
+  `project_masterdata_v4.is_internal`.
+- Show current distribution and control cases before writes.
+
+Explicit non-goals:
+
+- It must not call fitterhours.
+- It must not run ProjectID-targeted fitterhour sync.
+- It must not enqueue or reset broad bootstrap jobs.
+- It must not delete project data.

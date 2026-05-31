@@ -106,6 +106,13 @@ Already implemented foundation:
 - Drawer/detail project hour queries can use resolved FD relation for persisted rows.
 - Current UI labels should describe these values as synced Fielddesk hours unless/until all-time scope is verified for a project.
 
+Operational tooling:
+
+- `backend/scripts/resync_projects_v4_only.js` can re-read EK v4 LIST projects for
+  one tenant and fill `is_internal` source metadata.
+- This tooling is deliberately project-only; it does not call fitterhours and does
+  not perform all-time ProjectID-targeted backfill.
+
 ## Next Safe Implementation Slice
 
 1. Adjust fitterhours sync targets to use EK `ProjectID` based reads.
