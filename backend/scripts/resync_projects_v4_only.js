@@ -12,7 +12,9 @@
  * - Does not reset sync_endpoint_state.
  * - Does not call fitterhours, bootstrap, v3 projects, or generic endpoints.
  * - Does not create project_core rows; only updates existing project rows by
- *   tenant + external_project_ref and mirrors source metadata in project_masterdata_v4.
+ *   tenant + EK ProjectID (project_masterdata_v4.ek_project_id), with project
+ *   reference as a secondary fallback, and mirrors source metadata in
+ *   project_masterdata_v4.
  */
 
 const crypto = require('crypto');
@@ -207,11 +209,12 @@ function mapProjectV4Row(raw) {
       'ProjectNo',
     ])
   );
-  if (!externalProjectRef) return null;
+  const sourceProjectId = pickIntegerText(raw, ['ProjectID', 'ProjectId', 'projectID', 'projectId']);
+  if (!externalProjectRef && !sourceProjectId) return null;
 
   return {
     externalProjectRef,
-    sourceProjectId: pickIntegerText(raw, ['ProjectID', 'ProjectId', 'projectID', 'projectId']),
+    sourceProjectId,
     isInternal: pickBooleanValue(raw, ['isIntern', 'IsIntern', 'isInternal', 'IsInternal']),
     sourceUpdatedAt: asNullableTimestamp(pickAny(raw, ['updatedDate', 'UpdatedDate'])),
   };
@@ -348,12 +351,19 @@ function emptySummary() {
     fetched: 0,
     mapped: 0,
     matchedExistingProjects: 0,
+    matchedByEkProjectId: 0,
+    matchedByReference: 0,
+    unmatchedExistingProjects: 0,
     coreUpdated: 0,
     masterdataUpserted: 0,
     missingExternalRef: 0,
+    missingSourceProjectId: 0,
+    missingIdentity: 0,
     isInternalTrue: 0,
     isInternalFalse: 0,
     isInternalNull: 0,
+    unmatchedEkRowsSample: [],
+    controlCasePreview: [],
     errors: [],
   };
 }
@@ -361,64 +371,260 @@ function emptySummary() {
 function countMapped(summary, mappedRows) {
   for (const row of mappedRows) {
     if (!row) {
-      summary.missingExternalRef += 1;
+      summary.missingIdentity += 1;
       continue;
     }
     summary.mapped += 1;
+    if (!row.externalProjectRef) summary.missingExternalRef += 1;
+    if (!row.sourceProjectId) summary.missingSourceProjectId += 1;
     if (row.isInternal === true) summary.isInternalTrue += 1;
     else if (row.isInternal === false) summary.isInternalFalse += 1;
     else summary.isInternalNull += 1;
   }
 }
 
-async function persistMappedRows(client, { tenantId, mappedRows }) {
+function addUnmatchedSample(summary, sampleRows) {
+  const remaining = Math.max(0, 10 - summary.unmatchedEkRowsSample.length);
+  if (remaining <= 0) return;
+  summary.unmatchedEkRowsSample.push(...sampleRows.slice(0, remaining));
+}
+
+function addControlPreview(summary, previewRows) {
+  const byRef = new Map(summary.controlCasePreview.map((row) => [row.external_project_ref, row]));
+  for (const row of previewRows) {
+    byRef.set(row.external_project_ref, row);
+  }
+  summary.controlCasePreview = Array.from(byRef.values()).sort((a, b) => {
+    return String(a.external_project_ref || '').localeCompare(String(b.external_project_ref || ''));
+  });
+}
+
+function buildInputChunk(rows) {
+  const values = [];
+  const params = [];
+  rows.forEach((row, index) => {
+    const offset = index * 5 + 2;
+    values.push(`($${offset}::int, $${offset + 1}::text, $${offset + 2}::text, $${offset + 3}::boolean, $${offset + 4}::timestamptz)`);
+    params.push(
+      index,
+      row.externalProjectRef,
+      row.sourceProjectId,
+      row.isInternal,
+      row.sourceUpdatedAt
+    );
+  });
+  return { values, params };
+}
+
+function matchedCteSql() {
+  return `
+    ek_project_id_matches AS (
+      SELECT
+        ir.input_index,
+        pc.project_id,
+        pc.tenant_id,
+        pc.external_project_ref AS fd_external_project_ref,
+        ir.external_project_ref,
+        ir.source_project_id,
+        ir.is_internal,
+        ir.source_updated_at,
+        'ek_project_id'::text AS match_type,
+        1 AS match_rank
+      FROM input_rows ir
+      JOIN project_masterdata_v4 pm
+        ON pm.tenant_id = $1
+       AND ir.source_project_id IS NOT NULL
+       AND pm.ek_project_id = NULLIF(btrim(ir.source_project_id), '')::bigint
+      JOIN project_core pc
+        ON pc.tenant_id = pm.tenant_id
+       AND pc.project_id = pm.project_id
+    ),
+    reference_matches AS (
+      SELECT
+        ir.input_index,
+        pc.project_id,
+        pc.tenant_id,
+        pc.external_project_ref AS fd_external_project_ref,
+        ir.external_project_ref,
+        ir.source_project_id,
+        ir.is_internal,
+        ir.source_updated_at,
+        'external_project_ref'::text AS match_type,
+        2 AS match_rank
+      FROM input_rows ir
+      JOIN project_core pc
+        ON pc.tenant_id = $1
+       AND ir.external_project_ref IS NOT NULL
+       AND lower(btrim(pc.external_project_ref)) = lower(btrim(ir.external_project_ref))
+    ),
+    all_matches AS (
+      SELECT * FROM ek_project_id_matches
+      UNION ALL
+      SELECT * FROM reference_matches
+    ),
+    matched AS (
+      SELECT DISTINCT ON (input_index)
+        input_index,
+        project_id,
+        tenant_id,
+        fd_external_project_ref,
+        external_project_ref,
+        source_project_id,
+        is_internal,
+        source_updated_at,
+        match_type
+      FROM all_matches
+      ORDER BY input_index, match_rank
+    )
+  `;
+}
+
+async function analyzeMappedRows(client, { tenantId, mappedRows }) {
   const rows = mappedRows.filter(Boolean);
   if (!rows.length) {
-    return { matchedExistingProjects: 0, coreUpdated: 0, masterdataUpserted: 0 };
+    return {
+      matchedExistingProjects: 0,
+      matchedByEkProjectId: 0,
+      matchedByReference: 0,
+      unmatchedExistingProjects: 0,
+      unmatchedEkRowsSample: [],
+      controlCasePreview: [],
+    };
   }
 
   let matchedExistingProjects = 0;
-  let coreUpdated = 0;
-  let masterdataUpserted = 0;
+  let matchedByEkProjectId = 0;
+  let matchedByReference = 0;
+  let unmatchedExistingProjects = 0;
+  const unmatchedEkRowsSample = [];
+  const controlCasePreview = [];
 
   for (let start = 0; start < rows.length; start += 100) {
     const chunk = rows.slice(start, start + 100);
-    const values = [];
-    const params = [tenantId];
-    chunk.forEach((row, index) => {
-      const offset = index * 4 + 2;
-      values.push(`($${offset}, $${offset + 1}, $${offset + 2}, $${offset + 3})`);
-      params.push(
-        row.externalProjectRef,
-        row.sourceProjectId,
-        row.isInternal,
-        row.sourceUpdatedAt
-      );
-    });
+    const input = buildInputChunk(chunk);
+    const params = [tenantId, ...input.params, CONTROL_REFS];
+    const controlRefsParam = params.length;
 
     const { rows: resultRows } = await client.query(
       `
         WITH input_rows (
+          input_index,
           external_project_ref,
           source_project_id,
           is_internal,
           source_updated_at
         ) AS (
-          VALUES ${values.join(',\n')}
+          VALUES ${input.values.join(',\n')}
         ),
-        matched AS (
+        ${matchedCteSql()},
+        unmatched AS (
           SELECT
-            pc.project_id,
-            pc.tenant_id,
             ir.external_project_ref,
             ir.source_project_id,
             ir.is_internal,
             ir.source_updated_at
           FROM input_rows ir
-          JOIN project_core pc
-            ON pc.tenant_id = $1
-           AND lower(btrim(pc.external_project_ref)) = lower(btrim(ir.external_project_ref))
+          LEFT JOIN matched m ON m.input_index = ir.input_index
+          WHERE m.input_index IS NULL
+          ORDER BY ir.source_project_id NULLS LAST, ir.external_project_ref NULLS LAST
+          LIMIT 10
         ),
+        controls AS (
+          SELECT
+            pc.external_project_ref,
+            pc.project_id,
+            pc.is_internal AS current_project_core_is_internal,
+            pm.ek_project_id,
+            pm.is_internal AS current_masterdata_is_internal,
+            m.is_internal AS incoming_is_internal,
+            m.match_type
+          FROM project_core pc
+          LEFT JOIN project_masterdata_v4 pm
+            ON pm.tenant_id = pc.tenant_id
+           AND pm.project_id = pc.project_id
+          LEFT JOIN matched m
+            ON m.tenant_id = pc.tenant_id
+           AND m.project_id = pc.project_id
+          WHERE pc.tenant_id = $1
+            AND pc.external_project_ref = ANY($${controlRefsParam}::text[])
+            AND m.project_id IS NOT NULL
+        )
+        SELECT
+          (SELECT COUNT(*)::int FROM matched) AS matched_existing_projects,
+          (SELECT COUNT(*)::int FROM matched WHERE match_type = 'ek_project_id') AS matched_by_ek_project_id,
+          (SELECT COUNT(*)::int FROM matched WHERE match_type = 'external_project_ref') AS matched_by_reference,
+          (SELECT COUNT(*)::int FROM input_rows ir LEFT JOIN matched m ON m.input_index = ir.input_index WHERE m.input_index IS NULL) AS unmatched_existing_projects,
+          COALESCE((SELECT jsonb_agg(to_jsonb(unmatched)) FROM unmatched), '[]'::jsonb) AS unmatched_sample,
+          COALESCE((SELECT jsonb_agg(to_jsonb(controls)) FROM controls), '[]'::jsonb) AS control_preview
+      `,
+      params
+    );
+
+    const result = resultRows[0] || {};
+    matchedExistingProjects += Number(result.matched_existing_projects || 0);
+    matchedByEkProjectId += Number(result.matched_by_ek_project_id || 0);
+    matchedByReference += Number(result.matched_by_reference || 0);
+    unmatchedExistingProjects += Number(result.unmatched_existing_projects || 0);
+    if (Array.isArray(result.unmatched_sample) && unmatchedEkRowsSample.length < 10) {
+      unmatchedEkRowsSample.push(...result.unmatched_sample.slice(0, 10 - unmatchedEkRowsSample.length));
+    }
+    if (Array.isArray(result.control_preview)) {
+      controlCasePreview.push(...result.control_preview);
+    }
+  }
+
+  return {
+    matchedExistingProjects,
+    matchedByEkProjectId,
+    matchedByReference,
+    unmatchedExistingProjects,
+    unmatchedEkRowsSample,
+    controlCasePreview,
+  };
+}
+
+async function persistMappedRows(client, { tenantId, mappedRows }) {
+  const rows = mappedRows.filter(Boolean);
+  if (!rows.length) {
+    return {
+      matchedExistingProjects: 0,
+      matchedByEkProjectId: 0,
+      matchedByReference: 0,
+      unmatchedExistingProjects: 0,
+      coreUpdated: 0,
+      masterdataUpserted: 0,
+      unmatchedEkRowsSample: [],
+      controlCasePreview: [],
+    };
+  }
+
+  let matchedExistingProjects = 0;
+  let matchedByEkProjectId = 0;
+  let matchedByReference = 0;
+  let unmatchedExistingProjects = 0;
+  let coreUpdated = 0;
+  let masterdataUpserted = 0;
+  const unmatchedEkRowsSample = [];
+  const controlCasePreview = [];
+
+  for (let start = 0; start < rows.length; start += 100) {
+    const chunk = rows.slice(start, start + 100);
+    const input = buildInputChunk(chunk);
+    const params = [tenantId, ...input.params, CONTROL_REFS];
+    const controlRefsParam = params.length;
+
+    const { rows: resultRows } = await client.query(
+      `
+        WITH input_rows (
+          input_index,
+          external_project_ref,
+          source_project_id,
+          is_internal,
+          source_updated_at
+        ) AS (
+          VALUES ${input.values.join(',\n')}
+        ),
+        ${matchedCteSql()},
         updated_core AS (
           UPDATE project_core pc
           SET
@@ -430,6 +636,38 @@ async function persistMappedRows(client, { tenantId, mappedRows }) {
             AND matched.is_internal IS NOT NULL
             AND pc.is_internal IS DISTINCT FROM matched.is_internal
           RETURNING pc.project_id
+        ),
+        unmatched AS (
+          SELECT
+            ir.external_project_ref,
+            ir.source_project_id,
+            ir.is_internal,
+            ir.source_updated_at
+          FROM input_rows ir
+          LEFT JOIN matched m ON m.input_index = ir.input_index
+          WHERE m.input_index IS NULL
+          ORDER BY ir.source_project_id NULLS LAST, ir.external_project_ref NULLS LAST
+          LIMIT 10
+        ),
+        controls AS (
+          SELECT
+            pc.external_project_ref,
+            pc.project_id,
+            pc.is_internal AS current_project_core_is_internal,
+            pm.ek_project_id,
+            pm.is_internal AS current_masterdata_is_internal,
+            m.is_internal AS incoming_is_internal,
+            m.match_type
+          FROM project_core pc
+          LEFT JOIN project_masterdata_v4 pm
+            ON pm.tenant_id = pc.tenant_id
+           AND pm.project_id = pc.project_id
+          LEFT JOIN matched m
+            ON m.tenant_id = pc.tenant_id
+           AND m.project_id = pc.project_id
+          WHERE pc.tenant_id = $1
+            AND pc.external_project_ref = ANY($${controlRefsParam}::text[])
+            AND m.project_id IS NOT NULL
         ),
         upserted_masterdata AS (
           INSERT INTO project_masterdata_v4 (
@@ -459,19 +697,42 @@ async function persistMappedRows(client, { tenantId, mappedRows }) {
         )
         SELECT
           (SELECT COUNT(*)::int FROM matched) AS matched_existing_projects,
+          (SELECT COUNT(*)::int FROM matched WHERE match_type = 'ek_project_id') AS matched_by_ek_project_id,
+          (SELECT COUNT(*)::int FROM matched WHERE match_type = 'external_project_ref') AS matched_by_reference,
+          (SELECT COUNT(*)::int FROM input_rows ir LEFT JOIN matched m ON m.input_index = ir.input_index WHERE m.input_index IS NULL) AS unmatched_existing_projects,
           (SELECT COUNT(*)::int FROM updated_core) AS core_updated,
-          (SELECT COUNT(*)::int FROM upserted_masterdata) AS masterdata_upserted
+          (SELECT COUNT(*)::int FROM upserted_masterdata) AS masterdata_upserted,
+          COALESCE((SELECT jsonb_agg(to_jsonb(unmatched)) FROM unmatched), '[]'::jsonb) AS unmatched_sample,
+          COALESCE((SELECT jsonb_agg(to_jsonb(controls)) FROM controls), '[]'::jsonb) AS control_preview
       `,
       params
     );
 
     const result = resultRows[0] || {};
     matchedExistingProjects += Number(result.matched_existing_projects || 0);
+    matchedByEkProjectId += Number(result.matched_by_ek_project_id || 0);
+    matchedByReference += Number(result.matched_by_reference || 0);
+    unmatchedExistingProjects += Number(result.unmatched_existing_projects || 0);
     coreUpdated += Number(result.core_updated || 0);
     masterdataUpserted += Number(result.masterdata_upserted || 0);
+    if (Array.isArray(result.unmatched_sample) && unmatchedEkRowsSample.length < 10) {
+      unmatchedEkRowsSample.push(...result.unmatched_sample.slice(0, 10 - unmatchedEkRowsSample.length));
+    }
+    if (Array.isArray(result.control_preview)) {
+      controlCasePreview.push(...result.control_preview);
+    }
   }
 
-  return { matchedExistingProjects, coreUpdated, masterdataUpserted };
+  return {
+    matchedExistingProjects,
+    matchedByEkProjectId,
+    matchedByReference,
+    unmatchedExistingProjects,
+    coreUpdated,
+    masterdataUpserted,
+    unmatchedEkRowsSample,
+    controlCasePreview,
+  };
 }
 
 function printJson(label, value) {
@@ -529,12 +790,28 @@ async function run() {
             });
             await client.query('COMMIT');
             summary.matchedExistingProjects += persisted.matchedExistingProjects;
+            summary.matchedByEkProjectId += persisted.matchedByEkProjectId;
+            summary.matchedByReference += persisted.matchedByReference;
+            summary.unmatchedExistingProjects += persisted.unmatchedExistingProjects;
             summary.coreUpdated += persisted.coreUpdated;
             summary.masterdataUpserted += persisted.masterdataUpserted;
+            addUnmatchedSample(summary, persisted.unmatchedEkRowsSample);
+            addControlPreview(summary, persisted.controlCasePreview);
           } catch (error) {
             await client.query('ROLLBACK');
             throw error;
           }
+        } else {
+          const analyzed = await analyzeMappedRows(client, {
+            tenantId: cfg.tenantId,
+            mappedRows,
+          });
+          summary.matchedExistingProjects += analyzed.matchedExistingProjects;
+          summary.matchedByEkProjectId += analyzed.matchedByEkProjectId;
+          summary.matchedByReference += analyzed.matchedByReference;
+          summary.unmatchedExistingProjects += analyzed.unmatchedExistingProjects;
+          addUnmatchedSample(summary, analyzed.unmatchedEkRowsSample);
+          addControlPreview(summary, analyzed.controlCasePreview);
         }
 
         console.log(`page=${page} fetched=${rawRows.length} mapped=${mappedRows.filter(Boolean).length}`);
