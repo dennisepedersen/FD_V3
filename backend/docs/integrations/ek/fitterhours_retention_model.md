@@ -10,8 +10,8 @@ E-Komplet exposes project internal/external state separately from project lifecy
 
 | Source | Field | Type | Meaning | FD persistence today |
 |---|---|---|---|---|
-| v4 LIST `/api/v4.0/projects` | `isIntern` | boolean | Project is internal | Not persisted |
-| v4 DETAIL `/api/v4.0/projects/:id` | `IsInternal` | boolean | Project is internal | Not persisted |
+| v4 LIST `/api/v4.0/projects` | `isIntern` | boolean | Project is internal | Persisted as nullable `project_core.is_internal` / `project_masterdata_v4.is_internal` |
+| v4 DETAIL `/api/v4.0/projects/:id` | `IsInternal` | boolean | Project is internal | Enrichment/fallback only; mirrored when mapped through v4 project sync |
 | v4 LIST `/api/v4.0/projects` | `isClosed` | boolean | Project lifecycle closed/open | Persisted as `project_core.is_closed` / `project_masterdata_v4.is_closed` |
 | v4 LIST `/api/v4.0/projects` | `isWorkInProgress` | boolean | Financial WIP / IGVA | Persisted separately as financial WIP where mapped |
 
@@ -96,26 +96,25 @@ Specifically:
 
 Not implemented yet:
 
-- FD does not persist project-level `is_internal` / `isIntern`.
 - FD does not yet use project-targeted all-time fitterhour sync for active external projects.
 - FD does not yet expose final retention scope metadata for project hour values.
 
 Already implemented foundation:
 
+- FD persists project-level `is_internal` from v4 project data as nullable source metadata.
 - `fitter_hour.fd_project_id` exists for resolved FD project relation.
 - Drawer/detail project hour queries can use resolved FD relation for persisted rows.
 - Current UI labels should describe these values as synced Fielddesk hours unless/until all-time scope is verified for a project.
 
 ## Next Safe Implementation Slice
 
-1. Persist project-level `is_internal` from v4 LIST `isIntern`.
-2. Adjust fitterhours sync targets to use EK `ProjectID` based reads.
-3. Add explicit hour scope metadata, for example:
+1. Adjust fitterhours sync targets to use EK `ProjectID` based reads.
+2. Add explicit hour scope metadata, for example:
    - `all_time_external_active`
    - `rolling_12_months_internal_or_closed`
    - `synced_rows_only`
-4. Backfill/resync project 26794 and equivalent active external projects through project-targeted fitterhours reads.
-5. Only after verified sync coverage should UI display project hours as all-time.
+3. Backfill/resync project 26794 and equivalent active external projects through project-targeted fitterhours reads.
+4. Only after verified sync coverage should UI display project hours as all-time.
 
 ## Risks And Follow-up
 

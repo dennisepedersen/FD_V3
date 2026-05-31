@@ -1763,6 +1763,12 @@ function pickBooleanValue(raw, keys) {
   return null;
 }
 
+function pickIntegerText(raw, keys) {
+  const value = pickTrimmedText(raw, keys);
+  if (!value) return null;
+  return /^\d+$/.test(value) ? value : null;
+}
+
 function mapProjectRow(raw, { sourceEndpointKey } = {}) {
   if (!raw || typeof raw !== "object") {
     return null;
@@ -1808,6 +1814,9 @@ function mapProjectRow(raw, { sourceEndpointKey } = {}) {
 
   const isClosedV4 = pickBooleanValue(raw, ["isClosed", "IsClosed"]);
   const isWorkInProgress = pickBooleanValue(raw, ["IsWorkInProgress", "isWorkInProgress"]);
+  const isInternal = pickBooleanValue(raw, ["isIntern", "IsIntern", "isInternal", "IsInternal"]);
+  const sourceProjectId = pickIntegerText(raw, ["ProjectID", "ProjectId", "projectID", "projectId"]);
+  const sourceUpdatedAt = pickDateValue(raw, ["updatedDate", "UpdatedDate"]);
 
   let resolvedStatus = null;
   let resolvedIsClosed = null;
@@ -1893,7 +1902,10 @@ function mapProjectRow(raw, { sourceEndpointKey } = {}) {
     name: String(name).trim() || `Project ${externalRef}`,
     status: resolvedStatus,
     isClosed: resolvedIsClosed,
+    isInternal,
     isWorkInProgress,
+    sourceProjectId,
+    sourceUpdatedAt,
     activityDate,
     responsibleCode,
     responsibleName,
@@ -1910,7 +1922,10 @@ function mergeIdentityFields(baseRow, detailRow) {
     ...baseRow,
     status: baseRow.status || detailRow.status,
     isClosed: baseRow.isClosed == null ? detailRow.isClosed : baseRow.isClosed,
+    isInternal: baseRow.isInternal == null ? detailRow.isInternal : baseRow.isInternal,
     isWorkInProgress: baseRow.isWorkInProgress == null ? detailRow.isWorkInProgress : baseRow.isWorkInProgress,
+    sourceProjectId: baseRow.sourceProjectId || detailRow.sourceProjectId,
+    sourceUpdatedAt: baseRow.sourceUpdatedAt || detailRow.sourceUpdatedAt,
     activityDate: baseRow.activityDate || detailRow.activityDate,
     responsibleCode: baseRow.responsibleCode || detailRow.responsibleCode,
     responsibleName: baseRow.responsibleName || detailRow.responsibleName,
@@ -1936,7 +1951,7 @@ async function upsertProjectBatch(client, { tenantId, mappedRows, sourceEndpoint
     const values = [];
     const params = [];
     chunk.forEach((row, index) => {
-      const offset = index * 15;
+      const offset = index * 18;
       params.push(
         tenantId,
         row.externalProjectRef,
@@ -1944,6 +1959,7 @@ async function upsertProjectBatch(client, { tenantId, mappedRows, sourceEndpoint
         row.status,
         row.activityDate,
         row.isClosed,
+        row.isInternal,
         row.responsibleCode,
         row.responsibleName,
         row.responsibleId,
@@ -1952,10 +1968,12 @@ async function upsertProjectBatch(client, { tenantId, mappedRows, sourceEndpoint
         row.teamLeaderId,
         fromV4,
         fromV3,
-        row.isWorkInProgress
+        row.isWorkInProgress,
+        row.sourceProjectId,
+        row.sourceUpdatedAt
       );
       values.push(
-        `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9}, $${offset + 10}, $${offset + 11}, $${offset + 12}, $${offset + 13}, $${offset + 14}, $${offset + 15})`
+        `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9}, $${offset + 10}, $${offset + 11}, $${offset + 12}, $${offset + 13}, $${offset + 14}, $${offset + 15}, $${offset + 16}, $${offset + 17}, $${offset + 18})`
       );
     });
 
@@ -1967,6 +1985,7 @@ async function upsertProjectBatch(client, { tenantId, mappedRows, sourceEndpoint
         status,
         activity_date,
         is_closed,
+        is_internal,
         responsible_code,
         responsible_name,
         responsible_id,
@@ -1975,7 +1994,9 @@ async function upsertProjectBatch(client, { tenantId, mappedRows, sourceEndpoint
         team_leader_id,
         has_v4,
         has_v3,
-        is_work_in_progress
+        is_work_in_progress,
+        source_project_id,
+        source_updated_at
       ) AS (
         VALUES ${values.join(",\n")}
       ),
@@ -1987,6 +2008,7 @@ async function upsertProjectBatch(client, { tenantId, mappedRows, sourceEndpoint
         status,
         activity_date,
         is_closed,
+        is_internal,
         closed_observed_at,
         responsible_code,
         responsible_name,
@@ -2004,6 +2026,7 @@ async function upsertProjectBatch(client, { tenantId, mappedRows, sourceEndpoint
         status,
         activity_date,
         is_closed,
+        CASE WHEN has_v4 = true THEN is_internal ELSE NULL END,
         CASE WHEN has_v4 = true AND is_closed = true THEN now() ELSE NULL END,
         responsible_code,
         responsible_name,
@@ -2032,6 +2055,10 @@ async function upsertProjectBatch(client, { tenantId, mappedRows, sourceEndpoint
           WHEN EXCLUDED.has_v3 AND project_core.has_v4 THEN project_core.is_closed
           ELSE project_core.is_closed
         END,
+        is_internal = CASE
+          WHEN EXCLUDED.has_v4 THEN COALESCE(EXCLUDED.is_internal, project_core.is_internal)
+          ELSE project_core.is_internal
+        END,
         closed_observed_at = CASE
           WHEN EXCLUDED.has_v4 AND EXCLUDED.is_closed = true AND project_core.is_closed IS DISTINCT FROM true THEN now()
           WHEN EXCLUDED.has_v4 AND EXCLUDED.is_closed = false THEN NULL
@@ -2047,6 +2074,23 @@ async function upsertProjectBatch(client, { tenantId, mappedRows, sourceEndpoint
         has_v3 = project_core.has_v3 OR EXCLUDED.has_v3,
         updated_at = now()
       RETURNING project_id, tenant_id, external_project_ref
+      ),
+      matched_masterdata AS (
+        SELECT uc.project_id, uc.tenant_id, ir.source_project_id, ir.is_closed, ir.is_internal, ir.source_updated_at
+        FROM upserted_core uc
+        INNER JOIN input_rows ir
+          ON ir.tenant_id = uc.tenant_id
+         AND ir.external_project_ref = uc.external_project_ref
+        WHERE ir.has_v4 = true
+
+        UNION
+
+        SELECT pc.project_id, pc.tenant_id, ir.source_project_id, ir.is_closed, ir.is_internal, ir.source_updated_at
+        FROM input_rows ir
+        INNER JOIN project_core pc
+          ON pc.tenant_id = ir.tenant_id
+         AND pc.external_project_ref = ir.external_project_ref
+        WHERE ir.has_v4 = true
       ),
       matched_projects AS (
         SELECT uc.project_id, uc.tenant_id, ir.is_work_in_progress
@@ -2064,21 +2108,57 @@ async function upsertProjectBatch(client, { tenantId, mappedRows, sourceEndpoint
           ON pc.tenant_id = ir.tenant_id
          AND pc.external_project_ref = ir.external_project_ref
         WHERE ir.is_work_in_progress IS NOT NULL
+      ),
+      upserted_wip AS (
+        INSERT INTO project_wip (
+          project_id,
+          tenant_id,
+          is_work_in_progress
+        )
+        SELECT DISTINCT ON (project_id)
+          project_id,
+          tenant_id,
+          is_work_in_progress
+        FROM matched_projects
+        ON CONFLICT (project_id)
+        DO UPDATE SET
+          is_work_in_progress = EXCLUDED.is_work_in_progress,
+          updated_at = now()
+        RETURNING 1
+      ),
+      upserted_masterdata AS (
+        INSERT INTO project_masterdata_v4 (
+          project_id,
+          tenant_id,
+          ek_project_id,
+          is_closed,
+          is_internal,
+          source_updated_at
+        )
+        SELECT DISTINCT ON (project_id)
+          project_id,
+          tenant_id,
+          NULLIF(btrim(source_project_id), '')::bigint,
+          is_closed,
+          is_internal,
+          source_updated_at::timestamptz
+        FROM matched_masterdata
+        WHERE source_project_id IS NOT NULL
+           OR is_closed IS NOT NULL
+           OR is_internal IS NOT NULL
+           OR source_updated_at IS NOT NULL
+        ON CONFLICT (project_id)
+        DO UPDATE SET
+          ek_project_id = COALESCE(EXCLUDED.ek_project_id, project_masterdata_v4.ek_project_id),
+          is_closed = COALESCE(EXCLUDED.is_closed, project_masterdata_v4.is_closed),
+          is_internal = COALESCE(EXCLUDED.is_internal, project_masterdata_v4.is_internal),
+          source_updated_at = COALESCE(EXCLUDED.source_updated_at, project_masterdata_v4.source_updated_at),
+          updated_at = now()
+        RETURNING 1
       )
-      INSERT INTO project_wip (
-        project_id,
-        tenant_id,
-        is_work_in_progress
-      )
-      SELECT DISTINCT ON (project_id)
-        project_id,
-        tenant_id,
-        is_work_in_progress
-      FROM matched_projects
-      ON CONFLICT (project_id)
-      DO UPDATE SET
-        is_work_in_progress = EXCLUDED.is_work_in_progress,
-        updated_at = now()
+      SELECT
+        (SELECT COUNT(*) FROM upserted_wip) AS wip_rows,
+        (SELECT COUNT(*) FROM upserted_masterdata) AS masterdata_rows
     `;
 
     await client.query(sql, params);

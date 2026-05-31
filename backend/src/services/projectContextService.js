@@ -6,6 +6,7 @@ const PROJECT_CORE_FIELDS = [
   "name",
   "status",
   "is_closed",
+  "is_internal",
   "administrative_closed",
   "active_project",
   "owner_user_id",

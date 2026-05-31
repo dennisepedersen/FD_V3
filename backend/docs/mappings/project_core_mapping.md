@@ -13,7 +13,7 @@ Status: verified
 | name is mapped from EK name-family fields with fallback | backend/src/services/syncWorker.js mapProjectRow | verified | fallback Project {ref} |
 | isClosed is authoritative only from projects_v4 | backend/src/services/syncWorker.js mapProjectRow sourceEndpointKey === projects_v4 | verified | v3 does not close projects |
 | IsWorkInProgress must not decide open/closed lifecycle | live EK matrix + backend/docs/integrations/ek/project_status_model.md | verified | financial WIP/IGVA only |
-| project-level internal/external state comes from v4 LIST `isIntern` | live EK verification + backend/docs/integrations/ek/fitterhours_retention_model.md | verified source field / not persisted | required before fitterhours retention cutover |
+| project-level internal/external state comes from v4 LIST `isIntern` | backend/src/services/syncWorker.js mapProjectRow + upsertProjectBatch | implemented | persisted as nullable project_core.is_internal from v4 project data |
 | v3 never proves lifecycle open/closed | backend/docs/integrations/ek/project_status_model.md | verified | v3 has no IsClosed |
 | responsible/team leader identity fields are mapped to project_core.* | backend/src/services/syncWorker.js mapProjectRow + upsertProjectBatch | verified | used later in scope SQL |
 | activity_date is derived from date candidate list | backend/src/services/syncWorker.js pickDateValue + mapProjectRow | verified | first valid date wins |
@@ -27,4 +27,4 @@ Status: verified
 - closed_observed_at is maintained from v4 transition logic.
 - active_project_count must be derived from project_core.is_closed=false / administrative_closed=false.
 - EndDate is planning data and must not be used as lifecycle status.
-- FD does not currently persist project-level `is_internal`; do not claim all-time external fitterhours until this field and scope metadata are implemented.
+- FD persists project-level `is_internal`; do not claim all-time external fitterhours until ProjectID-targeted sync/backfill and scope metadata are implemented.

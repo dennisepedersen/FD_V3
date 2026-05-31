@@ -89,7 +89,7 @@ Additional verification on 2026-05-31 showed:
 
 - Persist v4 LIST `IsClosed` to `project_core.is_closed` / administrative lifecycle.
 - Persist `IsWorkInProgress` separately as financial WIP/IGVA signal.
-- Persist v4 LIST `isIntern` separately before implementing fitterhours retention rules based on internal/external project state.
+- Persist v4 LIST `isIntern` separately as nullable `project_core.is_internal` / `project_masterdata_v4.is_internal` before implementing fitterhours retention rules based on internal/external project state.
 - Keep legacy `status` fields only for compatibility and labels.
 - Do not let v3 or detail activity fields reopen or close projects.
 - Detail enrichment may support economy, forecast, activity, ready-to-bill, and operational attention.

@@ -35,7 +35,7 @@ Scope: links to decisions; does not duplicate full decisions
 | projects_v4 masterdata contract is verified | `backend/docs/integrations/ek/projects_v4_masterdata.md` |
 | EK project status matrix and control cases are verified | `backend/docs/integrations/ek/project_status_model.md` |
 | projects_v3 WIP contract is verified as fallback/enrichment | `backend/docs/integrations/ek/projects_v3_wip.md` |
-| Project-level `isIntern` is verified in EK v4 but not yet persisted in FD | `backend/docs/integrations/ek/fitterhours_retention_model.md`, `backend/docs/integrations/ek/projects_v4_masterdata.md` |
+| Project-level `isIntern` is verified in EK v4 and persisted as nullable FD project metadata | `backend/docs/integrations/ek/fitterhours_retention_model.md`, `backend/docs/integrations/ek/projects_v4_masterdata.md` |
 | Bootstrap/enrichment separation is implemented for project sync | `ARCHITECTURE_BOOTSTRAP_ENRICHMENT.md` |
 
 ## Module Decisions

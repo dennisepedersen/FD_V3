@@ -23,7 +23,7 @@ Status: verified from code + schema
 
 ## 3a) Fitterhours retention update (2026-05-31)
 - Verified EK project-level internal/external source field exists as v4 LIST `isIntern` and v4 DETAIL `IsInternal`.
-- Current FD schema does not persist project-level `is_internal`.
+- FD schema persists project-level `is_internal` as nullable source metadata.
 - Current synced fitterhours can be rolling 12-month scoped; they must not be treated as all EK hours.
 - Verified target model: active external projects use all-time ProjectID-targeted sync; internal or closed projects use rolling 12 months.
 - Canonical details: `backend/docs/integrations/ek/fitterhours_retention_model.md`.

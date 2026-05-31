@@ -128,7 +128,7 @@ E-Komplet current:
 - `IsClosed` is the active/closed lifecycle truth.
 - `IsWorkInProgress` is financial WIP/IGVA, not active/open status.
 - `EndDate` is planning/end date, not a closed filter.
-- `isIntern` / `IsInternal` is verified as project internal/external source metadata, but FD does not persist it yet.
+- `isIntern` / `IsInternal` is verified as project internal/external source metadata and is persisted as nullable `project_core.is_internal` / `project_masterdata_v4.is_internal`.
 - Fitterhours retention target: active external projects need all-time ProjectID-targeted sync; internal or closed projects use rolling 12 months.
 - v3 failure must not fail a successful v4 bootstrap.
 
