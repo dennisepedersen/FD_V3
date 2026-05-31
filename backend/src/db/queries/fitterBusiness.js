@@ -109,13 +109,10 @@ function buildProjectRelevantHoursCte() {
     WITH project_target AS (
       SELECT
         pc.project_id,
+        pc.tenant_id,
         pc.external_project_ref,
-        pc.name AS project_name,
-        pm.ek_project_id::text AS ek_project_id_text
+        pc.name AS project_name
       FROM project_core pc
-      LEFT JOIN project_masterdata_v4 pm
-        ON pm.project_id = pc.project_id
-       AND pm.tenant_id = pc.tenant_id
       WHERE pc.tenant_id = $1
         AND ($2::text IS NULL OR pc.project_id::text = $2)
         AND ($3::text IS NULL OR lower(btrim(coalesce(pc.external_project_ref, ''))) = lower(btrim($3)))
@@ -132,20 +129,6 @@ function buildProjectRelevantHoursCte() {
         fh.fitter_username,
         COALESCE(f.name, fh.raw_payload_json ->> 'FitterName', fh.fitter_username, fh.fitter_id, 'Unknown fitter') AS fitter_name,
         COALESCE(fh.hours, fh.quantity, 0)::numeric AS hour_value,
-        COALESCE(
-          NULLIF(btrim(fh.raw_payload_json ->> 'ProjectReference'), ''),
-          NULLIF(btrim(fh.raw_payload_json ->> 'projectReference'), ''),
-          NULLIF(btrim(fh.raw_payload_json ->> 'ExternalProjectRef'), ''),
-          NULLIF(btrim(fh.raw_payload_json ->> 'externalProjectRef'), ''),
-          NULLIF(btrim(fh.external_project_ref), '')
-        ) AS source_project_ref,
-        COALESCE(
-          NULLIF(btrim(fh.raw_payload_json ->> 'ProjectID'), ''),
-          NULLIF(btrim(fh.raw_payload_json ->> 'ProjectId'), ''),
-          NULLIF(btrim(fh.raw_payload_json ->> 'projectID'), ''),
-          NULLIF(btrim(fh.raw_payload_json ->> 'projectId'), ''),
-          NULLIF(btrim(fh.project_id), '')
-        ) AS source_project_id,
         COALESCE(fc.is_only_for_internal_projects, false) AS is_internal_only,
         COALESCE(fc.is_on_invoice, false) AS is_invoice_relevant,
         lower(translate(trim(concat_ws(' ',
@@ -156,35 +139,16 @@ function buildProjectRelevantHoursCte() {
           fh.note
         )), 'ÆØÅæøå', 'EOAeoa')) AS category_text_blob
       FROM project_target pt
+      -- fd_project_id is the authoritative resolved project relation for drawer/detail.
+      -- Unresolved rows stay out of project views instead of falling back to source ID text matching.
       JOIN fitter_hour fh
-        ON fh.tenant_id = $1
-       AND (
-         (
-           NULLIF(btrim(pt.external_project_ref), '') IS NOT NULL
-           AND lower(btrim(coalesce(
-             NULLIF(btrim(fh.raw_payload_json ->> 'ProjectReference'), ''),
-             NULLIF(btrim(fh.raw_payload_json ->> 'projectReference'), ''),
-             NULLIF(btrim(fh.raw_payload_json ->> 'ExternalProjectRef'), ''),
-             NULLIF(btrim(fh.raw_payload_json ->> 'externalProjectRef'), ''),
-             NULLIF(btrim(fh.external_project_ref), '')
-           , ''))) = lower(btrim(pt.external_project_ref))
-         )
-         OR (
-           NULLIF(btrim(pt.ek_project_id_text), '') IS NOT NULL
-           AND lower(btrim(coalesce(
-             NULLIF(btrim(fh.raw_payload_json ->> 'ProjectID'), ''),
-             NULLIF(btrim(fh.raw_payload_json ->> 'ProjectId'), ''),
-             NULLIF(btrim(fh.raw_payload_json ->> 'projectID'), ''),
-             NULLIF(btrim(fh.raw_payload_json ->> 'projectId'), ''),
-             NULLIF(btrim(fh.project_id), '')
-           , ''))) = lower(btrim(pt.ek_project_id_text))
-         )
-       )
+        ON fh.tenant_id = pt.tenant_id
+       AND fh.fd_project_id = pt.project_id
       LEFT JOIN fitter f
-        ON f.tenant_id = $1
+        ON f.tenant_id = pt.tenant_id
        AND f.fitter_id = fh.fitter_id
       LEFT JOIN fitter_category fc
-        ON fc.tenant_id = $1
+        ON fc.tenant_id = pt.tenant_id
        AND (
          (fh.fitter_category_id IS NOT NULL AND fc.fitter_category_id = fh.fitter_category_id)
          OR
@@ -200,8 +164,6 @@ function buildProjectRelevantHoursCte() {
         fitter_id,
         fitter_username,
         fitter_name,
-        source_project_ref,
-        source_project_id,
         hour_value,
         is_internal_only,
         is_invoice_relevant,
