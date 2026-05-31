@@ -14,6 +14,13 @@ const { createHttpError } = require("../middleware/errorHandler");
 const router = express.Router();
 const tenantPublicDir = path.join(__dirname, "../public/tenant");
 
+const FITTER_HOUR_DEFINITION = {
+  source: "fielddesk_fitter_hour",
+  scope: "synced_rows_only",
+  includes_all_ek_hours: false,
+  description: "Baseret p\u00e5 syncede timeposter i Fielddesk. Ikke n\u00f8dvendigvis alle timer fra E-Komplet.",
+};
+
 function hasAccessContextMismatch(req) {
   if (!req.auth || !req.context || !req.context.tenant) {
     return true;
@@ -493,7 +500,10 @@ router.get("/api/projects/:projectId/fitterhours/summary", requireTenantHost, re
         external_project_ref: project.external_project_ref,
         name: project.name,
       },
-      summary,
+      summary: {
+        ...summary,
+        definition: FITTER_HOUR_DEFINITION,
+      },
     });
   } catch (error) {
     console.error("[tenantSurfaceRoutes] request_failed", {
@@ -545,7 +555,10 @@ router.get("/api/projects/:projectId/fitterhours/breakdown", requireTenantHost, 
         external_project_ref: project.external_project_ref,
         name: project.name,
       },
-      breakdown,
+      breakdown: {
+        ...breakdown,
+        definition: FITTER_HOUR_DEFINITION,
+      },
     });
   } catch (error) {
     console.error("[tenantSurfaceRoutes] request_failed", {

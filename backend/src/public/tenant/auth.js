@@ -1359,7 +1359,13 @@
         const totalHoursLabel = totalHoursNum !== null
           ? totalHoursNum.toLocaleString('da-DK', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' t.'
           : null;
-        timerSection.appendChild(makeField('Projekttimer', totalHoursLabel));
+        timerSection.appendChild(makeField('Syncede timer', totalHoursLabel));
+        const timerNote = document.createElement('p');
+        timerNote.className = 'sectionState';
+        timerNote.textContent = summary.definition && summary.definition.description
+          ? summary.definition.description
+          : 'Baseret p\u00e5 syncede timeposter i Fielddesk. Ikke n\u00f8dvendigvis alle timer fra E-Komplet.';
+        timerSection.appendChild(timerNote);
         const fitterNames = Array.isArray(summary.fitter_names) ? summary.fitter_names : [];
         if (fitterNames.length > 0) {
           timerSection.appendChild(makeField('Teknikere (' + fitterNames.length + ')', fitterNames.join(' \u00b7 ')));
