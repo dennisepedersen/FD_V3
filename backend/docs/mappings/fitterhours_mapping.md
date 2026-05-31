@@ -10,6 +10,7 @@ Status: verified
 |---|---|---|---|---|---|
 | FitterHourID | fitter_hour_id | fitter_hour.fitter_hour_id | text | verified | optional; source_key fallback exists |
 | ProjectID/ProjectReference | external_project_ref/project_id | fitter_hour.external_project_ref / project_id | text | verified | normalized for joins |
+| ProjectID resolved to FD project | fd_project_id | fitter_hour.fd_project_id | uuid | verified for existing backfill | authoritative project relation for resolved rows |
 | FitterID | fitter_id | fitter_hour.fitter_id | text | verified | joins to fitter table |
 | Username/Initials | fitter_username | fitter_hour.fitter_username | text | verified | display fallback |
 | FitterSalaryID | fitter_salary_id | fitter_hour.fitter_salary_id | text | verified | optional identity signal |
@@ -23,3 +24,10 @@ Status: verified
 ## Keys
 - Upsert key: (tenant_id, source_key)
 - source_key uses fitter_hour_id when present, else deterministic SHA-256 fingerprint.
+
+## Retention / Scope
+
+- Current synced values may be rolling 12-month scoped.
+- Verified target scope rules are documented in `backend/docs/integrations/ek/fitterhours_retention_model.md`.
+- Project-targeted all-time reads should use EK ProjectID with `searchAttribute=ProjectID&search=<EK ProjectID>`.
+- FD does not currently persist project-level `is_internal`; do not treat current project hours as all-time coverage.

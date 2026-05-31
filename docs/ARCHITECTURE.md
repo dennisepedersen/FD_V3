@@ -122,8 +122,14 @@ Current:
 - `docs/PROJECT_CONTEXT_CONTRACT.md` defines Draft/Proposed shared project context direction for modules.
 
 E-Komplet current:
-- `projects_v4` is authoritative for project existence and open/closed status.
-- `projects_v3` WorkInProgress is enrichment only for existing `project_core` rows.
+- v4 LIST is authoritative for project existence, lifecycle, and masterdata.
+- v4 DETAIL is enrichment for economy, activity, and WIP detail.
+- v3 is fallback/enrichment only and must not decide lifecycle.
+- `IsClosed` is the active/closed lifecycle truth.
+- `IsWorkInProgress` is financial WIP/IGVA, not active/open status.
+- `EndDate` is planning/end date, not a closed filter.
+- `isIntern` / `IsInternal` is verified as project internal/external source metadata, but FD does not persist it yet.
+- Fitterhours retention target: active external projects need all-time ProjectID-targeted sync; internal or closed projects use rolling 12 months.
 - v3 failure must not fail a successful v4 bootstrap.
 
 Known gap:
@@ -255,9 +261,11 @@ Backend standards and decisions:
 - `backend/docs/decisions/database_indexing_decision.md`
 
 Integrations and mappings:
+- `backend/docs/integrations/ek/project_status_model.md`
 - `backend/docs/integrations/ek/projects_v4_masterdata.md`
 - `backend/docs/integrations/ek/projects_v3_wip.md`
 - `backend/docs/integrations/ek/fitterhours.md`
+- `backend/docs/integrations/ek/fitterhours_retention_model.md`
 - `backend/docs/mappings/project_core_mapping.md`
 - `backend/docs/mappings/project_wip_mapping.md`
 - `backend/docs/mappings/scope_rules.md`

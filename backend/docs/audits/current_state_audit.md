@@ -5,7 +5,7 @@ Status: verified from code + schema
 
 ## 1) EK endpoints actually read
 - projects_v4 via discovered variants under /api/v4.0/projects and /api/v4/projects
-- projects_v3 via /Management/WorkInProgress variants
+- projects_v3 via documented /api/v3.0/projects variants; /Management/WorkInProgress must not be used as an API path
 - fittercategories
 - fitters
 - fitterhours
@@ -20,6 +20,13 @@ Status: verified from code + schema
 - Fitterhours API: fitter_hour + project_core + project_masterdata_v4 + fitter + fitter_category
 - Assignment/scope: project_assignment + project_core responsible/team leader fields
 - Sync state: sync_endpoint_state + sync_failure_backlog + sync_page_log + sync_job
+
+## 3a) Fitterhours retention update (2026-05-31)
+- Verified EK project-level internal/external source field exists as v4 LIST `isIntern` and v4 DETAIL `IsInternal`.
+- Current FD schema does not persist project-level `is_internal`.
+- Current synced fitterhours can be rolling 12-month scoped; they must not be treated as all EK hours.
+- Verified target model: active external projects use all-time ProjectID-targeted sync; internal or closed projects use rolling 12 months.
+- Canonical details: `backend/docs/integrations/ek/fitterhours_retention_model.md`.
 
 ## 4) Pagination/429/retry handling
 - page/pageSize used in fetch.

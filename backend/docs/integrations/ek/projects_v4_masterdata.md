@@ -5,8 +5,9 @@ Endpoint family: /api/v4.0/projects and /api/v4/projects (discovered at runtime)
 Consumer: backend/src/services/syncWorker.js
 
 ## Purpose
-- Authoritative project master stream for open/closed state in FD.
+- Authoritative project master stream for lifecycle/open/closed state in FD.
 - Drives project_core upsert and retention cleanup eligibility.
+- Supplies financial WIP/IGVA signal separately from lifecycle.
 
 ## Payload Handling (verified)
 - Paged fetch with query params page and pageSize.
@@ -24,6 +25,9 @@ Consumer: backend/src/services/syncWorker.js
 | ProjectName/projectName/name/Name | project name | project_core.name |
 | Status/status/ProjectStatus | status fallback | project_core.status |
 | isClosed/IsClosed | authoritative close state | project_core.is_closed + closed_observed_at |
+| isWorkInProgress/IsWorkInProgress | financial WIP/IGVA, not lifecycle | project_wip.is_work_in_progress / financial_wip |
+| isIntern/IsInternal | project internal/external source flag | not persisted today; must be added before fitterhours retention cutover |
+| endDate/EndDate | planning/end date only | planning_status / display |
 | Responsible*/TeamLeader* variants | role identity fields | project_core.responsible_* and team_leader_* |
 | date-like fields (updatedDate/startDate/etc) | activity fallback | project_core.activity_date |
 
@@ -41,7 +45,12 @@ Consumer: backend/src/services/syncWorker.js
 - Endpoint compatibility is probed dynamically; version path is not guaranteed.
 - nextPage may be missing or inconsistent across endpoints; it must not be used as primary stop signal.
 - Primary paging control is row-count vs pageSize (continue only on full page).
+- `IsWorkInProgress` must not be interpreted as active/open status.
+- `EndDate` must not be interpreted as closed status.
+- `isIntern` / `IsInternal` is project internal/external metadata, not lifecycle. It is required for the planned fitterhours retention model but is not currently persisted in FD.
 
 ## Allowed FD Usage
 - Project bootstrap/delta sync.
 - Scope=mine and project detail source enrichment through project_core/project_masterdata_v4.
+- Dashboard/project active counts through `IsClosed=false`.
+- Future fitterhours retention classification after project-level `is_internal` is persisted.

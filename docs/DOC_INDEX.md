@@ -42,9 +42,11 @@ Scope: points to docs; does not replace them
 
 | Doc | Use For | Status |
 | --- | --- | --- |
+| `backend/docs/integrations/ek/project_status_model.md` | Canonical EK project lifecycle/WIP status truth | Verified |
 | `backend/docs/integrations/ek/projects_v4_masterdata.md` | E-Komplet v4 project masterdata contract | Verified |
 | `backend/docs/integrations/ek/projects_v3_wip.md` | E-Komplet v3 WIP enrichment contract | Verified |
 | `backend/docs/integrations/ek/fitterhours.md` | Fitterhours integration contract | Current |
+| `backend/docs/integrations/ek/fitterhours_retention_model.md` | Verified fitterhours retention/scope model and pending implementation plan | Verified decision / implementation pending |
 | `backend/docs/integrations/ek/users.md` | E-Komplet users integration notes | Current |
 | `backend/docs/integrations/solar/solar_product_data.md` | Solar product data notes | New/unclear until reviewed |
 

@@ -18,10 +18,12 @@ Scope: links to decisions; does not duplicate full decisions
 | Decision | Source |
 | --- | --- |
 | projects_v4 is authoritative for project existence and open/closed status | `backend/docs/decisions/projects_endpoint_decision.md` |
-| projects_v3 WorkInProgress is enrichment only | `backend/docs/decisions/projects_endpoint_decision.md` |
+| EK project status model is v4-first: `IsClosed` is lifecycle, `IsWorkInProgress` is financial WIP | `backend/docs/integrations/ek/project_status_model.md` |
+| projects_v3 is fallback/enrichment only, never lifecycle | `backend/docs/decisions/projects_endpoint_decision.md` |
 | Sync uses split strategy: delta-supported, reconcile-scan, backlog-retry | `backend/docs/decisions/sync_strategy_decision.md` |
 | Pagination is count-based; `nextPage` is secondary metadata | `backend/docs/decisions/sync_strategy_decision.md` |
 | Project and fitterhour retention/filtering rules | `backend/docs/decisions/data_retention_and_filtering_decision.md` |
+| EK fitterhours retention model: active external projects need all-time ProjectID-targeted sync; internal/closed projects use rolling 12 months | `backend/docs/integrations/ek/fitterhours_retention_model.md` |
 | Indexes are based on verified query predicates, not speculation | `backend/docs/decisions/database_indexing_decision.md` |
 
 ## Integration Decisions
@@ -31,7 +33,9 @@ Scope: links to decisions; does not duplicate full decisions
 | E-Komplet credentials are tenant-specific | `docs/V3_FOUNDATION_DESIGN.md`, `docs/AI_BOOTSTRAP_CONTEXT.md` |
 | E-Komplet may enrich Fielddesk but must not silently define all Fielddesk truth | `docs/AI_BOOTSTRAP_CONTEXT.md` |
 | projects_v4 masterdata contract is verified | `backend/docs/integrations/ek/projects_v4_masterdata.md` |
-| projects_v3 WIP contract is verified as enrichment | `backend/docs/integrations/ek/projects_v3_wip.md` |
+| EK project status matrix and control cases are verified | `backend/docs/integrations/ek/project_status_model.md` |
+| projects_v3 WIP contract is verified as fallback/enrichment | `backend/docs/integrations/ek/projects_v3_wip.md` |
+| Project-level `isIntern` is verified in EK v4 but not yet persisted in FD | `backend/docs/integrations/ek/fitterhours_retention_model.md`, `backend/docs/integrations/ek/projects_v4_masterdata.md` |
 | Bootstrap/enrichment separation is implemented for project sync | `ARCHITECTURE_BOOTSTRAP_ENRICHMENT.md` |
 
 ## Module Decisions
