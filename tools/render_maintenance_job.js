@@ -4,6 +4,7 @@ const JOB_NAME = 'project-v4-is-internal-resync';
 const MODES = new Set(['status-only', 'dry-run', 'apply']);
 const TENANT_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const ACTOR_PATTERN = /^[a-zA-Z0-9._@-]{1,128}$/;
+const WORKDIR_PATTERN = /^[a-zA-Z0-9._/-]+$/;
 
 function usage() {
   return [
@@ -16,6 +17,7 @@ function usage() {
     '  RENDER_API_KEY                  Required. Never logged.',
     '  FIELD_DESK_RENDER_SERVICE_ID    Required unless --service-id is passed.',
     '  FD_MAINTENANCE_ACTOR            Optional default actor.',
+    '  FD_RENDER_JOB_WORKDIR           Optional explicit remote working directory.',
   ].join('\n');
 }
 
@@ -23,6 +25,7 @@ function parseArgs(argv) {
   const args = {
     actor: process.env.FD_MAINTENANCE_ACTOR || process.env.USERNAME || process.env.USER || 'unknown',
     serviceId: process.env.FIELD_DESK_RENDER_SERVICE_ID || process.env.RENDER_SERVICE_ID || '',
+    remoteWorkdir: process.env.FD_RENDER_JOB_WORKDIR || '',
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -49,6 +52,7 @@ function parseArgs(argv) {
     else if (key === 'confirm') args.confirm = value;
     else if (key === 'actor') args.actor = value;
     else if (key === 'service-id') args.serviceId = value;
+    else if (key === 'remote-workdir') args.remoteWorkdir = value;
     else throw new Error(`Unknown argument: --${key}`);
   }
 
@@ -74,6 +78,9 @@ function validateArgs(args) {
   }
   if (!process.env.RENDER_API_KEY) {
     throw new Error('Missing RENDER_API_KEY.');
+  }
+  if (args.remoteWorkdir && !WORKDIR_PATTERN.test(args.remoteWorkdir)) {
+    throw new Error('Remote working directory contains unsupported characters.');
   }
   if (args.mode === 'apply') {
     const expected = `APPLY:${JOB_NAME}:${args.tenant}`;
@@ -104,7 +111,11 @@ function buildRenderCommand(args) {
     remoteArgs.push('--confirm', args.confirm);
   }
 
-  return `cd backend && node ${remoteArgs.map(shellQuote).join(' ')}`;
+  const nodeCommand = `node ${remoteArgs.map(shellQuote).join(' ')}`;
+  if (!args.remoteWorkdir) {
+    return nodeCommand;
+  }
+  return `cd ${shellQuote(args.remoteWorkdir)} && ${nodeCommand}`;
 }
 
 async function createRenderJob(args) {
