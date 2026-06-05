@@ -50,6 +50,7 @@ Scope: links to decisions; does not duplicate full decisions
 | Shared report engine/export contract is established as Draft/Proposed governance | `docs/REPORT_ENGINE_CONTRACT.md` |
 | Shared module registry contract is established as Draft/Proposed governance | `docs/MODULE_REGISTRY_CONTRACT.md` |
 | Restarbejde backend module contract is established as a draft module reference | `docs/modules/restarbejde/BACKEND_MODULE_CONTRACT.md` |
+| QA status updates are allowed for `tenant_admin` and `project_leader`; `technician` can read/create QA but status is read-only | `docs/ARCHITECTURE.md` |
 
 ## Security And Governance Decisions
 

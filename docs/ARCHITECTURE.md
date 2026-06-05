@@ -142,6 +142,8 @@ Current:
 - `docs/MODULE_REGISTRY_CONTRACT.md` defines Draft/Proposed module registry and enablement direction.
 - Restarbejde has `docs/modules/restarbejde/MODULE_DEFINITION.md` as draft module definition.
 - QA has backend module code but still needs formal module documentation.
+- QA status updates are currently allowed for `tenant_admin` and `project_leader`; `technician` can read/create QA threads and messages but status remains read-only in the UI and enforced by backend permission checks.
+- Known QA scope limitation: `tenant_admin` project access still follows the existing project-scope checks and is not broadened in the QA status permission slice.
 
 Planned:
 - Tenant-level module enablement.

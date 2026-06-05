@@ -10,7 +10,7 @@ const MODULE_REGISTRY = Object.freeze({
 
 const ROLE_PERMISSIONS = Object.freeze({
   tenant_admin: Object.freeze(["qa:read", "qa:create", "qa:update"]),
-  project_leader: Object.freeze(["qa:read", "qa:create"]),
+  project_leader: Object.freeze(["qa:read", "qa:create", "qa:update"]),
   technician: Object.freeze(["qa:read", "qa:create"]),
 });
 
