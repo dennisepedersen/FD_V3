@@ -881,7 +881,7 @@ async function analyzeExistingProjectHours(client, { tenantId, fdProjectId }) {
         ) grouped
       ), '[]'::jsonb),
       'excluded_rows', COALESCE((
-        SELECT jsonb_agg(row_to_json(filtered) ORDER BY filtered.fitter_name ASC, filtered.work_date ASC NULLS LAST, filtered.source_key ASC)
+        SELECT jsonb_agg(row_to_json(filtered) ORDER BY filtered.name ASC, filtered.work_date ASC NULLS LAST, filtered.source_key ASC)
         FROM (
           SELECT
             fitter_name AS name,
