@@ -13,6 +13,12 @@ const JOBS = {
   'project-v4-is-internal-resync': {
     script: 'scripts/resync_projects_v4_only.js',
     modes: new Set(['status-only', 'dry-run', 'apply']),
+    requiresEkProjectId: false,
+  },
+  'project-targeted-fitterhours-backfill': {
+    script: 'scripts/targeted_fitterhours_backfill.js',
+    modes: new Set(['dry-run']),
+    requiresEkProjectId: true,
   },
 };
 const TENANT_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
@@ -23,9 +29,11 @@ function usage() {
     'Usage:',
     '  node scripts/fd_maintenance_job.js --job project-v4-is-internal-resync --mode dry-run --tenant hoyrup-clemmensen',
     '  node scripts/fd_maintenance_job.js --job project-v4-is-internal-resync --mode apply --tenant hoyrup-clemmensen --confirm APPLY:project-v4-is-internal-resync:hoyrup-clemmensen',
+    '  node scripts/fd_maintenance_job.js --job project-targeted-fitterhours-backfill --mode dry-run --tenant hoyrup-clemmensen --ek-project-id 19687',
     '',
     'Allowed jobs:',
     '  project-v4-is-internal-resync',
+    '  project-targeted-fitterhours-backfill',
     '',
     'Allowed modes:',
     '  status-only',
@@ -39,6 +47,7 @@ function parseArgs(argv) {
     job: null,
     mode: null,
     tenant: null,
+    ekProjectId: null,
     confirm: null,
     actor: process.env.FD_MAINTENANCE_ACTOR || 'unknown',
   };
@@ -51,6 +60,8 @@ function parseArgs(argv) {
       args.mode = argv[++i] || null;
     } else if (arg === '--tenant') {
       args.tenant = argv[++i] || null;
+    } else if (arg === '--ek-project-id') {
+      args.ekProjectId = argv[++i] || null;
     } else if (arg === '--confirm') {
       args.confirm = argv[++i] || null;
     } else if (arg === '--actor') {
@@ -80,6 +91,12 @@ function validateArgs(args) {
   if (!args.actor || !ACTOR_PATTERN.test(args.actor)) {
     throw new Error('Actor may only contain letters, numbers, dot, underscore, at-sign, or dash.');
   }
+  if (job.requiresEkProjectId && (!args.ekProjectId || !/^\d+$/.test(String(args.ekProjectId)))) {
+    throw new Error(`${args.job} requires --ek-project-id as a numeric EK ProjectID.`);
+  }
+  if (!job.requiresEkProjectId && args.ekProjectId) {
+    throw new Error(`${args.job} does not accept --ek-project-id.`);
+  }
   if (args.mode === 'apply') {
     const expected = `APPLY:${args.job}:${args.tenant}`;
     if (args.confirm !== expected) {
@@ -93,6 +110,9 @@ function childArgsFor({ job, args }) {
   const childArgs = [job.script];
 
   childArgs.push('--tenant', args.tenant);
+  if (job.requiresEkProjectId) {
+    childArgs.push('--ek-project-id', args.ekProjectId);
+  }
 
   if (args.mode === 'status-only') {
     childArgs.push('--status-only');

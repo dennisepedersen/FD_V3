@@ -1,7 +1,15 @@
 'use strict';
 
-const JOB_NAME = 'project-v4-is-internal-resync';
-const MODES = new Set(['status-only', 'dry-run', 'apply']);
+const JOBS = {
+  'project-v4-is-internal-resync': {
+    modes: new Set(['status-only', 'dry-run', 'apply']),
+    requiresEkProjectId: false,
+  },
+  'project-targeted-fitterhours-backfill': {
+    modes: new Set(['dry-run']),
+    requiresEkProjectId: true,
+  },
+};
 const TENANT_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const ACTOR_PATTERN = /^[a-zA-Z0-9._@-]{1,128}$/;
 const WORKDIR_PATTERN = /^[a-zA-Z0-9._/-]+$/;
@@ -9,9 +17,10 @@ const WORKDIR_PATTERN = /^[a-zA-Z0-9._/-]+$/;
 function usage() {
   return [
     'Usage:',
-    `  node tools/render_maintenance_job.js --job ${JOB_NAME} --mode status-only --tenant <tenant> [--actor <actor>]`,
-    `  node tools/render_maintenance_job.js --job ${JOB_NAME} --mode dry-run --tenant <tenant> [--actor <actor>]`,
-    `  node tools/render_maintenance_job.js --job ${JOB_NAME} --mode apply --tenant <tenant> --confirm APPLY:${JOB_NAME}:<tenant> [--actor <actor>]`,
+    '  node tools/render_maintenance_job.js --job project-v4-is-internal-resync --mode status-only --tenant <tenant> [--actor <actor>]',
+    '  node tools/render_maintenance_job.js --job project-v4-is-internal-resync --mode dry-run --tenant <tenant> [--actor <actor>]',
+    '  node tools/render_maintenance_job.js --job project-v4-is-internal-resync --mode apply --tenant <tenant> --confirm APPLY:project-v4-is-internal-resync:<tenant> [--actor <actor>]',
+    '  node tools/render_maintenance_job.js --job project-targeted-fitterhours-backfill --mode dry-run --tenant <tenant> --ek-project-id <id> [--actor <actor>]',
     '',
     'Environment:',
     '  RENDER_API_KEY                  Required. Never logged.',
@@ -49,6 +58,7 @@ function parseArgs(argv) {
     if (key === 'job') args.job = value;
     else if (key === 'mode') args.mode = value;
     else if (key === 'tenant') args.tenant = value;
+    else if (key === 'ek-project-id') args.ekProjectId = value;
     else if (key === 'confirm') args.confirm = value;
     else if (key === 'actor') args.actor = value;
     else if (key === 'service-id') args.serviceId = value;
@@ -61,10 +71,11 @@ function parseArgs(argv) {
 
 function validateArgs(args) {
   if (args.help) return;
-  if (args.job !== JOB_NAME) {
+  const job = JOBS[args.job];
+  if (!job) {
     throw new Error(`Unsupported job: ${args.job || '(missing)'}`);
   }
-  if (!MODES.has(args.mode)) {
+  if (!job.modes.has(args.mode)) {
     throw new Error(`Unsupported mode: ${args.mode || '(missing)'}`);
   }
   if (!args.tenant || !TENANT_PATTERN.test(args.tenant)) {
@@ -82,8 +93,14 @@ function validateArgs(args) {
   if (args.remoteWorkdir && !WORKDIR_PATTERN.test(args.remoteWorkdir)) {
     throw new Error('Remote working directory contains unsupported characters.');
   }
+  if (job.requiresEkProjectId && (!args.ekProjectId || !/^\d+$/.test(String(args.ekProjectId)))) {
+    throw new Error(`${args.job} requires --ek-project-id as a numeric EK ProjectID.`);
+  }
+  if (!job.requiresEkProjectId && args.ekProjectId) {
+    throw new Error(`${args.job} does not accept --ek-project-id.`);
+  }
   if (args.mode === 'apply') {
-    const expected = `APPLY:${JOB_NAME}:${args.tenant}`;
+    const expected = `APPLY:${args.job}:${args.tenant}`;
     if (args.confirm !== expected) {
       throw new Error(`Apply requires --confirm ${expected}`);
     }
@@ -106,6 +123,10 @@ function buildRenderCommand(args) {
     '--actor',
     args.actor,
   ];
+
+  if (JOBS[args.job].requiresEkProjectId) {
+    remoteArgs.push('--ek-project-id', args.ekProjectId);
+  }
 
   if (args.mode === 'apply') {
     remoteArgs.push('--confirm', args.confirm);
