@@ -6,7 +6,7 @@ const JOBS = {
     requiresEkProjectId: false,
   },
   'project-targeted-fitterhours-backfill': {
-    modes: new Set(['dry-run', 'apply']),
+    modes: new Set(['dry-run', 'analyze', 'apply']),
     requiresEkProjectId: true,
   },
 };
@@ -21,6 +21,7 @@ function usage() {
     '  node tools/render_maintenance_job.js --job project-v4-is-internal-resync --mode dry-run --tenant <tenant> [--actor <actor>]',
     '  node tools/render_maintenance_job.js --job project-v4-is-internal-resync --mode apply --tenant <tenant> --confirm APPLY:project-v4-is-internal-resync:<tenant> [--actor <actor>]',
     '  node tools/render_maintenance_job.js --job project-targeted-fitterhours-backfill --mode dry-run --tenant <tenant> --ek-project-id <id> [--actor <actor>]',
+    '  node tools/render_maintenance_job.js --job project-targeted-fitterhours-backfill --mode analyze --tenant <tenant> --ek-project-id <id> [--actor <actor>]',
     '  node tools/render_maintenance_job.js --job project-targeted-fitterhours-backfill --mode apply --tenant <tenant> --ek-project-id <id> --confirm APPLY:project-targeted-fitterhours-backfill:<tenant>:<id> [--actor <actor>]',
     '',
     'Environment:',

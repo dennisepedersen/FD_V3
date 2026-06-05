@@ -83,6 +83,17 @@ node tools/render_maintenance_job.js `
   --actor dep
 ```
 
+Analyze command:
+
+```powershell
+node tools/render_maintenance_job.js `
+  --job project-targeted-fitterhours-backfill `
+  --mode analyze `
+  --tenant hoyrup-clemmensen `
+  --ek-project-id 19687 `
+  --actor dep
+```
+
 Apply command:
 
 ```powershell
@@ -120,6 +131,15 @@ It reports:
 - existing matching rows in `fitter_hour`
 - rows that would insert, update, or skip
 - after apply: inserted, updated, skipped, total hours after, and unique employees after
+
+Analyze is read-only and does not call E-Komplet. It inspects existing `fitter_hour`
+rows for the resolved FD project and reports:
+
+- all rows, candidate rows, and excluded rows
+- hours and unique technicians for each group
+- per-technician all/candidate/excluded hours
+- per-category/londel/unit candidate status
+- excluded rows with category, unit, source key, and filter reasons
 
 Apply safety:
 

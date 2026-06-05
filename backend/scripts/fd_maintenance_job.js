@@ -17,7 +17,7 @@ const JOBS = {
   },
   'project-targeted-fitterhours-backfill': {
     script: 'scripts/targeted_fitterhours_backfill.js',
-    modes: new Set(['dry-run', 'apply']),
+    modes: new Set(['dry-run', 'analyze', 'apply']),
     requiresEkProjectId: true,
   },
 };
@@ -30,6 +30,7 @@ function usage() {
     '  node scripts/fd_maintenance_job.js --job project-v4-is-internal-resync --mode dry-run --tenant hoyrup-clemmensen',
     '  node scripts/fd_maintenance_job.js --job project-v4-is-internal-resync --mode apply --tenant hoyrup-clemmensen --confirm APPLY:project-v4-is-internal-resync:hoyrup-clemmensen',
     '  node scripts/fd_maintenance_job.js --job project-targeted-fitterhours-backfill --mode dry-run --tenant hoyrup-clemmensen --ek-project-id 19687',
+    '  node scripts/fd_maintenance_job.js --job project-targeted-fitterhours-backfill --mode analyze --tenant hoyrup-clemmensen --ek-project-id 19687',
     '  node scripts/fd_maintenance_job.js --job project-targeted-fitterhours-backfill --mode apply --tenant hoyrup-clemmensen --ek-project-id 19687 --confirm APPLY:project-targeted-fitterhours-backfill:hoyrup-clemmensen:19687',
     '',
     'Allowed jobs:',
@@ -39,6 +40,7 @@ function usage() {
     'Allowed modes:',
     '  status-only',
     '  dry-run',
+    '  analyze',
     '  apply',
   ].join('\n');
 }
@@ -121,6 +123,8 @@ function childArgsFor({ job, args }) {
     childArgs.push('--status-only');
   } else if (args.mode === 'dry-run') {
     childArgs.push('--dry-run');
+  } else if (args.mode === 'analyze') {
+    childArgs.push('--analyze');
   } else if (args.mode === 'apply') {
     childArgs.push('--apply', '--confirm', args.confirm);
   }

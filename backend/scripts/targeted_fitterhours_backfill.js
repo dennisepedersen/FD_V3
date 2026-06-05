@@ -27,12 +27,14 @@ function usage() {
   return [
     'Usage:',
     '  node scripts/targeted_fitterhours_backfill.js --tenant hoyrup-clemmensen --ek-project-id 19687 --dry-run',
+    '  node scripts/targeted_fitterhours_backfill.js --tenant hoyrup-clemmensen --ek-project-id 19687 --analyze',
     '  node scripts/targeted_fitterhours_backfill.js --tenant hoyrup-clemmensen --ek-project-id 19687 --apply --confirm APPLY:project-targeted-fitterhours-backfill:hoyrup-clemmensen:19687',
     '',
     'Options:',
     '  --tenant <slug-or-domain>  Tenant slug or tenant domain.',
     '  --ek-project-id <id>       EK internal ProjectID.',
     '  --dry-run                 Fetch and compare without writing.',
+    '  --analyze                 Read-only breakdown of existing FD rows and project-hour candidate filtering.',
     '  --apply                   Upsert only the verified tenant/project control case.',
     '  --confirm <token>         Required for apply.',
     '  --page-size <n>           EK page size. Default 1000.',
@@ -45,6 +47,7 @@ function parseArgs(argv) {
     tenant: null,
     ekProjectId: null,
     dryRun: false,
+    analyze: false,
     apply: false,
     confirm: null,
     pageSize: DEFAULT_PAGE_SIZE,
@@ -59,6 +62,8 @@ function parseArgs(argv) {
       args.ekProjectId = argv[++i] || null;
     } else if (arg === '--dry-run') {
       args.dryRun = true;
+    } else if (arg === '--analyze') {
+      args.analyze = true;
     } else if (arg === '--apply') {
       args.apply = true;
     } else if (arg === '--confirm') {
@@ -81,11 +86,12 @@ function parseArgs(argv) {
   if (!args.ekProjectId || !/^\d+$/.test(String(args.ekProjectId).trim())) {
     throw new Error('Provide --ek-project-id as a numeric EK ProjectID.');
   }
-  if (args.dryRun && args.apply) {
-    throw new Error('Use either --dry-run or --apply, not both.');
+  const selectedModes = [args.dryRun, args.analyze, args.apply].filter(Boolean).length;
+  if (selectedModes > 1) {
+    throw new Error('Use only one of --dry-run, --analyze, or --apply.');
   }
-  if (!args.dryRun && !args.apply) {
-    throw new Error(`Provide --dry-run or --apply for ${JOB_NAME}.`);
+  if (selectedModes === 0) {
+    throw new Error(`Provide --dry-run, --analyze, or --apply for ${JOB_NAME}.`);
   }
   if (args.apply) {
     const tenant = String(args.tenant).trim().toLowerCase();
@@ -711,6 +717,232 @@ async function verifyProjectTotals(client, { tenantId, fdProjectId }) {
   };
 }
 
+function makeTotalSummary(row) {
+  return {
+    rows: Number(row?.rows || 0),
+    hours: Number(Number(row?.hours || 0).toFixed(2)),
+    uniqueEmployees: Number(row?.unique_employees || 0),
+  };
+}
+
+function makeHours(value) {
+  return Number(Number(value || 0).toFixed(2));
+}
+
+async function analyzeExistingProjectHours(client, { tenantId, fdProjectId }) {
+  const sql = `
+    WITH rows AS (
+      SELECT
+        fh.source_key,
+        fh.fitter_hour_id,
+        fh.external_project_ref,
+        fh.project_id AS ek_project_id,
+        fh.fitter_id,
+        fh.fitter_username,
+        fh.fitter_salary_id,
+        fh.fitter_reference,
+        COALESCE(f.name, fh.raw_payload_json ->> 'FitterName', fh.fitter_username, fh.fitter_id, 'Unknown fitter') AS fitter_name,
+        fh.fitter_category_id,
+        fh.fitter_category_reference,
+        fc.reference AS category_reference,
+        fc.description AS category_description,
+        fc.display AS category_display,
+        fh.work_date,
+        fh.registration_date,
+        fh.hours,
+        fh.quantity,
+        fh.unit,
+        fh.note,
+        fh.description AS row_description,
+        COALESCE(fc.is_only_for_internal_projects, false) AS is_internal_only,
+        COALESCE(fc.is_on_invoice, false) AS is_invoice_relevant,
+        COALESCE(fh.hours, fh.quantity, 0)::numeric AS hour_value,
+        lower(translate(trim(concat_ws(' ',
+          fc.reference,
+          fc.description,
+          fh.raw_payload_json ->> 'CategoryName',
+          fh.description,
+          fh.note
+        )), 'ÆØÅæøå', 'EOAeoa')) AS category_text_blob
+      FROM fitter_hour fh
+      LEFT JOIN fitter f
+        ON f.tenant_id = fh.tenant_id
+       AND f.fitter_id = fh.fitter_id
+      LEFT JOIN fitter_category fc
+        ON fc.tenant_id = fh.tenant_id
+       AND (
+         (fh.fitter_category_id IS NOT NULL AND fc.fitter_category_id = fh.fitter_category_id)
+         OR
+         (fh.fitter_category_reference IS NOT NULL AND fc.reference = fh.fitter_category_reference)
+       )
+      WHERE fh.tenant_id = $1
+        AND fh.fd_project_id = $2
+    ),
+    evaluated AS (
+      SELECT
+        *,
+        category_text_blob ~* '(ferie|syg|sygedag|sygdom|barsel|orlov|omsorg|hospital|barns|fri uden lon|fri u/lon|fritvalg|absence|leave)' AS is_absence_or_leave,
+        category_text_blob ~* '(kursus|moede|mode|vaerksted|verksted|fri|intern)' AS is_non_project_activity,
+        category_text_blob ~* '(tilleg|tillaeg|formandstilleg|formandstillaeg|stedtilleg|stedtillaeg)' AS is_allowance
+      FROM rows
+    ),
+    classified AS (
+      SELECT
+        *,
+        (
+          is_internal_only = false
+          AND is_absence_or_leave = false
+          AND is_non_project_activity = false
+          AND is_allowance = false
+          AND is_invoice_relevant = true
+        ) AS is_project_hour_candidate,
+        ARRAY_REMOVE(ARRAY[
+          CASE WHEN is_internal_only THEN 'internal_only' END,
+          CASE WHEN is_absence_or_leave THEN 'absence_or_leave' END,
+          CASE WHEN is_non_project_activity THEN 'non_project_activity' END,
+          CASE WHEN is_allowance THEN 'allowance' END,
+          CASE WHEN is_invoice_relevant = false THEN 'not_invoice_relevant' END
+        ], NULL) AS filter_reasons
+      FROM evaluated
+    )
+    SELECT jsonb_build_object(
+      'totals', jsonb_build_object(
+        'all', (
+          SELECT jsonb_build_object(
+            'rows', COUNT(*)::int,
+            'hours', COALESCE(SUM(hour_value), 0)::numeric(14,2),
+            'unique_employees', COUNT(DISTINCT COALESCE(fitter_id, fitter_username, fitter_salary_id, fitter_reference, fitter_name))::int
+          )
+          FROM classified
+        ),
+        'candidate', (
+          SELECT jsonb_build_object(
+            'rows', COUNT(*)::int,
+            'hours', COALESCE(SUM(hour_value), 0)::numeric(14,2),
+            'unique_employees', COUNT(DISTINCT COALESCE(fitter_id, fitter_username, fitter_salary_id, fitter_reference, fitter_name))::int
+          )
+          FROM classified
+          WHERE is_project_hour_candidate
+        ),
+        'excluded', (
+          SELECT jsonb_build_object(
+            'rows', COUNT(*)::int,
+            'hours', COALESCE(SUM(hour_value), 0)::numeric(14,2),
+            'unique_employees', COUNT(DISTINCT COALESCE(fitter_id, fitter_username, fitter_salary_id, fitter_reference, fitter_name))::int
+          )
+          FROM classified
+          WHERE NOT is_project_hour_candidate
+        )
+      ),
+      'by_fitter', COALESCE((
+        SELECT jsonb_agg(row_to_json(grouped) ORDER BY grouped.excluded_hours DESC, grouped.all_hours DESC, grouped.fitter_name ASC)
+        FROM (
+          SELECT
+            COALESCE(fitter_id, fitter_username, fitter_salary_id, fitter_reference, lower(fitter_name)) AS fitter_key,
+            MAX(fitter_id) AS fitter_id,
+            MAX(fitter_username) AS fitter_username,
+            MAX(fitter_salary_id) AS fitter_salary_id,
+            MAX(fitter_reference) AS fitter_reference,
+            fitter_name,
+            COUNT(*)::int AS rows,
+            COALESCE(SUM(hour_value), 0)::numeric(14,2) AS all_hours,
+            COALESCE(SUM(hour_value) FILTER (WHERE is_project_hour_candidate), 0)::numeric(14,2) AS candidate_hours,
+            COALESCE(SUM(hour_value) FILTER (WHERE NOT is_project_hour_candidate), 0)::numeric(14,2) AS excluded_hours,
+            COALESCE(SUM(hour_value), 0)::numeric(14,2)
+              - COALESCE(SUM(hour_value) FILTER (WHERE is_project_hour_candidate), 0)::numeric(14,2) AS difference_hours
+          FROM classified
+          GROUP BY COALESCE(fitter_id, fitter_username, fitter_salary_id, fitter_reference, lower(fitter_name)), fitter_name
+        ) grouped
+      ), '[]'::jsonb),
+      'by_category', COALESCE((
+        SELECT jsonb_agg(row_to_json(grouped) ORDER BY grouped.hours DESC, grouped.category_reference ASC NULLS LAST, grouped.category_description ASC NULLS LAST)
+        FROM (
+          SELECT
+            fitter_category_id,
+            fitter_category_reference,
+            category_reference,
+            category_description,
+            category_display,
+            unit,
+            is_project_hour_candidate,
+            filter_reasons,
+            COUNT(*)::int AS rows,
+            COALESCE(SUM(hour_value), 0)::numeric(14,2) AS hours
+          FROM classified
+          GROUP BY
+            fitter_category_id,
+            fitter_category_reference,
+            category_reference,
+            category_description,
+            category_display,
+            unit,
+            is_project_hour_candidate,
+            filter_reasons
+        ) grouped
+      ), '[]'::jsonb),
+      'excluded_rows', COALESCE((
+        SELECT jsonb_agg(row_to_json(filtered) ORDER BY filtered.fitter_name ASC, filtered.work_date ASC NULLS LAST, filtered.source_key ASC)
+        FROM (
+          SELECT
+            fitter_name AS name,
+            hour_value::numeric(14,2) AS hours,
+            work_date,
+            registration_date,
+            fitter_category_id,
+            fitter_category_reference,
+            category_reference,
+            category_description,
+            category_display,
+            fitter_salary_id AS salary_part,
+            unit,
+            source_key,
+            filter_reasons
+          FROM classified
+          WHERE NOT is_project_hour_candidate
+        ) filtered
+      ), '[]'::jsonb)
+    ) AS analysis
+  `;
+
+  const { rows } = await client.query(sql, [tenantId, fdProjectId]);
+  const analysis = rows[0]?.analysis || {};
+  const totals = analysis.totals || {};
+
+  return {
+    query: {
+      source: 'fitter_hour joined to fitter and fitter_category',
+      projectRelation: 'fitter_hour.fd_project_id = project_masterdata_v4.project_id / project_core.project_id',
+      candidateLogic: [
+        'is_internal_only = false',
+        'absence/leave regex = false',
+        'non-project activity regex = false',
+        'allowance regex = false',
+        'is_invoice_relevant = true',
+      ],
+    },
+    totals: {
+      all: makeTotalSummary(totals.all),
+      candidate: makeTotalSummary(totals.candidate),
+      excluded: makeTotalSummary(totals.excluded),
+    },
+    byFitter: (analysis.by_fitter || []).map((row) => ({
+      ...row,
+      all_hours: makeHours(row.all_hours),
+      candidate_hours: makeHours(row.candidate_hours),
+      excluded_hours: makeHours(row.excluded_hours),
+      difference_hours: makeHours(row.difference_hours),
+    })),
+    byCategory: (analysis.by_category || []).map((row) => ({
+      ...row,
+      hours: makeHours(row.hours),
+    })),
+    excludedRows: (analysis.excluded_rows || []).map((row) => ({
+      ...row,
+      hours: makeHours(row.hours),
+    })),
+  };
+}
+
 function summarizeRows({ rawRows, mappedRows, existing, fdProjectId }) {
   const uniqueEmployees = new Set();
   let totalHours = 0;
@@ -780,6 +1012,42 @@ async function main() {
       tenantId: cfg.tenantId,
       ekProjectId: args.ekProjectId,
     });
+    if (args.analyze) {
+      const analysis = await analyzeExistingProjectHours(client, {
+        tenantId: cfg.tenantId,
+        fdProjectId: project.project_id,
+      });
+
+      console.log(JSON.stringify({
+        event: 'targeted_fitterhours_backfill_analyze',
+        job: JOB_NAME,
+        mode: 'analyze',
+        started_at: startedAt.toISOString(),
+        finished_at: new Date().toISOString(),
+        tenant: cfg.slug,
+        tenant_id: cfg.tenantId,
+        ek_project_id: Number(args.ekProjectId),
+        project_match: {
+          fd_project_id: project.project_id,
+          external_project_ref: project.external_project_ref,
+          ek_project_id: Number(project.ek_project_id),
+          is_closed: project.is_closed,
+          project_core_is_internal: project.project_core_is_internal,
+          masterdata_is_internal: project.masterdata_is_internal,
+        },
+        analysis,
+        safety: {
+          writes_enabled: false,
+          ek_fetch_enabled: false,
+          apply_supported: false,
+          deletes_enabled: false,
+          bootstrap_enabled: false,
+          sync_state_updates_enabled: false,
+        },
+      }, null, 2));
+      return;
+    }
+
     const fetched = await fetchAllTargetedRows({
       cfg,
       ekProjectId: args.ekProjectId,
