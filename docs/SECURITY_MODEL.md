@@ -51,16 +51,50 @@ Current:
 - Project access is based on `project_assignment` and scope rules.
 - Supported scope direction: `mine`, `team`, `tenant`.
 - `global_admin` has no implicit tenant-data access.
+- Verified current tenant admin model: `tenant_admin` is a tenant administrator with selected module/admin rights, not an automatic tenant-wide superuser for project-owned data.
+- Project-owned data still requires explicit project scope unless a route has an explicit tenant-wide capability.
+- QA uses both module permission and project/thread scope. Granting `tenant_admin` or `project_leader` `qa:update` does not by itself broaden project scope.
 
 Planned:
 - Central permission model with route policy: required scope, allowed roles, required entitlements/module permissions.
 - Module permissions separate from user roles.
 - Resource group/team scope where modules need team-based access.
+- Tenant-wide project/resource access should be implemented later as explicit capabilities, not as hidden role bypasses.
 
 Open:
 - Final RBAC matrix.
 - Department/resource group model beyond current team/project assignment direction.
 - Exact module permission names and enforcement points.
+- Final tenant-wide capability matrix, for example `project:read:tenant`, `qa:update:tenant`, and `document:read:tenant`.
+
+### Tenant Admin Hybrid Access Decision
+
+Status: decided direction, no access logic change in this documentation slice.
+
+Verified current model:
+- `tenant_admin` has selected tenant/module/admin permissions.
+- `tenant_admin` is not automatically allowed to read or mutate all project-owned data.
+- Project-owned resources continue to require project scope unless an API explicitly supports tenant-wide access.
+- QA status permissions do not change project scope; a tenant admin can have `qa:update` and still be denied a specific QA thread if project/thread scope does not allow access.
+
+Decision:
+- Fielddesk uses a hybrid tenant admin model for now.
+- `tenant_admin` administers users, integrations, tenant configuration, operations/diagnostics, and module permissions where relevant.
+- `tenant_admin` does not receive implicit tenant-wide access to all project-owned data.
+- Tenant-wide access must be modeled as explicit capabilities.
+
+Future capability examples:
+- `project:read:assigned`
+- `project:read:tenant`
+- `qa:update:assigned`
+- `qa:update:tenant`
+- `document:read:project`
+- `document:read:tenant`
+
+Not changed now:
+- No backend/frontend access checks are changed by this decision.
+- No migrations or RLS policy changes are made by this decision.
+- Existing QA, project, document, and future module routes must keep enforcing backend-owned tenant/project/resource scope.
 
 ## 4. RLS And Tenant Isolation
 

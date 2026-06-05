@@ -105,10 +105,12 @@ Current:
 - Tenant resolution happens through tenant/domain records.
 - Backend denies when tenant, domain, lifecycle, or token context does not match.
 - Global admin is platform identity, not implicit tenant user.
+- Tenant admin follows a hybrid model: tenant administration rights do not automatically grant tenant-wide access to project-owned data.
 
 Planned:
 - Database RLS to backstop application-level tenant filtering.
 - Centralized RBAC/scope enforcement for all module APIs.
+- Explicit capability-based tenant-wide project/resource access where needed, instead of hidden role bypasses.
 
 Rule: frontend can hide UI, but backend and database enforce access.
 
@@ -120,6 +122,7 @@ Current:
 - API reads use `project_core` as baseline and `project_wip` as supplement.
 - `project_assignment` defines project access for mine/team/tenant scopes.
 - `docs/PROJECT_CONTEXT_CONTRACT.md` defines Draft/Proposed shared project context direction for modules.
+- Verified current model: `tenant_admin` is not automatically granted access to every project-owned resource. Project-owned APIs still need explicit project scope or a later explicit capability.
 
 E-Komplet current:
 - v4 LIST is authoritative for project existence, lifecycle, and masterdata.
@@ -153,6 +156,7 @@ Open:
 - Final module registry implementation.
 - Which modules are core vs optional.
 - Which modules must run without E-Komplet.
+- Final capability names for tenant-wide module/project access, for example `project:read:tenant`, `qa:update:tenant`, and `document:read:tenant`.
 
 ## 9. File And Storage Strategy
 
