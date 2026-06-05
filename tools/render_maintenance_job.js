@@ -6,7 +6,7 @@ const JOBS = {
     requiresEkProjectId: false,
   },
   'project-targeted-fitterhours-backfill': {
-    modes: new Set(['dry-run']),
+    modes: new Set(['dry-run', 'apply']),
     requiresEkProjectId: true,
   },
 };
@@ -21,6 +21,7 @@ function usage() {
     '  node tools/render_maintenance_job.js --job project-v4-is-internal-resync --mode dry-run --tenant <tenant> [--actor <actor>]',
     '  node tools/render_maintenance_job.js --job project-v4-is-internal-resync --mode apply --tenant <tenant> --confirm APPLY:project-v4-is-internal-resync:<tenant> [--actor <actor>]',
     '  node tools/render_maintenance_job.js --job project-targeted-fitterhours-backfill --mode dry-run --tenant <tenant> --ek-project-id <id> [--actor <actor>]',
+    '  node tools/render_maintenance_job.js --job project-targeted-fitterhours-backfill --mode apply --tenant <tenant> --ek-project-id <id> --confirm APPLY:project-targeted-fitterhours-backfill:<tenant>:<id> [--actor <actor>]',
     '',
     'Environment:',
     '  RENDER_API_KEY                  Required. Never logged.',
@@ -84,12 +85,6 @@ function validateArgs(args) {
   if (!args.actor || !ACTOR_PATTERN.test(args.actor)) {
     throw new Error('Actor may only contain letters, numbers, dot, underscore, at-sign, or dash.');
   }
-  if (!args.serviceId) {
-    throw new Error('Missing Render service id. Set FIELD_DESK_RENDER_SERVICE_ID or pass --service-id.');
-  }
-  if (!process.env.RENDER_API_KEY) {
-    throw new Error('Missing RENDER_API_KEY.');
-  }
   if (args.remoteWorkdir && !WORKDIR_PATTERN.test(args.remoteWorkdir)) {
     throw new Error('Remote working directory contains unsupported characters.');
   }
@@ -100,10 +95,18 @@ function validateArgs(args) {
     throw new Error(`${args.job} does not accept --ek-project-id.`);
   }
   if (args.mode === 'apply') {
-    const expected = `APPLY:${args.job}:${args.tenant}`;
+    const expected = job.requiresEkProjectId
+      ? `APPLY:${args.job}:${args.tenant}:${args.ekProjectId}`
+      : `APPLY:${args.job}:${args.tenant}`;
     if (args.confirm !== expected) {
       throw new Error(`Apply requires --confirm ${expected}`);
     }
+  }
+  if (!args.serviceId) {
+    throw new Error('Missing Render service id. Set FIELD_DESK_RENDER_SERVICE_ID or pass --service-id.');
+  }
+  if (!process.env.RENDER_API_KEY) {
+    throw new Error('Missing RENDER_API_KEY.');
   }
 }
 

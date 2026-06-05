@@ -1,13 +1,15 @@
 'use strict';
 
 /*
- * EK ProjectID-targeted fitterhours backfill dry-run.
+ * EK ProjectID-targeted fitterhours backfill.
  *
- * Phase 1 is read-only by design:
+ * Phase 1 apply is intentionally limited to the verified control case:
+ * tenant=hoyrup-clemmensen, EK ProjectID=19687.
+ *
  * - Calls only /api/v3.0/fitterhours with searchAttribute=ProjectID.
  * - Resolves one EK ProjectID to one FD project via project_masterdata_v4.
- * - Compares returned rows against existing fitter_hour rows.
- * - Does not insert, update, delete, enqueue sync jobs, or touch sync state.
+ * - Compares returned rows against existing fitter_hour rows before writes.
+ * - Does not delete, enqueue sync jobs, run bootstrap, or touch sync state.
  */
 
 const crypto = require('crypto');
@@ -18,16 +20,21 @@ require('dotenv').config({ path: path.resolve(__dirname, '../.env'), quiet: true
 
 const JOB_NAME = 'project-targeted-fitterhours-backfill';
 const DEFAULT_PAGE_SIZE = 1000;
+const APPLY_ALLOWED_TENANT = 'hoyrup-clemmensen';
+const APPLY_ALLOWED_EK_PROJECT_ID = '19687';
 
 function usage() {
   return [
     'Usage:',
     '  node scripts/targeted_fitterhours_backfill.js --tenant hoyrup-clemmensen --ek-project-id 19687 --dry-run',
+    '  node scripts/targeted_fitterhours_backfill.js --tenant hoyrup-clemmensen --ek-project-id 19687 --apply --confirm APPLY:project-targeted-fitterhours-backfill:hoyrup-clemmensen:19687',
     '',
     'Options:',
     '  --tenant <slug-or-domain>  Tenant slug or tenant domain.',
     '  --ek-project-id <id>       EK internal ProjectID.',
-    '  --dry-run                 Required in phase 1.',
+    '  --dry-run                 Fetch and compare without writing.',
+    '  --apply                   Upsert only the verified tenant/project control case.',
+    '  --confirm <token>         Required for apply.',
     '  --page-size <n>           EK page size. Default 1000.',
     '  --max-pages <n>           Optional safety cap for test runs.',
   ].join('\n');
@@ -38,6 +45,8 @@ function parseArgs(argv) {
     tenant: null,
     ekProjectId: null,
     dryRun: false,
+    apply: false,
+    confirm: null,
     pageSize: DEFAULT_PAGE_SIZE,
     maxPages: null,
   };
@@ -50,6 +59,10 @@ function parseArgs(argv) {
       args.ekProjectId = argv[++i] || null;
     } else if (arg === '--dry-run') {
       args.dryRun = true;
+    } else if (arg === '--apply') {
+      args.apply = true;
+    } else if (arg === '--confirm') {
+      args.confirm = argv[++i] || null;
     } else if (arg === '--page-size') {
       args.pageSize = Number(argv[++i]);
     } else if (arg === '--max-pages') {
@@ -68,8 +81,22 @@ function parseArgs(argv) {
   if (!args.ekProjectId || !/^\d+$/.test(String(args.ekProjectId).trim())) {
     throw new Error('Provide --ek-project-id as a numeric EK ProjectID.');
   }
-  if (!args.dryRun) {
-    throw new Error(`${JOB_NAME} supports only --dry-run in phase 1.`);
+  if (args.dryRun && args.apply) {
+    throw new Error('Use either --dry-run or --apply, not both.');
+  }
+  if (!args.dryRun && !args.apply) {
+    throw new Error(`Provide --dry-run or --apply for ${JOB_NAME}.`);
+  }
+  if (args.apply) {
+    const tenant = String(args.tenant).trim().toLowerCase();
+    const ekProjectId = String(args.ekProjectId).trim();
+    const expectedConfirm = `APPLY:${JOB_NAME}:${tenant}:${ekProjectId}`;
+    if (tenant !== APPLY_ALLOWED_TENANT || ekProjectId !== APPLY_ALLOWED_EK_PROJECT_ID) {
+      throw new Error(`${JOB_NAME} apply is limited to ${APPLY_ALLOWED_TENANT}/${APPLY_ALLOWED_EK_PROJECT_ID} in this slice.`);
+    }
+    if (args.confirm !== expectedConfirm) {
+      throw new Error(`Apply requires --confirm ${expectedConfirm}`);
+    }
   }
   if (!Number.isInteger(args.pageSize) || args.pageSize <= 0 || args.pageSize > 1000) {
     throw new Error('--page-size must be an integer between 1 and 1000.');
@@ -332,6 +359,10 @@ function mapFitterHourRow(raw, { expectedEkProjectId }) {
   };
 }
 
+function getRawProjectId(raw) {
+  return asNullableText(pickAny(raw, ['ProjectID', 'ProjectId', 'projectID', 'projectId']));
+}
+
 function comparableRow(row) {
   return {
     fitter_hour_id: row.fitterHourId,
@@ -514,6 +545,7 @@ async function loadExistingRows(client, { tenantId, fdProjectId, sourceKeys }) {
     `
       SELECT
         source_key,
+        fd_project_id,
         fitter_hour_id,
         external_project_ref,
         project_id,
@@ -543,7 +575,143 @@ async function loadExistingRows(client, { tenantId, fdProjectId, sourceKeys }) {
   };
 }
 
-function summarizeRows({ rawRows, mappedRows, existing }) {
+async function upsertTargetedRows(client, { tenantId, fdProjectId, mappedRows }) {
+  if (!mappedRows.length) {
+    return { inserted: 0, updated: 0 };
+  }
+
+  let inserted = 0;
+  let updated = 0;
+
+  for (const chunk of chunkArray(mappedRows, 100)) {
+    const values = [];
+    const params = [];
+
+    chunk.forEach((row, index) => {
+      const base = index * 20;
+      values.push(
+        `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10}, $${base + 11}, $${base + 12}, $${base + 13}, $${base + 14}, $${base + 15}, $${base + 16}, $${base + 17}, $${base + 18}, $${base + 19}::jsonb, $${base + 20}, now())`
+      );
+      params.push(
+        tenantId,
+        row.sourceKey,
+        row.fitterHourId,
+        row.externalProjectRef,
+        row.projectId,
+        row.fitterId,
+        row.fitterUsername,
+        row.fitterSalaryId,
+        row.fitterReference,
+        row.fitterCategoryId,
+        row.fitterCategoryReference,
+        row.workDate,
+        row.registrationDate,
+        row.hours,
+        row.quantity,
+        row.unit,
+        row.note,
+        row.description,
+        JSON.stringify(row.rawPayloadJson || {}),
+        fdProjectId
+      );
+    });
+
+    const { rows } = await client.query(
+      `
+        WITH upserted AS (
+          INSERT INTO fitter_hour (
+            tenant_id,
+            source_key,
+            fitter_hour_id,
+            external_project_ref,
+            project_id,
+            fitter_id,
+            fitter_username,
+            fitter_salary_id,
+            fitter_reference,
+            fitter_category_id,
+            fitter_category_reference,
+            work_date,
+            registration_date,
+            hours,
+            quantity,
+            unit,
+            note,
+            description,
+            raw_payload_json,
+            fd_project_id,
+            synced_at
+          )
+          VALUES ${values.join(',\n')}
+          ON CONFLICT (tenant_id, source_key)
+          DO UPDATE SET
+            fitter_hour_id = EXCLUDED.fitter_hour_id,
+            external_project_ref = EXCLUDED.external_project_ref,
+            project_id = EXCLUDED.project_id,
+            fitter_id = EXCLUDED.fitter_id,
+            fitter_username = EXCLUDED.fitter_username,
+            fitter_salary_id = EXCLUDED.fitter_salary_id,
+            fitter_reference = EXCLUDED.fitter_reference,
+            fitter_category_id = EXCLUDED.fitter_category_id,
+            fitter_category_reference = EXCLUDED.fitter_category_reference,
+            work_date = EXCLUDED.work_date,
+            registration_date = EXCLUDED.registration_date,
+            hours = EXCLUDED.hours,
+            quantity = EXCLUDED.quantity,
+            unit = EXCLUDED.unit,
+            note = EXCLUDED.note,
+            description = EXCLUDED.description,
+            raw_payload_json = EXCLUDED.raw_payload_json,
+            fd_project_id = EXCLUDED.fd_project_id,
+            synced_at = EXCLUDED.synced_at,
+            updated_at = now()
+          RETURNING (xmax = 0) AS inserted
+        )
+        SELECT
+          COUNT(*) FILTER (WHERE inserted)::int AS inserted,
+          COUNT(*) FILTER (WHERE NOT inserted)::int AS updated
+        FROM upserted
+      `,
+      params
+    );
+
+    inserted += Number(rows[0]?.inserted || 0);
+    updated += Number(rows[0]?.updated || 0);
+  }
+
+  return { inserted, updated };
+}
+
+function chunkArray(items, size) {
+  const chunks = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
+
+async function verifyProjectTotals(client, { tenantId, fdProjectId }) {
+  const { rows } = await client.query(
+    `
+      SELECT
+        COUNT(*)::int AS rows,
+        COALESCE(SUM(hours), 0)::numeric AS total_hours,
+        COUNT(DISTINCT COALESCE(fitter_id, fitter_username, fitter_salary_id, fitter_reference))::int AS unique_employees
+      FROM fitter_hour
+      WHERE tenant_id = $1
+        AND fd_project_id = $2
+    `,
+    [tenantId, fdProjectId]
+  );
+  const row = rows[0] || {};
+  return {
+    rows: Number(row.rows || 0),
+    totalHoursAfter: Number(Number(row.total_hours || 0).toFixed(2)),
+    uniqueEmployeesAfter: Number(row.unique_employees || 0),
+  };
+}
+
+function summarizeRows({ rawRows, mappedRows, existing, fdProjectId }) {
   const uniqueEmployees = new Set();
   let totalHours = 0;
   let rowsWithNullHours = 0;
@@ -564,9 +732,7 @@ function summarizeRows({ rawRows, mappedRows, existing }) {
       continue;
     }
 
-    const nextComparable = comparableRow(row);
-    const existingComparable = normalizeComparableDbRow(existingRow);
-    if (JSON.stringify(nextComparable) === JSON.stringify(existingComparable)) {
+    if (classifyRowAction(row, existing, fdProjectId) === 'skip') {
       wouldSkip += 1;
     } else {
       wouldUpdate += 1;
@@ -586,6 +752,20 @@ function summarizeRows({ rawRows, mappedRows, existing }) {
     wouldUpdate,
     wouldSkip,
   };
+}
+
+function classifyRowAction(row, existing, fdProjectId) {
+  const existingRow = existing.bySourceKey.get(row.sourceKey);
+  if (!existingRow) {
+    return 'insert';
+  }
+  if (String(existingRow.fd_project_id || '') !== String(fdProjectId || '')) {
+    return 'update';
+  }
+
+  const nextComparable = comparableRow(row);
+  const existingComparable = normalizeComparableDbRow(existingRow);
+  return JSON.stringify(nextComparable) === JSON.stringify(existingComparable) ? 'skip' : 'update';
 }
 
 async function main() {
@@ -609,6 +789,12 @@ async function main() {
     const mappedRows = fetched.rows
       .map((row) => mapFitterHourRow(row, { expectedEkProjectId: args.ekProjectId }))
       .filter(Boolean);
+    const wrongProjectRows = fetched.rows
+      .map((row, index) => ({ index, projectId: getRawProjectId(row) }))
+      .filter((row) => String(row.projectId || '').trim() !== String(args.ekProjectId));
+    if (wrongProjectRows.length) {
+      throw new Error(`EK response included rows for other ProjectID values: ${JSON.stringify(wrongProjectRows.slice(0, 5))}`);
+    }
     const existing = await loadExistingRows(client, {
       tenantId: cfg.tenantId,
       fdProjectId: project.project_id,
@@ -618,12 +804,32 @@ async function main() {
       rawRows: fetched.rows,
       mappedRows,
       existing,
+      fdProjectId: project.project_id,
     });
+    let applyResult = null;
+    let verification = null;
+
+    if (args.apply) {
+      if (!project.project_id) {
+        throw new Error('project_match_missing');
+      }
+      const rowsToApply = mappedRows.filter((row) => classifyRowAction(row, existing, project.project_id) !== 'skip');
+      applyResult = await upsertTargetedRows(client, {
+        tenantId: cfg.tenantId,
+        fdProjectId: project.project_id,
+        mappedRows: rowsToApply,
+      });
+      applyResult.skipped = mappedRows.length - rowsToApply.length;
+      verification = await verifyProjectTotals(client, {
+        tenantId: cfg.tenantId,
+        fdProjectId: project.project_id,
+      });
+    }
 
     console.log(JSON.stringify({
-      event: 'targeted_fitterhours_backfill_dry_run',
+      event: args.apply ? 'targeted_fitterhours_backfill_apply' : 'targeted_fitterhours_backfill_dry_run',
       job: JOB_NAME,
-      mode: 'dry-run',
+      mode: args.apply ? 'apply' : 'dry-run',
       started_at: startedAt.toISOString(),
       finished_at: new Date().toISOString(),
       tenant: cfg.slug,
@@ -643,9 +849,11 @@ async function main() {
         masterdata_is_internal: project.masterdata_is_internal,
       },
       summary,
+      apply_result: applyResult,
+      verification,
       safety: {
-        writes_enabled: false,
-        apply_supported: false,
+        writes_enabled: Boolean(args.apply),
+        apply_supported: true,
         deletes_enabled: false,
         bootstrap_enabled: false,
         sync_state_updates_enabled: false,

@@ -23,7 +23,7 @@ apply
 
 `project-v4-is-internal-resync` supports `status-only`, `dry-run`, and `apply`.
 
-`project-targeted-fitterhours-backfill` supports `dry-run` only in phase 1.
+`project-targeted-fitterhours-backfill` supports `dry-run` and a deliberately narrow `apply` for the verified control case.
 
 The local trigger is intentionally not a generic shell runner. It can only request whitelisted jobs and whitelisted modes.
 
@@ -63,7 +63,7 @@ node backend/scripts/resync_projects_v4_only.js
 
 ## Project-targeted fitterhours backfill dry-run
 
-Phase 1 supports only dry-run for a single EK internal ProjectID.
+Phase 1 supports dry-run for a single EK internal ProjectID and apply only for the verified control case.
 
 Example control case:
 
@@ -80,6 +80,18 @@ node tools/render_maintenance_job.js `
   --mode dry-run `
   --tenant hoyrup-clemmensen `
   --ek-project-id 19687 `
+  --actor dep
+```
+
+Apply command:
+
+```powershell
+node tools/render_maintenance_job.js `
+  --job project-targeted-fitterhours-backfill `
+  --mode apply `
+  --tenant hoyrup-clemmensen `
+  --ek-project-id 19687 `
+  --confirm APPLY:project-targeted-fitterhours-backfill:hoyrup-clemmensen:19687 `
   --actor dep
 ```
 
@@ -107,8 +119,18 @@ It reports:
 - matched FD project id
 - existing matching rows in `fitter_hour`
 - rows that would insert, update, or skip
+- after apply: inserted, updated, skipped, total hours after, and unique employees after
 
-It does not insert, update, delete, enqueue sync jobs, run bootstrap, or update sync state.
+Apply safety:
+
+- only `tenant=hoyrup-clemmensen` and `EK ProjectID=19687` are accepted in this slice
+- confirmation must exactly match `APPLY:project-targeted-fitterhours-backfill:hoyrup-clemmensen:19687`
+- every EK row must have `ProjectID=19687`
+- the FD project must resolve through `project_masterdata_v4.ek_project_id`
+- no delete is performed
+- no bootstrap is run
+- no broad fitterhours sync is run
+- no sync state is updated
 
 ## Required local environment
 
@@ -166,7 +188,7 @@ node tools/render_maintenance_job.js `
 - Unknown jobs are rejected locally and remotely.
 - Unknown modes are rejected locally and remotely.
 - Apply mode is rejected unless the exact confirmation string is supplied.
-- `project-targeted-fitterhours-backfill` rejects apply mode in phase 1.
+- `project-targeted-fitterhours-backfill` rejects apply unless the tenant, EK ProjectID, and confirmation match the verified control case.
 - Tenant slugs are validated before the Render job is created.
 - The remote dispatcher uses Node child process execution without shell expansion.
 - The Render API key is read only from environment variables and is never printed.

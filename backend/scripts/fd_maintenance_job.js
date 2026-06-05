@@ -17,7 +17,7 @@ const JOBS = {
   },
   'project-targeted-fitterhours-backfill': {
     script: 'scripts/targeted_fitterhours_backfill.js',
-    modes: new Set(['dry-run']),
+    modes: new Set(['dry-run', 'apply']),
     requiresEkProjectId: true,
   },
 };
@@ -30,6 +30,7 @@ function usage() {
     '  node scripts/fd_maintenance_job.js --job project-v4-is-internal-resync --mode dry-run --tenant hoyrup-clemmensen',
     '  node scripts/fd_maintenance_job.js --job project-v4-is-internal-resync --mode apply --tenant hoyrup-clemmensen --confirm APPLY:project-v4-is-internal-resync:hoyrup-clemmensen',
     '  node scripts/fd_maintenance_job.js --job project-targeted-fitterhours-backfill --mode dry-run --tenant hoyrup-clemmensen --ek-project-id 19687',
+    '  node scripts/fd_maintenance_job.js --job project-targeted-fitterhours-backfill --mode apply --tenant hoyrup-clemmensen --ek-project-id 19687 --confirm APPLY:project-targeted-fitterhours-backfill:hoyrup-clemmensen:19687',
     '',
     'Allowed jobs:',
     '  project-v4-is-internal-resync',
@@ -98,7 +99,9 @@ function validateArgs(args) {
     throw new Error(`${args.job} does not accept --ek-project-id.`);
   }
   if (args.mode === 'apply') {
-    const expected = `APPLY:${args.job}:${args.tenant}`;
+    const expected = job.requiresEkProjectId
+      ? `APPLY:${args.job}:${args.tenant}:${args.ekProjectId}`
+      : `APPLY:${args.job}:${args.tenant}`;
     if (args.confirm !== expected) {
       throw new Error(`Apply mode requires --confirm ${expected}`);
     }
@@ -119,7 +122,7 @@ function childArgsFor({ job, args }) {
   } else if (args.mode === 'dry-run') {
     childArgs.push('--dry-run');
   } else if (args.mode === 'apply') {
-    childArgs.push('--apply');
+    childArgs.push('--apply', '--confirm', args.confirm);
   }
 
   return childArgs;
