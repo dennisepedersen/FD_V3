@@ -26,9 +26,18 @@ Do not infer architecture from code alone when a governance doc exists. If code 
 ## Canonical Docs
 
 Current source-of-truth docs:
+- `docs/PROJECT_RULES.md` - Fielddesk constitution and top-level project rules.
 - `docs/V3_FOUNDATION_DESIGN.md` - foundation blueprint for tenant, auth, RBAC, project, scope, audit, and sync.
 - `docs/AI_GOVERNANCE.md` - canonical AI/Codex governance and working rules.
 - `docs/AI_BOOTSTRAP_CONTEXT.md` - bootstrap/historical transition context; not the permanent canonical AI governance source.
+- `docs/CODEX_WORKFLOW.md` - IDE -> Analyse -> Spec -> Build -> Preview -> Review -> Release workflow.
+- `docs/IMPLEMENTATION_GATES.md` - required approval gates between workflow stages.
+- `docs/LABS_ANALYSIS_SCHEMA.md` - required analysis output schema for future Fielddesk Labs.
+- `docs/labs/LABS_V0_1_SPEC.md` - Gate 2 approved SPEC for Fielddesk Labs v0.1, limited to IDE -> ANALYSE.
+- `docs/labs/LABS_V0_1_IMPLEMENTATION.md` - Gate 3 implementation reference for Fielddesk Labs v0.1.
+- `docs/DATA_POLICY.md` - shared data ownership and source policy.
+- `docs/MODULE_MAP.md` - high-level module ownership, dependencies, data ownership, and relationships.
+- `docs/UI_UX_PRINCIPLES.md` - shared UI/UX principles.
 - `docs/V3_BUILD_GATECHECK.md` - build gate principles.
 - `docs/SECRET_HANDLING_RULES.md` - secret handling and commit safety.
 - `backend/docs/standards/fd_implementation_rules.md` - backend implementation and evidence rules.
@@ -49,13 +58,18 @@ Before foundation, security, tenant, module, backend, sync, or integration work,
 
 1. `docs/00_MASTER.md`
 2. `docs/DOC_INDEX.md`
-3. `docs/V3_FOUNDATION_DESIGN.md`
-4. `docs/AI_GOVERNANCE.md`
-5. Relevant shared contracts: `docs/PROJECT_CONTEXT_CONTRACT.md`, `docs/REPORT_ENGINE_CONTRACT.md`, `docs/MODULE_REGISTRY_CONTRACT.md`
-6. `docs/AI_BOOTSTRAP_CONTEXT.md` when bootstrap/historical context is needed
-7. `backend/docs/standards/fd_implementation_rules.md`
-8. Relevant `backend/docs/decisions/*`
-9. Relevant module or integration docs
+3. `docs/PROJECT_RULES.md`
+4. `docs/DECISIONS.md`
+5. `docs/V3_FOUNDATION_DESIGN.md`
+6. `docs/AI_GOVERNANCE.md`
+7. `docs/CODEX_WORKFLOW.md` and `docs/IMPLEMENTATION_GATES.md`
+8. Relevant shared contracts: `docs/DATA_POLICY.md`, `docs/PROJECT_CONTEXT_CONTRACT.md`, `docs/REPORT_ENGINE_CONTRACT.md`, `docs/MODULE_REGISTRY_CONTRACT.md`
+9. `docs/labs/LABS_V0_1_SPEC.md` for Labs v0.1 scope and constraints
+10. `docs/labs/LABS_V0_1_IMPLEMENTATION.md` for Labs v0.1 runtime implementation reference
+11. `docs/AI_BOOTSTRAP_CONTEXT.md` when bootstrap/historical context is needed
+12. `backend/docs/standards/fd_implementation_rules.md`
+13. Relevant `backend/docs/decisions/*`
+14. Relevant module or integration docs
 
 ## Hard Rules
 
@@ -64,3 +78,5 @@ Before foundation, security, tenant, module, backend, sync, or integration work,
 - Backend is source of truth for tenant, scope, auth, RBAC, and audit.
 - Frontend must never be source of truth for permissions.
 - V2 and `audit (read only)` are references, not implementation sources.
+- AI and Labs may recommend, but not decide, approve, release, or bypass gates.
+- Ideas are not build permission.

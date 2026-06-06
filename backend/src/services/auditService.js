@@ -20,6 +20,20 @@ const ALLOWED_EVENT_TYPES = Object.freeze([
   "qa_thread_created",
   "qa_message_created",
   "qa_thread_status_changed",
+  "labs.idea_created",
+  "labs.idea_updated",
+  "labs.idea_rejected",
+  "labs.idea_reopened",
+  "labs.idea_parked",
+  "labs.idea_approved_for_spec",
+  "labs.analysis_requested",
+  "labs.analysis_completed",
+  "labs.analysis_failed",
+  "labs.attachment_added",
+  "labs.attachment_viewed",
+  "labs.attachment_downloaded",
+  "labs.attachment_archived",
+  "labs.access_denied",
 ]);
 
 const TENANT_SCOPED_ACTOR_SCOPES = new Set(["tenant"]);

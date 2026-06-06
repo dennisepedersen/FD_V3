@@ -7,6 +7,7 @@ const { createHttpError } = require("../middleware/errorHandler");
 const invitationService = require("../services/invitationService");
 const globalAdminAuthService = require("../services/globalAdminAuthService");
 const env = require("../config/env");
+const labsRoutes = require("../modules/labs/labs.routes");
 const {
   PORTAL_SESSION_COOKIE_NAME,
   portalSessionCookieOptions,
@@ -60,6 +61,22 @@ router.get("/invitations", requirePortalHost, async (req, res, next) => {
     return next(error);
   }
 });
+
+router.get("/labs", requirePortalHost, async (req, res, next) => {
+  try {
+    const session = await getGlobalAdminSession(req);
+    if (!session) {
+      res.clearCookie(PORTAL_SESSION_COOKIE_NAME, portalSessionCookieOptions());
+      return res.redirect("/login");
+    }
+
+    return res.sendFile(path.join(__dirname, "../ui/portal-labs.html"));
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.use(labsRoutes);
 
 router.get("/v1/portal/auth/me", requirePortalHost, requireGlobalAdminSession, async (req, res) => {
   res.status(200).json({

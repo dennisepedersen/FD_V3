@@ -17,6 +17,16 @@ if (!Number.isInteger(port) || port <= 0) {
   throw new Error('PORT must be a positive integer');
 }
 
+const labsAttachmentMaxBytes = Number(process.env.LABS_ATTACHMENT_MAX_BYTES || 10485760);
+if (!Number.isInteger(labsAttachmentMaxBytes) || labsAttachmentMaxBytes <= 0) {
+  throw new Error('LABS_ATTACHMENT_MAX_BYTES must be a positive integer');
+}
+
+const labsAttachmentMaxFiles = Number(process.env.LABS_ATTACHMENT_MAX_FILES || 5);
+if (!Number.isInteger(labsAttachmentMaxFiles) || labsAttachmentMaxFiles <= 0) {
+  throw new Error('LABS_ATTACHMENT_MAX_FILES must be a positive integer');
+}
+
 const ENV = {
   NODE_ENV,
   DATABASE_URL: process.env.DATABASE_URL,
@@ -30,6 +40,11 @@ const ENV = {
   ROOT_DOMAIN: process.env.ROOT_DOMAIN.toLowerCase(),
   PORTAL_DOMAIN: (process.env.PORTAL_DOMAIN || `portal.${process.env.ROOT_DOMAIN}`).toLowerCase(),
   PORT: port,
+  LABS_AI_PROVIDER: process.env.LABS_AI_PROVIDER || "local",
+  LABS_AI_MODEL: process.env.LABS_AI_MODEL || "fielddesk-local-governance-analyzer-v0.1",
+  LABS_ATTACHMENT_STORAGE_DIR: process.env.LABS_ATTACHMENT_STORAGE_DIR || null,
+  LABS_ATTACHMENT_MAX_BYTES: labsAttachmentMaxBytes,
+  LABS_ATTACHMENT_MAX_FILES: labsAttachmentMaxFiles,
 };
 
 module.exports = ENV;

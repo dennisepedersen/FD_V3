@@ -108,7 +108,7 @@ Rule:
 ## 6. File And Storage Security
 
 Current:
-- No finalized FD file/storage architecture exists yet.
+- `docs/STORAGE_CONTRACT.md` defines Draft/Proposed file/storage governance.
 - Prototype/local browser storage is not production storage.
 - File/blob cleanup and future storage needs are recognized in architecture docs.
 
@@ -180,7 +180,7 @@ Current gaps:
 - RLS is not fully implemented as active database policy.
 - RBAC is not yet a complete central permission system.
 - Module registry and module permission model are not final.
-- File/storage architecture is not final.
+- File/storage implementation architecture is not final.
 - Report/export security architecture is not final.
 - Tenant UI session/token storage is still open.
 - Some audits are time-sensitive and may be stale.
@@ -191,15 +191,18 @@ Open decisions:
 - File/storage provider and access pattern.
 - Support access policy after phase 1.
 - Module-specific security contracts.
-- Data policy for owned, imported, derived, audit, credential, demo, and file data.
+- Final retention/privacy/export policy for owned, imported, derived, audit, credential, demo, and file data.
 
 ## 10. Relevant Docs
 
 Start here:
 - `docs/00_MASTER.md`
+- `docs/PROJECT_RULES.md`
 - `docs/ARCHITECTURE.md`
 - `docs/DOC_INDEX.md`
 - `docs/DECISIONS.md`
+- `docs/DATA_POLICY.md`
+- `docs/IMPLEMENTATION_GATES.md`
 
 Foundation/security:
 - `docs/V3_FOUNDATION_DESIGN.md`

@@ -66,7 +66,7 @@ Rules:
 
 Planned:
 - RLS as defense-in-depth for tenant-owned module tables.
-- Module data ownership in `DATA_POLICY.md` later.
+- Deeper module-specific data ownership matrices built on `docs/DATA_POLICY.md`.
 
 ## 4. UI And UX Rules
 

@@ -7,15 +7,33 @@ Scope: development governance only; no implementation by itself
 
 Current:
 - AI assists development, analysis, documentation, reviews, and implementation work.
+- AI analysis is advisory until approved through the relevant human gate.
 - AI does not own the architecture.
 - Human decisions are authoritative.
 - Current governance docs are source of truth.
 - If docs and a prompt conflict, stop and name the conflict before implementing.
 
 Rules:
+- AI may recommend, rank, draft, summarize, and identify conflicts.
+- AI must not decide product scope, security policy, data ownership, release readiness, or tenant access.
+- AI must not mutate tenant data, approve gates, release changes, or bypass human approval.
 - AI must not invent auth, tenant, RBAC, audit, storage, or integration behavior.
 - AI must distinguish `verified`, `observed`, `hypothesis`, and `unclear` where relevant.
 - AI must keep Fielddesk modular, tenant-safe, auditable, and backend-owned.
+
+## 1.1 Source Priority For AI
+
+When AI/Codex finds conflicting instructions, use this priority:
+
+1. Explicit current human instruction from Dennis, unless it conflicts with safety/security constraints.
+2. `docs/DECISIONS.md`.
+3. `docs/PROJECT_RULES.md`.
+4. Current architecture/security/data/module contracts.
+5. Current module-specific docs.
+6. Historical/bootstrap docs.
+7. Current code behavior, only after docs are checked.
+
+If the conflict affects tenant isolation, auth, RBAC, RLS, audit, data ownership, secrets, integrations, release, or AI authority, stop before implementing and name the conflict.
 
 ## 2. ChatGPT Vs Codex Roles
 
@@ -87,7 +105,7 @@ Commit message convention:
 
 Current:
 - Canonical docs come first.
-- `docs/00_MASTER.md`, `docs/DOC_INDEX.md`, `docs/DECISIONS.md`, `docs/ARCHITECTURE.md`, `docs/SECURITY_MODEL.md`, and `docs/MODULE_CONTRACT.md` guide future work.
+- `docs/00_MASTER.md`, `docs/DOC_INDEX.md`, `docs/PROJECT_RULES.md`, `docs/DECISIONS.md`, `docs/ARCHITECTURE.md`, `docs/SECURITY_MODEL.md`, `docs/DATA_POLICY.md`, and `docs/MODULE_CONTRACT.md` guide future work.
 - Historical docs must be treated as context unless marked current.
 
 Rules:
@@ -99,7 +117,7 @@ Rules:
 - Mark old, historical, or time-sensitive docs clearly.
 
 Planned:
-- `DATA_POLICY.md`, module registry docs, and deeper RBAC docs later.
+- Deeper RBAC docs later.
 
 ## 6. Prototype Rules
 
@@ -160,18 +178,45 @@ Open:
 - CI integration for docs/security checks.
 - Required PR template for AI-generated changes.
 - Whether Codex may commit after specific task types by default.
+- Whether Labs analysis output should be stored as module-owned records, audit-adjacent records, or document artifacts.
+- Whether AI telemetry/cost logging becomes a shared platform service.
 
 Do not assume these are solved until a current doc says so.
+
+## 9.1 Fielddesk Labs Governance
+
+Fielddesk Labs is a future analysis platform, not a build engine by default.
+
+Labs may:
+- Read current governance docs.
+- Analyze ideas, specs, modules, and build readiness.
+- Return structured analysis using `docs/LABS_ANALYSIS_SCHEMA.md`.
+- Identify overlap, conflicts, risk, dependencies, and open questions.
+- Recommend next gate.
+
+Labs must not:
+- Approve its own analysis.
+- Promote an idea directly to build.
+- Create migrations, APIs, UI, or releases without explicit build scope.
+- Decide RBAC, tenant access, data ownership, release readiness, or security policy.
+- Call third-party APIs from frontend or expose secrets.
+
+Labs output must be treated as derived advisory data until a human approves the relevant gate in `docs/IMPLEMENTATION_GATES.md`.
 
 ## 10. Relevant Docs
 
 Start here:
 - `docs/00_MASTER.md`
 - `docs/DOC_INDEX.md`
+- `docs/PROJECT_RULES.md`
 - `docs/DECISIONS.md`
 - `docs/ARCHITECTURE.md`
 - `docs/SECURITY_MODEL.md`
+- `docs/DATA_POLICY.md`
 - `docs/MODULE_CONTRACT.md`
+- `docs/CODEX_WORKFLOW.md`
+- `docs/IMPLEMENTATION_GATES.md`
+- `docs/LABS_ANALYSIS_SCHEMA.md`
 
 Foundation:
 - `docs/V3_FOUNDATION_DESIGN.md`

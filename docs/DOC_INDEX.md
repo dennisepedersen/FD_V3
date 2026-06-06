@@ -8,12 +8,23 @@ Scope: points to docs; does not replace them
 | Doc | Use For | Status |
 | --- | --- | --- |
 | `docs/00_MASTER.md` | First entrypoint and read order | Current |
+| `docs/PROJECT_RULES.md` | Fielddesk constitution and highest-level project rules | Current |
 | `docs/V3_FOUNDATION_DESIGN.md` | Tenant, auth, RBAC, project, scope, audit, sync foundation | Current source of truth |
 | `docs/AI_GOVERNANCE.md` | Canonical AI/Codex governance and working rules | Current |
 | `docs/AI_BOOTSTRAP_CONTEXT.md` | Bootstrap/historical transition context and known foundation risks | Context, not permanent canonical AI governance |
+| `docs/CODEX_WORKFLOW.md` | IDE -> Analyse -> Spec -> Build -> Preview -> Review -> Release workflow | Current |
+| `docs/IMPLEMENTATION_GATES.md` | Required approval gates between workflow stages | Current |
+| `docs/LABS_ANALYSIS_SCHEMA.md` | Required Fielddesk Labs analysis output schema | Current |
+| `docs/labs/LABS_V0_1_SPEC.md` | Fielddesk Labs v0.1 SPEC for IDE -> ANALYSE only | Gate 2 approved SPEC |
+| `docs/labs/LABS_V0_1_IMPLEMENTATION.md` | Fielddesk Labs v0.1 Gate 3 implementation reference | Gate 3 implementation reference |
+| `docs/MODULE_MAP.md` | High-level module ownership, dependencies, data ownership, and relationships | Current |
+| `docs/UI_UX_PRINCIPLES.md` | Shared UI/UX principles for current and future surfaces | Current |
+| `docs/DATA_POLICY.md` | Shared data ownership, source, derived data, audit, credential, file, and AI data policy | Current baseline |
 | `docs/PROJECT_CONTEXT_CONTRACT.md` | Shared project context contract for modules | Draft/Proposed contract |
 | `docs/REPORT_ENGINE_CONTRACT.md` | Shared report/export contract for modules | Draft/Proposed contract |
 | `docs/MODULE_REGISTRY_CONTRACT.md` | Shared module registry, enablement and discovery contract | Draft/Proposed contract |
+| `docs/STORAGE_CONTRACT.md` | Shared storage/file governance contract | Draft/Proposed contract |
+| `docs/AUDIT_CONTRACT.md` | Shared audit/event governance contract | Draft/Proposed contract |
 | `docs/V3_BUILD_GATECHECK.md` | Build gate rules before implementation | Current |
 | `docs/SECRET_HANDLING_RULES.md` | Secret handling and commit checks | Current |
 | `backend/docs/standards/fd_implementation_rules.md` | Backend evidence, mapping, tenant filtering, no-guessing rules | Current |
@@ -26,8 +37,38 @@ Scope: points to docs; does not replace them
 
 | Doc | Use For | Status |
 | --- | --- | --- |
+| `docs/MODULE_CONTRACT.md` | Minimum requirements and runtime rules for FD modules | Current |
+| `docs/MODULE_MAP.md` | Cross-module map and dependency/data ownership overview | Current |
+| `docs/modules/qa/QA_STATUS_MODEL.md` | Manual QA status model v1 and future v2 responsibility direction | Current decision |
 | `docs/modules/restarbejde/MODULE_DEFINITION.md` | Restarbejde scope, workflows, data model, risks | Draft/proposal, not implementation spec |
 | `docs/modules/restarbejde/BACKEND_MODULE_CONTRACT.md` | Restarbejde backend/module contract for future FD integration | Draft/Proposed module contract |
+
+## AI, Labs, And Workflow Docs
+
+| Doc | Use For | Status |
+| --- | --- | --- |
+| `docs/AI_GOVERNANCE.md` | AI/Codex authority, conflict handling, and Labs boundaries | Current |
+| `docs/CODEX_WORKFLOW.md` | Human/Codex workflow stages from idea to release | Current |
+| `docs/IMPLEMENTATION_GATES.md` | Required approvals and stop criteria between workflow stages | Current |
+| `docs/LABS_ANALYSIS_SCHEMA.md` | Labs output contract for future analyses | Current |
+| `docs/labs/LABS_V0_1_SPEC.md` | Labs v0.1 scope, access, persistence, UI flow, status, audit, and AI limitations | Gate 2 approved SPEC |
+| `docs/labs/LABS_V0_1_IMPLEMENTATION.md` | Labs v0.1 implemented runtime surface, tables, endpoints, access, audit, and limitations | Gate 3 implementation reference |
+| `docs/IDE_BANK.md` | Idea intake bank; not build permission | Current |
+
+## Labs Docs
+
+| Doc | Use For | Status |
+| --- | --- | --- |
+| `docs/LABS_ANALYSIS_SCHEMA.md` | Required analysis output shape for Labs | Current |
+| `docs/labs/LABS_V0_1_SPEC.md` | v0.1 product/technical SPEC for global-admin-only IDE -> ANALYSE workflow | Gate 2 approved SPEC |
+| `docs/labs/LABS_V0_1_IMPLEMENTATION.md` | v0.1 implementation reference for global-admin-only Labs runtime | Gate 3 implementation reference |
+
+## Product And UI Docs
+
+| Doc | Use For | Status |
+| --- | --- | --- |
+| `docs/UI_UX_PRINCIPLES.md` | Shared UI/UX principles, dashboard/form/navigation rules | Current |
+| `docs/PROJECT_RULES.md` | Top-level product and governance principles | Current |
 
 ## Backend Decision Docs
 
@@ -68,6 +109,8 @@ Scope: points to docs; does not replace them
 ## Notes For Codex
 
 - Prefer current source-of-truth docs over historical docs.
+- Read `docs/PROJECT_RULES.md`, `docs/CODEX_WORKFLOW.md`, and `docs/IMPLEMENTATION_GATES.md` before foundation-sensitive work.
+- Use `docs/LABS_ANALYSIS_SCHEMA.md` for future Labs-style analyses.
 - Do not treat `audit (read only)` as active implementation guidance.
 - If a doc has `verified`, `observed`, `hypothesis`, or `unclear`, preserve that evidence level.
 - If a current audit says the worktree is clean, re-check `git status`; audit status may be stale.

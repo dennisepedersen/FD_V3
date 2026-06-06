@@ -1,0 +1,733 @@
+<!doctype html>
+<html lang="da">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fielddesk Labs</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f4ef;
+      --panel: #fffdf8;
+      --panel-soft: #f0ede5;
+      --line: rgba(28, 39, 36, 0.14);
+      --text: #1c2724;
+      --muted: #66736e;
+      --accent: #146653;
+      --accent-strong: #0c4a3b;
+      --warn: #9b6227;
+      --danger: #a63d32;
+      --ok: #1f6d45;
+      --shadow: 0 18px 42px rgba(37, 45, 42, 0.12);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      color: var(--text);
+      background: linear-gradient(180deg, #fbfaf7 0%, var(--bg) 100%);
+    }
+
+    .page {
+      width: min(1280px, calc(100% - 28px));
+      margin: 0 auto;
+      padding: 20px 0 36px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+
+    .topbar h1 {
+      margin: 0;
+      font-size: clamp(30px, 7vw, 48px);
+      line-height: 1;
+      letter-spacing: 0;
+    }
+
+    .subtle {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 390px) minmax(0, 1fr);
+      gap: 16px;
+      align-items: start;
+    }
+
+    .panel,
+    .idea-card,
+    .analysis-card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+    }
+
+    .panel {
+      padding: 16px;
+    }
+
+    .panel h2,
+    .panel h3 {
+      margin: 0 0 10px;
+      font-size: 18px;
+      letter-spacing: 0;
+    }
+
+    .stack {
+      display: grid;
+      gap: 12px;
+    }
+
+    label {
+      display: grid;
+      gap: 6px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    input,
+    select,
+    textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 11px 12px;
+      font: inherit;
+      color: var(--text);
+      background: #fff;
+    }
+
+    textarea {
+      min-height: 116px;
+      resize: vertical;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .toolbar,
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    button,
+    .link-button {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+      background: #fff;
+      color: var(--text);
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 40px;
+    }
+
+    button.primary {
+      border-color: transparent;
+      background: var(--accent);
+      color: #fff;
+    }
+
+    button.primary:hover { background: var(--accent-strong); }
+    button.danger { color: var(--danger); }
+    button:disabled { opacity: 0.55; cursor: not-allowed; }
+
+    .message {
+      min-height: 22px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .message.error { color: var(--danger); }
+    .message.success { color: var(--ok); }
+
+    .idea-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .idea-card {
+      width: 100%;
+      padding: 13px;
+      text-align: left;
+      display: grid;
+      gap: 8px;
+    }
+
+    .idea-card.active {
+      border-color: rgba(20, 102, 83, 0.5);
+      outline: 2px solid rgba(20, 102, 83, 0.15);
+    }
+
+    .idea-title {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: start;
+      font-weight: 800;
+    }
+
+    .pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .pill {
+      border-radius: 999px;
+      padding: 4px 8px;
+      background: var(--panel-soft);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .pill.ok { color: var(--ok); }
+    .pill.warn { color: var(--warn); }
+    .pill.danger { color: var(--danger); }
+
+    .detail-empty {
+      padding: 28px 18px;
+      text-align: center;
+      color: var(--muted);
+    }
+
+    .analysis-card {
+      overflow: hidden;
+    }
+
+    .analysis-summary {
+      width: 100%;
+      border: 0;
+      border-radius: 0;
+      background: var(--panel-soft);
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      text-align: left;
+      padding: 14px;
+    }
+
+    .analysis-body {
+      display: none;
+      padding: 14px;
+      border-top: 1px solid var(--line);
+    }
+
+    .analysis-card.open .analysis-body {
+      display: grid;
+      gap: 12px;
+    }
+
+    .analysis-section {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: #fff;
+    }
+
+    .analysis-section h4 {
+      margin: 0 0 8px;
+      font-size: 14px;
+    }
+
+    pre {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      margin: 0;
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .attachments,
+    .history {
+      display: grid;
+      gap: 8px;
+    }
+
+    .list-item {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      display: grid;
+      gap: 8px;
+      background: #fff;
+    }
+
+    .muted-small {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    @media (max-width: 860px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+
+      .topbar {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .row {
+        grid-template-columns: 1fr;
+      }
+
+      .panel {
+        padding: 14px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="topbar">
+      <div>
+        <h1>Fielddesk Labs</h1>
+        <div class="subtle">Platform tooling: IDE → ANALYSE → approved_for_spec</div>
+      </div>
+      <div class="toolbar">
+        <a class="link-button" href="/invitations">Invitationer</a>
+        <button id="refreshBtn">Opdater</button>
+      </div>
+    </header>
+
+    <section class="layout">
+      <aside class="panel stack">
+        <div>
+          <h2>Ny ide</h2>
+          <div class="subtle">Vedhaeftninger gemmes til human review og bruges ikke som AI-kontekst.</div>
+        </div>
+        <form id="ideaForm" class="stack">
+          <label>
+            Modul
+            <input name="module_key" required placeholder="fx Labs, Projects, Restarbejde">
+          </label>
+          <label>
+            Problem
+            <textarea name="problem" required placeholder="Hvilket problem skal loeses?"></textarea>
+          </label>
+          <label>
+            Oensket funktion
+            <input name="desired_function" required placeholder="Kort titel/funktion">
+          </label>
+          <div class="row">
+            <label>
+              Prioritet
+              <select name="priority">
+                <option value="normal">Normal</option>
+                <option value="low">Low</option>
+                <option value="high">High</option>
+                <option value="critical">Critical</option>
+              </select>
+            </label>
+            <label>
+              Source
+              <input name="source" placeholder="chat, kunde, audit">
+            </label>
+          </div>
+          <label>
+            Beskrivelse
+            <textarea name="description" required placeholder="Beskriv scope, kontekst og forventet adfaerd"></textarea>
+          </label>
+          <label>
+            Tags
+            <input name="tags" placeholder="kommasepareret">
+          </label>
+          <div class="actions">
+            <button class="primary" type="submit">Gem</button>
+            <button type="button" id="clearFormBtn">Ryd</button>
+          </div>
+          <div id="formMessage" class="message"></div>
+        </form>
+
+        <div class="stack">
+          <h2>Ideer</h2>
+          <label>
+            Statusfilter
+            <select id="statusFilter">
+              <option value="">Alle</option>
+              <option value="ready_for_analysis">Ready for analysis</option>
+              <option value="analyzed">Analyzed</option>
+              <option value="analysis_failed">Analysis failed</option>
+              <option value="parked">Parked</option>
+              <option value="rejected">Rejected</option>
+              <option value="approved_for_spec">Approved for SPEC</option>
+            </select>
+          </label>
+          <div id="ideaList" class="idea-list"></div>
+        </div>
+      </aside>
+
+      <section id="detailPanel" class="panel">
+        <div class="detail-empty">Vaelg eller opret en ide.</div>
+      </section>
+    </section>
+  </main>
+
+  <script>
+    const state = {
+      ideas: [],
+      selectedId: null,
+      detail: null,
+      editing: false,
+    };
+
+    const qs = (selector) => document.querySelector(selector);
+    const ideaForm = qs("#ideaForm");
+    const ideaList = qs("#ideaList");
+    const detailPanel = qs("#detailPanel");
+    const formMessage = qs("#formMessage");
+
+    function setMessage(element, text, type = "") {
+      element.textContent = text || "";
+      element.className = `message ${type}`.trim();
+    }
+
+    async function api(path, options = {}) {
+      const res = await fetch(path, {
+        credentials: "same-origin",
+        headers: options.body instanceof FormData ? undefined : { "Content-Type": "application/json" },
+        ...options,
+      });
+      const contentType = res.headers.get("content-type") || "";
+      const body = contentType.includes("application/json") ? await res.json() : null;
+      if (!res.ok) {
+        throw new Error(body?.error?.message || `Request failed: ${res.status}`);
+      }
+      return body;
+    }
+
+    function formPayload() {
+      const data = new FormData(ideaForm);
+      return {
+        module_key: data.get("module_key"),
+        problem: data.get("problem"),
+        desired_function: data.get("desired_function"),
+        title: data.get("desired_function"),
+        priority: data.get("priority"),
+        source: data.get("source"),
+        description: data.get("description"),
+        tags: data.get("tags"),
+      };
+    }
+
+    function fillForm(idea) {
+      ideaForm.elements.module_key.value = idea.module_key || "";
+      ideaForm.elements.problem.value = idea.problem || "";
+      ideaForm.elements.desired_function.value = idea.desired_function || idea.title || "";
+      ideaForm.elements.priority.value = idea.priority || "normal";
+      ideaForm.elements.source.value = idea.source || "";
+      ideaForm.elements.description.value = idea.description || "";
+      ideaForm.elements.tags.value = Array.isArray(idea.tags_json) ? idea.tags_json.join(", ") : "";
+      state.editing = true;
+      setMessage(formMessage, `Redigerer ${idea.title}`, "");
+    }
+
+    function clearForm() {
+      ideaForm.reset();
+      state.editing = false;
+      setMessage(formMessage, "", "");
+    }
+
+    function statusClass(status) {
+      if (status === "approved_for_spec" || status === "analyzed") return "ok";
+      if (status === "rejected") return "danger";
+      if (status === "parked" || status === "analysis_failed") return "warn";
+      return "";
+    }
+
+    function renderIdeas() {
+      if (!state.ideas.length) {
+        ideaList.innerHTML = '<div class="subtle">Ingen ideer endnu.</div>';
+        return;
+      }
+
+      ideaList.innerHTML = state.ideas.map((idea) => {
+        const latest = idea.latest_analysis;
+        return `
+          <button class="idea-card ${state.selectedId === idea.id ? "active" : ""}" data-id="${idea.id}">
+            <div class="idea-title">
+              <span>${escapeHtml(idea.title)}</span>
+              <span class="pill ${statusClass(idea.status)}">${escapeHtml(idea.status)}</span>
+            </div>
+            <div class="subtle">${escapeHtml(idea.module_key)} · ${escapeHtml(idea.priority)}</div>
+            <div class="pills">
+              ${latest ? `<span class="pill">Score ${latest.score}</span><span class="pill">${escapeHtml(latest.recommendation)}</span>` : '<span class="pill">Ingen analyse</span>'}
+              <span class="pill">${idea.active_attachment_count || 0} filer</span>
+            </div>
+          </button>
+        `;
+      }).join("");
+
+      ideaList.querySelectorAll(".idea-card").forEach((card) => {
+        card.addEventListener("click", () => selectIdea(card.dataset.id));
+      });
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;");
+    }
+
+    function pretty(value) {
+      return escapeHtml(JSON.stringify(value || {}, null, 2));
+    }
+
+    function renderAnalysis(analysis) {
+      if (!analysis) {
+        return '<div class="subtle">Ingen analyse endnu.</div>';
+      }
+
+      const body = analysis.analysis_json || {};
+      return `
+        <article class="analysis-card" id="analysisCard">
+          <button class="analysis-summary" id="toggleAnalysis">
+            <span>
+              <strong>${escapeHtml(analysis.summary)}</strong><br>
+              <span class="subtle">${escapeHtml(analysis.status)} · ${escapeHtml(analysis.recommendation)} · score ${analysis.score}</span>
+            </span>
+            <span>Fold ud</span>
+          </button>
+          <div class="analysis-body">
+            ${["resume", "problem", "forretningsvaerdi", "beroerte_moduler", "risiko", "sikkerhed", "data_rbac", "ui_ux_paavirkning", "teknisk_kompleksitet", "afhaengigheder", "anbefaling", "analyse_score", "aabne_spoergsmaal", "metadata"].map((key) => `
+              <section class="analysis-section">
+                <h4>${escapeHtml(key)}</h4>
+                <pre>${pretty(body[key])}</pre>
+              </section>
+            `).join("")}
+          </div>
+        </article>
+      `;
+    }
+
+    function renderAttachments(attachments, idea) {
+      const active = (attachments || []).filter((attachment) => !attachment.archived_at);
+      const canChange = idea.status !== "approved_for_spec";
+      return `
+        <div class="stack">
+          <h3>Vedhaeftninger</h3>
+          <div class="subtle">Tilladt: pdf, png, jpg, jpeg, txt, md. Max 10 MB pr. fil og 5 filer pr. ide. Bruges ikke som AI-kontekst.</div>
+          ${canChange ? `
+            <form id="attachmentForm" class="stack">
+              <input type="file" name="file" accept=".pdf,.png,.jpg,.jpeg,.txt,.md" required>
+              <input name="description" placeholder="Kort beskrivelse">
+              <button type="submit">Tilfoej fil</button>
+            </form>
+          ` : ""}
+          <div class="attachments">
+            ${active.length ? active.map((attachment) => `
+              <div class="list-item">
+                <strong>${escapeHtml(attachment.file_name)}</strong>
+                <span class="muted-small">${escapeHtml(attachment.file_extension)} · ${Math.round(Number(attachment.size_bytes || 0) / 1024)} KB</span>
+                ${attachment.description ? `<span class="subtle">${escapeHtml(attachment.description)}</span>` : ""}
+                <div class="actions">
+                  <a class="link-button" href="/v1/labs/attachments/${attachment.id}/file?view=1" target="_blank" rel="noreferrer">Vis</a>
+                  <a class="link-button" href="/v1/labs/attachments/${attachment.id}/file">Download</a>
+                  ${canChange ? `<button class="danger archive-attachment" data-id="${attachment.id}">Arkiver</button>` : ""}
+                </div>
+              </div>
+            `).join("") : '<div class="subtle">Ingen vedhaeftninger.</div>'}
+          </div>
+        </div>
+      `;
+    }
+
+    function renderHistory(history) {
+      return `
+        <div class="stack">
+          <h3>Historik</h3>
+          <div class="history">
+            ${(history || []).length ? history.map((entry) => `
+              <div class="list-item">
+                <strong>${escapeHtml(entry.event_type)}</strong>
+                <span class="muted-small">${escapeHtml(entry.created_at)} · ${escapeHtml(entry.from_status || "-")} → ${escapeHtml(entry.to_status || "-")}</span>
+                ${entry.reason ? `<span class="subtle">${escapeHtml(entry.reason)}</span>` : ""}
+              </div>
+            `).join("") : '<div class="subtle">Ingen historik.</div>'}
+          </div>
+        </div>
+      `;
+    }
+
+    function latestCompletedAnalysis(detail) {
+      return (detail.analyses || []).find((analysis) => analysis.status === "completed") || null;
+    }
+
+    function hasCriticalQuestions(analysis) {
+      return Array.isArray(analysis?.critical_open_questions_json) && analysis.critical_open_questions_json.length > 0;
+    }
+
+    function renderDetail() {
+      const detail = state.detail;
+      if (!detail?.idea) {
+        detailPanel.innerHTML = '<div class="detail-empty">Vaelg eller opret en ide.</div>';
+        return;
+      }
+
+      const idea = detail.idea;
+      const latest = latestCompletedAnalysis(detail);
+      const locked = idea.status === "approved_for_spec";
+      const canApprove = latest && !hasCriticalQuestions(latest) && !locked;
+      detailPanel.innerHTML = `
+        <div class="stack">
+          <div>
+            <div class="pills">
+              <span class="pill ${statusClass(idea.status)}">${escapeHtml(idea.status)}</span>
+              <span class="pill">${escapeHtml(idea.module_key)}</span>
+              <span class="pill">${escapeHtml(idea.priority)}</span>
+            </div>
+            <h2>${escapeHtml(idea.title)}</h2>
+            <p class="subtle">${escapeHtml(idea.problem)}</p>
+          </div>
+          <div class="actions">
+            <button id="editBtn">Rediger ide</button>
+            <button id="analyzeBtn" class="primary" ${locked ? "disabled" : ""}>Koer analyse</button>
+            <button id="parkBtn" ${locked ? "disabled" : ""}>Parker</button>
+            <button id="rejectBtn" class="danger" ${locked ? "disabled" : ""}>Afvis</button>
+            ${idea.status === "rejected" ? '<button id="reopenBtn">Genabn ide</button>' : ""}
+            <button id="approveBtn" class="primary" ${canApprove ? "" : "disabled"}>Godkend til SPEC</button>
+          </div>
+          <div id="detailMessage" class="message"></div>
+          ${renderAnalysis(latest)}
+          ${renderAttachments(detail.attachments, idea)}
+          ${renderHistory(detail.history)}
+        </div>
+      `;
+
+      bindDetailActions();
+    }
+
+    function bindDetailActions() {
+      const idea = state.detail.idea;
+      const detailMessage = qs("#detailMessage");
+      qs("#editBtn")?.addEventListener("click", () => fillForm(idea));
+      qs("#analyzeBtn")?.addEventListener("click", () => runAction(async () => {
+        await api(`/v1/labs/ideas/${idea.id}/analyze`, { method: "POST", body: "{}" });
+        await selectIdea(idea.id);
+      }, detailMessage, "Analyse gennemfoert"));
+      qs("#parkBtn")?.addEventListener("click", () => statusAction("park", "Parker ide", false));
+      qs("#rejectBtn")?.addEventListener("click", () => statusAction("reject", "Afvis ide", true));
+      qs("#reopenBtn")?.addEventListener("click", () => statusAction("reopen", "Genabn ide", true));
+      qs("#approveBtn")?.addEventListener("click", async () => {
+        if (!confirm("Godkend ideen til SPEC? Dette genererer ikke en SPEC eller build task.")) return;
+        await runAction(async () => {
+          await api(`/v1/labs/ideas/${idea.id}/approve-for-spec`, { method: "POST", body: "{}" });
+          await selectIdea(idea.id);
+        }, detailMessage, "Godkendt til SPEC");
+      });
+      qs("#toggleAnalysis")?.addEventListener("click", () => qs("#analysisCard")?.classList.toggle("open"));
+      qs("#attachmentForm")?.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const form = event.currentTarget;
+        const file = form.elements.file.files[0];
+        if (!file) return;
+        const data = new FormData();
+        data.append("file", file);
+        data.append("description", form.elements.description.value || "");
+        await runAction(async () => {
+          await api(`/v1/labs/ideas/${idea.id}/attachments`, { method: "POST", body: data });
+          await selectIdea(idea.id);
+        }, detailMessage, "Vedhaeftning tilfoejet");
+      });
+      detailPanel.querySelectorAll(".archive-attachment").forEach((button) => {
+        button.addEventListener("click", async () => {
+          if (!confirm("Arkiver vedhaeftningen?")) return;
+          await runAction(async () => {
+            await api(`/v1/labs/attachments/${button.dataset.id}`, { method: "DELETE" });
+            await selectIdea(idea.id);
+          }, detailMessage, "Vedhaeftning arkiveret");
+        });
+      });
+    }
+
+    async function statusAction(action, title, requireReason) {
+      const reason = prompt(`${title}${requireReason ? " - skriv begrundelse" : " - valgfri begrundelse"}`) || "";
+      if (requireReason && !reason.trim()) return;
+      const detailMessage = qs("#detailMessage");
+      await runAction(async () => {
+        await api(`/v1/labs/ideas/${state.detail.idea.id}/${action}`, {
+          method: "POST",
+          body: JSON.stringify({ reason }),
+        });
+        await selectIdea(state.detail.idea.id);
+      }, detailMessage, "Status opdateret");
+    }
+
+    async function runAction(fn, messageElement, successText) {
+      try {
+        setMessage(messageElement, "Arbejder...");
+        await fn();
+        setMessage(messageElement, successText, "success");
+        await loadIdeas();
+      } catch (error) {
+        setMessage(messageElement, error.message, "error");
+      }
+    }
+
+    async function loadIdeas() {
+      const status = qs("#statusFilter").value;
+      const url = status ? `/v1/labs/ideas?status=${encodeURIComponent(status)}` : "/v1/labs/ideas";
+      const body = await api(url);
+      state.ideas = body.ideas || [];
+      renderIdeas();
+    }
+
+    async function selectIdea(id) {
+      state.selectedId = id;
+      const body = await api(`/v1/labs/ideas/${id}`);
+      state.detail = body;
+      renderIdeas();
+      renderDetail();
+    }
+
+    ideaForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      await runAction(async () => {
+        const payload = formPayload();
+        const method = state.editing && state.selectedId ? "PATCH" : "POST";
+        const url = state.editing && state.selectedId ? `/v1/labs/ideas/${state.selectedId}` : "/v1/labs/ideas";
+        const body = await api(url, { method, body: JSON.stringify(payload) });
+        clearForm();
+        await loadIdeas();
+        await selectIdea(body.idea.id);
+      }, formMessage, "Ide gemt");
+    });
+
+    qs("#clearFormBtn").addEventListener("click", clearForm);
+    qs("#refreshBtn").addEventListener("click", loadIdeas);
+    qs("#statusFilter").addEventListener("change", loadIdeas);
+
+    loadIdeas().catch((error) => {
+      detailPanel.innerHTML = `<div class="detail-empty">${escapeHtml(error.message)}</div>`;
+    });
+  </script>
+</body>
+</html>
