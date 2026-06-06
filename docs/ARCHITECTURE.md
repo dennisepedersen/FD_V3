@@ -147,6 +147,7 @@ Current:
 - QA has backend module code but still needs formal module documentation.
 - QA status updates are currently allowed for `tenant_admin` and `project_leader`; `technician` can read/create QA threads and messages but status remains read-only in the UI and enforced by backend permission checks.
 - Known QA scope limitation: `tenant_admin` project access still follows the existing project-scope checks and is not broadened in the QA status permission slice.
+- QA status model v1 is manual: `NEW`, `WAITING`, `ANSWERED`, and `CLOSED` are workflow/overview statuses, not access control. `WAITING` does not identify who is being waited on and must not be used as "waiting on me" without future explicit waiting/owner fields.
 
 Planned:
 - Tenant-level module enablement.
@@ -277,6 +278,7 @@ Integrations and mappings:
 - `backend/docs/mappings/scope_rules.md`
 
 Modules:
+- `docs/modules/qa/QA_STATUS_MODEL.md`
 - `docs/modules/restarbejde/MODULE_DEFINITION.md`
 - `docs/modules/restarbejde/BACKEND_MODULE_CONTRACT.md`
 
