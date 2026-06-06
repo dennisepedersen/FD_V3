@@ -90,6 +90,7 @@ router.get("/api/qa/threads/:threadId", requireTenantHost, requireAuth("access")
       success: true,
       thread: result.thread,
       messages: result.messages,
+      participants: result.participants,
     });
   } catch (error) {
     console.error("[qa.routes] request_failed", {
@@ -126,12 +127,14 @@ router.post("/api/projects/:projectId/qa/threads", requireTenantHost, requireAut
       title: req.body?.title,
       message: req.body?.message,
       priority: req.body?.priority,
+      recipientUserIds: req.body?.recipient_user_ids,
     });
 
     res.status(201).json({
       success: true,
       thread: result.thread,
       message: result.message,
+      participants: result.participants,
     });
   } catch (error) {
     console.error("[qa.routes] request_failed", {
@@ -175,6 +178,44 @@ router.post("/api/qa/threads/:threadId/messages", requireTenantHost, requireAuth
   } catch (error) {
     console.error("[qa.routes] request_failed", {
       route: "/api/qa/threads/:threadId/messages",
+      tenant_id: req.context?.tenant?.id || req.auth?.tenant_id || null,
+      user_id: req.auth?.sub || null,
+      thread_id: req.params?.threadId || null,
+      error_message: error?.message || null,
+      error_stack: error?.stack || null,
+    });
+    next(error);
+  }
+});
+
+router.post("/api/qa/threads/:threadId/seen", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  try {
+    const { tenantId, userId } = getTenantContext(req);
+    moduleAccessService.requireModuleAccess({
+      tenant: req.context.tenant,
+      auth: req.auth,
+      moduleKey: "qa",
+      action: "read",
+    });
+    const threadId = String(req.params.threadId || "").trim();
+    if (!threadId) {
+      throw createHttpError(400, "thread_id_required");
+    }
+
+    const result = await qaService.markThreadSeen({
+      tenantId,
+      userId,
+      threadId,
+    });
+
+    res.status(200).json({
+      success: true,
+      thread: result.thread,
+      participant: result.participant,
+    });
+  } catch (error) {
+    console.error("[qa.routes] request_failed", {
+      route: "/api/qa/threads/:threadId/seen",
       tenant_id: req.context?.tenant?.id || req.auth?.tenant_id || null,
       user_id: req.auth?.sub || null,
       thread_id: req.params?.threadId || null,

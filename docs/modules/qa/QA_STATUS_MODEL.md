@@ -47,6 +47,17 @@ QA status v1 is manual. Project leaders and tenant admins own status hygiene. Te
 - Do not build notifications, inboxes, or dashboard counts that require a responsible role/person from status alone.
 - Do not use frontend-only waiting context labels as persisted business truth.
 
+## V2 Data Foundation
+
+QA v2 now has a separate per-user participant/read-state foundation in `docs/modules/qa/QA_V2_DATA_FOUNDATION.md`.
+
+Important boundary:
+
+- `qa_threads.status` remains the global manual lifecycle status.
+- Per-user states such as `new`, `seen`, `sent`, and `closed` are inbox/read-state metadata.
+- Per-user read-state must not be interpreted as global thread status.
+- Messages still do not automatically change `qa_threads.status`.
+
 ## Future V2 Direction
 
 Later versions may add explicit responsibility and history fields, for example:

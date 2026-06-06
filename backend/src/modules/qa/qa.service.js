@@ -7,6 +7,23 @@ const qaRepository = require("./qa.repository");
 const ALLOWED_STATUSES = new Set(["NEW", "WAITING", "ANSWERED", "CLOSED"]);
 const ALLOWED_PRIORITIES = new Set(["low", "normal", "high"]);
 
+function normalizeUserId(value) {
+  const normalized = normalizeOptionalText(value);
+  return normalized;
+}
+
+function normalizeRecipientUserIds(value) {
+  if (value === null || value === undefined) {
+    return [];
+  }
+
+  if (!Array.isArray(value)) {
+    throw createHttpError(400, "recipient_user_ids_must_be_array");
+  }
+
+  return Array.from(new Set(value.map(normalizeUserId).filter(Boolean)));
+}
+
 function normalizeOptionalText(value) {
   if (value === null || value === undefined) {
     return null;
@@ -38,6 +55,95 @@ function normalizeStatus(value) {
     throw createHttpError(400, "invalid_qa_status");
   }
   return normalized;
+}
+
+function mapProjectParticipantSources(projectParticipants) {
+  const sourceByUserId = new Map();
+  projectParticipants.forEach((participant) => {
+    const userId = normalizeUserId(participant.tenant_user_id);
+    if (!userId || sourceByUserId.has(userId)) {
+      return;
+    }
+    sourceByUserId.set(userId, participant.visibility_source || "explicit");
+  });
+  return sourceByUserId;
+}
+
+function buildThreadParticipantTargets({
+  creatorUserId,
+  projectParticipants,
+  recipientUserIds,
+  firstMessageId,
+  explicitRecipients,
+}) {
+  const sourceByUserId = mapProjectParticipantSources(projectParticipants);
+  const projectParticipantIds = new Set(sourceByUserId.keys());
+
+  recipientUserIds.forEach((recipientUserId) => {
+    if (recipientUserId === creatorUserId) {
+      return;
+    }
+    if (!projectParticipantIds.has(recipientUserId)) {
+      throw createHttpError(400, "qa_recipient_not_project_participant");
+    }
+  });
+
+  const selectedUserIds = explicitRecipients
+    ? recipientUserIds
+    : Array.from(projectParticipantIds);
+
+  const targetsByUserId = new Map();
+  targetsByUserId.set(creatorUserId, {
+    tenantUserId: creatorUserId,
+    participantRole: "creator",
+    isAssigned: false,
+    lastSeenAt: new Date(),
+    lastSeenMessageId: firstMessageId,
+    visibilitySource: "self",
+  });
+
+  selectedUserIds.forEach((tenantUserId) => {
+    if (!tenantUserId || tenantUserId === creatorUserId) {
+      return;
+    }
+
+    targetsByUserId.set(tenantUserId, {
+      tenantUserId,
+      participantRole: explicitRecipients ? "recipient" : "participant",
+      isAssigned: Boolean(explicitRecipients),
+      lastSeenAt: null,
+      lastSeenMessageId: null,
+      visibilitySource: sourceByUserId.get(tenantUserId) || "explicit",
+    });
+  });
+
+  return Array.from(targetsByUserId.values());
+}
+
+async function upsertThreadParticipants(client, {
+  tenantId,
+  threadId,
+  projectId,
+  actorUserId,
+  targets,
+}) {
+  const participants = [];
+  for (const target of targets) {
+    const participant = await qaRepository.upsertThreadParticipant(client, {
+      tenantId,
+      threadId,
+      projectId,
+      tenantUserId: target.tenantUserId,
+      participantRole: target.participantRole,
+      isAssigned: target.isAssigned,
+      assignedByUserId: target.isAssigned ? actorUserId : null,
+      lastSeenAt: target.lastSeenAt,
+      lastSeenMessageId: target.lastSeenMessageId,
+      visibilitySource: target.visibilitySource,
+    });
+    participants.push(participant);
+  }
+  return participants;
 }
 
 async function logQaAuditEvent(client, {
@@ -90,6 +196,7 @@ async function listThreadsForProject({ tenantId, userId, projectId }) {
       }),
       qaRepository.listThreadsForProjects(client, {
         tenantId,
+        userId,
         projectIds: projectScope.projectIds,
       }),
     ]);
@@ -123,19 +230,27 @@ async function getThreadDetail({ tenantId, userId, threadId }) {
       threadId,
     });
 
+    const participants = await qaRepository.listParticipantsForThread(client, {
+      tenantId,
+      threadId,
+    });
+
     return {
       thread,
       messages,
+      participants,
     };
   } finally {
     client.release();
   }
 }
 
-async function createThread({ tenantId, userId, projectId, title, message, priority }) {
+async function createThread({ tenantId, userId, projectId, title, message, priority, recipientUserIds }) {
   const normalizedTitle = normalizeOptionalText(title);
   const normalizedMessage = normalizeRequiredMessage(message);
   const normalizedPriority = normalizePriority(priority);
+  const normalizedRecipientUserIds = normalizeRecipientUserIds(recipientUserIds);
+  const hasExplicitRecipients = normalizedRecipientUserIds.length > 0;
 
   return withTransaction(async (client) => {
     const projectScope = await qaRepository.getProjectScopeForUser(client, {
@@ -162,6 +277,27 @@ async function createThread({ tenantId, userId, projectId, title, message, prior
       projectId,
       userId,
       message: normalizedMessage,
+    });
+
+    const projectParticipants = await qaRepository.listProjectParticipants(client, {
+      tenantId,
+      projectId,
+    });
+
+    const participantTargets = buildThreadParticipantTargets({
+      creatorUserId: userId,
+      projectParticipants,
+      recipientUserIds: normalizedRecipientUserIds,
+      firstMessageId: firstMessage.id,
+      explicitRecipients: hasExplicitRecipients,
+    });
+
+    const participants = await upsertThreadParticipants(client, {
+      tenantId,
+      threadId: thread.id,
+      projectId,
+      actorUserId: userId,
+      targets: participantTargets,
     });
 
     await logQaAuditEvent(client, {
@@ -196,6 +332,22 @@ async function createThread({ tenantId, userId, projectId, title, message, prior
       },
     });
 
+    await logQaAuditEvent(client, {
+      tenantId,
+      userId,
+      eventType: "qa_thread_participant_added",
+      resourceType: "qa_thread",
+      resourceId: thread.id,
+      projectId,
+      reason: "qa_thread_participant_added",
+      metadata: {
+        thread_id: thread.id,
+        participant_count: participants.length,
+        explicit_recipient_count: normalizedRecipientUserIds.length,
+        default_project_participants: !hasExplicitRecipients,
+      },
+    });
+
     const detail = await qaRepository.findThreadForUser(client, {
       tenantId,
       userId,
@@ -205,6 +357,7 @@ async function createThread({ tenantId, userId, projectId, title, message, prior
     return {
       thread: detail || thread,
       message: firstMessage,
+      participants,
     };
   });
 }
@@ -229,6 +382,19 @@ async function addMessage({ tenantId, userId, threadId, message }) {
       projectId: thread.project_id,
       userId,
       message: normalizedMessage,
+    });
+
+    await qaRepository.upsertThreadParticipant(client, {
+      tenantId,
+      threadId,
+      projectId: thread.project_id,
+      tenantUserId: userId,
+      participantRole: "participant",
+      isAssigned: false,
+      assignedByUserId: null,
+      lastSeenAt: new Date(),
+      lastSeenMessageId: createdMessage.id,
+      visibilitySource: "self",
     });
 
     await qaRepository.touchThread(client, {
@@ -259,6 +425,61 @@ async function addMessage({ tenantId, userId, threadId, message }) {
         threadId,
       }),
       message: createdMessage,
+    };
+  });
+}
+
+async function markThreadSeen({ tenantId, userId, threadId }) {
+  return withTransaction(async (client) => {
+    const thread = await qaRepository.findThreadForUser(client, {
+      tenantId,
+      userId,
+      threadId,
+    });
+
+    if (!thread) {
+      throw createHttpError(404, "qa_thread_not_found");
+    }
+
+    const latestMessage = await qaRepository.getLatestMessageForThread(client, {
+      tenantId,
+      threadId,
+    });
+
+    const participant = await qaRepository.upsertThreadParticipant(client, {
+      tenantId,
+      threadId,
+      projectId: thread.project_id,
+      tenantUserId: userId,
+      participantRole: "participant",
+      isAssigned: false,
+      assignedByUserId: null,
+      lastSeenAt: new Date(),
+      lastSeenMessageId: latestMessage ? latestMessage.id : null,
+      visibilitySource: "self",
+    });
+
+    await logQaAuditEvent(client, {
+      tenantId,
+      userId,
+      eventType: "qa_thread_seen",
+      resourceType: "qa_thread",
+      resourceId: threadId,
+      projectId: thread.project_id,
+      reason: "qa_thread_seen",
+      metadata: {
+        thread_id: threadId,
+        latest_message_id: latestMessage ? latestMessage.id : null,
+      },
+    });
+
+    return {
+      thread: await qaRepository.findThreadForUser(client, {
+        tenantId,
+        userId,
+        threadId,
+      }),
+      participant,
     };
   });
 }
@@ -311,5 +532,6 @@ module.exports = {
   createThread,
   getThreadDetail,
   listThreadsForProject,
+  markThreadSeen,
   updateStatus,
 };
