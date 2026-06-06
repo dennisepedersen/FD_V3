@@ -148,6 +148,8 @@ Current:
 - QA status updates are currently allowed for `tenant_admin` and `project_leader`; `technician` can read/create QA threads and messages but status remains read-only in the UI and enforced by backend permission checks.
 - Known QA scope limitation: `tenant_admin` project access still follows the existing project-scope checks and is not broadened in the QA status permission slice.
 - QA status model v1 is manual: `NEW`, `WAITING`, `ANSWERED`, and `CLOSED` are workflow/overview statuses, not access control. `WAITING` does not identify who is being waited on and must not be used as "waiting on me" without future explicit waiting/owner fields.
+- QA v2 data foundation adds `qa_thread_participants` for per-user participant/read-state and assignment metadata. This does not replace global `qa_threads.status`.
+- QA participants are resolved from existing project access truths (`project_assignment`, project owner, responsible, team leader), not from fitterhour employees.
 
 Planned:
 - Tenant-level module enablement.
