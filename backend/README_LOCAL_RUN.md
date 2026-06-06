@@ -81,6 +81,11 @@ npm run db:migrate
 Use baseline only when the database schema is known to already include the migrations
 being marked. Baseline records history only; it does not execute SQL.
 
+If a migration was incorrectly baselined and its objects are missing in a live
+database, do not edit `schema_migration` by hand and do not reset the schema.
+Add a new forward-only repair migration that idempotently creates or amends the
+missing objects, then run the normal migration command.
+
 For Render/production, run the same commands as an explicit one-off command or shell
 task with Render's `DATABASE_URL` environment variable. Do not run migrations at app
 startup, and do not use `schema.sql` to reset or recreate production schema.
