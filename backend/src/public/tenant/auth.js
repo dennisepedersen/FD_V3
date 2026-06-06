@@ -2288,6 +2288,9 @@
       isLoadingThreads: false,
       isSaving: false,
     };
+    const qaPermissions = {
+      canUpdateStatus: false,
+    };
 
     const QA_STATUS_OPTIONS = [
       { value: "NEW", label: "Ny", className: "qaBadgeNew" },
@@ -2319,6 +2322,45 @@
     function getQaStatusView(status) {
       const normalized = String(status || "NEW").trim().toUpperCase();
       return QA_STATUS_OPTIONS.find((item) => item.value === normalized) || QA_STATUS_OPTIONS[0];
+    }
+
+    function getQaPermissionsForRole(role) {
+      const normalizedRole = String(role || "").trim().toLowerCase();
+      return {
+        canUpdateStatus: normalizedRole === "tenant_admin" || normalizedRole === "project_leader",
+      };
+    }
+
+    function applyQaStatusPermissions() {
+      const canUpdateStatus = Boolean(qaPermissions.canUpdateStatus);
+      if (qaStatusSelect) {
+        qaStatusSelect.disabled = !canUpdateStatus;
+        qaStatusSelect.title = canUpdateStatus
+          ? "Opdater QA-status"
+          : "QA-status er skrivebeskyttet for din rolle.";
+      }
+      if (qaStatusSaveBtn) {
+        qaStatusSaveBtn.hidden = !canUpdateStatus;
+        qaStatusSaveBtn.disabled = !canUpdateStatus;
+      }
+    }
+
+    async function loadQaPermissions() {
+      qaPermissions.canUpdateStatus = false;
+      applyQaStatusPermissions();
+      try {
+        const response = await apiFetch("/api/me", { method: "GET" });
+        const role = response && response.user ? response.user.role : null;
+        const permissions = getQaPermissionsForRole(role);
+        qaPermissions.canUpdateStatus = permissions.canUpdateStatus;
+      } catch (error) {
+        if (handleAuthFailure(error)) {
+          return false;
+        }
+        qaPermissions.canUpdateStatus = false;
+      }
+      applyQaStatusPermissions();
+      return true;
     }
 
     function getQaPriorityView(priority) {
@@ -2707,6 +2749,7 @@
       if (qaStatusSelect) {
         qaStatusSelect.value = statusView.value;
       }
+      applyQaStatusPermissions();
 
       qaDrawerBody.innerHTML = "";
       const badgeRow = document.createElement("div");
@@ -2900,6 +2943,11 @@
       if (!qaState.activeThreadId || !qaStatusSelect || !qaStatusSaveBtn) {
         return;
       }
+      if (!qaPermissions.canUpdateStatus) {
+        applyQaStatusPermissions();
+        renderQaDrawerNotice("Du har ikke adgang til at aendre QA-status.", true);
+        return;
+      }
 
       qaStatusSaveBtn.disabled = true;
       try {
@@ -2966,6 +3014,11 @@
     });
 
     try {
+      const permissionsLoaded = await loadQaPermissions();
+      if (!permissionsLoaded) {
+        return;
+      }
+
       const [projectResult, breakdownResult] = await Promise.allSettled([
         apiFetch(`/api/projects/${encodeURIComponent(projectId)}`, { method: "GET" }),
         apiFetch(`/api/projects/${encodeURIComponent(projectId)}/fitterhours/breakdown`, { method: "GET" }),

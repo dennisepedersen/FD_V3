@@ -105,10 +105,12 @@ Current:
 - Tenant resolution happens through tenant/domain records.
 - Backend denies when tenant, domain, lifecycle, or token context does not match.
 - Global admin is platform identity, not implicit tenant user.
+- Tenant admin follows a hybrid model: tenant administration rights do not automatically grant tenant-wide access to project-owned data.
 
 Planned:
 - Database RLS to backstop application-level tenant filtering.
 - Centralized RBAC/scope enforcement for all module APIs.
+- Explicit capability-based tenant-wide project/resource access where needed, instead of hidden role bypasses.
 
 Rule: frontend can hide UI, but backend and database enforce access.
 
@@ -120,6 +122,7 @@ Current:
 - API reads use `project_core` as baseline and `project_wip` as supplement.
 - `project_assignment` defines project access for mine/team/tenant scopes.
 - `docs/PROJECT_CONTEXT_CONTRACT.md` defines Draft/Proposed shared project context direction for modules.
+- Verified current model: `tenant_admin` is not automatically granted access to every project-owned resource. Project-owned APIs still need explicit project scope or a later explicit capability.
 
 E-Komplet current:
 - v4 LIST is authoritative for project existence, lifecycle, and masterdata.
@@ -142,6 +145,9 @@ Current:
 - `docs/MODULE_REGISTRY_CONTRACT.md` defines Draft/Proposed module registry and enablement direction.
 - Restarbejde has `docs/modules/restarbejde/MODULE_DEFINITION.md` as draft module definition.
 - QA has backend module code but still needs formal module documentation.
+- QA status updates are currently allowed for `tenant_admin` and `project_leader`; `technician` can read/create QA threads and messages but status remains read-only in the UI and enforced by backend permission checks.
+- Known QA scope limitation: `tenant_admin` project access still follows the existing project-scope checks and is not broadened in the QA status permission slice.
+- QA status model v1 is manual: `NEW`, `WAITING`, `ANSWERED`, and `CLOSED` are workflow/overview statuses, not access control. `WAITING` does not identify who is being waited on and must not be used as "waiting on me" without future explicit waiting/owner fields.
 
 Planned:
 - Tenant-level module enablement.
@@ -151,6 +157,7 @@ Open:
 - Final module registry implementation.
 - Which modules are core vs optional.
 - Which modules must run without E-Komplet.
+- Final capability names for tenant-wide module/project access, for example `project:read:tenant`, `qa:update:tenant`, and `document:read:tenant`.
 
 ## 9. File And Storage Strategy
 
@@ -271,6 +278,7 @@ Integrations and mappings:
 - `backend/docs/mappings/scope_rules.md`
 
 Modules:
+- `docs/modules/qa/QA_STATUS_MODEL.md`
 - `docs/modules/restarbejde/MODULE_DEFINITION.md`
 - `docs/modules/restarbejde/BACKEND_MODULE_CONTRACT.md`
 

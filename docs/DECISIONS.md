@@ -50,6 +50,9 @@ Scope: links to decisions; does not duplicate full decisions
 | Shared report engine/export contract is established as Draft/Proposed governance | `docs/REPORT_ENGINE_CONTRACT.md` |
 | Shared module registry contract is established as Draft/Proposed governance | `docs/MODULE_REGISTRY_CONTRACT.md` |
 | Restarbejde backend module contract is established as a draft module reference | `docs/modules/restarbejde/BACKEND_MODULE_CONTRACT.md` |
+| QA status updates are allowed for `tenant_admin` and `project_leader`; `technician` can read/create QA but status is read-only | `docs/ARCHITECTURE.md` |
+| QA status model v1 is manual; `WAITING` does not identify who is being waited on and must not drive inbox/dashboard responsibility by itself | `docs/modules/qa/QA_STATUS_MODEL.md` |
+| Tenant admin follows a hybrid access model: tenant administration rights do not automatically grant tenant-wide access to project-owned data | `docs/SECURITY_MODEL.md`, `docs/ARCHITECTURE.md` |
 
 ## Security And Governance Decisions
 
@@ -67,6 +70,7 @@ These are not decided yet and must not be assumed:
 - Final RBAC matrix.
 - Full RLS policy design.
 - Final module registry and module enablement implementation.
+- Final capability matrix for tenant-wide project/resource access.
 - Which modules are core versus optional.
 - Which modules must work without E-Komplet.
 - Fielddesk-native project creation/editing model.
