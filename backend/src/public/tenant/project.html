@@ -360,6 +360,7 @@
       background:
         linear-gradient(135deg, rgba(94, 200, 229, 0.09), rgba(255, 255, 255, 0.03)),
         var(--surface);
+      display: grid;
     }
 
     .qaHeaderRow {
@@ -901,6 +902,98 @@
       .qaDrawerControls {
         grid-template-columns: minmax(0, 1fr) auto;
         align-items: end;
+      }
+    }
+
+    @media (min-width: 1120px) {
+      body[data-page="project"].drawer-open {
+        overflow: auto;
+      }
+
+      .page {
+        width: min(1320px, 100%);
+        grid-template-columns: minmax(0, 1fr) minmax(360px, 420px);
+        align-items: start;
+        gap: 18px;
+      }
+
+      .headerPanel {
+        grid-column: 1 / -1;
+      }
+
+      .page > .sectionPanel:not(.qaPanel) {
+        grid-column: 1;
+      }
+
+      .qaPanel {
+        grid-column: 2;
+        grid-row: 2 / span 20;
+        position: sticky;
+        top: 78px;
+        max-height: calc(100dvh - 96px);
+        min-height: 0;
+        overflow: auto;
+        padding: 13px;
+        align-content: start;
+        scrollbar-gutter: stable;
+      }
+
+      .qaSummaryGrid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .qaFormGrid {
+        grid-template-columns: 1fr;
+      }
+
+      .qaDrawerShell {
+        position: static;
+        inset: auto;
+        z-index: auto;
+        pointer-events: none;
+        display: none;
+      }
+
+      .qaDrawerShell.open {
+        display: block;
+        pointer-events: auto;
+      }
+
+      .qaDrawerOverlay {
+        display: none;
+      }
+
+      .qaDrawerPanel {
+        position: static;
+        width: 100%;
+        height: auto;
+        max-height: min(58dvh, 640px);
+        transform: none;
+        border: 1px solid rgba(188, 207, 229, 0.18);
+        border-radius: 12px;
+        box-shadow: 0 14px 34px rgba(0, 0, 0, 0.18);
+        overflow: hidden;
+      }
+
+      .qaDrawerShell.open .qaDrawerPanel {
+        transform: none;
+      }
+
+      .qaDrawerHeader {
+        padding: 13px;
+      }
+
+      .qaDrawerBody {
+        min-height: 170px;
+        max-height: min(30dvh, 330px);
+      }
+
+      .qaDrawerFooter {
+        padding: 11px 13px;
+      }
+
+      .qaDrawerFooter .qaTextarea {
+        min-height: 68px;
       }
     }
   </style>

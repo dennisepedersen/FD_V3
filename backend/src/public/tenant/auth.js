@@ -2250,6 +2250,7 @@
 
     const logoutBtn = document.getElementById("logoutBtn");
     const projectId = getProjectIdFromPath();
+    const qaSection = document.getElementById("qaSection");
     const qaSummaryGrid = document.getElementById("qaSummaryGrid");
     const qaMetaText = document.getElementById("qaMetaText");
     const qaStateNode = document.getElementById("qaState");
@@ -2279,6 +2280,9 @@
     }
 
     const qaUi = Boolean(qaSummaryGrid && qaMetaText && qaStateNode && qaThreadList);
+    if (qaSection && qaDrawerShell && qaDrawerShell.parentElement !== qaSection) {
+      qaSection.appendChild(qaDrawerShell);
+    }
     const qaState = {
       summary: { NEW: 0, WAITING: 0, ANSWERED: 0, CLOSED: 0 },
       threads: [],
