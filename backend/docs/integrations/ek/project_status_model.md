@@ -40,7 +40,8 @@ project_internal = v4 LIST isIntern / v4 DETAIL IsInternal
 - `EndDate` is planning/end date, not a closed filter.
 - v4 DETAIL activity/economy fields may raise attention, but must not override lifecycle.
 - UI active project counts must use `administrative_closed === false`.
-- Sync status should not be shown on the normal user dashboard; keep it for admin/dev diagnostics or logs.
+- Sync status should not be shown on the normal tenant dashboard or project overview.
+- Sync operations status may remain available in global admin/portal drift views, admin/dev diagnostics, or logs.
 
 ## Live Data Evidence
 

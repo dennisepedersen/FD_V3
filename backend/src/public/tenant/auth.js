@@ -568,23 +568,11 @@
     const projectOpenCount = document.getElementById("projectOpenCount");
     const dashboardAttentionCount = document.getElementById("dashboardAttentionCount");
     const dashboardQaStatus = document.getElementById("dashboardQaStatus");
-    const dashboardSyncStatus = document.getElementById("dashboardSyncStatus");
     const moduleProjectsMeta = document.getElementById("moduleProjectsMeta");
     const sortSelect = document.getElementById("sortSelect");
     const listMetaText = document.getElementById("listMetaText");
     const scopeRow = document.getElementById("scopeRow");
     const scopeChips = document.getElementById("scopeChips");
-    const refreshSyncBtn = document.getElementById("refreshSyncBtn");
-    const syncFilterSelect = document.getElementById("syncFilterSelect");
-    const syncSortSelect = document.getElementById("syncSortSelect");
-    const syncEndpointList = document.getElementById("syncEndpointList");
-    const syncBootstrapText = document.getElementById("syncBootstrapText");
-    const syncDeltaText = document.getElementById("syncDeltaText");
-    const syncLastSuccessText = document.getElementById("syncLastSuccessText");
-    const syncBacklogText = document.getElementById("syncBacklogText");
-    const syncNextRetryText = document.getElementById("syncNextRetryText");
-    const syncRowsText = document.getElementById("syncRowsText");
-    const syncOverallText = document.getElementById("syncOverallText");
     const drawerShell = document.getElementById("drawerShell");
     const drawerOverlay = document.getElementById("drawerOverlay");
     const drawerCloseBtn = document.getElementById("drawerCloseBtn");
@@ -603,9 +591,6 @@
       ownerLabelMap: new Map(),
       drawerProjectId: null,
       showingClosedFallback: false,
-      syncEndpointStates: [],
-      syncFilterMode: "all",
-      syncSortMode: "endpoint",
       currentView: "dashboard",
     };
 
@@ -759,25 +744,6 @@
       }
     }
 
-    function formatDateTimeValue(value) {
-      if (!value) return "-";
-      const date = new Date(value);
-      if (Number.isNaN(date.getTime())) {
-        return String(value);
-      }
-      try {
-        return new Intl.DateTimeFormat("da-DK", {
-          day: "2-digit",
-          month: "2-digit",
-          year: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-        }).format(date);
-      } catch (_error) {
-        return date.toISOString();
-      }
-    }
-
     function isClosedStatus(project) {
       if (project && project.is_closed === true) {
         return true;
@@ -787,121 +753,6 @@
       }
       const status = String(project && project.status ? project.status : "").trim().toLowerCase();
       return status === "closed" || status === "lukket";
-    }
-
-    function normalizeSyncType(value) {
-      const type = String(value || "").trim().toLowerCase();
-      if (type === "bootstrap" || type === "delta") {
-        return type;
-      }
-      return "unknown";
-    }
-
-    function mapEffectiveStatusLabel(row) {
-      const value = String(row && row.effective_status ? row.effective_status : row && row.status ? row.status : "").toLowerCase();
-      if (value === "not_implemented") return "Ikke implementeret";
-      if (value === "historical_failed") return "Historisk fejl";
-      if (value === "stale") return "Stale";
-      if (value === "running") return "Kører";
-      if (value === "failed") return "Fejlet";
-      if (value === "success") return "Success";
-      if (value === "partial") return "Delvis";
-      return value || "-";
-    }
-
-    function mapTouchedLabel(row) {
-      if (row && row.touched_by_current_job) {
-        return "Touched i aktuelt job";
-      }
-      return "Historisk";
-    }
-
-    function computeOverallStatusFromEndpoints(rows) {
-      const values = (Array.isArray(rows) ? rows : []).map((row) =>
-        String(row && row.effective_status ? row.effective_status : row && row.status ? row.status : "").toLowerCase()
-      );
-
-      if (values.some((value) => value === "failed" || value === "stale")) {
-        return "failed";
-      }
-      if (values.some((value) => value === "running")) {
-        return "running";
-      }
-      if (values.some((value) => value === "success" || value === "partial" || value === "not_implemented")) {
-        return "success";
-      }
-      return "idle";
-    }
-
-    function renderSyncEndpointList() {
-      if (!syncEndpointList) {
-        return;
-      }
-
-      let rows = Array.isArray(state.syncEndpointStates) ? state.syncEndpointStates.slice() : [];
-      const filterMode = state.syncFilterMode;
-
-      if (filterMode === "bootstrap") {
-        rows = rows.filter((row) => normalizeSyncType(row.sync_type) === "bootstrap");
-      } else if (filterMode === "delta") {
-        rows = rows.filter((row) => normalizeSyncType(row.sync_type) === "delta");
-      } else if (filterMode === "issues") {
-        rows = rows.filter((row) => {
-          const pending = Number(row.pending_backlog || 0);
-          const failed = Number(row.failed_backlog || 0);
-          const status = String(row.effective_status || row.status || "").toLowerCase();
-          return pending > 0 || failed > 0 || status === "failed" || status === "partial";
-        });
-      }
-
-      if (state.syncSortMode === "activity_desc") {
-        rows.sort((a, b) => {
-          const left = new Date(a.last_attempt_at || a.last_successful_sync_at || 0).getTime();
-          const right = new Date(b.last_attempt_at || b.last_successful_sync_at || 0).getTime();
-          return right - left;
-        });
-      } else {
-        rows.sort((a, b) => String(a.endpoint_key || "").localeCompare(String(b.endpoint_key || ""), "da", { sensitivity: "base" }));
-      }
-
-      syncEndpointList.innerHTML = "";
-      if (rows.length === 0) {
-        const empty = document.createElement("div");
-        empty.className = "syncEndpointCard";
-        empty.textContent = "Ingen endpoint-status for valgt filter.";
-        syncEndpointList.appendChild(empty);
-        return;
-      }
-
-      rows.forEach((row) => {
-        const card = document.createElement("div");
-        card.className = "syncEndpointCard";
-
-        const title = document.createElement("div");
-        title.className = "syncEndpointTitle";
-
-        const endpointName = document.createElement("span");
-        endpointName.textContent = String(row.endpoint_key || "-");
-
-        const endpointStatus = document.createElement("span");
-        endpointStatus.textContent = `${mapEffectiveStatusLabel(row)} · ${normalizeSyncType(row.sync_type)}`;
-
-        title.appendChild(endpointName);
-        title.appendChild(endpointStatus);
-
-        const line1 = document.createElement("div");
-        line1.className = "syncEndpointMeta";
-        line1.textContent = `Pages: ${row.pages_processed_last_job || 0} (job) / ${row.pages_processed || 0} (total) · Rows: ${row.rows_persisted_last_job || 0} persisted (job), ${row.rows_fetched || 0} fetched (total)`;
-
-        const line2 = document.createElement("div");
-        line2.className = "syncEndpointMeta";
-        line2.textContent = `${mapTouchedLabel(row)} · Seneste succes: ${formatDateTimeValue(row.last_successful_sync_at)} · Næste retry: ${formatDateTimeValue(row.next_retry_at)} · Pending/failed backlog: ${Number(row.pending_backlog || 0)}/${Number(row.failed_backlog || 0)}`;
-
-        card.appendChild(title);
-        card.appendChild(line1);
-        card.appendChild(line2);
-        syncEndpointList.appendChild(card);
-      });
     }
 
     function getStatusView(project) {
@@ -1713,107 +1564,6 @@
       }
     }
 
-    async function loadSyncStatus() {
-      if (syncOverallText) syncOverallText.textContent = "Indlæser...";
-      if (syncBootstrapText) syncBootstrapText.textContent = "Indlæser...";
-      if (syncDeltaText) syncDeltaText.textContent = "Indlæser...";
-      if (syncLastSuccessText) syncLastSuccessText.textContent = "Indlæser...";
-      if (syncBacklogText) syncBacklogText.textContent = "Indlæser...";
-      if (syncNextRetryText) syncNextRetryText.textContent = "Indlæser...";
-      if (syncRowsText) syncRowsText.textContent = "Indlæser...";
-
-      try {
-        const response = await apiFetch("/api/sync/status", { method: "GET" });
-        const bootstrap = response && response.bootstrap ? response.bootstrap : null;
-        const delta = response && response.delta ? response.delta : null;
-        const endpointStates = response && Array.isArray(response.endpoint_states)
-          ? response.endpoint_states
-          : [];
-        const endpointSummary = response && response.endpoint_summary ? response.endpoint_summary : null;
-        const backlog = response && response.backlog ? response.backlog : null;
-
-        const persistedRows = endpointStates.reduce((sum, row) => {
-          const value = Number(row && row.rows_persisted ? row.rows_persisted : 0);
-          return sum + (Number.isFinite(value) ? value : 0);
-        }, 0);
-
-        const latestSuccessCandidates = [];
-        endpointStates.forEach((row) => {
-          if (row && row.last_successful_sync_at) {
-            latestSuccessCandidates.push(row.last_successful_sync_at);
-          }
-        });
-
-        const latestSuccess = latestSuccessCandidates
-          .map((value) => new Date(value))
-          .filter((date) => !Number.isNaN(date.getTime()))
-          .sort((a, b) => b.getTime() - a.getTime())[0];
-
-        if (syncBootstrapText) {
-          const progress = bootstrap
-            ? `${bootstrap.pages_processed || 0} sider / ${bootstrap.rows_processed || 0} rows`
-            : "-";
-          syncBootstrapText.textContent = progress;
-        }
-
-        if (syncDeltaText) {
-          const progress = delta
-            ? `${delta.pages_processed || 0} sider / ${delta.rows_processed || 0} rows`
-            : "-";
-          syncDeltaText.textContent = progress;
-        }
-
-        if (syncLastSuccessText) {
-          syncLastSuccessText.textContent = latestSuccess ? formatDateTimeValue(latestSuccess) : "-";
-        }
-
-        if (syncBacklogText) {
-          const pending = backlog ? Number(backlog.pending_count || 0) : 0;
-          const failed = backlog ? Number(backlog.failed_count || 0) : 0;
-          syncBacklogText.textContent = `${pending} pending, ${failed} failed`;
-        }
-
-        if (syncNextRetryText) {
-          syncNextRetryText.textContent = backlog && backlog.next_retry_at
-            ? formatDateTimeValue(backlog.next_retry_at)
-            : "-";
-        }
-
-        if (syncRowsText) {
-          syncRowsText.textContent = String(persistedRows);
-        }
-
-        if (syncOverallText) {
-          const overall = endpointSummary && endpointSummary.overall_status
-            ? String(endpointSummary.overall_status)
-            : computeOverallStatusFromEndpoints(endpointStates);
-          const touched = endpointSummary ? Number(endpointSummary.touched_count || 0) : 0;
-          const skipped = endpointSummary ? Number(endpointSummary.skipped_count || 0) : 0;
-          const failed = endpointSummary ? Number(endpointSummary.failed_count || 0) : 0;
-          syncOverallText.textContent = `${overall} · touched ${touched} · skipped ${skipped} · failed ${failed}`;
-          setText(dashboardSyncStatus, `Sync: ${overall}`);
-        }
-
-        state.syncEndpointStates = endpointStates;
-        renderSyncEndpointList();
-      } catch (error) {
-        if (handleAuthFailure(error)) {
-          return;
-        }
-
-        if (syncBootstrapText) syncBootstrapText.textContent = "Utilgængelig";
-        if (syncDeltaText) syncDeltaText.textContent = "Utilgængelig";
-        if (syncLastSuccessText) syncLastSuccessText.textContent = "-";
-        if (syncBacklogText) syncBacklogText.textContent = "-";
-        if (syncNextRetryText) syncNextRetryText.textContent = "-";
-        if (syncRowsText) syncRowsText.textContent = "-";
-        if (syncOverallText) syncOverallText.textContent = "Utilgængelig";
-        setText(dashboardSyncStatus, "Sync: utilgængelig");
-        state.syncEndpointStates = [];
-        renderSyncEndpointList();
-      }
-    }
-
     try {
       const me = await apiFetch("/api/me", { method: "GET" });
       state.me = me && me.user ? me.user : null;
@@ -1845,20 +1595,6 @@
       });
     }
 
-    if (syncFilterSelect) {
-      syncFilterSelect.addEventListener("change", () => {
-        state.syncFilterMode = syncFilterSelect.value;
-        renderSyncEndpointList();
-      });
-    }
-
-    if (syncSortSelect) {
-      syncSortSelect.addEventListener("change", () => {
-        state.syncSortMode = syncSortSelect.value;
-        renderSyncEndpointList();
-      });
-    }
-
     if (drawerCloseBtn) {
       drawerCloseBtn.addEventListener("click", closeDrawer);
     }
@@ -1877,13 +1613,7 @@
       }
     });
 
-    await Promise.all([loadProjects(), loadSyncStatus()]);
-
-    if (refreshSyncBtn) {
-      refreshSyncBtn.addEventListener("click", () => {
-        loadSyncStatus();
-      });
-    }
+    await loadProjects();
 
     if (openProjectPageLink) {
       openProjectPageLink.addEventListener("click", () => {
