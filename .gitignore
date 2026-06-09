@@ -20,3 +20,13 @@ backend/.env.*
 *.p12
 *.pfx
 secret-scan-report*.txt
+API info/*environment.json
+!API info/*environment.example.json
+
+# Generated/local cache
+.tmp/
+__pycache__/
+*.pyc
+
+# Local editor workspaces
+*.code-workspace
