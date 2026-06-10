@@ -568,23 +568,11 @@
     const projectOpenCount = document.getElementById("projectOpenCount");
     const dashboardAttentionCount = document.getElementById("dashboardAttentionCount");
     const dashboardQaStatus = document.getElementById("dashboardQaStatus");
-    const dashboardSyncStatus = document.getElementById("dashboardSyncStatus");
     const moduleProjectsMeta = document.getElementById("moduleProjectsMeta");
     const sortSelect = document.getElementById("sortSelect");
     const listMetaText = document.getElementById("listMetaText");
     const scopeRow = document.getElementById("scopeRow");
     const scopeChips = document.getElementById("scopeChips");
-    const refreshSyncBtn = document.getElementById("refreshSyncBtn");
-    const syncFilterSelect = document.getElementById("syncFilterSelect");
-    const syncSortSelect = document.getElementById("syncSortSelect");
-    const syncEndpointList = document.getElementById("syncEndpointList");
-    const syncBootstrapText = document.getElementById("syncBootstrapText");
-    const syncDeltaText = document.getElementById("syncDeltaText");
-    const syncLastSuccessText = document.getElementById("syncLastSuccessText");
-    const syncBacklogText = document.getElementById("syncBacklogText");
-    const syncNextRetryText = document.getElementById("syncNextRetryText");
-    const syncRowsText = document.getElementById("syncRowsText");
-    const syncOverallText = document.getElementById("syncOverallText");
     const drawerShell = document.getElementById("drawerShell");
     const drawerOverlay = document.getElementById("drawerOverlay");
     const drawerCloseBtn = document.getElementById("drawerCloseBtn");
@@ -603,9 +591,6 @@
       ownerLabelMap: new Map(),
       drawerProjectId: null,
       showingClosedFallback: false,
-      syncEndpointStates: [],
-      syncFilterMode: "all",
-      syncSortMode: "endpoint",
       currentView: "dashboard",
     };
 
@@ -759,25 +744,6 @@
       }
     }
 
-    function formatDateTimeValue(value) {
-      if (!value) return "-";
-      const date = new Date(value);
-      if (Number.isNaN(date.getTime())) {
-        return String(value);
-      }
-      try {
-        return new Intl.DateTimeFormat("da-DK", {
-          day: "2-digit",
-          month: "2-digit",
-          year: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-        }).format(date);
-      } catch (_error) {
-        return date.toISOString();
-      }
-    }
-
     function isClosedStatus(project) {
       if (project && project.is_closed === true) {
         return true;
@@ -787,121 +753,6 @@
       }
       const status = String(project && project.status ? project.status : "").trim().toLowerCase();
       return status === "closed" || status === "lukket";
-    }
-
-    function normalizeSyncType(value) {
-      const type = String(value || "").trim().toLowerCase();
-      if (type === "bootstrap" || type === "delta") {
-        return type;
-      }
-      return "unknown";
-    }
-
-    function mapEffectiveStatusLabel(row) {
-      const value = String(row && row.effective_status ? row.effective_status : row && row.status ? row.status : "").toLowerCase();
-      if (value === "not_implemented") return "Ikke implementeret";
-      if (value === "historical_failed") return "Historisk fejl";
-      if (value === "stale") return "Stale";
-      if (value === "running") return "Kører";
-      if (value === "failed") return "Fejlet";
-      if (value === "success") return "Success";
-      if (value === "partial") return "Delvis";
-      return value || "-";
-    }
-
-    function mapTouchedLabel(row) {
-      if (row && row.touched_by_current_job) {
-        return "Touched i aktuelt job";
-      }
-      return "Historisk";
-    }
-
-    function computeOverallStatusFromEndpoints(rows) {
-      const values = (Array.isArray(rows) ? rows : []).map((row) =>
-        String(row && row.effective_status ? row.effective_status : row && row.status ? row.status : "").toLowerCase()
-      );
-
-      if (values.some((value) => value === "failed" || value === "stale")) {
-        return "failed";
-      }
-      if (values.some((value) => value === "running")) {
-        return "running";
-      }
-      if (values.some((value) => value === "success" || value === "partial" || value === "not_implemented")) {
-        return "success";
-      }
-      return "idle";
-    }
-
-    function renderSyncEndpointList() {
-      if (!syncEndpointList) {
-        return;
-      }
-
-      let rows = Array.isArray(state.syncEndpointStates) ? state.syncEndpointStates.slice() : [];
-      const filterMode = state.syncFilterMode;
-
-      if (filterMode === "bootstrap") {
-        rows = rows.filter((row) => normalizeSyncType(row.sync_type) === "bootstrap");
-      } else if (filterMode === "delta") {
-        rows = rows.filter((row) => normalizeSyncType(row.sync_type) === "delta");
-      } else if (filterMode === "issues") {
-        rows = rows.filter((row) => {
-          const pending = Number(row.pending_backlog || 0);
-          const failed = Number(row.failed_backlog || 0);
-          const status = String(row.effective_status || row.status || "").toLowerCase();
-          return pending > 0 || failed > 0 || status === "failed" || status === "partial";
-        });
-      }
-
-      if (state.syncSortMode === "activity_desc") {
-        rows.sort((a, b) => {
-          const left = new Date(a.last_attempt_at || a.last_successful_sync_at || 0).getTime();
-          const right = new Date(b.last_attempt_at || b.last_successful_sync_at || 0).getTime();
-          return right - left;
-        });
-      } else {
-        rows.sort((a, b) => String(a.endpoint_key || "").localeCompare(String(b.endpoint_key || ""), "da", { sensitivity: "base" }));
-      }
-
-      syncEndpointList.innerHTML = "";
-      if (rows.length === 0) {
-        const empty = document.createElement("div");
-        empty.className = "syncEndpointCard";
-        empty.textContent = "Ingen endpoint-status for valgt filter.";
-        syncEndpointList.appendChild(empty);
-        return;
-      }
-
-      rows.forEach((row) => {
-        const card = document.createElement("div");
-        card.className = "syncEndpointCard";
-
-        const title = document.createElement("div");
-        title.className = "syncEndpointTitle";
-
-        const endpointName = document.createElement("span");
-        endpointName.textContent = String(row.endpoint_key || "-");
-
-        const endpointStatus = document.createElement("span");
-        endpointStatus.textContent = `${mapEffectiveStatusLabel(row)} · ${normalizeSyncType(row.sync_type)}`;
-
-        title.appendChild(endpointName);
-        title.appendChild(endpointStatus);
-
-        const line1 = document.createElement("div");
-        line1.className = "syncEndpointMeta";
-        line1.textContent = `Pages: ${row.pages_processed_last_job || 0} (job) / ${row.pages_processed || 0} (total) · Rows: ${row.rows_persisted_last_job || 0} persisted (job), ${row.rows_fetched || 0} fetched (total)`;
-
-        const line2 = document.createElement("div");
-        line2.className = "syncEndpointMeta";
-        line2.textContent = `${mapTouchedLabel(row)} · Seneste succes: ${formatDateTimeValue(row.last_successful_sync_at)} · Næste retry: ${formatDateTimeValue(row.next_retry_at)} · Pending/failed backlog: ${Number(row.pending_backlog || 0)}/${Number(row.failed_backlog || 0)}`;
-
-        card.appendChild(title);
-        card.appendChild(line1);
-        card.appendChild(line2);
-        syncEndpointList.appendChild(card);
-      });
     }
 
     function getStatusView(project) {
@@ -1713,107 +1564,6 @@
       }
     }
 
-    async function loadSyncStatus() {
-      if (syncOverallText) syncOverallText.textContent = "Indlæser...";
-      if (syncBootstrapText) syncBootstrapText.textContent = "Indlæser...";
-      if (syncDeltaText) syncDeltaText.textContent = "Indlæser...";
-      if (syncLastSuccessText) syncLastSuccessText.textContent = "Indlæser...";
-      if (syncBacklogText) syncBacklogText.textContent = "Indlæser...";
-      if (syncNextRetryText) syncNextRetryText.textContent = "Indlæser...";
-      if (syncRowsText) syncRowsText.textContent = "Indlæser...";
-
-      try {
-        const response = await apiFetch("/api/sync/status", { method: "GET" });
-        const bootstrap = response && response.bootstrap ? response.bootstrap : null;
-        const delta = response && response.delta ? response.delta : null;
-        const endpointStates = response && Array.isArray(response.endpoint_states)
-          ? response.endpoint_states
-          : [];
-        const endpointSummary = response && response.endpoint_summary ? response.endpoint_summary : null;
-        const backlog = response && response.backlog ? response.backlog : null;
-
-        const persistedRows = endpointStates.reduce((sum, row) => {
-          const value = Number(row && row.rows_persisted ? row.rows_persisted : 0);
-          return sum + (Number.isFinite(value) ? value : 0);
-        }, 0);
-
-        const latestSuccessCandidates = [];
-        endpointStates.forEach((row) => {
-          if (row && row.last_successful_sync_at) {
-            latestSuccessCandidates.push(row.last_successful_sync_at);
-          }
-        });
-
-        const latestSuccess = latestSuccessCandidates
-          .map((value) => new Date(value))
-          .filter((date) => !Number.isNaN(date.getTime()))
-          .sort((a, b) => b.getTime() - a.getTime())[0];
-
-        if (syncBootstrapText) {
-          const progress = bootstrap
-            ? `${bootstrap.pages_processed || 0} sider / ${bootstrap.rows_processed || 0} rows`
-            : "-";
-          syncBootstrapText.textContent = progress;
-        }
-
-        if (syncDeltaText) {
-          const progress = delta
-            ? `${delta.pages_processed || 0} sider / ${delta.rows_processed || 0} rows`
-            : "-";
-          syncDeltaText.textContent = progress;
-        }
-
-        if (syncLastSuccessText) {
-          syncLastSuccessText.textContent = latestSuccess ? formatDateTimeValue(latestSuccess) : "-";
-        }
-
-        if (syncBacklogText) {
-          const pending = backlog ? Number(backlog.pending_count || 0) : 0;
-          const failed = backlog ? Number(backlog.failed_count || 0) : 0;
-          syncBacklogText.textContent = `${pending} pending, ${failed} failed`;
-        }
-
-        if (syncNextRetryText) {
-          syncNextRetryText.textContent = backlog && backlog.next_retry_at
-            ? formatDateTimeValue(backlog.next_retry_at)
-            : "-";
-        }
-
-        if (syncRowsText) {
-          syncRowsText.textContent = String(persistedRows);
-        }
-
-        if (syncOverallText) {
-          const overall = endpointSummary && endpointSummary.overall_status
-            ? String(endpointSummary.overall_status)
-            : computeOverallStatusFromEndpoints(endpointStates);
-          const touched = endpointSummary ? Number(endpointSummary.touched_count || 0) : 0;
-          const skipped = endpointSummary ? Number(endpointSummary.skipped_count || 0) : 0;
-          const failed = endpointSummary ? Number(endpointSummary.failed_count || 0) : 0;
-          syncOverallText.textContent = `${overall} · touched ${touched} · skipped ${skipped} · failed ${failed}`;
-          setText(dashboardSyncStatus, `Sync: ${overall}`);
-        }
-
-        state.syncEndpointStates = endpointStates;
-        renderSyncEndpointList();
-      } catch (error) {
-        if (handleAuthFailure(error)) {
-          return;
-        }
-
-        if (syncBootstrapText) syncBootstrapText.textContent = "Utilgængelig";
-        if (syncDeltaText) syncDeltaText.textContent = "Utilgængelig";
-        if (syncLastSuccessText) syncLastSuccessText.textContent = "-";
-        if (syncBacklogText) syncBacklogText.textContent = "-";
-        if (syncNextRetryText) syncNextRetryText.textContent = "-";
-        if (syncRowsText) syncRowsText.textContent = "-";
-        if (syncOverallText) syncOverallText.textContent = "Utilgængelig";
-        setText(dashboardSyncStatus, "Sync: utilgængelig");
-        state.syncEndpointStates = [];
-        renderSyncEndpointList();
-      }
-    }
-
     try {
       const me = await apiFetch("/api/me", { method: "GET" });
       state.me = me && me.user ? me.user : null;
@@ -1845,20 +1595,6 @@
       });
     }
 
-    if (syncFilterSelect) {
-      syncFilterSelect.addEventListener("change", () => {
-        state.syncFilterMode = syncFilterSelect.value;
-        renderSyncEndpointList();
-      });
-    }
-
-    if (syncSortSelect) {
-      syncSortSelect.addEventListener("change", () => {
-        state.syncSortMode = syncSortSelect.value;
-        renderSyncEndpointList();
-      });
-    }
-
     if (drawerCloseBtn) {
       drawerCloseBtn.addEventListener("click", closeDrawer);
     }
@@ -1877,13 +1613,7 @@
       }
     });
 
-    await Promise.all([loadProjects(), loadSyncStatus()]);
-
-    if (refreshSyncBtn) {
-      refreshSyncBtn.addEventListener("click", () => {
-        loadSyncStatus();
-      });
-    }
+    await loadProjects();
 
     if (openProjectPageLink) {
       openProjectPageLink.addEventListener("click", () => {
@@ -2256,6 +1986,7 @@
     const qaStateNode = document.getElementById("qaState");
     const qaThreadList = document.getElementById("qaThreadList");
     const qaNewThreadToggle = document.getElementById("qaNewThreadToggle");
+    const qaViewAllBtn = document.getElementById("qaViewAllBtn");
     const qaNewThreadForm = document.getElementById("qaNewThreadForm");
     const qaNewThreadTitle = document.getElementById("qaNewThreadTitle");
     const qaNewThreadPriority = document.getElementById("qaNewThreadPriority");
@@ -2273,6 +2004,13 @@
     const qaMessageForm = document.getElementById("qaMessageForm");
     const qaMessageInput = document.getElementById("qaMessageInput");
     const qaAddMessageBtn = document.getElementById("qaAddMessageBtn");
+    const qaAllThreadsView = document.getElementById("qaAllThreadsView");
+    const qaAllThreadsBody = document.getElementById("qaAllThreadsBody");
+    const qaAllSearchInput = document.getElementById("qaAllSearchInput");
+    const qaAllSortSelect = document.getElementById("qaAllSortSelect");
+    const qaUnsavedConfirm = document.getElementById("qaUnsavedConfirm");
+    const qaStayBtn = document.getElementById("qaStayBtn");
+    const qaDiscardBtn = document.getElementById("qaDiscardBtn");
 
     if (!projectId) {
       renderProjectDetailError("Ugyldig sagssti");
@@ -2280,15 +2018,16 @@
     }
 
     const qaUi = Boolean(qaSummaryGrid && qaMetaText && qaStateNode && qaThreadList);
-    if (qaSection && qaDrawerShell && qaDrawerShell.parentElement !== qaSection) {
-      qaSection.appendChild(qaDrawerShell);
-    }
     const qaState = {
       summary: { NEW: 0, WAITING: 0, ANSWERED: 0, CLOSED: 0 },
       threads: [],
       detailThread: null,
       messages: [],
       activeThreadId: null,
+      modalMode: null,
+      pendingForceClose: false,
+      allSearch: "",
+      allSort: qaAllSortSelect && qaAllSortSelect.value ? qaAllSortSelect.value : "activity_desc",
       isLoadingThreads: false,
       isSaving: false,
     };
@@ -2397,6 +2136,89 @@
       };
     }
 
+    function getQaPersonalView(thread) {
+      const state = String(thread && thread.personal_state ? thread.personal_state : "").trim().toLowerCase();
+      if (state === "new" || thread?.is_unread) {
+        return { label: "Ulæst", className: "qaBadgeNew", isNew: true };
+      }
+      if (state === "sent") {
+        return { label: "Sendt", className: "qaBadgeMuted", isNew: false };
+      }
+      if (state === "closed") {
+        return { label: "Læst", className: "qaBadgeMuted", isNew: false };
+      }
+      return { label: "Set", className: "qaBadgeMuted", isNew: false };
+    }
+
+    function getQaActivityAt(thread) {
+      const candidates = [
+        thread && thread.updated_at,
+        thread && thread.latest_message_at,
+        thread && thread.created_at,
+      ].filter(Boolean);
+      let latest = null;
+      candidates.forEach((value) => {
+        const parsed = new Date(value);
+        if (!Number.isNaN(parsed.getTime()) && (!latest || parsed > latest)) {
+          latest = parsed;
+        }
+      });
+      return latest ? latest.toISOString() : null;
+    }
+
+    function getQaActivityTime(thread) {
+      const parsed = new Date(getQaActivityAt(thread));
+      return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime();
+    }
+
+    function qaRequiresCurrentUserAction(thread) {
+      if (!thread || getQaStatusView(thread.status).value === "CLOSED") {
+        return false;
+      }
+      const personalState = String(thread.personal_state || "").trim().toLowerCase();
+      return Boolean(thread.is_assigned_to_me && (personalState === "new" || thread.is_unread));
+    }
+
+    function sortQaThreadsForOverview(threads) {
+      return (Array.isArray(threads) ? threads : []).slice().sort((left, right) => {
+        const leftAction = qaRequiresCurrentUserAction(left) ? 1 : 0;
+        const rightAction = qaRequiresCurrentUserAction(right) ? 1 : 0;
+        if (leftAction !== rightAction) {
+          return rightAction - leftAction;
+        }
+        return getQaActivityTime(right) - getQaActivityTime(left);
+      });
+    }
+
+    function sortQaThreadsForAll(threads) {
+      const sorted = (Array.isArray(threads) ? threads : []).slice();
+      if (qaState.allSort === "title_asc") {
+        sorted.sort((left, right) => {
+          const leftTitle = String(left && (left.title || left.latest_message_preview) || "").trim().toLocaleLowerCase("da-DK");
+          const rightTitle = String(right && (right.title || right.latest_message_preview) || "").trim().toLocaleLowerCase("da-DK");
+          return leftTitle.localeCompare(rightTitle, "da-DK") || (getQaActivityTime(right) - getQaActivityTime(left));
+        });
+        return sorted;
+      }
+      sorted.sort((left, right) => getQaActivityTime(right) - getQaActivityTime(left));
+      return sorted;
+    }
+
+    function filterQaThreadsForAll(threads) {
+      const query = String(qaState.allSearch || "").trim().toLocaleLowerCase("da-DK");
+      const source = sortQaThreadsForAll(threads);
+      if (!query) {
+        return source;
+      }
+      return source.filter((thread) => {
+        const haystack = [
+          thread && thread.title,
+          thread && thread.latest_message_preview,
+        ].filter(Boolean).join(" ").toLocaleLowerCase("da-DK");
+        return haystack.includes(query);
+      });
+    }
+
     function formatQaDate(value) {
       if (!value) {
         return "-";
@@ -2498,18 +2320,131 @@
       if (qaNewThreadToggle) {
         qaNewThreadToggle.disabled = Boolean(disabled);
       }
+      if (qaViewAllBtn) {
+        qaViewAllBtn.disabled = Boolean(disabled);
+      }
       if (qaCreateThreadBtn) {
         qaCreateThreadBtn.disabled = Boolean(disabled);
       }
     }
 
-    function openQaNewThreadForm(shouldFocus) {
-      if (!qaNewThreadForm) {
+    function hideQaUnsavedConfirm() {
+      if (qaUnsavedConfirm) {
+        qaUnsavedConfirm.hidden = true;
+      }
+    }
+
+    function hasQaUnsavedInput() {
+      if (qaState.modalMode === "new") {
+        const title = qaNewThreadTitle ? qaNewThreadTitle.value.trim() : "";
+        const message = qaNewThreadMessage ? qaNewThreadMessage.value.trim() : "";
+        const priority = qaNewThreadPriority ? qaNewThreadPriority.value : "normal";
+        return Boolean(title || message || priority !== "normal");
+      }
+      if (qaState.modalMode === "thread") {
+        const message = qaMessageInput ? qaMessageInput.value.trim() : "";
+        const statusChanged = qaStatusSelect && qaState.detailThread
+          ? qaStatusSelect.value !== getQaStatusView(qaState.detailThread.status).value
+          : false;
+        return Boolean(message || statusChanged);
+      }
+      return false;
+    }
+
+    function showQaUnsavedConfirm() {
+      if (qaUnsavedConfirm) {
+        qaUnsavedConfirm.hidden = false;
+      }
+      if (qaStayBtn) {
+        qaStayBtn.focus();
+      }
+    }
+
+    function setQaModalMode(mode) {
+      qaState.modalMode = mode;
+      hideQaUnsavedConfirm();
+      if (qaNewThreadForm) {
+        qaNewThreadForm.hidden = mode !== "new";
+      }
+      if (qaAllThreadsView) {
+        qaAllThreadsView.hidden = mode !== "all";
+      }
+      if (qaDrawerBody) {
+        qaDrawerBody.hidden = mode !== "thread";
+      }
+      if (qaMessageForm) {
+        qaMessageForm.hidden = mode !== "thread";
+      }
+      const showThreadControls = mode === "thread";
+      const controls = qaStatusSelect ? qaStatusSelect.closest(".qaDrawerControls") : null;
+      if (controls) {
+        controls.hidden = !showThreadControls;
+      }
+      applyQaStatusPermissions();
+    }
+
+    function openQaDrawerShell() {
+      if (!qaDrawerShell) {
         return;
       }
-      qaNewThreadForm.hidden = false;
-      if (shouldFocus && qaNewThreadMessage) {
-        qaNewThreadMessage.focus();
+      qaDrawerShell.classList.add("open");
+      qaDrawerShell.setAttribute("aria-hidden", "false");
+      document.body.classList.add("qa-modal-open");
+    }
+
+    function closeQaDrawer(forceClose = false) {
+      if (!qaDrawerShell) {
+        return;
+      }
+      if (!forceClose && hasQaUnsavedInput()) {
+        showQaUnsavedConfirm();
+        return;
+      }
+      qaDrawerShell.classList.remove("open");
+      qaDrawerShell.setAttribute("aria-hidden", "true");
+      document.body.classList.remove("qa-modal-open");
+      qaState.activeThreadId = null;
+      qaState.detailThread = null;
+      qaState.messages = [];
+      qaState.modalMode = null;
+      hideQaUnsavedConfirm();
+      if (qaMessageInput) {
+        qaMessageInput.value = "";
+      }
+      if (qaNewThreadTitle) qaNewThreadTitle.value = "";
+      if (qaNewThreadMessage) qaNewThreadMessage.value = "";
+      if (qaNewThreadPriority) qaNewThreadPriority.value = "normal";
+    }
+
+    function openQaNewThreadModal(shouldFocus) {
+      setQaModalMode("new");
+      if (qaDrawerTitle) {
+        qaDrawerTitle.textContent = "Opret tråd";
+      }
+      if (qaDrawerMeta) {
+        qaDrawerMeta.textContent = "Ny projekt-specifik QA";
+        qaDrawerMeta.title = "";
+      }
+      renderQaNewThreadNotice("", false);
+      openQaDrawerShell();
+      if (shouldFocus && qaNewThreadTitle) {
+        qaNewThreadTitle.focus();
+      }
+    }
+
+    function openQaAllThreadsModal() {
+      setQaModalMode("all");
+      if (qaDrawerTitle) {
+        qaDrawerTitle.textContent = "Alle QA-tråde";
+      }
+      if (qaDrawerMeta) {
+        qaDrawerMeta.textContent = "Kun dette projekt";
+        qaDrawerMeta.title = "";
+      }
+      renderQaAllThreads();
+      openQaDrawerShell();
+      if (qaAllSearchInput) {
+        qaAllSearchInput.focus();
       }
     }
 
@@ -2534,6 +2469,100 @@
         card.appendChild(value);
         qaSummaryGrid.appendChild(card);
       });
+    }
+
+    function createQaThreadCard(thread, options = {}) {
+      const statusView = getQaStatusView(thread.status);
+      const priorityView = getQaPriorityView(thread.priority);
+      const waitingView = getQaWaitingContextView(thread);
+      const personalView = getQaPersonalView(thread);
+      const requiresAction = qaRequiresCurrentUserAction(thread);
+      const activityAt = getQaActivityAt(thread);
+      const messageCount = Number(thread.message_count || 0);
+      const card = document.createElement("button");
+      card.type = "button";
+      card.className = [
+        "qaThreadCard",
+        statusView.value === "WAITING" ? "qaThreadCardWaiting" : "",
+        requiresAction ? "qaThreadCardAttention" : "",
+      ].filter(Boolean).join(" ");
+
+      const top = document.createElement("div");
+      top.className = "qaThreadTop";
+
+      const title = document.createElement("h3");
+      title.className = "qaThreadTitle";
+      title.textContent = thread.title || thread.latest_message_preview || "QA thread";
+
+      const badges = document.createElement("div");
+      badges.className = "qaBadgeRow";
+      badges.appendChild(makeQaBadge(statusView.label, statusView.className));
+      badges.appendChild(makeQaBadge(priorityView.label, priorityView.className));
+      if (personalView.isNew || options.showPersonalState) {
+        badges.appendChild(makeQaBadge(personalView.label, personalView.className));
+      }
+      if (thread.is_assigned_to_me) {
+        badges.appendChild(makeQaBadge("Til mig", "qaBadgeWaitingContext"));
+      }
+      if (waitingView.isActive) {
+        badges.appendChild(makeQaBadge(waitingView.label, waitingView.className));
+      }
+
+      top.appendChild(title);
+      top.appendChild(badges);
+
+      const preview = document.createElement("p");
+      preview.className = "qaThreadPreview";
+      const previewLabel = document.createElement("span");
+      previewLabel.className = "qaThreadPreviewLabel";
+      previewLabel.textContent = "Seneste besked";
+      preview.appendChild(previewLabel);
+      preview.appendChild(document.createTextNode(thread.latest_message_preview || "Ingen beskedpreview."));
+
+      const meta = document.createElement("p");
+      meta.className = "qaThreadMeta";
+      meta.textContent = messageCount === 1 ? "1 besked" : `${messageCount} beskeder`;
+
+      const updated = document.createElement("p");
+      updated.className = "qaThreadUpdated";
+      updated.textContent = `Opdateret ${formatQaRelativeDate(activityAt)}`;
+      updated.title = formatQaDate(activityAt);
+
+      const metaRow = document.createElement("div");
+      metaRow.className = "qaThreadMetaRow";
+      metaRow.appendChild(meta);
+      metaRow.appendChild(updated);
+
+      card.appendChild(top);
+      if (requiresAction) {
+        const waitingHint = document.createElement("p");
+        waitingHint.className = "qaWaitingHint";
+        waitingHint.textContent = "Kræver mit svar";
+        card.appendChild(waitingHint);
+      }
+      card.appendChild(preview);
+      card.appendChild(metaRow);
+      card.addEventListener("click", () => {
+        openQaDrawer(thread.id);
+      });
+
+      return card;
+    }
+
+    function appendQaThreadGroup(parent, label, threads) {
+      if (!threads.length) {
+        return;
+      }
+      const group = document.createElement("div");
+      group.className = "qaThreadGroup";
+      const heading = document.createElement("p");
+      heading.className = "qaThreadGroupLabel";
+      heading.textContent = label;
+      group.appendChild(heading);
+      threads.forEach((thread) => {
+        group.appendChild(createQaThreadCard(thread));
+      });
+      parent.appendChild(group);
     }
 
     function renderQaThreadList() {
@@ -2571,9 +2600,9 @@
         const action = document.createElement("button");
         action.type = "button";
         action.className = "btn btnPrimary btnCompact";
-        action.textContent = "Opret forste QA";
+        action.textContent = "Opret tråd";
         action.addEventListener("click", () => {
-          openQaNewThreadForm(true);
+          openQaNewThreadModal(true);
         });
 
         actions.appendChild(action);
@@ -2586,80 +2615,11 @@
 
       setQaStateMessage("", false);
 
-      qaState.threads.forEach((thread) => {
-        const statusView = getQaStatusView(thread.status);
-        const priorityView = getQaPriorityView(thread.priority);
-        const waitingView = getQaWaitingContextView(thread);
-        const activityAt = thread.updated_at || thread.latest_message_at || thread.created_at;
-        const messageCount = Number(thread.message_count || 0);
-        const card = document.createElement("button");
-        card.type = "button";
-        card.className = statusView.value === "WAITING" ? "qaThreadCard qaThreadCardWaiting" : "qaThreadCard";
-
-        const top = document.createElement("div");
-        top.className = "qaThreadTop";
-
-        const title = document.createElement("h3");
-        title.className = "qaThreadTitle";
-        title.textContent = thread.title || thread.latest_message_preview || "QA thread";
-
-        const badges = document.createElement("div");
-        badges.className = "qaBadgeRow";
-        badges.appendChild(makeQaBadge(statusView.label, statusView.className));
-        badges.appendChild(makeQaBadge(priorityView.label, priorityView.className));
-        if (waitingView.isActive) {
-          badges.appendChild(makeQaBadge(waitingView.label, waitingView.className));
-        }
-
-        top.appendChild(title);
-        top.appendChild(badges);
-
-        const preview = document.createElement("p");
-        preview.className = "qaThreadPreview";
-        const previewLabel = document.createElement("span");
-        previewLabel.className = "qaThreadPreviewLabel";
-        previewLabel.textContent = "Seneste besked";
-        preview.appendChild(previewLabel);
-        preview.appendChild(document.createTextNode(thread.latest_message_preview || "Ingen beskedpreview."));
-
-        const meta = document.createElement("p");
-        meta.className = "qaThreadMeta";
-        meta.textContent = messageCount === 1 ? "1 besked" : `${messageCount} beskeder`;
-
-        const updated = document.createElement("p");
-        updated.className = "qaThreadUpdated";
-        updated.textContent = `Opdateret ${formatQaRelativeDate(activityAt)}`;
-        updated.title = formatQaDate(activityAt);
-
-        const metaRow = document.createElement("div");
-        metaRow.className = "qaThreadMetaRow";
-        metaRow.appendChild(meta);
-        metaRow.appendChild(updated);
-
-        card.appendChild(top);
-        if (waitingView.isActive) {
-          const waitingHint = document.createElement("p");
-          waitingHint.className = "qaWaitingHint";
-          waitingHint.textContent = waitingView.label;
-          card.appendChild(waitingHint);
-        }
-        card.appendChild(preview);
-        card.appendChild(metaRow);
-        card.addEventListener("click", () => {
-          openQaDrawer(thread.id);
-        });
-
-        qaThreadList.appendChild(card);
-      });
-    }
-
-    function openQaDrawerShell() {
-      if (!qaDrawerShell) {
-        return;
-      }
-      qaDrawerShell.classList.add("open");
-      qaDrawerShell.setAttribute("aria-hidden", "false");
-      document.body.classList.add("drawer-open");
+      const sortedThreads = sortQaThreadsForOverview(qaState.threads);
+      const actionThreads = sortedThreads.filter(qaRequiresCurrentUserAction);
+      const otherThreads = sortedThreads.filter((thread) => !qaRequiresCurrentUserAction(thread));
+      appendQaThreadGroup(qaThreadList, "Kræver mit svar", actionThreads);
+      appendQaThreadGroup(qaThreadList, "Øvrige tråde", otherThreads);
     }
 
     function scrollQaDrawerToLatest() {
@@ -2671,19 +2631,38 @@
       });
     }
 
-    function closeQaDrawer() {
-      if (!qaDrawerShell) {
+    function renderQaAllThreads() {
+      if (!qaAllThreadsBody) {
         return;
       }
-      qaDrawerShell.classList.remove("open");
-      qaDrawerShell.setAttribute("aria-hidden", "true");
-      document.body.classList.remove("drawer-open");
-      qaState.activeThreadId = null;
-      qaState.detailThread = null;
-      qaState.messages = [];
-      if (qaMessageInput) {
-        qaMessageInput.value = "";
+      qaAllThreadsBody.innerHTML = "";
+      const filtered = filterQaThreadsForAll(qaState.threads);
+      const mine = filtered.filter((thread) => thread.is_assigned_to_me || ["new", "sent"].includes(String(thread.personal_state || "").toLowerCase()));
+      const mineIds = new Set(mine.map((thread) => String(thread.id)));
+      const shared = filtered.filter((thread) => !mineIds.has(String(thread.id)));
+
+      function makeColumn(title, threads) {
+        const column = document.createElement("div");
+        column.className = "qaAllColumn";
+        const heading = document.createElement("h3");
+        heading.className = "qaAllColumnTitle";
+        heading.textContent = `${title} (${threads.length})`;
+        column.appendChild(heading);
+        if (!threads.length) {
+          const empty = document.createElement("div");
+          empty.className = "sectionState";
+          empty.textContent = "Ingen tråde matcher.";
+          column.appendChild(empty);
+          return column;
+        }
+        threads.forEach((thread) => {
+          column.appendChild(createQaThreadCard(thread, { showPersonalState: true }));
+        });
+        return column;
       }
+
+      qaAllThreadsBody.appendChild(makeColumn("Mine", mine));
+      qaAllThreadsBody.appendChild(makeColumn("Fælles", shared));
     }
 
     function setQaDrawerLoading() {
@@ -2715,6 +2694,29 @@
         notice.style.color = "#991b1b";
       }
       qaDrawerBody.prepend(notice);
+    }
+
+    function renderQaNewThreadNotice(message, isError) {
+      if (!qaNewThreadForm) {
+        return;
+      }
+      const existing = qaNewThreadForm.querySelector("[data-qa-new-notice]");
+      if (existing) {
+        existing.remove();
+      }
+      if (!message) {
+        return;
+      }
+      const notice = document.createElement("div");
+      notice.dataset.qaNewNotice = "true";
+      notice.className = "sectionState";
+      notice.textContent = message;
+      if (isError) {
+        notice.style.borderColor = "#f2b3b3";
+        notice.style.background = "#fff0f0";
+        notice.style.color = "#991b1b";
+      }
+      qaNewThreadForm.prepend(notice);
     }
 
     function renderQaDrawerDetail(shouldScrollToLatest) {
@@ -2835,6 +2837,9 @@
       }
 
       renderQaThreadList();
+      if (qaState.modalMode === "all") {
+        renderQaAllThreads();
+      }
     }
 
     async function loadQaThreadDetail(threadId, options = {}) {
@@ -2863,6 +2868,7 @@
     }
 
     function openQaDrawer(threadId) {
+      setQaModalMode("thread");
       openQaDrawerShell();
       loadQaThreadDetail(threadId, { scrollToLatest: true });
     }
@@ -2875,11 +2881,12 @@
 
       const message = qaNewThreadMessage.value.trim();
       if (!message) {
-        setQaStateMessage("Besked er paakraevet.", true);
+        renderQaNewThreadNotice("Besked er påkrævet.", true);
         return;
       }
 
       qaCreateThreadBtn.disabled = true;
+      renderQaNewThreadNotice("", false);
       try {
         const response = await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/qa/threads`, {
           method: "POST",
@@ -2890,9 +2897,6 @@
           }),
         });
 
-        if (qaNewThreadForm) {
-          qaNewThreadForm.hidden = true;
-        }
         if (qaNewThreadTitle) qaNewThreadTitle.value = "";
         if (qaNewThreadMessage) qaNewThreadMessage.value = "";
         if (qaNewThreadPriority) qaNewThreadPriority.value = "normal";
@@ -2901,11 +2905,13 @@
         const threadId = response && response.thread ? response.thread.id : null;
         if (threadId) {
           openQaDrawer(threadId);
+        } else {
+          closeQaDrawer(true);
         }
       } catch (error) {
         const errorMessage = qaErrorMessage(error, "Kunne ikke oprette QA thread.");
         if (errorMessage) {
-          setQaStateMessage(errorMessage, true);
+          renderQaNewThreadNotice(errorMessage, true);
         }
       } finally {
         qaCreateThreadBtn.disabled = false;
@@ -2976,18 +2982,21 @@
       renderQaThreadList();
     }
 
-    if (qaNewThreadToggle && qaNewThreadForm) {
+    if (qaNewThreadToggle) {
       qaNewThreadToggle.addEventListener("click", () => {
-        qaNewThreadForm.hidden = !qaNewThreadForm.hidden;
-        if (!qaNewThreadForm.hidden) {
-          openQaNewThreadForm(true);
-        }
+        openQaNewThreadModal(true);
       });
     }
 
-    if (qaCancelNewThreadBtn && qaNewThreadForm) {
+    if (qaViewAllBtn) {
+      qaViewAllBtn.addEventListener("click", () => {
+        openQaAllThreadsModal();
+      });
+    }
+
+    if (qaCancelNewThreadBtn) {
       qaCancelNewThreadBtn.addEventListener("click", () => {
-        qaNewThreadForm.hidden = true;
+        closeQaDrawer(false);
       });
     }
 
@@ -2996,11 +3005,11 @@
     }
 
     if (qaDrawerOverlay) {
-      qaDrawerOverlay.addEventListener("click", closeQaDrawer);
+      qaDrawerOverlay.addEventListener("click", () => closeQaDrawer(false));
     }
 
     if (qaDrawerCloseBtn) {
-      qaDrawerCloseBtn.addEventListener("click", closeQaDrawer);
+      qaDrawerCloseBtn.addEventListener("click", () => closeQaDrawer(false));
     }
 
     if (qaMessageForm) {
@@ -3011,9 +3020,35 @@
       qaStatusSaveBtn.addEventListener("click", saveQaStatus);
     }
 
+    if (qaAllSearchInput) {
+      qaAllSearchInput.addEventListener("input", () => {
+        qaState.allSearch = qaAllSearchInput.value;
+        renderQaAllThreads();
+      });
+    }
+
+    if (qaAllSortSelect) {
+      qaAllSortSelect.addEventListener("change", () => {
+        qaState.allSort = qaAllSortSelect.value || "activity_desc";
+        renderQaAllThreads();
+      });
+    }
+
+    if (qaStayBtn) {
+      qaStayBtn.addEventListener("click", hideQaUnsavedConfirm);
+    }
+
+    if (qaDiscardBtn) {
+      qaDiscardBtn.addEventListener("click", () => closeQaDrawer(true));
+    }
+
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && qaDrawerShell && qaDrawerShell.classList.contains("open")) {
-        closeQaDrawer();
+        if (qaUnsavedConfirm && !qaUnsavedConfirm.hidden) {
+          hideQaUnsavedConfirm();
+          return;
+        }
+        closeQaDrawer(false);
       }
     });
 
