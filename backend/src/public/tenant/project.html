@@ -34,6 +34,10 @@
       box-sizing: border-box;
     }
 
+    [hidden] {
+      display: none !important;
+    }
+
     body {
       margin: 0;
       font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
@@ -45,7 +49,8 @@
       min-height: 100vh;
     }
 
-    body.drawer-open {
+    body.drawer-open,
+    body.qa-modal-open {
       overflow: hidden;
     }
 
@@ -131,7 +136,7 @@
     }
 
     .btnCompact {
-      min-height: 38px;
+      min-height: 40px;
       padding: 8px 10px;
       font-size: 13px;
     }
@@ -382,6 +387,13 @@
       font-size: 13px;
     }
 
+    .qaPanelActions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
     .qaSummaryGrid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -443,12 +455,13 @@
     .qaSelect,
     .qaTextarea {
       width: 100%;
+      min-height: 44px;
       border: 1px solid var(--border);
       border-radius: 9px;
       background: rgba(7, 15, 27, 0.54);
       color: var(--text);
       font: inherit;
-      font-size: 14px;
+      font-size: 16px;
       padding: 10px 11px;
     }
 
@@ -473,9 +486,29 @@
       flex-wrap: wrap;
     }
 
+    .qaFormActions .btn {
+      min-height: 44px;
+    }
+
     .qaThreadList {
       display: grid;
       gap: 8px;
+    }
+
+    .qaThreadGroup {
+      display: grid;
+      gap: 8px;
+    }
+
+    .qaThreadGroupLabel {
+      margin: 2px 0 0;
+      padding-top: 8px;
+      border-top: 1px solid rgba(188, 207, 229, 0.12);
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
     }
 
     .qaEmptyState {
@@ -508,6 +541,7 @@
 
     .qaThreadCard {
       width: 100%;
+      min-height: 44px;
       border: 1px solid var(--border);
       border-radius: 9px;
       background: rgba(255, 255, 255, 0.07);
@@ -523,6 +557,11 @@
     .qaThreadCardWaiting {
       border-color: rgba(248, 204, 87, 0.36);
       background: linear-gradient(180deg, rgba(248, 204, 87, 0.12), rgba(255, 255, 255, 0.05));
+    }
+
+    .qaThreadCardAttention {
+      border-color: rgba(94, 200, 229, 0.42);
+      background: linear-gradient(180deg, rgba(94, 200, 229, 0.14), rgba(255, 255, 255, 0.05));
     }
 
     .qaThreadCard:hover {
@@ -666,6 +705,9 @@
       inset: 0;
       z-index: 60;
       pointer-events: none;
+      display: grid;
+      place-items: center;
+      padding: 16px;
     }
 
     .qaDrawerShell.open {
@@ -675,10 +717,10 @@
     .qaDrawerOverlay {
       position: absolute;
       inset: 0;
-      background: rgba(5, 14, 23, 0.58);
+      background: rgba(5, 14, 23, 0.68);
       opacity: 0;
       transition: opacity 0.18s ease;
-      backdrop-filter: blur(3px);
+      backdrop-filter: blur(4px);
     }
 
     .qaDrawerShell.open .qaDrawerOverlay {
@@ -686,24 +728,26 @@
     }
 
     .qaDrawerPanel {
-      position: absolute;
-      top: 0;
-      right: 0;
-      width: min(520px, 100vw);
-      height: 100%;
+      position: relative;
+      width: min(720px, 100%);
+      max-height: min(88dvh, 760px);
       background:
         linear-gradient(180deg, rgba(18, 27, 43, 0.96), rgba(13, 19, 33, 0.96)),
         var(--surface-solid);
-      border-left: 1px solid rgba(188, 207, 229, 0.18);
-      transform: translateX(100%);
-      transition: transform 0.22s ease;
+      border: 1px solid rgba(188, 207, 229, 0.18);
+      border-radius: 14px;
+      transform: translateY(10px) scale(0.98);
+      opacity: 0;
+      transition: transform 0.18s ease, opacity 0.18s ease;
       display: flex;
       flex-direction: column;
-      box-shadow: -28px 0 64px rgba(0, 0, 0, 0.4);
+      box-shadow: 0 28px 80px rgba(0, 0, 0, 0.46);
+      overflow: hidden;
     }
 
     .qaDrawerShell.open .qaDrawerPanel {
-      transform: translateX(0);
+      transform: translateY(0) scale(1);
+      opacity: 1;
     }
 
     .qaDrawerHeader {
@@ -760,6 +804,44 @@
       scroll-padding-bottom: 16px;
     }
 
+    .qaNewThreadForm,
+    .qaAllThreadsView {
+      padding: 16px 15px;
+      overflow: auto;
+    }
+
+    .qaAllThreadsView {
+      display: grid;
+      gap: 12px;
+      flex: 1;
+    }
+
+    .qaAllControls {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+    }
+
+    .qaAllColumns {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+
+    .qaAllColumn {
+      display: grid;
+      align-content: start;
+      gap: 8px;
+    }
+
+    .qaAllColumnTitle {
+      margin: 0;
+      color: var(--brand-strong);
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
     .qaMessageCard {
       border: 1px solid var(--border);
       border-radius: 9px;
@@ -793,6 +875,52 @@
       backdrop-filter: blur(12px);
       display: grid;
       gap: 8px;
+    }
+
+    .qaUnsavedConfirm {
+      position: absolute;
+      inset: 0;
+      z-index: 2;
+      display: grid;
+      place-items: center;
+      padding: 16px;
+      background: rgba(5, 14, 23, 0.72);
+      backdrop-filter: blur(2px);
+    }
+
+    .qaUnsavedCard {
+      width: min(420px, 100%);
+      border: 1px solid rgba(188, 207, 229, 0.18);
+      border-radius: 12px;
+      background: #101a2b;
+      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.42);
+      padding: 16px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .qaUnsavedTitle {
+      margin: 0;
+      font-size: 18px;
+    }
+
+    .qaUnsavedText {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    .qaDangerBtn {
+      border-color: rgba(248, 113, 113, 0.42);
+      background: rgba(248, 113, 113, 0.14);
+      color: #ffd3d3;
+    }
+
+    input,
+    textarea,
+    select {
+      font-size: 16px;
     }
 
     .qaDrawerFooter .qaTextarea {
@@ -841,10 +969,11 @@
 
       .qaHeaderRow {
         align-items: stretch;
+        flex-direction: column;
       }
 
       .qaHeaderRow .btn {
-        min-width: 104px;
+        min-width: 0;
       }
 
       .qaThreadCard {
@@ -852,7 +981,8 @@
       }
 
       .qaDrawerPanel {
-        width: 100vw;
+        width: 100%;
+        max-height: calc(100dvh - 24px);
       }
 
       .qaDrawerHeader {
@@ -903,13 +1033,17 @@
         grid-template-columns: minmax(0, 1fr) auto;
         align-items: end;
       }
+
+      .qaAllControls {
+        grid-template-columns: minmax(0, 1fr) 190px;
+      }
+
+      .qaAllColumns {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
     }
 
     @media (min-width: 1120px) {
-      body[data-page="project"].drawer-open {
-        overflow: auto;
-      }
-
       .page {
         width: min(1320px, 100%);
         grid-template-columns: minmax(0, 1fr) minmax(360px, 420px);
@@ -946,50 +1080,16 @@
         grid-template-columns: 1fr;
       }
 
-      .qaDrawerShell {
-        position: static;
-        inset: auto;
-        z-index: auto;
-        pointer-events: none;
-        display: none;
-      }
-
-      .qaDrawerShell.open {
-        display: block;
-        pointer-events: auto;
-      }
-
-      .qaDrawerOverlay {
-        display: none;
-      }
-
-      .qaDrawerPanel {
-        position: static;
-        width: 100%;
-        height: auto;
-        max-height: min(58dvh, 640px);
-        transform: none;
-        border: 1px solid rgba(188, 207, 229, 0.18);
-        border-radius: 12px;
-        box-shadow: 0 14px 34px rgba(0, 0, 0, 0.18);
-        overflow: hidden;
-      }
-
-      .qaDrawerShell.open .qaDrawerPanel {
-        transform: none;
-      }
-
       .qaDrawerHeader {
-        padding: 13px;
+        padding: 15px;
       }
 
       .qaDrawerBody {
         min-height: 170px;
-        max-height: min(30dvh, 330px);
       }
 
       .qaDrawerFooter {
-        padding: 11px 13px;
+        padding: 12px 15px;
       }
 
       .qaDrawerFooter .qaTextarea {
@@ -1023,35 +1123,13 @@
           <h2 class="sectionTitle">QA</h2>
           <p id="qaMetaText" class="qaMetaText">Indlaeser QA...</p>
         </div>
-        <button id="qaNewThreadToggle" class="btn btnPrimary btnCompact" type="button">Ny thread</button>
+        <div class="qaPanelActions">
+          <button id="qaViewAllBtn" class="btn btnCompact" type="button">Vis alle</button>
+          <button id="qaNewThreadToggle" class="btn btnPrimary btnCompact" type="button">Opret tråd</button>
+        </div>
       </div>
 
       <div id="qaSummaryGrid" class="qaSummaryGrid" aria-live="polite"></div>
-
-      <form id="qaNewThreadForm" class="qaComposer" hidden>
-        <div class="qaFormGrid">
-          <label class="qaLabel">
-            Titel
-            <input id="qaNewThreadTitle" class="qaInput" type="text" maxlength="180" placeholder="Kort titel" />
-          </label>
-          <label class="qaLabel">
-            Prioritet
-            <select id="qaNewThreadPriority" class="qaSelect">
-              <option value="normal">Normal</option>
-              <option value="high">Hoj</option>
-              <option value="low">Lav</option>
-            </select>
-          </label>
-        </div>
-        <label class="qaLabel">
-          Besked
-          <textarea id="qaNewThreadMessage" class="qaTextarea" required placeholder="Skriv QA-sporgsmaal eller afklaring"></textarea>
-        </label>
-        <div class="qaFormActions">
-          <button id="qaCancelNewThreadBtn" class="btn btnCompact" type="button">Annuller</button>
-          <button id="qaCreateThreadBtn" class="btn btnPrimary btnCompact" type="submit">Opret</button>
-        </div>
-      </form>
 
       <div id="qaState" class="sectionState">Indlaeser QA...</div>
       <div id="qaThreadList" class="qaThreadList"></div>
@@ -1171,6 +1249,46 @@
           <button id="qaStatusSaveBtn" class="btn btnCompact" type="button">Gem status</button>
         </div>
       </div>
+      <form id="qaNewThreadForm" class="qaComposer qaNewThreadForm" hidden>
+        <div class="qaFormGrid">
+          <label class="qaLabel">
+            Emne
+            <input id="qaNewThreadTitle" class="qaInput" type="text" maxlength="180" placeholder="Kort emne" />
+          </label>
+          <label class="qaLabel">
+            Prioritet
+            <select id="qaNewThreadPriority" class="qaSelect">
+              <option value="normal">Normal</option>
+              <option value="high">Hoj</option>
+              <option value="low">Lav</option>
+            </select>
+          </label>
+        </div>
+        <label class="qaLabel">
+          Besked
+          <textarea id="qaNewThreadMessage" class="qaTextarea" required placeholder="Skriv QA-spørgsmål eller afklaring"></textarea>
+        </label>
+        <div class="qaFormActions">
+          <button id="qaCancelNewThreadBtn" class="btn btnCompact" type="button">Annuller</button>
+          <button id="qaCreateThreadBtn" class="btn btnPrimary btnCompact" type="submit">Opret tråd</button>
+        </div>
+      </form>
+      <div id="qaAllThreadsView" class="qaAllThreadsView" hidden>
+        <div class="qaAllControls">
+          <label class="qaLabel">
+            Søg
+            <input id="qaAllSearchInput" class="qaInput" type="search" placeholder="Søg i emne og seneste besked" />
+          </label>
+          <label class="qaLabel">
+            Sortering
+            <select id="qaAllSortSelect" class="qaSelect">
+              <option value="activity_desc">Seneste aktivitet</option>
+              <option value="title_asc">Emne</option>
+            </select>
+          </label>
+        </div>
+        <div id="qaAllThreadsBody" class="qaAllColumns"></div>
+      </div>
       <div id="qaDrawerBody" class="qaDrawerBody">
         <div class="sectionState">Vaelg en QA thread.</div>
       </div>
@@ -1183,6 +1301,16 @@
           <button id="qaAddMessageBtn" class="btn btnPrimary btnCompact" type="submit">Send</button>
         </div>
       </form>
+      <div id="qaUnsavedConfirm" class="qaUnsavedConfirm" hidden>
+        <div class="qaUnsavedCard" role="alertdialog" aria-modal="true" aria-labelledby="qaUnsavedTitle">
+          <h3 id="qaUnsavedTitle" class="qaUnsavedTitle">Du har ikke-gemte ændringer</h3>
+          <p class="qaUnsavedText">Lukker du nu, bliver den tekst du har skrevet ikke gemt.</p>
+          <div class="qaFormActions">
+            <button id="qaStayBtn" class="btn btnPrimary" type="button">Bliv og fortsæt</button>
+            <button id="qaDiscardBtn" class="btn qaDangerBtn" type="button">Luk uden at gemme</button>
+          </div>
+        </div>
+      </div>
     </aside>
   </div>
 
