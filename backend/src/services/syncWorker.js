@@ -2000,6 +2000,48 @@ async function upsertProjectBatch(client, { tenantId, mappedRows, sourceEndpoint
       ) AS (
         VALUES ${values.join(",\n")}
       ),
+      identity_conflicts AS (
+        SELECT DISTINCT
+          ir.tenant_id,
+          ir.external_project_ref AS incoming_external_project_ref,
+          ir.source_project_id AS incoming_source_project_id,
+          CASE
+            WHEN NULLIF(btrim(ir.source_project_id), '') ~ '^\\d+$'
+            THEN NULLIF(btrim(ir.source_project_id), '')::bigint
+            ELSE NULL
+          END AS incoming_ek_project_id,
+          pm.project_id AS existing_project_id,
+          existing_pc.external_project_ref AS existing_external_project_ref
+        FROM input_rows ir
+        INNER JOIN project_masterdata_v4 pm
+          ON pm.tenant_id = ir.tenant_id
+         AND pm.ek_project_id = CASE
+           WHEN NULLIF(btrim(ir.source_project_id), '') ~ '^\\d+$'
+           THEN NULLIF(btrim(ir.source_project_id), '')::bigint
+           ELSE NULL
+         END
+        INNER JOIN project_core existing_pc
+          ON existing_pc.project_id = pm.project_id
+         AND existing_pc.tenant_id = pm.tenant_id
+        LEFT JOIN project_core incoming_pc
+          ON incoming_pc.tenant_id = ir.tenant_id
+         AND incoming_pc.external_project_ref = ir.external_project_ref
+        WHERE ir.has_v4 = true
+          AND NULLIF(btrim(ir.source_project_id), '') IS NOT NULL
+          AND NULLIF(btrim(ir.source_project_id), '') ~ '^\\d+$'
+          AND pm.project_id IS DISTINCT FROM incoming_pc.project_id
+      ),
+      eligible_input_rows AS (
+        SELECT ir.*
+        FROM input_rows ir
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM identity_conflicts ic
+          WHERE ic.tenant_id = ir.tenant_id
+            AND ic.incoming_external_project_ref IS NOT DISTINCT FROM ir.external_project_ref
+            AND ic.incoming_source_project_id IS NOT DISTINCT FROM ir.source_project_id
+        )
+      ),
       upserted_core AS (
       INSERT INTO project_core (
         tenant_id,
@@ -2036,7 +2078,7 @@ async function upsertProjectBatch(client, { tenantId, mappedRows, sourceEndpoint
         team_leader_id,
         has_v4,
         has_v3
-      FROM input_rows
+      FROM eligible_input_rows
       WHERE has_v4 = true
          OR status IS NOT NULL
       ON CONFLICT (tenant_id, external_project_ref)
@@ -2078,7 +2120,7 @@ async function upsertProjectBatch(client, { tenantId, mappedRows, sourceEndpoint
       matched_masterdata AS (
         SELECT uc.project_id, uc.tenant_id, ir.source_project_id, ir.is_closed, ir.is_internal, ir.source_updated_at
         FROM upserted_core uc
-        INNER JOIN input_rows ir
+        INNER JOIN eligible_input_rows ir
           ON ir.tenant_id = uc.tenant_id
          AND ir.external_project_ref = uc.external_project_ref
         WHERE ir.has_v4 = true
@@ -2086,7 +2128,7 @@ async function upsertProjectBatch(client, { tenantId, mappedRows, sourceEndpoint
         UNION
 
         SELECT pc.project_id, pc.tenant_id, ir.source_project_id, ir.is_closed, ir.is_internal, ir.source_updated_at
-        FROM input_rows ir
+        FROM eligible_input_rows ir
         INNER JOIN project_core pc
           ON pc.tenant_id = ir.tenant_id
          AND pc.external_project_ref = ir.external_project_ref
@@ -2095,7 +2137,7 @@ async function upsertProjectBatch(client, { tenantId, mappedRows, sourceEndpoint
       matched_projects AS (
         SELECT uc.project_id, uc.tenant_id, ir.is_work_in_progress
         FROM upserted_core uc
-        INNER JOIN input_rows ir
+        INNER JOIN eligible_input_rows ir
           ON ir.tenant_id = uc.tenant_id
          AND ir.external_project_ref = uc.external_project_ref
         WHERE ir.is_work_in_progress IS NOT NULL
@@ -2103,7 +2145,7 @@ async function upsertProjectBatch(client, { tenantId, mappedRows, sourceEndpoint
         UNION
 
         SELECT pc.project_id, pc.tenant_id, ir.is_work_in_progress
-        FROM input_rows ir
+        FROM eligible_input_rows ir
         INNER JOIN project_core pc
           ON pc.tenant_id = ir.tenant_id
          AND pc.external_project_ref = ir.external_project_ref
@@ -2158,10 +2200,39 @@ async function upsertProjectBatch(client, { tenantId, mappedRows, sourceEndpoint
       )
       SELECT
         (SELECT COUNT(*) FROM upserted_wip) AS wip_rows,
-        (SELECT COUNT(*) FROM upserted_masterdata) AS masterdata_rows
+        (SELECT COUNT(*) FROM upserted_masterdata) AS masterdata_rows,
+        COALESCE(
+          (
+            SELECT jsonb_agg(
+              jsonb_build_object(
+                'tenant_id', tenant_id,
+                'incoming_external_project_ref', incoming_external_project_ref,
+                'incoming_ek_project_id', incoming_ek_project_id,
+                'existing_project_id', existing_project_id,
+                'existing_external_project_ref', existing_external_project_ref
+              )
+            )
+            FROM identity_conflicts
+          ),
+          '[]'::jsonb
+        ) AS identity_conflicts
     `;
 
-    await client.query(sql, params);
+    const result = await client.query(sql, params);
+    const rawIdentityConflicts = result.rows?.[0]?.identity_conflicts || [];
+    const identityConflicts = Array.isArray(rawIdentityConflicts)
+      ? rawIdentityConflicts
+      : JSON.parse(rawIdentityConflicts);
+    for (const conflict of identityConflicts) {
+      console.warn("[syncWorker] project_v4_identity_conflict", {
+        tenant_id: conflict.tenant_id,
+        source_endpoint: sourceEndpointKey,
+        incoming_external_project_ref: conflict.incoming_external_project_ref,
+        incoming_ek_project_id: conflict.incoming_ek_project_id,
+        existing_project_id: conflict.existing_project_id,
+        existing_external_project_ref: conflict.existing_external_project_ref,
+      });
+    }
   }
 }
 
