@@ -29,7 +29,10 @@ async function listProjectsForUser(client, { tenantId, userId }) {
           WHEN pw.last_registration IS NULL AND pw.last_fitter_hour_date IS NULL THEN 'no_activity_signal'
           ELSE NULL
         END AS operational_attention,
-        COALESCE(pw.last_registration, pw.last_fitter_hour_date) AS activity_date,
+        GREATEST(
+          COALESCE(pw.last_registration, pw.last_fitter_hour_date),
+          COALESCE(pw.last_fitter_hour_date, pw.last_registration)
+        ) AS activity_date,
         pw.is_work_in_progress,
         pw.last_registration,
         pw.last_fitter_hour_date,
@@ -175,7 +178,10 @@ async function findProjectForUser(client, { tenantId, userId, projectId }) {
         WHEN pw.last_registration IS NULL AND pw.last_fitter_hour_date IS NULL THEN 'no_activity_signal'
         ELSE NULL
       END AS operational_attention,
-      COALESCE(pw.last_registration, pw.last_fitter_hour_date) AS activity_date,
+      GREATEST(
+        COALESCE(pw.last_registration, pw.last_fitter_hour_date),
+        COALESCE(pw.last_fitter_hour_date, pw.last_registration)
+      ) AS activity_date,
       pw.is_work_in_progress,
       pw.last_registration,
       pw.last_fitter_hour_date,
