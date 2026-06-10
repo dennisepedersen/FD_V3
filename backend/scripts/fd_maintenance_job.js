@@ -20,6 +20,11 @@ const JOBS = {
     modes: new Set(['dry-run', 'analyze', 'apply']),
     requiresEkProjectId: true,
   },
+  'project-activity-materialize': {
+    script: 'scripts/materialize_project_activity_from_fitter_hour.js',
+    modes: new Set(['status-only', 'dry-run', 'apply']),
+    requiresEkProjectId: false,
+  },
 };
 const TENANT_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const ACTOR_PATTERN = /^[a-zA-Z0-9._@-]{1,128}$/;
@@ -32,10 +37,13 @@ function usage() {
     '  node scripts/fd_maintenance_job.js --job project-targeted-fitterhours-backfill --mode dry-run --tenant hoyrup-clemmensen --ek-project-id 19687',
     '  node scripts/fd_maintenance_job.js --job project-targeted-fitterhours-backfill --mode analyze --tenant hoyrup-clemmensen --ek-project-id 19687',
     '  node scripts/fd_maintenance_job.js --job project-targeted-fitterhours-backfill --mode apply --tenant hoyrup-clemmensen --ek-project-id 19687 --confirm APPLY:project-targeted-fitterhours-backfill:hoyrup-clemmensen:19687',
+    '  node scripts/fd_maintenance_job.js --job project-activity-materialize --mode dry-run --tenant hoyrup-clemmensen',
+    '  node scripts/fd_maintenance_job.js --job project-activity-materialize --mode apply --tenant hoyrup-clemmensen --confirm APPLY:project-activity-materialize:hoyrup-clemmensen',
     '',
     'Allowed jobs:',
     '  project-v4-is-internal-resync',
     '  project-targeted-fitterhours-backfill',
+    '  project-activity-materialize',
     '',
     'Allowed modes:',
     '  status-only',

@@ -3,6 +3,7 @@ const pool = require("../db/pool");
 const { withTransaction } = require("../db/tx");
 const syncJobQueries = require("../db/queries/syncJob");
 const env = require("../config/env");
+const { materializeProjectActivityFromFitterHours } = require("./projectActivityMaterializer");
 
 const POLL_INTERVAL_MS = 12_000;
 const PAGE_SIZE = 200;
@@ -2700,6 +2701,10 @@ async function runReadOnlyEndpoint({ job, cfg, endpointKey, mode, cutoffContext 
                 tenantId: job.tenant_id,
                 mappedRows,
               });
+              await materializeProjectActivityFromFitterHours(client, {
+                tenantId: job.tenant_id,
+                projectIds: mappedRows.map((row) => row.projectId),
+              });
             });
           }
         }
@@ -3921,6 +3926,12 @@ async function runReadOnlyBacklogRetryRound({ job, cfg, endpointKey }) {
                 tenantId: job.tenant_id,
                 mappedRows,
               });
+          if (isFitterHours) {
+            await materializeProjectActivityFromFitterHours(client, {
+              tenantId: job.tenant_id,
+              projectIds: mappedRows.map((row) => row.projectId),
+            });
+          }
         });
       }
 
