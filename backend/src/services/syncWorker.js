@@ -1973,7 +1973,7 @@ async function upsertProjectBatch(client, { tenantId, mappedRows, sourceEndpoint
         row.sourceUpdatedAt
       );
       values.push(
-        `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9}, $${offset + 10}, $${offset + 11}, $${offset + 12}, $${offset + 13}, $${offset + 14}, $${offset + 15}, $${offset + 16}, $${offset + 17}, $${offset + 18})`
+        `($${offset + 1}::uuid, $${offset + 2}::text, $${offset + 3}::text, $${offset + 4}::text, $${offset + 5}::timestamptz, $${offset + 6}::boolean, $${offset + 7}::boolean, $${offset + 8}::text, $${offset + 9}::text, $${offset + 10}::text, $${offset + 11}::text, $${offset + 12}::text, $${offset + 13}::text, $${offset + 14}::boolean, $${offset + 15}::boolean, $${offset + 16}::boolean, $${offset + 17}::text, $${offset + 18}::timestamptz)`
       );
     });
 
