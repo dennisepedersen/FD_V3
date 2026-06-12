@@ -19,11 +19,19 @@ const JOBS = {
     script: 'scripts/targeted_fitterhours_backfill.js',
     modes: new Set(['dry-run', 'analyze', 'apply']),
     requiresEkProjectId: true,
+    acceptsProjectRef: false,
+  },
+  'project-targeted-fitterhours-refresh-v4': {
+    script: 'scripts/targeted_fitterhours_refresh_v4.js',
+    modes: new Set(['status-only', 'dry-run', 'apply']),
+    requiresEkProjectId: true,
+    acceptsProjectRef: true,
   },
   'project-activity-materialize': {
     script: 'scripts/materialize_project_activity_from_fitter_hour.js',
     modes: new Set(['status-only', 'dry-run', 'apply']),
     requiresEkProjectId: false,
+    acceptsProjectRef: false,
   },
 };
 const TENANT_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
@@ -37,12 +45,15 @@ function usage() {
     '  node scripts/fd_maintenance_job.js --job project-targeted-fitterhours-backfill --mode dry-run --tenant hoyrup-clemmensen --ek-project-id 19687',
     '  node scripts/fd_maintenance_job.js --job project-targeted-fitterhours-backfill --mode analyze --tenant hoyrup-clemmensen --ek-project-id 19687',
     '  node scripts/fd_maintenance_job.js --job project-targeted-fitterhours-backfill --mode apply --tenant hoyrup-clemmensen --ek-project-id 19687 --confirm APPLY:project-targeted-fitterhours-backfill:hoyrup-clemmensen:19687',
+    '  node scripts/fd_maintenance_job.js --job project-targeted-fitterhours-refresh-v4 --mode dry-run --tenant hoyrup-clemmensen --ek-project-id 25906 --project-ref 80396-003',
+    '  node scripts/fd_maintenance_job.js --job project-targeted-fitterhours-refresh-v4 --mode apply --tenant hoyrup-clemmensen --ek-project-id 25906 --confirm APPLY:project-targeted-fitterhours-refresh-v4:hoyrup-clemmensen:25906',
     '  node scripts/fd_maintenance_job.js --job project-activity-materialize --mode dry-run --tenant hoyrup-clemmensen',
     '  node scripts/fd_maintenance_job.js --job project-activity-materialize --mode apply --tenant hoyrup-clemmensen --confirm APPLY:project-activity-materialize:hoyrup-clemmensen',
     '',
     'Allowed jobs:',
     '  project-v4-is-internal-resync',
     '  project-targeted-fitterhours-backfill',
+    '  project-targeted-fitterhours-refresh-v4',
     '  project-activity-materialize',
     '',
     'Allowed modes:',
@@ -59,6 +70,7 @@ function parseArgs(argv) {
     mode: null,
     tenant: null,
     ekProjectId: null,
+    projectRef: null,
     confirm: null,
     actor: process.env.FD_MAINTENANCE_ACTOR || 'unknown',
   };
@@ -73,6 +85,8 @@ function parseArgs(argv) {
       args.tenant = argv[++i] || null;
     } else if (arg === '--ek-project-id') {
       args.ekProjectId = argv[++i] || null;
+    } else if (arg === '--project-ref') {
+      args.projectRef = argv[++i] || null;
     } else if (arg === '--confirm') {
       args.confirm = argv[++i] || null;
     } else if (arg === '--actor') {
@@ -108,6 +122,12 @@ function validateArgs(args) {
   if (!job.requiresEkProjectId && args.ekProjectId) {
     throw new Error(`${args.job} does not accept --ek-project-id.`);
   }
+  if (args.projectRef && !job.acceptsProjectRef) {
+    throw new Error(`${args.job} does not accept --project-ref.`);
+  }
+  if (args.projectRef && !/^[a-zA-Z0-9._-]{1,128}$/.test(String(args.projectRef))) {
+    throw new Error('Project ref may only contain letters, numbers, dot, underscore, or dash.');
+  }
   if (args.mode === 'apply') {
     const expected = job.requiresEkProjectId
       ? `APPLY:${args.job}:${args.tenant}:${args.ekProjectId}`
@@ -125,6 +145,9 @@ function childArgsFor({ job, args }) {
   childArgs.push('--tenant', args.tenant);
   if (job.requiresEkProjectId) {
     childArgs.push('--ek-project-id', args.ekProjectId);
+  }
+  if (job.acceptsProjectRef && args.projectRef) {
+    childArgs.push('--project-ref', args.projectRef);
   }
 
   if (args.mode === 'status-only') {
