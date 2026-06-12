@@ -8,6 +8,12 @@ const JOBS = {
   'project-targeted-fitterhours-backfill': {
     modes: new Set(['dry-run', 'analyze', 'apply']),
     requiresEkProjectId: true,
+    acceptsProjectRef: false,
+  },
+  'project-targeted-fitterhours-refresh-v4': {
+    modes: new Set(['status-only', 'dry-run', 'apply']),
+    requiresEkProjectId: true,
+    acceptsProjectRef: true,
   },
 };
 const TENANT_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
@@ -23,6 +29,8 @@ function usage() {
     '  node tools/render_maintenance_job.js --job project-targeted-fitterhours-backfill --mode dry-run --tenant <tenant> --ek-project-id <id> [--actor <actor>]',
     '  node tools/render_maintenance_job.js --job project-targeted-fitterhours-backfill --mode analyze --tenant <tenant> --ek-project-id <id> [--actor <actor>]',
     '  node tools/render_maintenance_job.js --job project-targeted-fitterhours-backfill --mode apply --tenant <tenant> --ek-project-id <id> --confirm APPLY:project-targeted-fitterhours-backfill:<tenant>:<id> [--actor <actor>]',
+    '  node tools/render_maintenance_job.js --job project-targeted-fitterhours-refresh-v4 --mode dry-run --tenant <tenant> --ek-project-id <id> [--project-ref <ref>] [--actor <actor>]',
+    '  node tools/render_maintenance_job.js --job project-targeted-fitterhours-refresh-v4 --mode apply --tenant <tenant> --ek-project-id <id> --confirm APPLY:project-targeted-fitterhours-refresh-v4:<tenant>:<id> [--project-ref <ref>] [--actor <actor>]',
     '',
     'Environment:',
     '  RENDER_API_KEY                  Required. Never logged.',
@@ -61,6 +69,7 @@ function parseArgs(argv) {
     else if (key === 'mode') args.mode = value;
     else if (key === 'tenant') args.tenant = value;
     else if (key === 'ek-project-id') args.ekProjectId = value;
+    else if (key === 'project-ref') args.projectRef = value;
     else if (key === 'confirm') args.confirm = value;
     else if (key === 'actor') args.actor = value;
     else if (key === 'service-id') args.serviceId = value;
@@ -94,6 +103,12 @@ function validateArgs(args) {
   }
   if (!job.requiresEkProjectId && args.ekProjectId) {
     throw new Error(`${args.job} does not accept --ek-project-id.`);
+  }
+  if (args.projectRef && !job.acceptsProjectRef) {
+    throw new Error(`${args.job} does not accept --project-ref.`);
+  }
+  if (args.projectRef && !/^[a-zA-Z0-9._-]{1,128}$/.test(String(args.projectRef))) {
+    throw new Error('Project ref may only contain letters, numbers, dot, underscore, or dash.');
   }
   if (args.mode === 'apply') {
     const expected = job.requiresEkProjectId
@@ -130,6 +145,9 @@ function buildRenderCommand(args) {
 
   if (JOBS[args.job].requiresEkProjectId) {
     remoteArgs.push('--ek-project-id', args.ekProjectId);
+  }
+  if (JOBS[args.job].acceptsProjectRef && args.projectRef) {
+    remoteArgs.push('--project-ref', args.projectRef);
   }
 
   if (args.mode === 'apply') {
