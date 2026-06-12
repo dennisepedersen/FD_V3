@@ -169,6 +169,14 @@ FD_MAINTENANCE_ACTOR
 
 `RENDER_API_KEY` must never be committed, echoed, or logged. It should live only in a local secret store, shell environment, or approved CI/ops secret configuration.
 
+Verified Render service facts are documented in
+`backend/docs/operations/render_service.md`.
+
+Note: the service id is verified as `srv-d6h0h8fgi27c73a99jgg`, but it is not
+necessarily set in the local environment. The current local trigger expects
+`FIELD_DESK_RENDER_SERVICE_ID`; configure it through approved local/ops secret
+handling or look it up through the Render API before running maintenance jobs.
+
 ## Status-only
 
 ```powershell

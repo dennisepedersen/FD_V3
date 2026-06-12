@@ -18,6 +18,10 @@ Date: 2026-04-11
 - Continue only when fetched rows == pageSize.
 - Stop when fetched rows == 0 or fetched rows < pageSize.
 - nextPage may be parsed/logged as secondary metadata, never primary control.
+- Prefer narrow read-only project-scoped EK probes over broad/full scans when a project-scoped endpoint exists.
+- Do not add a new EK sync path until its filters and payload shape have been verified with narrow read-only probes.
+- Store verified EK API findings in docs after discovery.
+- Keep verified facts, hypotheses/assumptions, future options, and do-not-use-yet findings explicitly separated.
 
 ## 429 Policy
 - Respect Retry-After when present.

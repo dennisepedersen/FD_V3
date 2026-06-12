@@ -37,6 +37,15 @@ Scope: links to decisions; does not duplicate full decisions
 | projects_v3 WIP contract is verified as fallback/enrichment | `backend/docs/integrations/ek/projects_v3_wip.md` |
 | Project-level `isIntern` is verified in EK v4 and persisted as nullable FD project metadata | `backend/docs/integrations/ek/fitterhours_retention_model.md`, `backend/docs/integrations/ek/projects_v4_masterdata.md` |
 | Bootstrap/enrichment separation is implemented for project sync | `ARCHITECTURE_BOOTSTRAP_ENRICHMENT.md` |
+| EK v4 project detail by EK ProjectID is the verified project-scoped source for project-detail `fitterHours`; project ref detail did not return `fitterHours` in the probe | `backend/docs/integrations/ek/projects_v4_masterdata.md`, `backend/docs/integrations/ek/fitterhours.md` |
+| EK v4 fitterhours query/search endpoints are not verified as ProjectID-scoped filters and must not be used for project-scoped reads yet | `backend/docs/integrations/ek/fitterhours.md` |
+| EK v4 purchase invoice lines, purchase orders, financial posts, and worksheets have verified ProjectID-filtered read behavior, but are discovery findings until mapped/governed | `backend/docs/integrations/ek/project_materials_finance_v4.md` |
+
+## Operations Decisions
+
+| Decision | Source |
+| --- | --- |
+| Render production service identity is verified as `FielddeskAI` / `srv-d6h0h8fgi27c73a99jgg`, repo `FD_V3`, branch `main`, auto deploy enabled, PR previews disabled | `backend/docs/operations/render_service.md` |
 
 ## Module Decisions
 
@@ -63,6 +72,8 @@ Scope: links to decisions; does not duplicate full decisions
 | Docs and code must be updated together when behavior changes | `docs/AI_BOOTSTRAP_CONTEXT.md`, `backend/docs/standards/fd_implementation_rules.md` |
 | Evidence labels are required where relevant: verified, observed, hypothesis, unclear | `docs/AI_BOOTSTRAP_CONTEXT.md`, `backend/docs/standards/fd_implementation_rules.md` |
 | Codex may not commit, push, deploy, change migrations, auth, RBAC, RLS, schema, or production config without explicit instruction | `docs/AI_BOOTSTRAP_CONTEXT.md` |
+| EK discovery must prefer narrow read-only project-scoped probes over broad/full scans when a project-scoped endpoint exists | `backend/docs/standards/fd_implementation_rules.md` |
+| Verified EK API findings must be recorded in docs after discovery and separated as verified, assumption/hypothesis, future option, or do-not-use-yet | `backend/docs/standards/fd_implementation_rules.md` |
 
 ## Known Open Decisions
 

@@ -37,6 +37,7 @@ Current source-of-truth docs:
 - `docs/MODULE_REGISTRY_CONTRACT.md` - shared module registry/enablement contract.
 - `backend/docs/decisions/` - verified backend decisions.
 - `backend/docs/integrations/ek/` - current E-Komplet integration contracts.
+- `backend/docs/operations/` - current operational notes, including Render service facts.
 - `backend/docs/mappings/` - current backend mapping notes.
 
 Module docs:
