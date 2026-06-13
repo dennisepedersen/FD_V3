@@ -29,6 +29,19 @@ batch. It is meant to answer:
   - no cross-project `source_key` conflict;
   - local reference matches live EK project-detail reference.
 
+## Strategic Decision After Batch 7
+
+Manual Batch 8+ is stopped as the main track. The next implementation track is
+the permanent targeted fitterhours refresh model:
+
+- one-project pre-check/dry-run first;
+- no tenant-wide refresh;
+- no scheduler changes in phase 1;
+- no `fitter_hour` apply in phase 1;
+- no project activity materializer in phase 1;
+- future apply/on-demand/UI/scheduler phases must reuse the same reference,
+  duplicate-key, cross-project conflict, and `fd_project_id` mismatch gates.
+
 ## Classification
 
 | Class | Count | Meaning |

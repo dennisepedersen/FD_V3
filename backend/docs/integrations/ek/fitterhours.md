@@ -169,6 +169,52 @@ Permanent operational truth:
 - Such cases should be logged and reviewed as a separate identity issue before
   any fitterhour rows are inserted or updated.
 
+## Permanent Refresh Model: Phase 1
+
+Implementation started after controlled manual backfill through Batch 7.
+Manual Batch 8+ is stopped as the main track.
+
+Phase 1 scope:
+
+- add refresh status and run-audit tables;
+- extract a reusable fitterhours refresh service;
+- support read-only pre-check/dry-run for one project;
+- use only `GET /api/v4/projects/id/{EK ProjectID}`;
+- block reference mismatches;
+- detect duplicate remote `source_key` values;
+- detect cross-project `source_key` conflicts;
+- detect `fd_project_id` mismatches;
+- classify expected insert volume.
+
+Phase 1 does not:
+
+- insert, update, or delete `fitter_hour` rows;
+- run project activity materialization;
+- change `project_wip` activity;
+- change sync-state;
+- change scheduler behavior;
+- run tenant-wide refresh;
+- use `/api/v4/fitterhours` endpoints.
+
+New maintenance command:
+
+```text
+project-targeted-fitterhours-refresh-dry-run
+```
+
+Example:
+
+```text
+node scripts/fd_maintenance_job.js
+  --job project-targeted-fitterhours-refresh-dry-run
+  --mode dry-run
+  --tenant hoyrup-clemmensen
+  --project-ref 13838
+```
+
+Apply, project-detail on-demand refresh, UI status, and scheduler selection are
+later phases and must reuse the same pre-check gates and safe-upsert rules.
+
 ## VERIFIED Cross-Project Source Key Conflict
 
 Verified 2026-06-13 for tenant `hoyrup-clemmensen`:

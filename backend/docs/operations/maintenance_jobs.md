@@ -11,6 +11,7 @@ Supported jobs:
 ```text
 project-v4-is-internal-resync
 project-targeted-fitterhours-backfill
+project-targeted-fitterhours-refresh-dry-run
 ```
 
 Supported modes:
@@ -25,6 +26,10 @@ apply
 
 `project-targeted-fitterhours-backfill` supports `dry-run` and a deliberately narrow `apply` for the verified control case.
 
+`project-targeted-fitterhours-refresh-dry-run` supports only `dry-run` for one
+project. It is the phase 1 command for the permanent targeted fitterhours
+refresh model.
+
 The local trigger is intentionally not a generic shell runner. It can only request whitelisted jobs and whitelisted modes.
 
 The remote dispatcher is also intentionally narrow. It can only dispatch to:
@@ -32,9 +37,60 @@ The remote dispatcher is also intentionally narrow. It can only dispatch to:
 ```text
 backend/scripts/resync_projects_v4_only.js
 backend/scripts/targeted_fitterhours_backfill.js
+backend/scripts/project_targeted_fitterhours_refresh_dry_run.js
 ```
 
 The dispatcher does not run bootstrap sync, migrations, arbitrary commands, or free-form shell input.
+
+## Project-targeted fitterhours refresh dry-run
+
+Phase 1 of the permanent refresh model supports pre-check/dry-run for exactly
+one project through:
+
+```text
+GET /api/v4/projects/id/{EK ProjectID}
+```
+
+It does not insert, update, or delete `fitter_hour` rows. It does not run the
+activity materializer, change `project_wip`, update sync-state, or change
+scheduler behavior.
+
+Command by project reference:
+
+```powershell
+node tools/render_maintenance_job.js `
+  --job project-targeted-fitterhours-refresh-dry-run `
+  --mode dry-run `
+  --tenant hoyrup-clemmensen `
+  --project-ref 13838 `
+  --actor dep
+```
+
+Command by EK ProjectID plus reference guard:
+
+```powershell
+node tools/render_maintenance_job.js `
+  --job project-targeted-fitterhours-refresh-dry-run `
+  --mode dry-run `
+  --tenant hoyrup-clemmensen `
+  --ek-project-id 25000 `
+  --project-ref 10889-005 `
+  --actor dep
+```
+
+The dry-run reports:
+
+- reference match and live EK reference;
+- remote and mapped fitterhour row counts;
+- duplicate remote `source_key` count;
+- cross-project `source_key` conflict count;
+- `fd_project_id` mismatch count;
+- expected inserts, updates, and unchanged rows;
+- size class.
+
+Optional `--record-audit` can write only refresh status/run audit once the phase
+1 migration has been applied. It still must not write `fitter_hour`,
+`project_wip`, sync-state, or scheduler state.
 
 ## Flow
 
