@@ -100,6 +100,67 @@ Requirement for future batch-refresh applies:
   production constraints/schema and check for cross-project `source_key`
   conflicts before writes.
 
+## VERIFIED Cross-Project Source Key Conflict
+
+Verified 2026-06-13 for tenant `hoyrup-clemmensen`:
+
+Project A:
+
+- Reference: `34965`
+- EK ProjectID: `28674`
+- Status: open
+- Live EK project detail returned 46 `fitterHours`.
+- 19 of those `fitterHourID` / `source_key` values already existed locally on
+  project `33334`.
+
+Project B:
+
+- Reference: `33334`
+- EK ProjectID: `26805`
+- Status: closed
+- Live EK project detail returned 0 `fitterHours`.
+- Locally, the project still had the 19 historical `fitter_hour` rows.
+
+Conflict facts:
+
+- The 19 `source_key` values existed locally only on `33334`.
+- The same 19 values appeared live in EK under `34965`.
+- The same 19 values did not appear live in EK under `33334`.
+- Work dates covered a continuous period from 2025-08-21 to 2025-11-14.
+- The rows primarily used fitter `35`, with some rows from fitter `31`.
+- No parent/child relation was verified between `34965` and `33334`.
+- Both projects were non-subprojects in the verified metadata.
+- Both projects shared associated address data, but had different worksheet IDs.
+
+Likely cause:
+
+- EK hours were probably moved or reparented from `33334` / EK `26805` to
+  `34965` / EK `28674` after the local historical sync.
+
+Risk:
+
+- A naive source-key upsert can move existing rows from one FD project to
+  another.
+- This can change history on a closed project.
+- This can hide the fact that EK data has been reparented.
+
+Permanent operational truth:
+
+- Targeted refresh must never automatically move an existing `source_key`
+  between `fd_project_id` values.
+- If an incoming `source_key` already exists on another `fd_project_id`, it must
+  be blocked, skipped, and logged as `cross_project_source_key_conflict`.
+- Any reparenting must be handled in a separate review/reparent flow with audit.
+
+Recommended rule:
+
+- Batch refresh should keep the existing relation and skip the conflict.
+- A future reparent flow may evaluate and move hours only when:
+  - live EK detail shows the `source_key` on the new project;
+  - live EK detail does not show the `source_key` on the old project;
+  - old and new project metadata are documented;
+  - the change is audited.
+
 ## USE
 
 - Use `GET /api/v4/projects/id/{EK ProjectID}` for targeted refresh of the project-detail `fitterHours` value when EK ProjectID is known.
@@ -125,6 +186,8 @@ GET /api/v3.0/fitterhours?page=1&pageSize=1000&searchAttribute=ProjectID&search=
   cross-project `source_key` conflicts.
 - Do not use an `ON CONFLICT` upsert in production without first verifying the
   exact production constraint/index shape for the target table.
+- Do not automatically reparent or move `fitter_hour` rows between projects in a
+  targeted refresh batch.
 
 ## OPEN QUESTIONS
 
