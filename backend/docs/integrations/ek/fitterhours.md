@@ -33,6 +33,73 @@ Safe project-scoped probes verified:
 - `GET /api/v4/projects/ref/{reference}` returned the same project, but without `fitterHours`.
 - `includeFitterHours=true` had no observed effect on the ref endpoint in the test.
 
+## VERIFIED Targeted Refresh Pilot
+
+Verified 2026-06-13 for tenant `hoyrup-clemmensen`:
+
+- PR #11 targeted refresh tooling was already merged and live.
+- A controlled apply pilot was run for 4 safe projects through
+  `GET /api/v4/projects/id/{EK ProjectID}` only.
+- `/api/v4/fitterhours` endpoints were not used.
+- `fitterhours` endpoint selection remained disabled.
+- No scheduler, sync-state, full-sync, or tenant-wide changes were made.
+
+Pilot projects:
+
+| Reference | EK ProjectID | Result |
+|---|---:|---|
+| `35738` | `29593` | 6 inserts, 3 updates |
+| `36322` | `30280` | 7 inserts, 4 updates |
+| `36016` | `29935` | 3 inserts, 9 updates |
+| `36218` | `30161` | 12 inserts, 31 updates |
+
+Pilot totals:
+
+- Inserts: 28
+- Updates: 47
+- Deletes: 0
+- Cross-project moves: 0
+- Activity materializer updated 4 projects.
+
+Post-verify:
+
+- `35738`: `fitter_hour` count 9, activity `2026-04-22T00:00:00Z`.
+- `36322`: `fitter_hour` count 11, activity `2026-04-29T00:00:00Z`.
+- `36016`: `fitter_hour` count 12, activity `2026-04-13T00:00:00Z`.
+- `36218`: `fitter_hour` count 43, activity `2026-04-30T00:00:00Z`.
+- All 4 projects remained `status = open` and `is_closed = false`.
+- Activity values were not null after apply.
+- `34965` was explicitly excluded because dry-run found cross-project
+  `source_key` conflicts against `33334`.
+- `34965` and `33334` were unchanged after the apply pilot.
+
+Operational findings:
+
+- The v4 project-detail flow can lift project activity through
+  `project_wip.last_fitter_hour_date`.
+- `registration_date` does not improve in this flow because v4 project-detail
+  `fitterHours` does not provide a verified registration-date field for
+  persisted rows.
+- Existing WIP/economy fields such as ready-to-bill, margin, costs, ongoing,
+  billed, coverage, budget, and WIP flags are not part of the targeted
+  activity materialization and must not be overwritten by this flow.
+
+Production schema finding:
+
+- Production schema did not match the implementation expectation that
+  `ON CONFLICT (tenant_id, source_key)` and `ON CONFLICT (tenant_id, project_id)`
+  are valid for the relevant upserts.
+- The final pilot apply used manual safe upsert semantics:
+  - update only rows already attached to the same `fd_project_id`;
+  - insert only when `source_key` does not exist;
+  - never move an existing row from another project.
+
+Requirement for future batch-refresh applies:
+
+- Future applies must either use the same safe-upsert principle, or first verify
+  production constraints/schema and check for cross-project `source_key`
+  conflicts before writes.
+
 ## USE
 
 - Use `GET /api/v4/projects/id/{EK ProjectID}` for targeted refresh of the project-detail `fitterHours` value when EK ProjectID is known.
@@ -54,6 +121,10 @@ GET /api/v3.0/fitterhours?page=1&pageSize=1000&searchAttribute=ProjectID&search=
 - Do not use `POST /api/v4/fitterhours/query` as a project-scoped fitterhours source.
 - Do not confuse `POST /api/v4/fitterhours` with search; it creates fitterhour registrations.
 - Do not run broad/full fitterhours scans when a project-scoped endpoint answers the needed question.
+- Do not run targeted batch-refresh apply for a project if dry-run finds
+  cross-project `source_key` conflicts.
+- Do not use an `ON CONFLICT` upsert in production without first verifying the
+  exact production constraint/index shape for the target table.
 
 ## OPEN QUESTIONS
 
