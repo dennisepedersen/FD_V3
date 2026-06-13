@@ -39,6 +39,7 @@ Scope: links to decisions; does not duplicate full decisions
 | Bootstrap/enrichment separation is implemented for project sync | `ARCHITECTURE_BOOTSTRAP_ENRICHMENT.md` |
 | EK v4 project detail by EK ProjectID is the verified project-scoped source for project-detail `fitterHours`; project ref detail did not return `fitterHours` in the probe | `backend/docs/integrations/ek/projects_v4_masterdata.md`, `backend/docs/integrations/ek/fitterhours.md` |
 | EK v4 fitterhours query/search endpoints are not verified as ProjectID-scoped filters and must not be used for project-scoped reads yet | `backend/docs/integrations/ek/fitterhours.md` |
+| Manual fitterhours Batch 8+ is stopped as the main track; future model separates historical EK backfill, delta/incremental refresh, on-demand project refresh, and tenant onboarding history choices | `backend/docs/integrations/ek/fitterhours.md`, `backend/docs/integrations/ek/fitterhours_refresh_register.md` |
 | EK v4 purchase invoice lines, purchase orders, financial posts, and worksheets have verified ProjectID-filtered read behavior, but are discovery findings until mapped/governed | `backend/docs/integrations/ek/project_materials_finance_v4.md` |
 
 ## Operations Decisions

@@ -215,6 +215,71 @@ node scripts/fd_maintenance_job.js
 Apply, project-detail on-demand refresh, UI status, and scheduler selection are
 later phases and must reuse the same pre-check gates and safe-upsert rules.
 
+## Product Decision: Future Fitterhours Refresh Strategy
+
+Decision status: product owner decision, documented 2026-06-13.
+
+Fielddesk should eventually use fitterhours to support:
+
+- project activity;
+- KPIs and dashboards;
+- missing time-registration checks;
+- economy and forecasting;
+- general project insight.
+
+The product model must separate four different concerns:
+
+1. Historical EK backfill.
+2. Ongoing delta/incremental refresh.
+3. On-demand project refresh.
+4. Tenant onboarding choices.
+
+Manual Batch 8+ does not continue as the main track. Historical EK backfill may
+continue quietly as a controlled background/onboarding flow, especially for open
+projects, but Fielddesk should not manually walk through every historical
+project now.
+
+Future new or changed time registrations should be handled automatically by
+delta/incremental refresh or targeted project refresh. Broad full sync must not
+be the default path, and broad `/api/v4/fitterhours` endpoints must not be used
+as the default project-scoped refresh mechanism.
+
+For new tenants with EK enabled, tenant admin must choose the historical import
+level during onboarding. The initial options should be:
+
+1. no history;
+2. open projects only;
+3. open projects plus the latest X months;
+4. full history as a slow background process.
+
+The onboarding and UI copy must make it clear that historical import can take
+time and runs alongside normal Fielddesk usage.
+
+Reference mismatch, cross-project `source_key` conflict, and `LARGE` projects
+must not be repaired automatically. No automatic reparenting is allowed.
+Mismatch/conflict cases require separate review with audit before any future
+reparenting or correction flow.
+
+Tenant isolation is an absolute requirement. Any future scheduler, onboarding
+backfill, or admin-triggered refresh must be tenant-scoped and must not allow
+one tenant's EK data quality issues to affect another tenant.
+
+Minimum good enough before inviting 4-5 users:
+
+- project activity can be refreshed safely for one project;
+- the refresh path has dry-run/pre-check gates;
+- reference mismatch and cross-project conflicts block writes;
+- stale or missing activity can be identified;
+- no broad full sync or tenant-wide refresh is required for normal use.
+
+Later phases:
+
+- implement safe apply for one project;
+- add admin/on-demand project refresh;
+- expose simple freshness/blocked status in project UI;
+- design a small tenant-scoped scheduler;
+- add tenant onboarding history selection and slow background backfill.
+
 ## VERIFIED Cross-Project Source Key Conflict
 
 Verified 2026-06-13 for tenant `hoyrup-clemmensen`:
