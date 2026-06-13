@@ -100,6 +100,75 @@ Requirement for future batch-refresh applies:
   production constraints/schema and check for cross-project `source_key`
   conflicts before writes.
 
+## VERIFIED Targeted Refresh Batch 2B
+
+Verified 2026-06-13 for tenant `hoyrup-clemmensen`:
+
+- Batch 2B was run for 7 safe projects through
+  `GET /api/v4/projects/id/{EK ProjectID}` only.
+- `/api/v4/fitterhours` endpoints were not used.
+- No scheduler, sync-state, full-sync, or tenant-wide changes were made.
+
+Batch 2B projects:
+
+| Reference | EK ProjectID | Inserts | Updates | Activity result |
+|---|---:|---:|---:|---|
+| `36330` | `30289` | 2 | 13 | unchanged at `2026-04-08T09:16:57Z` |
+| `80305-002` | `22167` | 42 | 114 | `2026-04-08T08:57:47Z` -> `2026-06-12T00:00:00Z` |
+| `80396-002` | `25905` | 205 | 866 | `2026-04-08T08:54:19Z` -> `2026-06-12T00:00:00Z` |
+| `80113-003` | `21457` | 79 | 227 | `2026-04-08T08:31:19Z` -> `2026-06-12T00:00:00Z` |
+| `80405-002` | `26303` | 2 | 443 | `2026-04-08T08:04:13Z` -> `2026-04-10T00:00:00Z` |
+| `80263` | `19791` | 72 | 174 | `2026-04-08T07:24:36Z` -> `2026-06-09T00:00:00Z` |
+| `80403-002` | `26210` | 22 | 114 | `2026-04-08T07:04:12Z` -> `2026-06-12T00:00:00Z` |
+
+Batch 2B pre-check gates:
+
+- no `fd_project_id` mismatch;
+- no duplicate remote `source_key` values;
+- no cross-project `source_key` conflicts;
+- local project reference matched live EK project-detail reference.
+
+Batch 2B apply semantics:
+
+- update only rows already attached to the same `fd_project_id`;
+- insert only when `source_key` does not exist;
+- never move an existing row between projects.
+
+Batch 2B totals:
+
+- Inserts: 424
+- Updates: 1951
+- Unchanged: 0
+- Deletes: 0
+- Cross-project moves: 0
+- Activity materializer updated 7 of 7 scoped projects.
+
+Post-verify:
+
+- All 7 projects remained `status = open` and `is_closed = false`.
+- No cross-project rows were found after apply.
+- Excluded projects were unchanged: `900192-003`, `80279-001`,
+  `80113-002`, `34965`, and `33334`.
+
+## VERIFIED Reference / Identity Mismatch
+
+Verified 2026-06-13 for tenant `hoyrup-clemmensen`:
+
+- Reference `900192-003`, EK ProjectID `23640`, was excluded from Batch 2B.
+- The local project reference was `900192-003`.
+- Live EK project detail for EK ProjectID `23640` returned reference
+  `900192-025`.
+- This is a reference / identity mismatch and must block targeted refresh apply
+  until a separate identity analysis has verified the correct FD project
+  relation.
+
+Permanent operational truth:
+
+- Targeted refresh must not apply when the local reference and live EK
+  project-detail reference disagree.
+- Such cases should be logged and reviewed as a separate identity issue before
+  any fitterhour rows are inserted or updated.
+
 ## VERIFIED Cross-Project Source Key Conflict
 
 Verified 2026-06-13 for tenant `hoyrup-clemmensen`:
@@ -184,6 +253,8 @@ GET /api/v3.0/fitterhours?page=1&pageSize=1000&searchAttribute=ProjectID&search=
 - Do not run broad/full fitterhours scans when a project-scoped endpoint answers the needed question.
 - Do not run targeted batch-refresh apply for a project if dry-run finds
   cross-project `source_key` conflicts.
+- Do not run targeted batch-refresh apply for a project if live EK project
+  detail returns a reference that does not match the local FD project reference.
 - Do not use an `ON CONFLICT` upsert in production without first verifying the
   exact production constraint/index shape for the target table.
 - Do not automatically reparent or move `fitter_hour` rows between projects in a
