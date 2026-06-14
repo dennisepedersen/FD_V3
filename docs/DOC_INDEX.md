@@ -19,6 +19,7 @@ Scope: points to docs; does not replace them
 | `backend/docs/standards/fd_implementation_rules.md` | Backend evidence, mapping, tenant filtering, no-guessing rules | Current |
 | `backend/docs/decisions/*.md` | Verified backend decisions | Current |
 | `backend/docs/integrations/ek/*.md` | E-Komplet endpoint contracts | Current |
+| `backend/docs/operations/*.md` | Operational notes, including Render service facts | Current |
 | `backend/docs/mappings/*.md` | Mapping and scope notes | Current, some gaps documented |
 | `backend/docs/audits/*.md` | Current audits and known mismatches | Current but time-sensitive |
 
@@ -39,6 +40,7 @@ Scope: points to docs; does not replace them
 | `backend/docs/decisions/sync_strategy_decision.md` | Sync modes, backlog retry, pagination rules | Verified decision |
 | `backend/docs/decisions/data_retention_and_filtering_decision.md` | Project and fitterhour retention/filtering | Verified + observed |
 | `backend/docs/decisions/database_indexing_decision.md` | Index decisions based on real query predicates | Verified decision |
+| `backend/docs/operations/render_service.md` | Verified Render web service identity and deploy settings | Verified ops fact |
 
 ## Integration Docs
 
@@ -49,6 +51,7 @@ Scope: points to docs; does not replace them
 | `backend/docs/integrations/ek/projects_v3_wip.md` | E-Komplet v3 WIP enrichment contract | Verified |
 | `backend/docs/integrations/ek/fitterhours.md` | Fitterhours integration contract | Current |
 | `backend/docs/integrations/ek/fitterhours_retention_model.md` | Verified fitterhours retention/scope model and pending implementation plan | Verified decision / implementation pending |
+| `backend/docs/integrations/ek/project_materials_finance_v4.md` | Verified v4 project-scoped materials, purchasing, finance, worksheets, and write-side candidates | Verified discovery / no write implementation |
 | `backend/docs/integrations/ek/users.md` | E-Komplet users integration notes | Current |
 | `backend/docs/integrations/solar/solar_product_data.md` | Solar product data notes | New/unclear until reviewed |
 

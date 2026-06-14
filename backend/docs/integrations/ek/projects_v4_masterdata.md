@@ -41,6 +41,40 @@ Consumer: backend/src/services/syncWorker.js
 - project_core.project_id is FD internal primary key.
 - project_masterdata_v4.ek_project_id supports joins to fitter_hour.project identifiers via text comparison in queries.
 
+## VERIFIED Project Detail Behavior
+
+Safe project-scoped probes verified:
+
+- `GET /api/v4/projects/id/{EK ProjectID}` returns one project in `data[0]`.
+- The id endpoint returned `data[0].fitterHours`.
+- Reference `26794`, EK ProjectID `19687`, returned `data[0].fitterHours = 261`.
+- Reference `80396-003`, EK ProjectID `25906`, returned `data[0].fitterHours = 269`.
+- `GET /api/v4/projects/ref/{reference}` returned the same project, but without `fitterHours`.
+- `includeFitterHours=true` had no observed effect on the ref endpoint in the test.
+
+## USE
+
+- Use the id endpoint as the verified project-scoped project-detail probe when EK ProjectID is known.
+- Use it as a safer alternative to broad/full fitterhours scanning when the required field is project-detail `fitterHours`.
+- Use v4 LIST for authoritative project existence, lifecycle, and masterdata.
+- Use `IsClosed` / `isClosed` for lifecycle; use `IsWorkInProgress` / `isWorkInProgress` only for financial WIP/IGVA.
+- Use `isIntern` / `IsInternal` as project internal/external source metadata for future fitterhours retention decisions.
+
+## DO NOT USE
+
+- Do not treat the ref endpoint as a `fitterHours` source.
+- Do not assume `includeFitterHours=true` changes project ref endpoint payload shape.
+- Do not use the project-detail `fitterHours` value as proof that Fielddesk persisted time rows are complete.
+- Do not interpret `IsWorkInProgress` as active/open status.
+- Do not interpret `EndDate` as closed status.
+- Do not run broad/full fitterhours scans when v4 project id detail answers the required project-detail `fitterHours` question.
+
+## OPEN QUESTIONS
+
+- Whether `/api/v4.0/projects/id/{EK ProjectID}` behaves identically to `/api/v4/projects/id/{EK ProjectID}` across tenants.
+- Whether EK documents a supported include flag for `fitterHours` on any project endpoint.
+- The exact business semantics of project budget/expected-value subtrees stored in raw v4 payloads.
+
 ## Known Pitfalls
 - Endpoint compatibility is probed dynamically; version path is not guaranteed.
 - nextPage may be missing or inconsistent across endpoints; it must not be used as primary stop signal.

@@ -20,6 +20,9 @@ Scope: backend dataflow, sync, mappings, query manuals
 7. Docs and code must be updated in the same change when behavior changes.
 8. No schema changes without explicit need and evidence from query/sync usage.
 9. No auth model changes in data tasks unless explicitly requested.
+10. EK discovery must prefer narrow read-only project-scoped probes over broad/full scans whenever a project-scoped endpoint exists.
+11. Before adding a new EK sync path, run narrow read-only probes and record verified payload/filter behavior.
+12. After EK API discovery, update the relevant docs and explicitly separate verified facts, assumptions/hypotheses, future options, and do-not-use-yet findings.
 
 ## Evidence Markers
 
@@ -28,6 +31,8 @@ Use these exact labels in docs:
 - observed: seen in logs/payload handling but not contract-guaranteed
 - hypothesis: plausible but not proven
 - unclear: not provable from current repository state
+- future option: possible later direction, not current implementation permission
+- do not use yet: discovered or tempting capability that is not approved for implementation/use
 
 ## Audit Workflow
 

@@ -204,6 +204,15 @@ Current E-Komplet:
 - Tenant-specific credentials.
 - Imported data must be distinguishable from Fielddesk-owned data.
 - v4 project masterdata and v3 enrichment have separate semantics.
+- v4 project detail by EK ProjectID is verified as a project-scoped source for project-detail `fitterHours`.
+- v4 project detail by project reference did not return `fitterHours` in the verified probe.
+- v4 purchase invoice lines, purchase orders, financial posts, and worksheets have verified ProjectID-filtered read behavior, but are not yet mapped as scheduled sync sources.
+- EK write-side endpoints are future options only and require separate write-back governance before use.
+
+Integration discovery rules:
+- Prefer narrow read-only project-scoped probes over broad/full scans when a project-scoped endpoint exists.
+- Record verified EK API findings in docs after discovery.
+- Separate verified facts, hypotheses/assumptions, future options, and do-not-use-yet findings.
 
 Current Solar:
 - Solar product data docs have started, but status is new/unclear until reviewed.
@@ -214,7 +223,26 @@ Planned:
 
 Rule: integrations may enrich Fielddesk, but must not silently become Fielddesk-owned truth.
 
-## 12. Prototype To FD Migration Principle
+## 12. Deployment And Operations
+
+Current:
+- Render production service is verified as `FielddeskAI`.
+- Render service id is verified as `srv-d6h0h8fgi27c73a99jgg`.
+- Repo is `FD_V3`, branch is `main`.
+- Auto deploy is enabled.
+- Pull request previews are disabled.
+- Health endpoint is `/health`.
+- `RENDER_API_KEY` exists in the local/operator environment used for Render API access.
+- Render service id is not necessarily set in the local environment yet.
+
+Rule: no deploy, restart, environment, or production config changes without explicit approval.
+
+Open:
+- Formal deployment governance doc.
+- Staging/preview strategy.
+- Whether to configure `FIELD_DESK_RENDER_SERVICE_ID` explicitly for repeatable maintenance jobs.
+
+## 13. Prototype To FD Migration Principle
 
 Current:
 - Prototypes may exist outside FD to prove workflow and UX.
@@ -230,7 +258,7 @@ Restarbejde example:
 - Placement, PDF preview, report preview, crop concept, and photo flow can inform module design.
 - LocalStorage, standalone app shell, frontend-owned scope, and dataUrl file storage are prototype-only.
 
-## 13. Not Decided Yet
+## 14. Not Decided Yet
 
 Open:
 - Final governance document structure beyond phase 1.
@@ -245,7 +273,7 @@ Open:
 - Complete report/export implementation architecture.
 - Final frontend framework/app shell.
 
-## 14. Relevant Docs
+## 15. Relevant Docs
 
 Start here:
 - `docs/00_MASTER.md`
@@ -275,9 +303,14 @@ Integrations and mappings:
 - `backend/docs/integrations/ek/projects_v3_wip.md`
 - `backend/docs/integrations/ek/fitterhours.md`
 - `backend/docs/integrations/ek/fitterhours_retention_model.md`
+- `backend/docs/integrations/ek/project_materials_finance_v4.md`
 - `backend/docs/mappings/project_core_mapping.md`
 - `backend/docs/mappings/project_wip_mapping.md`
 - `backend/docs/mappings/scope_rules.md`
+
+Operations:
+- `backend/docs/operations/render_service.md`
+- `backend/docs/operations/maintenance_jobs.md`
 
 Modules:
 - `docs/modules/qa/QA_STATUS_MODEL.md`

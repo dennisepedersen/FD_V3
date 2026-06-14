@@ -4,7 +4,7 @@ Status: verified decision / implementation pending
 Date: 2026-05-31
 Evidence: read-only live EK and FD database verification for tenant `hoyrup-clemmensen`
 
-## Verified Source Fields
+## VERIFIED Source Fields
 
 E-Komplet exposes project internal/external state separately from project lifecycle:
 
@@ -27,7 +27,7 @@ The existing EK project lifecycle decision still applies:
 - `IsWorkInProgress` / `isWorkInProgress` must not be used for active project counts.
 - v3 project data does not provide lifecycle truth.
 
-## Verified Fitterhours Endpoint Behavior
+## VERIFIED Fitterhours Endpoint Behavior
 
 Observed behavior:
 
@@ -36,6 +36,36 @@ Observed behavior:
 - Direct query parameters such as `ProjectID=<id>` and `ProjectReference=<ref>` did not filter the result set.
 - `searchAttribute=ProjectReference&search=<reference>` returned an EK-side error in the verification test.
 - `searchAttribute=ProjectID&search=<EK ProjectID>` works for project-targeted fitterhour reads.
+
+Additional project-detail facts:
+
+- `GET /api/v4/projects/id/{EK ProjectID}` returns one project in `data[0]` with `fitterHours`.
+- Reference `26794`, EK ProjectID `19687`, returned `data[0].fitterHours = 261`.
+- Reference `80396-003`, EK ProjectID `25906`, returned `data[0].fitterHours = 269`.
+- `GET /api/v4/projects/ref/{reference}` returned the same project, but without `fitterHours`.
+- `includeFitterHours=true` had no observed effect on the ref endpoint.
+## USE
+
+- Use `GET /api/v4/projects/id/{EK ProjectID}` for targeted refresh of the project-detail `fitterHours` value.
+- Use `GET /api/v3.0/fitterhours?page=1&pageSize=1000&searchAttribute=ProjectID&search=<EK ProjectID>` when FD needs actual time rows.
+- Use EK ProjectID, not human project reference, for project-targeted fitterhour row reads.
+- Use project-level `isClosed` plus `isIntern` to choose the target retention scope.
+- Label existing values as `synced_rows_only` unless all-time project coverage is verified.
+
+## DO NOT USE
+
+- Do not use `GET /api/v4/fitterhours?searchAttribute=ProjectID&search=<id>` as a project-scoped filter; the v4 OpenAPI marks these parameters reserved / not currently used, and the probe showed filtering was ignored.
+- Do not assume `POST /api/v4/fitterhours/query` can filter by ProjectID; the probe produced an EK-side error and 0 rows.
+- Do not confuse `POST /api/v4/fitterhours` with search; it creates fitterhour registrations.
+- Do not use project references for row-level fitterhour backfill when EK ProjectID is available.
+- Do not present rolling 12-month synced rows as all EK hours.
+- Do not start broad/full fitterhours scans when a project-scoped endpoint answers the needed question.
+
+## OPEN QUESTIONS
+
+- Whether project-detail `fitterHours` is a row count, summarized counter, or another EK-defined measure.
+- Whether EK will later make v4 fitterhour search/query ProjectID filters usable.
+- How FD should expose hour-scope metadata in every API/UI path.
 
 Verified project-targeted pattern:
 

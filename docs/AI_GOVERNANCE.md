@@ -163,7 +163,33 @@ Open:
 
 Do not assume these are solved until a current doc says so.
 
-## 10. Relevant Docs
+## 10. Windows Sandbox And GitHub CLI
+
+Current:
+- On Windows, sandboxed commands can fail because the sandbox cannot access the
+  same network, keyring, spawn behavior, or GitHub CLI credential context as the
+  normal Windows session.
+- `gh` can fail inside the sandbox while still working outside the sandbox via
+  Windows keyring.
+
+Rules:
+- It is acceptable to try a read-only or approved `gh` command in the sandbox
+  first.
+- If a Windows sandboxed command fails due to auth, keyring, network, spawn, or
+  GitHub CLI access, Codex must retry the same approved command with
+  `require_escalated` / non-sandbox Windows context and a short reason.
+- This applies especially to:
+  - `gh auth status`
+  - `gh repo view`
+  - `gh pr list`
+  - `gh pr create`
+  - `gh pr view`
+  - `gh pr merge`
+- When `gh` works outside the sandbox, PR flow should use GitHub CLI.
+- Do not switch to the GitHub connector for PR creation as a fallback unless
+  Dennis explicitly asks for it.
+
+## 11. Relevant Docs
 
 Start here:
 - `docs/00_MASTER.md`
