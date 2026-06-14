@@ -691,6 +691,69 @@
       grid-template-columns: 1fr;
     }
 
+    .projectTree {
+      display: grid;
+      gap: 8px;
+      grid-column: 1 / -1;
+      min-width: 0;
+    }
+
+    .projectTreeRow {
+      --project-tree-indent: 0px;
+      display: grid;
+      grid-template-columns: 32px minmax(0, 1fr);
+      align-items: stretch;
+      gap: 8px;
+      min-width: 0;
+      padding-left: var(--project-tree-indent);
+    }
+
+    .projectTreeDepth1 {
+      --project-tree-indent: 22px;
+    }
+
+    .projectTreeDepth2 {
+      --project-tree-indent: 44px;
+    }
+
+    .treeToggle,
+    .treeToggleSpacer {
+      width: 32px;
+      min-height: 42px;
+      align-self: stretch;
+    }
+
+    .treeToggle {
+      border: 1px solid rgba(191, 212, 234, 0.16);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.055);
+      color: var(--muted);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: border-color 0.14s ease, background 0.14s ease, color 0.14s ease;
+    }
+
+    .treeToggle:hover {
+      border-color: rgba(94, 200, 229, 0.34);
+      background: rgba(94, 200, 229, 0.12);
+      color: var(--brand-strong);
+    }
+
+    .treeToggleIcon {
+      width: 9px;
+      height: 9px;
+      border-right: 2px solid currentColor;
+      border-bottom: 2px solid currentColor;
+      transform: rotate(45deg) translate(-1px, -1px);
+      transition: transform 0.14s ease;
+    }
+
+    .treeToggle[aria-expanded="false"] .treeToggleIcon {
+      transform: rotate(-45deg) translate(-1px, 1px);
+    }
+
     .groupBlock {
       display: grid;
       gap: 10px;
@@ -764,6 +827,7 @@
     }
 
     .projectCard:focus-visible,
+    .treeToggle:focus-visible,
     .moduleCard:focus-visible,
     .navItem:focus-visible,
     .btn:focus-visible {
@@ -777,6 +841,18 @@
 
     .projectRef {
       margin: 0;
+    }
+
+    .projectTreeDepth1 .projectCard {
+      background:
+        linear-gradient(135deg, rgba(255, 255, 255, 0.046), rgba(255, 255, 255, 0.014)),
+        rgba(13, 22, 43, 0.78);
+    }
+
+    .projectTreeDepth2 .projectCard {
+      background:
+        linear-gradient(135deg, rgba(255, 255, 255, 0.036), rgba(255, 255, 255, 0.01)),
+        rgba(9, 17, 34, 0.72);
     }
 
     .activityText {

@@ -599,6 +599,7 @@
       showingClosedFallback: false,
       currentView: "dashboard",
       searchQuery: projectSearchInput && projectSearchInput.value ? String(projectSearchInput.value).trim() : "",
+      collapsedProjectRefs: new Set(),
     };
 
     applySidebarCollapsed(getSidebarCollapsedPreference());
@@ -898,6 +899,40 @@
       }
       sorted.sort((a, b) => compareByReference(a, b));
       return sorted;
+    }
+
+    function normalizeProjectRef(ref) {
+      return String(ref || "").trim();
+    }
+
+    function parseProjectReference(ref) {
+      const normalized = normalizeProjectRef(ref);
+      const parts = normalized.split("-").map((part) => part.trim()).filter(Boolean);
+      if (!normalized || parts.length === 0) {
+        return {
+          normalized,
+          rootRef: "",
+          level: 0,
+          levelOneRef: normalized,
+          levelOneNumber: Number.POSITIVE_INFINITY,
+        };
+      }
+
+      const level = parts.length <= 1 ? 0 : parts.length === 2 ? 1 : 2;
+      const levelOneRef = parts.length >= 2 ? `${parts[0]}-${parts[1]}` : normalized;
+      const levelOneNumber = parts.length >= 2 ? Number.parseInt(parts[1], 10) : Number.POSITIVE_INFINITY;
+
+      return {
+        normalized,
+        rootRef: parts[0],
+        level,
+        levelOneRef,
+        levelOneNumber: Number.isNaN(levelOneNumber) ? Number.POSITIVE_INFINITY : levelOneNumber,
+      };
+    }
+
+    function getProjectRef(project) {
+      return normalizeProjectRef(project && project.external_project_ref);
     }
 
     function normalizeSearchText(value) {
@@ -1539,6 +1574,219 @@
       return card;
     }
 
+    function createHierarchyNode(project, type, children) {
+      return {
+        project,
+        type,
+        children: Array.isArray(children) ? children : [],
+      };
+    }
+
+    function buildProjectHierarchy(projects) {
+      const source = Array.isArray(projects) ? projects : [];
+      const rootOrder = [];
+      const rootGroups = new Map();
+      const ungrouped = [];
+
+      function ensureRoot(rootRef) {
+        if (!rootGroups.has(rootRef)) {
+          rootGroups.set(rootRef, {
+            rootProjects: [],
+            levelOneProjects: [],
+            levelTwoProjects: [],
+          });
+          rootOrder.push(rootRef);
+        }
+        return rootGroups.get(rootRef);
+      }
+
+      source.forEach((project) => {
+        const meta = parseProjectReference(getProjectRef(project));
+        if (!meta.rootRef) {
+          ungrouped.push(createHierarchyNode(project, "standalone", []));
+          return;
+        }
+
+        const group = ensureRoot(meta.rootRef);
+        if (meta.level === 0) {
+          group.rootProjects.push(project);
+          return;
+        }
+        if (meta.level === 1) {
+          group.levelOneProjects.push(project);
+          return;
+        }
+        group.levelTwoProjects.push(project);
+      });
+
+      const nodes = [];
+
+      rootOrder.forEach((rootRef) => {
+        const group = rootGroups.get(rootRef);
+        if (!group) {
+          return;
+        }
+
+        group.rootProjects.forEach((project, index) => {
+          if (index > 0) {
+            nodes.push(createHierarchyNode(project, "root", []));
+            return;
+          }
+
+          const levelOneRefs = new Set(group.levelOneProjects.map((levelOneProject) => getProjectRef(levelOneProject)));
+          const childrenByLevelOne = new Map();
+          const rootChildren = [];
+
+          group.levelTwoProjects.forEach((childProject) => {
+            const meta = parseProjectReference(getProjectRef(childProject));
+            if (!levelOneRefs.has(meta.levelOneRef)) {
+              rootChildren.push(createHierarchyNode(childProject, "child", []));
+              return;
+            }
+            if (!childrenByLevelOne.has(meta.levelOneRef)) {
+              childrenByLevelOne.set(meta.levelOneRef, []);
+            }
+            childrenByLevelOne.get(meta.levelOneRef).push(childProject);
+          });
+
+          const levelOneNodes = group.levelOneProjects.map((levelOneProject) => {
+            const ref = getProjectRef(levelOneProject);
+            const children = (childrenByLevelOne.get(ref) || [])
+              .map((childProject) => createHierarchyNode(childProject, "child", []));
+            return createHierarchyNode(levelOneProject, "sub-parent", children);
+          });
+
+          nodes.push(createHierarchyNode(project, "root", levelOneNodes.concat(rootChildren)));
+        });
+
+        if (group.rootProjects.length > 0) {
+          return;
+        }
+
+        let promotedLocalParent = null;
+        if (group.levelOneProjects.length === 0 && group.levelTwoProjects.length > 0) {
+          promotedLocalParent = group.levelTwoProjects.reduce((best, project) => (
+            !best || compareByReference(project, best) < 0 ? project : best
+          ), null);
+        }
+
+        const parentCandidates = promotedLocalParent
+          ? [promotedLocalParent]
+          : group.levelOneProjects.slice();
+
+        const localParent = parentCandidates.reduce((best, project) => {
+          if (!best) {
+            return project;
+          }
+          const left = parseProjectReference(getProjectRef(project));
+          const right = parseProjectReference(getProjectRef(best));
+          if (left.levelOneNumber !== right.levelOneNumber) {
+            return left.levelOneNumber < right.levelOneNumber ? project : best;
+          }
+          return compareByReference(project, best) < 0 ? project : best;
+        }, null);
+
+        const levelOneRefs = new Set(group.levelOneProjects.map((project) => getProjectRef(project)));
+        const childrenByLevelOne = new Map();
+        group.levelTwoProjects
+          .filter((project) => project !== promotedLocalParent)
+          .forEach((project) => {
+            const meta = parseProjectReference(getProjectRef(project));
+            const parentRef = levelOneRefs.has(meta.levelOneRef)
+              ? meta.levelOneRef
+              : localParent
+                ? getProjectRef(localParent)
+                : "";
+            if (!parentRef) {
+              nodes.push(createHierarchyNode(project, "orphan-child", []));
+              return;
+            }
+            if (!childrenByLevelOne.has(parentRef)) {
+              childrenByLevelOne.set(parentRef, []);
+            }
+            childrenByLevelOne.get(parentRef).push(project);
+          });
+
+        if (!localParent) {
+          return;
+        }
+
+        const localParentRef = getProjectRef(localParent);
+        const localChildren = (childrenByLevelOne.get(localParentRef) || [])
+          .map((project) => createHierarchyNode(project, "child", []));
+
+        const subParentNodes = group.levelOneProjects
+          .filter((project) => getProjectRef(project) !== localParentRef)
+          .map((project) => {
+            const ref = getProjectRef(project);
+            const children = (childrenByLevelOne.get(ref) || [])
+              .map((childProject) => createHierarchyNode(childProject, "child", []));
+            return createHierarchyNode(project, "sub-parent", children);
+          });
+
+        nodes.push(createHierarchyNode(localParent, "local-parent", localChildren.concat(subParentNodes)));
+      });
+
+      return nodes.concat(ungrouped);
+    }
+
+    function createProjectTreeRow(node, depth) {
+      const row = document.createElement("div");
+      row.className = `projectTreeRow projectTreeDepth${Math.min(Number(depth) || 0, 2)}`;
+
+      const ref = getProjectRef(node && node.project);
+      const hasChildren = Boolean(node && node.children && node.children.length > 0);
+      const collapsed = ref ? state.collapsedProjectRefs.has(ref) : false;
+
+      if (hasChildren) {
+        const toggle = document.createElement("button");
+        toggle.type = "button";
+        toggle.className = "treeToggle";
+        toggle.setAttribute("aria-label", collapsed ? `Fold ${ref} ud` : `Fold ${ref} sammen`);
+        toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+        toggle.innerHTML = '<span class="treeToggleIcon" aria-hidden="true"></span>';
+        toggle.addEventListener("click", (event) => {
+          event.stopPropagation();
+          if (!ref) {
+            return;
+          }
+          if (state.collapsedProjectRefs.has(ref)) {
+            state.collapsedProjectRefs.delete(ref);
+          } else {
+            state.collapsedProjectRefs.add(ref);
+          }
+          renderProjects();
+        });
+        row.appendChild(toggle);
+      } else {
+        const spacer = document.createElement("span");
+        spacer.className = "treeToggleSpacer";
+        row.appendChild(spacer);
+      }
+
+      row.appendChild(createProjectCard(node && node.project));
+      return row;
+    }
+
+    function appendProjectHierarchy(nodes, target, depth) {
+      (Array.isArray(nodes) ? nodes : []).forEach((node) => {
+        const currentDepth = Number(depth) || 0;
+        const ref = getProjectRef(node && node.project);
+        const hasChildren = Boolean(node && node.children && node.children.length > 0);
+        target.appendChild(createProjectTreeRow(node, currentDepth));
+        if (hasChildren && !state.collapsedProjectRefs.has(ref)) {
+          appendProjectHierarchy(node.children, target, currentDepth + 1);
+        }
+      });
+    }
+
+    function appendProjectList(projects, target) {
+      const tree = document.createElement("div");
+      tree.className = "projectTree";
+      appendProjectHierarchy(buildProjectHierarchy(projects), tree, 0);
+      target.appendChild(tree);
+    }
+
     function renderDashboard() {
       const name = state.me && state.me.name ? String(state.me.name) : "Fielddesk";
       const firstName = name.split(" ").filter(Boolean)[0] || name;
@@ -1591,13 +1839,11 @@
       }
 
       if (!groupMode) {
-        visibleProjects.forEach((project) => {
-          projectsContainer.appendChild(createProjectCard(project));
-        });
+        appendProjectList(visibleProjects, projectsContainer);
         const renderedCards = projectsContainer.querySelectorAll(".projectCard").length;
         logProjectPipeline("after-grouping-dedup", visibleProjects, {
           group_mode: false,
-          dedup_applied: false,
+          dedup_applied: true,
         });
         logProjectPipeline("final-render", visibleProjects, {
           rendered_cards: renderedCards,
@@ -1628,9 +1874,7 @@
         header.innerHTML = `<strong>${groupName}</strong><span>${groupProjects.length} sager</span>`;
 
         block.appendChild(header);
-        groupProjects.forEach((project) => {
-          block.appendChild(createProjectCard(project));
-        });
+        appendProjectList(groupProjects, block);
 
         projectsContainer.appendChild(block);
       });
@@ -1639,7 +1883,7 @@
       const renderedCards = projectsContainer.querySelectorAll(".projectCard").length;
       logProjectPipeline("after-grouping-dedup", visibleProjects, {
         group_mode: true,
-        dedup_applied: false,
+        dedup_applied: true,
         grouped_count: groupedCount,
       });
       logProjectPipeline("final-render", visibleProjects, {
