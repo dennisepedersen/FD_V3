@@ -573,6 +573,8 @@
     const dashboardAttentionCount = document.getElementById("dashboardAttentionCount");
     const dashboardQaStatus = document.getElementById("dashboardQaStatus");
     const moduleProjectsMeta = document.getElementById("moduleProjectsMeta");
+    const projectSearchInput = document.getElementById("projectSearchInput");
+    const currentScopeValue = document.getElementById("currentScopeValue");
     const sortSelect = document.getElementById("sortSelect");
     const listMetaText = document.getElementById("listMetaText");
     const scopeRow = document.getElementById("scopeRow");
@@ -596,6 +598,7 @@
       drawerProjectId: null,
       showingClosedFallback: false,
       currentView: "dashboard",
+      searchQuery: projectSearchInput && projectSearchInput.value ? String(projectSearchInput.value).trim() : "",
     };
 
     applySidebarCollapsed(getSidebarCollapsedPreference());
@@ -897,6 +900,29 @@
       return sorted;
     }
 
+    function normalizeSearchText(value) {
+      return String(value || "").trim().toLowerCase();
+    }
+
+    function projectSearchBlob(project) {
+      return [
+        project && project.external_project_ref,
+        project && project.name,
+        project && project.responsible_code,
+        project && project.responsible_name,
+        project && project.team_leader_code,
+        project && project.team_leader_name,
+      ].map(normalizeSearchText).filter(Boolean).join(" ");
+    }
+
+    function matchesProjectSearch(project) {
+      const query = normalizeSearchText(state.searchQuery);
+      if (!query) {
+        return true;
+      }
+      return projectSearchBlob(project).includes(query);
+    }
+
     function getOwnerId(project) {
       return String(project && project.owner_user_id ? project.owner_user_id : "").trim();
     }
@@ -943,6 +969,28 @@
         return "Ukendt ejer";
       }
       return getOwnerDisplayName(project);
+    }
+
+    function getCurrentScopeLabel() {
+      if (state.selectedOwnerIds.has("__ALL__")) {
+        return "Mine";
+      }
+
+      const selected = Array.from(state.selectedOwnerIds);
+      if (selected.length > 1) {
+        return "Afdeling";
+      }
+
+      const selectedOwner = state.ownerOptions.find((option) => option.id === selected[0]);
+      if (!selectedOwner) {
+        return "Mine";
+      }
+
+      if (String(selectedOwner.label || "").toLowerCase() === "mig") {
+        return "Mine";
+      }
+
+      return `Ansvarlig: ${selectedOwner.label}`;
     }
 
     function hasTeamLeaderValue(project) {
@@ -1012,16 +1060,21 @@
         sort_mode: state.sortMode,
       });
 
+      const searchedProjects = sortedProjects.filter(matchesProjectSearch);
+      logProjectPipeline("after-search", searchedProjects, {
+        search_active: Boolean(normalizeSearchText(state.searchQuery)),
+      });
+
       const allSelected = state.selectedOwnerIds.has("__ALL__");
       if (allSelected) {
-        logProjectPipeline("after-filtering", sortedProjects, {
+        logProjectPipeline("after-filtering", searchedProjects, {
           filter_mode: "all-owners",
         });
-        return sortedProjects;
+        return searchedProjects;
       }
 
       const selectedSet = state.selectedOwnerIds;
-      const filtered = sortedProjects.filter((project) => selectedSet.has(getOwnerId(project)));
+      const filtered = searchedProjects.filter((project) => selectedSet.has(getOwnerId(project)));
       logProjectPipeline("after-filtering", filtered, {
         filter_mode: "owner-selection",
         selected_owner_ids: Array.from(selectedSet),
@@ -1503,6 +1556,7 @@
       setText(projectOpenCount, String(openProjects.length));
       setText(dashboardAttentionCount, String(attentionProjects.length));
       setText(dashboardQaStatus, totalProjects > 0 ? "Via sag" : "-");
+      setText(currentScopeValue, getCurrentScopeLabel());
       setText(
         moduleProjectsMeta,
         totalProjects > 0
@@ -1647,6 +1701,13 @@
     if (sortSelect) {
       sortSelect.addEventListener("change", () => {
         state.sortMode = sortSelect.value;
+        renderProjects();
+      });
+    }
+
+    if (projectSearchInput) {
+      projectSearchInput.addEventListener("input", () => {
+        state.searchQuery = projectSearchInput.value || "";
         renderProjects();
       });
     }

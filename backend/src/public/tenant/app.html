@@ -315,6 +315,21 @@
       font-size: 13px;
     }
 
+    .topSearch input {
+      width: 100%;
+      min-height: 40px;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: var(--text);
+      font: inherit;
+      font-size: 16px;
+    }
+
+    .topSearch input::placeholder {
+      color: var(--muted);
+    }
+
     .topActions {
       display: inline-flex;
       align-items: center;
@@ -571,17 +586,18 @@
 
     .infoCard,
     .statCard {
-      padding: 14px;
+      padding: 12px;
       display: grid;
-      gap: 8px;
-      min-height: 112px;
+      gap: 5px;
+      min-height: 78px;
+      align-content: center;
     }
 
     .infoValue,
     .statValue {
       margin: 0;
       color: #fff;
-      font-size: 28px;
+      font-size: 26px;
       line-height: 1;
       font-weight: 850;
     }
@@ -589,6 +605,13 @@
     .infoCard.disabled .infoValue,
     .infoCard.disabled .infoLabel {
       color: #b0bac7;
+    }
+
+    .statCard .statValue {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 22px;
     }
 
     .headerPanel {
@@ -614,14 +637,31 @@
     }
 
     .toolbar {
-      padding: 12px;
-      display: grid;
+      padding: 10px 12px;
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
       gap: 10px;
     }
 
+    .toolbarControl {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .toolbar .metaRow {
+      flex: 1 1 220px;
+      justify-content: flex-start;
+    }
+
     .sortSelect {
-      width: 100%;
-      min-height: 44px;
+      width: auto;
+      min-width: 220px;
+      min-height: 40px;
       border: 1px solid rgba(191, 212, 234, 0.18);
       border-radius: 12px;
       padding: 0 12px;
@@ -648,11 +688,13 @@
     .projectList {
       display: grid;
       gap: 12px;
+      grid-template-columns: 1fr;
     }
 
     .groupBlock {
       display: grid;
       gap: 10px;
+      grid-column: 1 / -1;
     }
 
     .groupHeader {
@@ -677,6 +719,7 @@
     .scopeRow {
       display: grid;
       gap: 8px;
+      flex: 1 1 260px;
     }
 
     .scopeChips {
@@ -976,6 +1019,15 @@
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
 
+      .projectList,
+      .groupBlock {
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      }
+
+      .groupHeader {
+        grid-column: 1 / -1;
+      }
+
       .page {
         padding: 18px;
       }
@@ -1100,12 +1152,11 @@
       }
 
       .toolbar {
-        grid-template-columns: 1fr auto;
         align-items: center;
       }
 
       .sortSelect {
-        min-width: 260px;
+        min-width: 240px;
       }
 
       .scopeRow {
@@ -1203,7 +1254,9 @@
 
     <div class="mainShell">
       <header class="topbar">
-        <div class="topSearch" aria-label="Søgning">Søg sag, dokument eller QA (kommer senere)</div>
+        <label class="topSearch" for="projectSearchInput" aria-label="Søgning">
+          <input id="projectSearchInput" type="search" placeholder="Søg sag eller projektnavn">
+        </label>
         <div class="topActions">
           <div class="statusPill"><span class="statusDot"></span><span>Data: tenant</span></div>
           <button id="logoutBtn" class="btn btnCompact" type="button">Log ud</button>
@@ -1330,7 +1383,6 @@
             <div class="titleRow">
               <div>
                 <h1>Sagsoversigt</h1>
-                <p class="subtitle">Sagsoversigten er nu et modul i Fielddesk-cockpittet.</p>
               </div>
               <a class="btn btnCompact" href="#dashboard" data-view-link="dashboard">Dashboard</a>
             </div>
@@ -1341,29 +1393,25 @@
             <article class="statCard">
               <p class="infoLabel">Sager</p>
               <p id="dashboardProjectCount" class="statValue">-</p>
-              <p class="infoHint">Alle hentede sager.</p>
             </article>
             <article class="statCard">
               <p class="infoLabel">Aktive</p>
               <p id="projectOpenCount" class="statValue">-</p>
-              <p class="infoHint">Ikke markeret lukket.</p>
             </article>
             <article class="statCard">
-              <p class="infoLabel">Kræver blik</p>
+              <p class="infoLabel">OBS</p>
               <p id="dashboardAttentionCount" class="statValue">-</p>
-              <p class="infoHint">Stille eller OBS.</p>
             </article>
             <article class="statCard">
               <p class="infoLabel">Visning</p>
-              <p class="statValue">Mine</p>
-              <p class="infoHint">Eksisterende scope.</p>
+              <p id="currentScopeValue" class="statValue">Mine</p>
             </article>
           </section>
 
           <section class="panel toolbar">
             <div class="metaRow" id="listMetaText">Indlæser sager...</div>
-            <label>
-              <span class="subtitle">Sortering</span>
+            <label class="toolbarControl">
+              <span>Sortering:</span>
               <select id="sortSelect" class="sortSelect">
                 <option value="ref_asc">Projektnr. (stigende)</option>
                 <option value="ref_desc">Projektnr. (faldende)</option>
