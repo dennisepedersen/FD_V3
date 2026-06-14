@@ -68,6 +68,11 @@
       grid-template-columns: 1fr;
     }
 
+    .appShell.sidebarCollapsed {
+      --sidebar-expanded-width: 280px;
+      --sidebar-collapsed-width: 78px;
+    }
+
     .sidebar {
       position: sticky;
       top: 0;
@@ -86,6 +91,14 @@
     .brand {
       display: flex;
       align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .brandHeader {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
       gap: 10px;
       min-width: 0;
     }
@@ -124,6 +137,43 @@
       text-overflow: ellipsis;
     }
 
+    .sidebarToggle {
+      width: 40px;
+      height: 40px;
+      border: 1px solid rgba(191, 212, 234, 0.16);
+      border-radius: 12px;
+      display: inline-grid;
+      place-items: center;
+      background: rgba(255, 255, 255, 0.055);
+      color: #dce7f1;
+      cursor: pointer;
+      flex: 0 0 auto;
+    }
+
+    .sidebarToggle:hover {
+      border-color: rgba(94, 200, 229, 0.34);
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .sidebarToggleIcon {
+      width: 20px;
+      height: 20px;
+      display: block;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      fill: none;
+    }
+
+    .sidebarToggleIcon .iconExpanded {
+      display: block;
+    }
+
+    .sidebarToggleIcon .iconCollapsed {
+      display: none;
+    }
+
     .sideNav {
       display: grid;
       grid-auto-flow: column;
@@ -145,8 +195,9 @@
     .navItem {
       min-height: 54px;
       display: grid;
-      align-content: center;
-      gap: 2px;
+      grid-template-columns: auto minmax(0, 1fr);
+      align-items: center;
+      gap: 10px;
       border: 1px solid rgba(191, 212, 234, 0.14);
       border-radius: 14px;
       padding: 9px 11px;
@@ -168,6 +219,32 @@
       opacity: 0.74;
     }
 
+    .navIcon {
+      width: 22px;
+      height: 22px;
+      display: grid;
+      place-items: center;
+      color: #b9e9f5;
+      flex: 0 0 auto;
+    }
+
+    .navIcon svg {
+      width: 20px;
+      height: 20px;
+      display: block;
+      stroke: currentColor;
+      stroke-width: 1.9;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      fill: none;
+    }
+
+    .navCopy {
+      min-width: 0;
+      display: grid;
+      gap: 2px;
+    }
+
     .navItem strong {
       font-size: 13px;
       line-height: 1.2;
@@ -178,6 +255,29 @@
       font-size: 12px;
       overflow: hidden;
       text-overflow: ellipsis;
+    }
+
+    .sidebarCollapsed .brandText,
+    .sidebarCollapsed .navCopy {
+      display: none;
+    }
+
+    .sidebarCollapsed .brandHeader {
+      justify-content: center;
+    }
+
+    .sidebarCollapsed .navItem {
+      grid-template-columns: 1fr;
+      justify-items: center;
+      min-width: 52px;
+    }
+
+    .sidebarCollapsed .sidebarToggleIcon .iconExpanded {
+      display: none;
+    }
+
+    .sidebarCollapsed .sidebarToggleIcon .iconCollapsed {
+      display: block;
     }
 
     .mainShell {
@@ -883,7 +983,12 @@
 
     @media (min-width: 980px) {
       .appShell {
-        grid-template-columns: 280px minmax(0, 1fr);
+        grid-template-columns: var(--sidebar-expanded-width, 280px) minmax(0, 1fr);
+        transition: grid-template-columns 180ms ease;
+      }
+
+      .appShell.sidebarCollapsed {
+        grid-template-columns: var(--sidebar-collapsed-width, 78px) minmax(0, 1fr);
       }
 
       .sidebar {
@@ -900,6 +1005,10 @@
         align-content: start;
         padding: 18px 14px;
         overflow: auto;
+      }
+
+      .sidebarCollapsed .sideInner {
+        padding: 18px 10px;
       }
 
       .sideNav {
@@ -923,6 +1032,41 @@
         font-weight: 800;
         text-transform: uppercase;
         letter-spacing: 0.12em;
+      }
+
+      .sidebarCollapsed .brandHeader {
+        display: grid;
+        justify-items: center;
+      }
+
+      .sidebarCollapsed .brand {
+        justify-content: center;
+      }
+
+      .sidebarCollapsed .brandText,
+      .sidebarCollapsed .navLabel,
+      .sidebarCollapsed .navCopy {
+        display: none;
+      }
+
+      .sidebarCollapsed .sidebarToggle {
+        width: 42px;
+        height: 42px;
+      }
+
+      .sidebarCollapsed .sidebarToggleIcon .iconExpanded {
+        display: none;
+      }
+
+      .sidebarCollapsed .sidebarToggleIcon .iconCollapsed {
+        display: block;
+      }
+
+      .sidebarCollapsed .navItem {
+        min-height: 48px;
+        grid-template-columns: 1fr;
+        justify-items: center;
+        padding: 10px;
       }
 
       .topbar {
@@ -975,51 +1119,82 @@
   <div class="appShell">
     <aside class="sidebar" aria-label="Fielddesk navigation">
       <div class="sideInner">
-        <div class="brand">
-          <div class="brandMark">FD</div>
-          <div class="brandText">
-            <p class="brandName">Fielddesk</p>
-            <p class="brandSub">Platform cockpit</p>
+        <div class="brandHeader">
+          <div class="brand">
+            <div id="brandInitials" class="brandMark">FD</div>
+            <div class="brandText">
+              <p class="brandName">Fielddesk</p>
+              <p id="brandUserName" class="brandSub">Indlæser bruger...</p>
+            </div>
           </div>
+          <button id="sidebarToggle" class="sidebarToggle" type="button" aria-label="Fold menu" aria-expanded="true">
+            <svg class="sidebarToggleIcon" viewBox="0 0 24 24" aria-hidden="true">
+              <g class="iconExpanded">
+                <path d="M15 6l-6 6 6 6"></path>
+                <path d="M5 6v12"></path>
+              </g>
+              <g class="iconCollapsed">
+                <path d="M4 7h16"></path>
+                <path d="M4 12h16"></path>
+                <path d="M4 17h16"></path>
+              </g>
+            </svg>
+          </button>
         </div>
 
         <nav class="sideNav" aria-label="Moduler">
           <div class="navSection">
             <span class="navLabel">Overblik</span>
             <a class="navItem active" href="#dashboard" data-view-link="dashboard">
-              <strong>Dashboard</strong>
-              <span>Mit cockpit</span>
+              <span class="navIcon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M4 13h7V4H4z"></path><path d="M13 20h7V4h-7z"></path><path d="M4 20h7v-5H4z"></path></svg>
+              </span>
+              <span class="navCopy"><strong>Dashboard</strong><span>Mit cockpit</span></span>
             </a>
             <a class="navItem" href="#projects" data-view-link="projects">
-              <strong>Projekter</strong>
-              <span>Sagsoversigt</span>
+              <span class="navIcon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M4 7h16"></path><path d="M4 12h16"></path><path d="M4 17h10"></path><path d="M4 5v14"></path></svg>
+              </span>
+              <span class="navCopy"><strong>Projekter</strong><span>Sagsoversigt</span></span>
             </a>
             <a class="navItem navMuted" href="#dashboard" aria-disabled="true">
-              <strong>QA</strong>
-              <span>Via projekt</span>
+              <span class="navIcon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M5 6h14v9H8l-3 3z"></path><path d="M9 10h6"></path><path d="M9 13h4"></path></svg>
+              </span>
+              <span class="navCopy"><strong>QA</strong><span>Via projekt</span></span>
             </a>
             <a class="navItem navMuted" href="#dashboard" aria-disabled="true">
-              <strong>Dokumenter</strong>
-              <span>Preview</span>
+              <span class="navIcon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M7 3h7l4 4v14H7z"></path><path d="M14 3v5h5"></path><path d="M9 13h6"></path><path d="M9 16h5"></path></svg>
+              </span>
+              <span class="navCopy"><strong>Dokumenter</strong><span>Preview</span></span>
             </a>
           </div>
           <div class="navSection">
             <span class="navLabel">Drift</span>
             <a class="navItem navMuted" href="#dashboard" aria-disabled="true">
-              <strong>Økonomi</strong>
-              <span>Preview</span>
+              <span class="navIcon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M4 19h16"></path><path d="M7 16V9"></path><path d="M12 16V5"></path><path d="M17 16v-4"></path></svg>
+              </span>
+              <span class="navCopy"><strong>Økonomi</strong><span>Preview</span></span>
             </a>
             <a class="navItem navMuted" href="#dashboard" aria-disabled="true">
-              <strong>CO2 / ESG</strong>
-              <span>Teaser</span>
+              <span class="navIcon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M12 20c5-3 7-7 7-13-4 0-6 1-7 3-1-2-3-3-7-3 0 6 2 10 7 13z"></path><path d="M12 20v-8"></path></svg>
+              </span>
+              <span class="navCopy"><strong>CO2 / ESG</strong><span>Teaser</span></span>
             </a>
             <a class="navItem navMuted" href="#dashboard" aria-disabled="true">
-              <strong>Kalender</strong>
-              <span>Kommer senere</span>
+              <span class="navIcon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M5 5h14v15H5z"></path><path d="M8 3v4"></path><path d="M16 3v4"></path><path d="M5 10h14"></path></svg>
+              </span>
+              <span class="navCopy"><strong>Kalender</strong><span>Kommer senere</span></span>
             </a>
             <a class="navItem navMuted" href="#dashboard" aria-disabled="true">
-              <strong>Admin</strong>
-              <span>Indstillinger</span>
+              <span class="navIcon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4-3 7-7 9-4-2-7-5-7-9V6z"></path><path d="M9.5 12l1.8 1.8 3.7-4"></path></svg>
+              </span>
+              <span class="navCopy"><strong>Admin</strong><span>Indstillinger</span></span>
             </a>
           </div>
         </nav>

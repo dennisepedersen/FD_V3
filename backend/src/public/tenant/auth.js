@@ -557,6 +557,10 @@
     }
 
     const userPill = document.getElementById("userPill");
+    const appShell = document.querySelector(".appShell");
+    const brandInitials = document.getElementById("brandInitials");
+    const brandUserName = document.getElementById("brandUserName");
+    const sidebarToggle = document.getElementById("sidebarToggle");
     const logoutBtn = document.getElementById("logoutBtn");
     const dashboardView = document.getElementById("dashboardView");
     const projectsView = document.getElementById("projectsView");
@@ -594,6 +598,8 @@
       currentView: "dashboard",
     };
 
+    applySidebarCollapsed(getSidebarCollapsedPreference());
+
     const ACTIVITY_FIELD_CANDIDATES = [
       "last_activity_at",
       "last_activity",
@@ -608,6 +614,55 @@
       if (node) {
         node.textContent = value;
       }
+    }
+
+    function getSidebarCollapsedPreference() {
+      return window.localStorage.getItem("fielddesk_sidebar_collapsed") === "true";
+    }
+
+    function applySidebarCollapsed(collapsed) {
+      if (!appShell) {
+        return;
+      }
+      appShell.classList.toggle("sidebarCollapsed", Boolean(collapsed));
+      if (sidebarToggle) {
+        sidebarToggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+        sidebarToggle.setAttribute("aria-label", collapsed ? "Åbn menu" : "Fold menu");
+      }
+    }
+
+    function compactUserName(name) {
+      const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
+      if (parts.length <= 2) {
+        return parts.join(" ") || "Fielddesk";
+      }
+      return `${parts[0]} ${parts[1].charAt(0).toUpperCase()}. ${parts[parts.length - 1]}`;
+    }
+
+    function getLoginInitials(user) {
+      const login = String(
+        (user && (user.username || user.login_name || user.loginName))
+          || (user && user.email ? String(user.email).split("@")[0] : "")
+          || ""
+      ).trim();
+
+      if (login) {
+        return login.replace(/[^a-zA-Z0-9]/g, "").slice(0, 4).toUpperCase() || "FD";
+      }
+
+      const nameParts = String(user && user.name ? user.name : "")
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean);
+      const initials = nameParts.map((part) => part.charAt(0)).join("").slice(0, 4).toUpperCase();
+      return initials || "FD";
+    }
+
+    function renderUserChrome() {
+      const user = state.me || {};
+      const displayName = compactUserName(user.name || "Fielddesk");
+      setText(brandInitials, getLoginInitials(user));
+      setText(brandUserName, displayName);
     }
 
     function getCurrentAppViewFromHash() {
@@ -1567,6 +1622,7 @@
     try {
       const me = await apiFetch("/api/me", { method: "GET" });
       state.me = me && me.user ? me.user : null;
+      renderUserChrome();
       if (userPill) {
         const name = state.me && state.me.name ? state.me.name : "Ukendt bruger";
         const role = state.me && state.me.role ? state.me.role : "rolle ukendt";
@@ -1592,6 +1648,14 @@
       sortSelect.addEventListener("change", () => {
         state.sortMode = sortSelect.value;
         renderProjects();
+      });
+    }
+
+    if (sidebarToggle) {
+      sidebarToggle.addEventListener("click", () => {
+        const nextCollapsed = !(appShell && appShell.classList.contains("sidebarCollapsed"));
+        window.localStorage.setItem("fielddesk_sidebar_collapsed", nextCollapsed ? "true" : "false");
+        applySidebarCollapsed(nextCollapsed);
       });
     }
 
