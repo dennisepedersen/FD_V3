@@ -1,5 +1,6 @@
 const crypto = require("crypto");
 const env = require("../config/env");
+const { materializeProjectActivityFromFitterHours } = require("./projectActivityMaterializer");
 
 const PROJECT_DETAIL_ENDPOINT = "/api/v4/projects/id/{EK ProjectID}";
 
@@ -391,6 +392,27 @@ async function summarizeExistingProjectRows(client, { tenantId, projectId }) {
   };
 }
 
+async function loadProjectRefreshStatus(client, { tenantId, projectId }) {
+  const { rows: tableRows } = await client.query(
+    "SELECT to_regclass('public.project_fitterhours_refresh_status') AS table_name"
+  );
+  if (!tableRows[0]?.table_name) {
+    return null;
+  }
+
+  const { rows } = await client.query(
+    `
+      SELECT status, blocked_reason
+      FROM project_fitterhours_refresh_status
+      WHERE tenant_id = $1
+        AND project_id = $2
+      LIMIT 1
+    `,
+    [tenantId, projectId]
+  );
+  return rows[0] || null;
+}
+
 function detectCrossProjectSourceKeyConflicts({ existingRowsBySourceKey, mappedRows, expectedProjectId }) {
   const conflicts = [];
   mappedRows.forEach((row) => {
@@ -413,11 +435,11 @@ function detectFdProjectIdMismatch({ existingRowsBySourceKey, mappedRows, expect
   return mappedRows
     .map((row) => {
       const existing = existingRowsBySourceKey.get(row.sourceKey);
-      if (!existing || !existing.fd_project_id) return null;
+      if (!existing) return null;
       if (String(existing.fd_project_id) === String(expectedProjectId)) return null;
       return {
         sourceKey: row.sourceKey,
-        existingFdProjectId: existing.fd_project_id,
+        existingFdProjectId: existing.fd_project_id || null,
         expectedFdProjectId: expectedProjectId,
       };
     })
@@ -445,7 +467,7 @@ function numbersEqual(left, right) {
 function classifyExistingRowAction({ row, existingRowsBySourceKey, expectedProjectId }) {
   const existing = existingRowsBySourceKey.get(row.sourceKey);
   if (!existing) return "insert";
-  if (existing.fd_project_id && String(existing.fd_project_id) !== String(expectedProjectId)) return "blocked";
+  if (!existing.fd_project_id || String(existing.fd_project_id) !== String(expectedProjectId)) return "blocked";
   if (row.fitterHourId && String(existing.fitter_hour_id || "") !== String(row.fitterHourId)) return "update";
   if (row.externalProjectRef && String(existing.external_project_ref || "") !== String(row.externalProjectRef)) return "update";
   if (row.projectId && String(existing.project_id || "") !== String(row.projectId)) return "update";
@@ -483,19 +505,23 @@ function summarizeDryRun({ mappedRows, existingRowsBySourceKey, expectedProjectI
 }
 
 function resultStatusForGates({
+  existingBlockedStatus,
   referenceMatch,
   duplicateSourceKeys,
   crossProjectConflicts,
   fdProjectIdMismatches,
+  sizeClass,
 }) {
+  if (existingBlockedStatus) return existingBlockedStatus;
   if (!referenceMatch) return "blocked_reference_mismatch";
   if (duplicateSourceKeys.length) return "blocked_duplicate_source_keys";
   if (crossProjectConflicts.length) return "blocked_cross_project_conflict";
   if (fdProjectIdMismatches.length) return "blocked_fd_project_mismatch";
+  if (sizeClass === "LARGE") return "blocked_large";
   return "ready";
 }
 
-async function preCheckProjectFitterhoursRefresh(client, {
+async function buildProjectFitterhoursRefreshPlan(client, {
   tenantConfig,
   ekProjectId = null,
   projectId = null,
@@ -517,6 +543,13 @@ async function preCheckProjectFitterhoursRefresh(client, {
   });
   const liveReference = extracted.liveReference || project.external_project_ref;
   const referenceMatch = normalizeReference(project.external_project_ref) === normalizeReference(liveReference);
+  const existingRefreshStatus = await loadProjectRefreshStatus(client, {
+    tenantId: tenantConfig.tenantId,
+    projectId: project.project_id,
+  });
+  const existingBlockedStatus = existingRefreshStatus?.status?.startsWith("blocked_")
+    ? existingRefreshStatus.status
+    : null;
   const { mappedRows, filteredOutRows } = mapV4ProjectDetailFitterHourRows({
     fitterHours: extracted.fitterHours,
     ekProjectId: resolvedEkProjectId,
@@ -548,13 +581,15 @@ async function preCheckProjectFitterhoursRefresh(client, {
   });
   const sizeClass = classifyRefreshVolume({ expectedInserts: dryRun.inserted });
   const status = resultStatusForGates({
+    existingBlockedStatus,
     referenceMatch,
     duplicateSourceKeys,
     crossProjectConflicts,
     fdProjectIdMismatches,
+    sizeClass,
   });
 
-  return {
+  const preCheck = {
     status,
     endpoint: PROJECT_DETAIL_ENDPOINT,
     project: {
@@ -586,6 +621,7 @@ async function preCheckProjectFitterhoursRefresh(client, {
       crossProjectConflictSamples: crossProjectConflicts.slice(0, 5),
       fdProjectIdMismatchCount: fdProjectIdMismatches.length,
       fdProjectIdMismatchSamples: fdProjectIdMismatches.slice(0, 5),
+      existingBlockedStatus,
       sizeClass,
     },
     dryRun,
@@ -600,6 +636,133 @@ async function preCheckProjectFitterhoursRefresh(client, {
       deletesEnabled: false,
     },
   };
+
+  return {
+    preCheck,
+    projectRow: project,
+    mappedRows,
+    existingRowsBySourceKey,
+  };
+}
+
+async function preCheckProjectFitterhoursRefresh(client, options) {
+  const plan = await buildProjectFitterhoursRefreshPlan(client, options);
+  return plan.preCheck;
+}
+
+function rowParams({ tenantId, fdProjectId, row }) {
+  return [
+    tenantId,
+    row.sourceKey,
+    row.fitterHourId,
+    row.externalProjectRef,
+    row.projectId,
+    row.fitterId,
+    row.fitterCategoryId,
+    row.workDate,
+    row.hours,
+    row.note,
+    row.description,
+    JSON.stringify(row.rawPayloadJson || {}),
+    fdProjectId,
+  ];
+}
+
+async function safeUpsertFitterHoursForProject(client, {
+  tenantId,
+  fdProjectId,
+  mappedRows,
+  existingRowsBySourceKey,
+}) {
+  const result = {
+    inserted: 0,
+    updated: 0,
+    unchanged: 0,
+    skipped: 0,
+  };
+
+  for (const row of mappedRows) {
+    const action = classifyExistingRowAction({
+      row,
+      existingRowsBySourceKey,
+      expectedProjectId: fdProjectId,
+    });
+
+    if (action === "blocked") {
+      throw new Error(`cross_project_source_key_conflict:${row.sourceKey}`);
+    }
+    if (action === "unchanged") {
+      result.unchanged += 1;
+      continue;
+    }
+
+    if (action === "insert") {
+      const insert = await client.query(
+        `
+          INSERT INTO fitter_hour (
+            tenant_id,
+            source_key,
+            fitter_hour_id,
+            external_project_ref,
+            project_id,
+            fitter_id,
+            fitter_category_id,
+            work_date,
+            hours,
+            note,
+            description,
+            raw_payload_json,
+            fd_project_id,
+            synced_at
+          )
+          VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8::timestamptz, $9::numeric,
+            $10, $11, $12::jsonb, $13::uuid, now()
+          )
+          ON CONFLICT (tenant_id, source_key) DO NOTHING
+          RETURNING id
+        `,
+        rowParams({ tenantId, fdProjectId, row })
+      );
+      if (insert.rowCount === 1) result.inserted += 1;
+      else result.skipped += 1;
+      continue;
+    }
+
+    const update = await client.query(
+      `
+        UPDATE fitter_hour
+        SET
+          fitter_hour_id = COALESCE($3, fitter_hour_id),
+          external_project_ref = COALESCE($4, external_project_ref),
+          project_id = COALESCE($5, project_id),
+          fitter_id = COALESCE($6, fitter_id),
+          fitter_category_id = COALESCE($7, fitter_category_id),
+          work_date = COALESCE($8::timestamptz, work_date),
+          hours = COALESCE($9::numeric, hours),
+          note = COALESCE(NULLIF($10, ''), note),
+          description = COALESCE(NULLIF($11, ''), description),
+          raw_payload_json = COALESCE(raw_payload_json, '{}'::jsonb)
+            || jsonb_build_object(
+              'fielddesk_v4_project_detail_refresh',
+              $12::jsonb,
+              'fielddesk_v4_project_detail_refreshed_at',
+              now()
+            ),
+          synced_at = now(),
+          updated_at = now()
+        WHERE tenant_id = $1
+          AND source_key = $2
+          AND fd_project_id = $13::uuid
+        RETURNING id
+      `,
+      rowParams({ tenantId, fdProjectId, row })
+    );
+    if (update.rowCount === 1) result.updated += 1;
+    else result.skipped += 1;
+  }
+
+  return result;
 }
 
 function runStatusFromPreCheckStatus(status) {
@@ -618,8 +781,11 @@ async function recordRefreshRun(client, {
   finishedAt = new Date(),
   errorCode = null,
   errorMessage = null,
+  runStatus = null,
+  resultCounts = null,
 }) {
   const durationMs = Math.max(0, finishedAt.getTime() - startedAt.getTime());
+  const counts = resultCounts || preCheckResult.dryRun;
   const { rows } = await client.query(
     `
       INSERT INTO targeted_fitterhours_refresh_runs (
@@ -663,7 +829,7 @@ async function recordRefreshRun(client, {
       externalProjectRef,
       triggerType,
       triggeredByUserId,
-      runStatusFromPreCheckStatus(preCheckResult.status),
+      runStatus || runStatusFromPreCheckStatus(preCheckResult.status),
       preCheckResult.gates.referenceMatch,
       preCheckResult.ekProjectDetail.liveReference,
       preCheckResult.gates.duplicateSourceKeysCount,
@@ -672,9 +838,9 @@ async function recordRefreshRun(client, {
       preCheckResult.gates.sizeClass,
       preCheckResult.ekProjectDetail.remoteRows,
       preCheckResult.mapping.mappedRows,
-      preCheckResult.dryRun.inserted,
-      preCheckResult.dryRun.updated,
-      preCheckResult.dryRun.unchanged,
+      counts.inserted || 0,
+      counts.updated || 0,
+      counts.unchanged || 0,
       startedAt,
       finishedAt,
       durationMs,
@@ -694,9 +860,12 @@ async function updateRefreshStatus(client, {
   preCheckResult,
   errorCode = null,
   errorMessage = null,
+  appliedResult = null,
+  materializerResult = null,
 }) {
   const status = preCheckResult.status;
-  const isFailure = status !== "ready";
+  const finalStatus = appliedResult ? "fresh" : status;
+  const isFailure = finalStatus !== "ready" && finalStatus !== "fresh";
   await client.query(
     `
       INSERT INTO project_fitterhours_refresh_status (
@@ -706,6 +875,10 @@ async function updateRefreshStatus(client, {
         external_project_ref,
         status,
         last_checked_at,
+        last_refreshed_at,
+        last_success_at,
+        last_failure_at,
+        last_activity_materialized_at,
         last_remote_fitterhours_count,
         last_inserted,
         last_updated,
@@ -717,7 +890,12 @@ async function updateRefreshStatus(client, {
         blocked_payload_json
       )
       VALUES (
-        $1, $2, $3, $4, $5, now(), $6, $7, $8, $9,
+        $1, $2, $3, $4, $5, now(),
+        CASE WHEN $15::boolean THEN now() ELSE NULL END,
+        CASE WHEN $15::boolean THEN now() ELSE NULL END,
+        CASE WHEN $12::boolean THEN now() ELSE NULL END,
+        CASE WHEN $16::boolean THEN now() ELSE NULL END,
+        $6, $7, $8, $9,
         $10, $11, CASE WHEN $12::boolean THEN 1 ELSE 0 END, $13, $14::jsonb
       )
       ON CONFLICT (tenant_id, project_id)
@@ -726,6 +904,10 @@ async function updateRefreshStatus(client, {
         external_project_ref = EXCLUDED.external_project_ref,
         status = EXCLUDED.status,
         last_checked_at = EXCLUDED.last_checked_at,
+        last_refreshed_at = COALESCE(EXCLUDED.last_refreshed_at, project_fitterhours_refresh_status.last_refreshed_at),
+        last_success_at = COALESCE(EXCLUDED.last_success_at, project_fitterhours_refresh_status.last_success_at),
+        last_failure_at = COALESCE(EXCLUDED.last_failure_at, project_fitterhours_refresh_status.last_failure_at),
+        last_activity_materialized_at = COALESCE(EXCLUDED.last_activity_materialized_at, project_fitterhours_refresh_status.last_activity_materialized_at),
         last_remote_fitterhours_count = EXCLUDED.last_remote_fitterhours_count,
         last_inserted = EXCLUDED.last_inserted,
         last_updated = EXCLUDED.last_updated,
@@ -745,18 +927,129 @@ async function updateRefreshStatus(client, {
       projectId,
       ekProjectId,
       externalProjectRef,
-      status,
+      finalStatus,
       preCheckResult.ekProjectDetail.remoteRows,
-      preCheckResult.dryRun.inserted,
-      preCheckResult.dryRun.updated,
-      preCheckResult.dryRun.unchanged,
+      appliedResult?.inserted ?? preCheckResult.dryRun.inserted,
+      appliedResult?.updated ?? preCheckResult.dryRun.updated,
+      appliedResult?.unchanged ?? preCheckResult.dryRun.unchanged,
       errorCode,
       errorMessage,
       isFailure,
       isFailure ? status : null,
       isFailure ? JSON.stringify(preCheckResult.gates) : null,
+      Boolean(appliedResult),
+      Boolean(materializerResult),
     ]
   );
+}
+
+async function refreshProjectFitterhours(client, {
+  tenantConfig,
+  ekProjectId = null,
+  projectId = null,
+  projectRef = null,
+  triggerType = "maintenance",
+  triggeredByUserId = null,
+}) {
+  const startedAt = new Date();
+  const plan = await buildProjectFitterhoursRefreshPlan(client, {
+    tenantConfig,
+    ekProjectId,
+    projectId,
+    projectRef,
+  });
+  const { preCheck, mappedRows, existingRowsBySourceKey } = plan;
+
+  if (preCheck.status !== "ready") {
+    await client.query("BEGIN");
+    try {
+      await updateRefreshStatus(client, {
+        tenantId: tenantConfig.tenantId,
+        projectId: preCheck.project.fdProjectId,
+        ekProjectId: preCheck.project.ekProjectId,
+        externalProjectRef: preCheck.project.externalProjectRef,
+        preCheckResult: preCheck,
+      });
+      const runId = await recordRefreshRun(client, {
+        tenantId: tenantConfig.tenantId,
+        projectId: preCheck.project.fdProjectId,
+        ekProjectId: preCheck.project.ekProjectId,
+        externalProjectRef: preCheck.project.externalProjectRef,
+        triggerType,
+        triggeredByUserId,
+        preCheckResult: preCheck,
+        startedAt,
+        finishedAt: new Date(),
+        runStatus: "blocked",
+      });
+      await client.query("COMMIT");
+      return {
+        status: preCheck.status,
+        preCheck,
+        runId,
+        applyResult: null,
+        activityResult: null,
+      };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    }
+  }
+
+  await client.query("BEGIN");
+  try {
+    // Validate that phase 1 audit/status schema exists before touching fitter_hour rows.
+    await updateRefreshStatus(client, {
+      tenantId: tenantConfig.tenantId,
+      projectId: preCheck.project.fdProjectId,
+      ekProjectId: preCheck.project.ekProjectId,
+      externalProjectRef: preCheck.project.externalProjectRef,
+      preCheckResult: preCheck,
+    });
+    const applyResult = await safeUpsertFitterHoursForProject(client, {
+      tenantId: tenantConfig.tenantId,
+      fdProjectId: preCheck.project.fdProjectId,
+      mappedRows,
+      existingRowsBySourceKey,
+    });
+    const activityResult = await materializeProjectActivityFromFitterHours(client, {
+      tenantId: tenantConfig.tenantId,
+      projectIds: [preCheck.project.fdProjectId],
+    });
+    await updateRefreshStatus(client, {
+      tenantId: tenantConfig.tenantId,
+      projectId: preCheck.project.fdProjectId,
+      ekProjectId: preCheck.project.ekProjectId,
+      externalProjectRef: preCheck.project.externalProjectRef,
+      preCheckResult: preCheck,
+      appliedResult: applyResult,
+      materializerResult: activityResult,
+    });
+    const runId = await recordRefreshRun(client, {
+      tenantId: tenantConfig.tenantId,
+      projectId: preCheck.project.fdProjectId,
+      ekProjectId: preCheck.project.ekProjectId,
+      externalProjectRef: preCheck.project.externalProjectRef,
+      triggerType,
+      triggeredByUserId,
+      preCheckResult: preCheck,
+      startedAt,
+      finishedAt: new Date(),
+      runStatus: "success",
+      resultCounts: applyResult,
+    });
+    await client.query("COMMIT");
+    return {
+      status: "success",
+      preCheck,
+      runId,
+      applyResult,
+      activityResult,
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  }
 }
 
 module.exports = {
@@ -771,6 +1064,8 @@ module.exports = {
   detectCrossProjectSourceKeyConflicts,
   detectFdProjectIdMismatch,
   classifyRefreshVolume,
+  safeUpsertFitterHoursForProject,
+  refreshProjectFitterhours,
   recordRefreshRun,
   updateRefreshStatus,
 };

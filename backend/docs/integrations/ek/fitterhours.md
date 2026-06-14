@@ -280,6 +280,82 @@ Later phases:
 - design a small tenant-scoped scheduler;
 - add tenant onboarding history selection and slow background backfill.
 
+## Permanent Refresh Model: Phase 2
+
+Phase 2 adds controlled admin/maintenance apply for one project at a time.
+
+Allowed source:
+
+```text
+GET /api/v4/projects/id/{EK ProjectID}
+```
+
+Disallowed sources:
+
+```text
+GET /api/v4/fitterhours?searchAttribute=ProjectID
+POST /api/v4/fitterhours/query
+```
+
+Scope:
+
+- one tenant;
+- one concrete project, selected by `--project-ref` or `--project-id`;
+- optional EK ProjectID as an additional resolver/guard;
+- no batch mode;
+- no tenant-wide refresh;
+- no scheduler, cron, UI, project-list, dashboard, or onboarding flow.
+
+Apply is allowed only when all pre-check gates pass:
+
+- local FD reference matches live EK reference;
+- duplicate remote `source_key` count is 0;
+- cross-project `source_key` conflict count is 0;
+- `fd_project_id` mismatch count is 0;
+- size class is not `LARGE`;
+- project is not already blocked.
+
+Blocked outcomes:
+
+- `blocked_reference_mismatch`
+- `blocked_cross_project_conflict`
+- `blocked_fd_project_mismatch`
+- `blocked_duplicate_source_keys`
+- `blocked_large`
+
+Blocked outcomes may write run/status audit, but must not write `fitter_hour`
+and must not run the project activity materializer.
+
+Safe upsert rule:
+
+- update only existing `fitter_hour` rows where `tenant_id`, `source_key`, and
+  `fd_project_id` match the resolved project;
+- insert only when the incoming `source_key` does not already exist;
+- if an incoming `source_key` exists on another `fd_project_id`, block before
+  apply;
+- never reparent or move existing rows between projects;
+- never delete rows.
+
+After successful apply, the project activity materializer runs only for the one
+refreshed project.
+
+Admin command:
+
+```text
+project-targeted-fitterhours-refresh-admin
+```
+
+Example:
+
+```powershell
+node scripts/fd_maintenance_job.js `
+  --job project-targeted-fitterhours-refresh-admin `
+  --mode apply `
+  --tenant hoyrup-clemmensen `
+  --project-ref 13838 `
+  --confirm APPLY:project-targeted-fitterhours-refresh-admin:hoyrup-clemmensen:13838
+```
+
 ## VERIFIED Cross-Project Source Key Conflict
 
 Verified 2026-06-13 for tenant `hoyrup-clemmensen`:

@@ -22,6 +22,14 @@ const JOBS = {
     acceptsProjectRef: true,
     acceptsProjectId: true,
   },
+  'project-targeted-fitterhours-refresh-admin': {
+    modes: new Set(['dry-run', 'apply']),
+    requiresEkProjectId: false,
+    acceptsEkProjectId: true,
+    acceptsProjectRef: true,
+    acceptsProjectId: true,
+    confirmTarget: 'project',
+  },
 };
 const TENANT_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const ACTOR_PATTERN = /^[a-zA-Z0-9._@-]{1,128}$/;
@@ -39,6 +47,8 @@ function usage() {
     '  node tools/render_maintenance_job.js --job project-targeted-fitterhours-refresh-v4 --mode dry-run --tenant <tenant> --ek-project-id <id> [--project-ref <ref>] [--actor <actor>]',
     '  node tools/render_maintenance_job.js --job project-targeted-fitterhours-refresh-v4 --mode apply --tenant <tenant> --ek-project-id <id> --confirm APPLY:project-targeted-fitterhours-refresh-v4:<tenant>:<id> [--project-ref <ref>] [--actor <actor>]',
     '  node tools/render_maintenance_job.js --job project-targeted-fitterhours-refresh-dry-run --mode dry-run --tenant <tenant> [--ek-project-id <id>] [--project-ref <ref>] [--actor <actor>]',
+    '  node tools/render_maintenance_job.js --job project-targeted-fitterhours-refresh-admin --mode dry-run --tenant <tenant> [--ek-project-id <id>] --project-ref <ref> [--actor <actor>]',
+    '  node tools/render_maintenance_job.js --job project-targeted-fitterhours-refresh-admin --mode apply --tenant <tenant> --project-ref <ref> --confirm APPLY:project-targeted-fitterhours-refresh-admin:<tenant>:<ref> [--actor <actor>]',
     '',
     'Environment:',
     '  RENDER_API_KEY                  Required. Never logged.',
@@ -89,6 +99,20 @@ function parseArgs(argv) {
   return args;
 }
 
+function confirmTargetFor(job, args) {
+  if (job.confirmTarget === 'project') {
+    const target = args.projectRef || args.projectId;
+    if (!target) {
+      throw new Error(`${args.job} apply requires --project-ref or --project-id.`);
+    }
+    return target;
+  }
+  if (job.requiresEkProjectId) {
+    return args.ekProjectId;
+  }
+  return null;
+}
+
 function validateArgs(args) {
   if (args.help) return;
   const job = JOBS[args.job];
@@ -135,9 +159,16 @@ function validateArgs(args) {
       && !args.projectId) {
     throw new Error(`${args.job} requires at least one of --ek-project-id, --project-ref, or --project-id.`);
   }
+  if (args.job === 'project-targeted-fitterhours-refresh-admin'
+      && !args.ekProjectId
+      && !args.projectRef
+      && !args.projectId) {
+    throw new Error(`${args.job} requires at least one of --ek-project-id, --project-ref, or --project-id.`);
+  }
   if (args.mode === 'apply') {
-    const expected = job.requiresEkProjectId
-      ? `APPLY:${args.job}:${args.tenant}:${args.ekProjectId}`
+    const target = confirmTargetFor(job, args);
+    const expected = target
+      ? `APPLY:${args.job}:${args.tenant}:${target}`
       : `APPLY:${args.job}:${args.tenant}`;
     if (args.confirm !== expected) {
       throw new Error(`Apply requires --confirm ${expected}`);

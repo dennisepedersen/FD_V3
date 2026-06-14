@@ -35,6 +35,15 @@ const JOBS = {
     acceptsProjectRef: true,
     acceptsProjectId: true,
   },
+  'project-targeted-fitterhours-refresh-admin': {
+    script: 'scripts/project_targeted_fitterhours_refresh_admin.js',
+    modes: new Set(['dry-run', 'apply']),
+    requiresEkProjectId: false,
+    acceptsEkProjectId: true,
+    acceptsProjectRef: true,
+    acceptsProjectId: true,
+    confirmTarget: 'project',
+  },
   'project-activity-materialize': {
     script: 'scripts/materialize_project_activity_from_fitter_hour.js',
     modes: new Set(['status-only', 'dry-run', 'apply']),
@@ -57,6 +66,8 @@ function usage() {
     '  node scripts/fd_maintenance_job.js --job project-targeted-fitterhours-refresh-v4 --mode apply --tenant hoyrup-clemmensen --ek-project-id 25906 --confirm APPLY:project-targeted-fitterhours-refresh-v4:hoyrup-clemmensen:25906',
     '  node scripts/fd_maintenance_job.js --job project-targeted-fitterhours-refresh-dry-run --mode dry-run --tenant hoyrup-clemmensen --project-ref 13838',
     '  node scripts/fd_maintenance_job.js --job project-targeted-fitterhours-refresh-dry-run --mode dry-run --tenant hoyrup-clemmensen --ek-project-id 25000 --project-ref 10889-005',
+    '  node scripts/fd_maintenance_job.js --job project-targeted-fitterhours-refresh-admin --mode dry-run --tenant hoyrup-clemmensen --project-ref 13838',
+    '  node scripts/fd_maintenance_job.js --job project-targeted-fitterhours-refresh-admin --mode apply --tenant hoyrup-clemmensen --project-ref 13838 --confirm APPLY:project-targeted-fitterhours-refresh-admin:hoyrup-clemmensen:13838',
     '  node scripts/fd_maintenance_job.js --job project-activity-materialize --mode dry-run --tenant hoyrup-clemmensen',
     '  node scripts/fd_maintenance_job.js --job project-activity-materialize --mode apply --tenant hoyrup-clemmensen --confirm APPLY:project-activity-materialize:hoyrup-clemmensen',
     '',
@@ -65,6 +76,7 @@ function usage() {
     '  project-targeted-fitterhours-backfill',
     '  project-targeted-fitterhours-refresh-v4',
     '  project-targeted-fitterhours-refresh-dry-run',
+    '  project-targeted-fitterhours-refresh-admin',
     '  project-activity-materialize',
     '',
     'Allowed modes:',
@@ -116,6 +128,20 @@ function parseArgs(argv) {
   return args;
 }
 
+function confirmTargetFor(job, args) {
+  if (job.confirmTarget === 'project') {
+    const target = args.projectRef || args.projectId;
+    if (!target) {
+      throw new Error(`${args.job} apply requires --project-ref or --project-id.`);
+    }
+    return target;
+  }
+  if (job.requiresEkProjectId) {
+    return args.ekProjectId;
+  }
+  return null;
+}
+
 function validateArgs(args) {
   const job = JOBS[args.job];
   if (!job) {
@@ -158,9 +184,16 @@ function validateArgs(args) {
       && !args.projectId) {
     throw new Error(`${args.job} requires at least one of --ek-project-id, --project-ref, or --project-id.`);
   }
+  if (args.job === 'project-targeted-fitterhours-refresh-admin'
+      && !args.ekProjectId
+      && !args.projectRef
+      && !args.projectId) {
+    throw new Error(`${args.job} requires at least one of --ek-project-id, --project-ref, or --project-id.`);
+  }
   if (args.mode === 'apply') {
-    const expected = job.requiresEkProjectId
-      ? `APPLY:${args.job}:${args.tenant}:${args.ekProjectId}`
+    const target = confirmTargetFor(job, args);
+    const expected = target
+      ? `APPLY:${args.job}:${args.tenant}:${target}`
       : `APPLY:${args.job}:${args.tenant}`;
     if (args.confirm !== expected) {
       throw new Error(`Apply mode requires --confirm ${expected}`);
