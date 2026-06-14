@@ -248,6 +248,10 @@
       gap: 5px;
     }
 
+    .fieldSubtle {
+      background: rgba(255, 255, 255, 0.04);
+    }
+
     .fieldLabel {
       color: var(--muted);
       font-size: 12px;
@@ -263,6 +267,16 @@
 
     .fieldValueMuted {
       color: #6f7b8b;
+    }
+
+    .fieldValueStrong {
+      color: var(--brand-strong);
+    }
+
+    .fieldNote {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
     }
 
     .placeholder {
@@ -1141,6 +1155,7 @@
         <div class="field">
           <span class="fieldLabel">Ansvarlig</span>
           <span id="detailResponsible" class="fieldValue">-</span>
+          <span id="detailResponsibleNote" class="fieldNote" hidden></span>
         </div>
         <div class="field">
           <span class="fieldLabel">Teamleder</span>
@@ -1149,11 +1164,11 @@
       </div>
     </section>
 
-    <section class="panel sectionPanel">
+    <section id="relationSection" class="panel sectionPanel" hidden>
       <h2 class="sectionTitle">Relation</h2>
       <div class="fieldGrid">
         <div class="field">
-          <span class="fieldLabel">Parent projekt</span>
+          <span class="fieldLabel">Overordnet sag</span>
           <span id="detailParentProject" class="fieldValue">-</span>
         </div>
       </div>
@@ -1163,16 +1178,25 @@
       <h2 class="sectionTitle">Aktivitet</h2>
       <div class="fieldGrid">
         <div class="field">
-          <span class="fieldLabel">Activity date</span>
+          <span class="fieldLabel">Sidste aktivitet</span>
           <span id="detailActivityDate" class="fieldValue">-</span>
+          <span id="detailActivitySource" class="fieldNote" hidden></span>
         </div>
         <div class="field">
-          <span class="fieldLabel">Last update</span>
-          <span id="detailUpdatedDate" class="fieldValue">-</span>
-        </div>
-        <div class="field">
-          <span class="fieldLabel">Dage siden aktivitet</span>
+          <span class="fieldLabel">Dage uden aktivitet</span>
           <span id="detailDaysSinceActivity" class="fieldValue">-</span>
+        </div>
+        <div class="field">
+          <span class="fieldLabel">Seneste registrering</span>
+          <span id="detailLastRegistration" class="fieldValue">-</span>
+        </div>
+        <div class="field">
+          <span class="fieldLabel">Seneste montørtime</span>
+          <span id="detailLastFitterHour" class="fieldValue">-</span>
+        </div>
+        <div class="field fieldSubtle">
+          <span class="fieldLabel">Senest opdateret</span>
+          <span id="detailUpdatedDate" class="fieldValue">-</span>
         </div>
       </div>
     </section>
@@ -1185,15 +1209,15 @@
           <span id="detailMargin" class="fieldValue">-</span>
         </div>
         <div class="field">
-          <span class="fieldLabel">Cost</span>
+          <span class="fieldLabel">Kost</span>
           <span id="detailCost" class="fieldValue">-</span>
         </div>
         <div class="field">
-          <span class="fieldLabel">Ongoing</span>
+          <span class="fieldLabel">Igangværende</span>
           <span id="detailOngoing" class="fieldValue">-</span>
         </div>
         <div class="field">
-          <span class="fieldLabel">Billed</span>
+          <span class="fieldLabel">Faktureret</span>
           <span id="detailBilled" class="fieldValue">-</span>
         </div>
       </div>
@@ -1209,7 +1233,7 @@
       <h2 class="sectionTitle">Timer</h2>
       <div class="summaryRow">
         <div class="summaryCard">
-          <span class="summaryLabel" title="Baseret p&aring; syncede timeposter i Fielddesk. Ikke n&oslash;dvendigvis alle timer fra E-Komplet.">Syncede timer</span>
+          <span class="summaryLabel" title="Baseret p&aring; timeposter, der allerede findes i Fielddesk.">Registrerede timer</span>
           <span id="hoursTotal" class="summaryValue">—</span>
         </div>
         <div class="summaryCard">
@@ -1222,7 +1246,7 @@
         </div>
       </div>
       <div id="hoursState" class="sectionState">Indlæser timer...</div>
-      <p class="sectionState">Baseret p&aring; syncede timeposter i Fielddesk. Ikke n&oslash;dvendigvis alle timer fra E-Komplet.</p>
+      <p class="sectionState">Baseret p&aring; timeposter, der allerede findes i Fielddesk.</p>
       <div id="hoursList" class="itemList"></div>
     </section>
   </main>

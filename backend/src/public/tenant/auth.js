@@ -1997,7 +1997,9 @@
     }
   }
 
-  function renderProjectDetail(vm) {
+  function renderProjectDetail(vm, options) {
+    const currentUser = options && options.currentUser ? options.currentUser : null;
+
     function el(id) {
       return document.getElementById(id);
     }
@@ -2014,6 +2016,74 @@
       } else {
         node.classList.remove("fieldValueMuted");
       }
+    }
+
+    function setNote(id, value) {
+      const node = el(id);
+      if (!node) {
+        return;
+      }
+      const safe = value === null || value === undefined || value === "" ? "" : String(value);
+      node.textContent = safe;
+      node.hidden = !safe;
+    }
+
+    function sameDate(left, right) {
+      if (!left || !right) {
+        return false;
+      }
+      return left.getTime() === right.getTime();
+    }
+
+    function getActivitySourceText(detailVm) {
+      if (!detailVm || !detailVm.dates || !detailVm.dates.lastActivityDate) {
+        return null;
+      }
+      const activityDate = detailVm.dates.lastActivityDate;
+      const fromRegistration = sameDate(activityDate, detailVm.dates.lastRegistrationDate);
+      const fromFitterHour = sameDate(activityDate, detailVm.dates.lastFitterHourDate);
+      if (fromRegistration && fromFitterHour) {
+        return "Fra seneste registrering og montørtime i Fielddesk.";
+      }
+      if (fromRegistration) {
+        return "Fra seneste registrering i Fielddesk.";
+      }
+      if (fromFitterHour) {
+        return "Fra seneste montørtime i Fielddesk.";
+      }
+      return "Fra projektets registrerede activity-felt.";
+    }
+
+    function normalizeIdentity(value) {
+      return String(value || "").trim().toLowerCase();
+    }
+
+    function getCurrentUserCodes(user) {
+      if (!user) {
+        return [];
+      }
+      const candidates = [
+        user.username,
+        user.user_name,
+        user.initials,
+        user.login,
+        user.email && String(user.email).split("@")[0],
+      ];
+      return candidates.map(normalizeIdentity).filter(Boolean);
+    }
+
+    function isCurrentUserResponsible(detailVm, user) {
+      if (!detailVm || !detailVm.responsible || !user) {
+        return false;
+      }
+      const responsibleCode = normalizeIdentity(detailVm.responsible.code);
+      const responsibleName = normalizeIdentity(detailVm.responsible.name);
+      const userCodes = getCurrentUserCodes(user);
+      const userName = normalizeIdentity(user.name || user.full_name || user.display_name);
+      return Boolean(
+        (responsibleCode && userCodes.includes(responsibleCode))
+        || (responsibleName && userName && responsibleName === userName)
+      );
     }
 
     function formatDate(value) {
@@ -2045,6 +2115,8 @@
     const headerName = el("projectHeaderName");
     const statusBadge = el("projectStatusBadge");
     const economySection = el("economySection");
+    const relationSection = el("relationSection");
+    const detailResponsible = el("detailResponsible");
 
     if (headerRef) {
       headerRef.textContent = `Ref: ${vm && vm.reference ? vm.reference : "-"}`;
@@ -2071,20 +2143,43 @@
       ? [vm.responsible.teamLeaderCode, vm.responsible.teamLeaderName].filter(Boolean).join(" · ")
       : null;
 
-    setValue("detailResponsible", responsibleText);
+    const currentUserIsResponsible = isCurrentUserResponsible(vm, currentUser);
+
+    setValue("detailResponsible", currentUserIsResponsible ? "Dig" : responsibleText);
+    if (detailResponsible) {
+      detailResponsible.classList.toggle("fieldValueStrong", currentUserIsResponsible);
+    }
+    setNote("detailResponsibleNote", currentUserIsResponsible && responsibleText ? responsibleText : null);
     setValue("detailTeamLeader", teamLeaderText);
-    setValue("detailParentProject", null);
+    if (relationSection) {
+      const parentLabel = vm && vm.relation && vm.relation.parentProjectEkId
+        ? `EK parent ${vm.relation.parentProjectEkId}`
+        : vm && vm.relation && vm.relation.isSubproject
+          ? "Underprojekt uden verificeret parent-reference"
+          : null;
+      relationSection.hidden = !parentLabel;
+      setValue("detailParentProject", parentLabel);
+    }
     setValue("detailActivityDate", vm && vm.dates ? formatDate(vm.dates.lastActivityDate) : null);
+    setNote("detailActivitySource", getActivitySourceText(vm));
     setValue("detailUpdatedDate", vm && vm.dates ? formatDate(vm.dates.updatedDate) : null);
+    setValue("detailLastRegistration", vm && vm.dates ? formatDate(vm.dates.lastRegistrationDate) : null);
+    setValue("detailLastFitterHour", vm && vm.dates ? formatDate(vm.dates.lastFitterHourDate) : null);
     setValue(
       "detailDaysSinceActivity",
       vm && vm.dates && typeof vm.dates.daysSinceActivity === "number"
-        ? String(vm.dates.daysSinceActivity)
+        ? `${vm.dates.daysSinceActivity} dage`
         : null
     );
 
     if (economySection) {
-      economySection.hidden = !(vm && vm.economy && vm.economy._hasWip);
+      const hasVisibleEconomy = Boolean(vm && vm.economy && (
+        vm.economy.wip.margin !== null
+        || vm.economy.wip.costs !== null
+        || vm.economy.wip.ongoing !== null
+        || vm.economy.wip.billed !== null
+      ));
+      economySection.hidden = !hasVisibleEconomy;
     }
 
     setValue("detailMargin", vm && vm.economy ? formatMoney(vm.economy.wip.margin) : null);
@@ -2403,6 +2498,7 @@
     const qaPermissions = {
       canUpdateStatus: false,
     };
+    let projectPageUser = null;
 
     const QA_STATUS_OPTIONS = [
       { value: "NEW", label: "Ny", className: "qaBadgeNew" },
@@ -2462,6 +2558,7 @@
       applyQaStatusPermissions();
       try {
         const response = await apiFetch("/api/me", { method: "GET" });
+        projectPageUser = response && response.user ? response.user : null;
         const role = response && response.user ? response.user.role : null;
         const permissions = getQaPermissionsForRole(role);
         qaPermissions.canUpdateStatus = permissions.canUpdateStatus;
@@ -3441,7 +3538,7 @@
       if (!vm) {
         renderProjectDetailError("Projektdata mangler");
       } else {
-        renderProjectDetail(vm);
+        renderProjectDetail(vm, { currentUser: projectPageUser });
       }
 
       const breakdown = breakdownResult.status === "fulfilled" && breakdownResult.value
