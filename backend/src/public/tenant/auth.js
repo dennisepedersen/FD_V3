@@ -557,6 +557,10 @@
     }
 
     const userPill = document.getElementById("userPill");
+    const appShell = document.querySelector(".appShell");
+    const brandInitials = document.getElementById("brandInitials");
+    const brandUserName = document.getElementById("brandUserName");
+    const sidebarToggle = document.getElementById("sidebarToggle");
     const logoutBtn = document.getElementById("logoutBtn");
     const dashboardView = document.getElementById("dashboardView");
     const projectsView = document.getElementById("projectsView");
@@ -569,6 +573,8 @@
     const dashboardAttentionCount = document.getElementById("dashboardAttentionCount");
     const dashboardQaStatus = document.getElementById("dashboardQaStatus");
     const moduleProjectsMeta = document.getElementById("moduleProjectsMeta");
+    const projectSearchInput = document.getElementById("projectSearchInput");
+    const currentScopeValue = document.getElementById("currentScopeValue");
     const sortSelect = document.getElementById("sortSelect");
     const listMetaText = document.getElementById("listMetaText");
     const scopeRow = document.getElementById("scopeRow");
@@ -592,7 +598,11 @@
       drawerProjectId: null,
       showingClosedFallback: false,
       currentView: "dashboard",
+      searchQuery: projectSearchInput && projectSearchInput.value ? String(projectSearchInput.value).trim() : "",
+      collapsedProjectRefs: new Set(),
     };
+
+    applySidebarCollapsed(getSidebarCollapsedPreference());
 
     const ACTIVITY_FIELD_CANDIDATES = [
       "last_activity_at",
@@ -608,6 +618,55 @@
       if (node) {
         node.textContent = value;
       }
+    }
+
+    function getSidebarCollapsedPreference() {
+      return window.localStorage.getItem("fielddesk_sidebar_collapsed") === "true";
+    }
+
+    function applySidebarCollapsed(collapsed) {
+      if (!appShell) {
+        return;
+      }
+      appShell.classList.toggle("sidebarCollapsed", Boolean(collapsed));
+      if (sidebarToggle) {
+        sidebarToggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+        sidebarToggle.setAttribute("aria-label", collapsed ? "Åbn menu" : "Fold menu");
+      }
+    }
+
+    function compactUserName(name) {
+      const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
+      if (parts.length <= 2) {
+        return parts.join(" ") || "Fielddesk";
+      }
+      return `${parts[0]} ${parts[1].charAt(0).toUpperCase()}. ${parts[parts.length - 1]}`;
+    }
+
+    function getLoginInitials(user) {
+      const login = String(
+        (user && (user.username || user.login_name || user.loginName))
+          || (user && user.email ? String(user.email).split("@")[0] : "")
+          || ""
+      ).trim();
+
+      if (login) {
+        return login.replace(/[^a-zA-Z0-9]/g, "").slice(0, 4).toUpperCase() || "FD";
+      }
+
+      const nameParts = String(user && user.name ? user.name : "")
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean);
+      const initials = nameParts.map((part) => part.charAt(0)).join("").slice(0, 4).toUpperCase();
+      return initials || "FD";
+    }
+
+    function renderUserChrome() {
+      const user = state.me || {};
+      const displayName = compactUserName(user.name || "Fielddesk");
+      setText(brandInitials, getLoginInitials(user));
+      setText(brandUserName, displayName);
     }
 
     function getCurrentAppViewFromHash() {
@@ -842,6 +901,63 @@
       return sorted;
     }
 
+    function normalizeProjectRef(ref) {
+      return String(ref || "").trim();
+    }
+
+    function parseProjectReference(ref) {
+      const normalized = normalizeProjectRef(ref);
+      const parts = normalized.split("-").map((part) => part.trim()).filter(Boolean);
+      if (!normalized || parts.length === 0) {
+        return {
+          normalized,
+          rootRef: "",
+          level: 0,
+          levelOneRef: normalized,
+          levelOneNumber: Number.POSITIVE_INFINITY,
+        };
+      }
+
+      const level = parts.length <= 1 ? 0 : parts.length === 2 ? 1 : 2;
+      const levelOneRef = parts.length >= 2 ? `${parts[0]}-${parts[1]}` : normalized;
+      const levelOneNumber = parts.length >= 2 ? Number.parseInt(parts[1], 10) : Number.POSITIVE_INFINITY;
+
+      return {
+        normalized,
+        rootRef: parts[0],
+        level,
+        levelOneRef,
+        levelOneNumber: Number.isNaN(levelOneNumber) ? Number.POSITIVE_INFINITY : levelOneNumber,
+      };
+    }
+
+    function getProjectRef(project) {
+      return normalizeProjectRef(project && project.external_project_ref);
+    }
+
+    function normalizeSearchText(value) {
+      return String(value || "").trim().toLowerCase();
+    }
+
+    function projectSearchBlob(project) {
+      return [
+        project && project.external_project_ref,
+        project && project.name,
+        project && project.responsible_code,
+        project && project.responsible_name,
+        project && project.team_leader_code,
+        project && project.team_leader_name,
+      ].map(normalizeSearchText).filter(Boolean).join(" ");
+    }
+
+    function matchesProjectSearch(project) {
+      const query = normalizeSearchText(state.searchQuery);
+      if (!query) {
+        return true;
+      }
+      return projectSearchBlob(project).includes(query);
+    }
+
     function getOwnerId(project) {
       return String(project && project.owner_user_id ? project.owner_user_id : "").trim();
     }
@@ -888,6 +1004,28 @@
         return "Ukendt ejer";
       }
       return getOwnerDisplayName(project);
+    }
+
+    function getCurrentScopeLabel() {
+      if (state.selectedOwnerIds.has("__ALL__")) {
+        return "Mine";
+      }
+
+      const selected = Array.from(state.selectedOwnerIds);
+      if (selected.length > 1) {
+        return "Afdeling";
+      }
+
+      const selectedOwner = state.ownerOptions.find((option) => option.id === selected[0]);
+      if (!selectedOwner) {
+        return "Mine";
+      }
+
+      if (String(selectedOwner.label || "").toLowerCase() === "mig") {
+        return "Mine";
+      }
+
+      return `Ansvarlig: ${selectedOwner.label}`;
     }
 
     function hasTeamLeaderValue(project) {
@@ -957,16 +1095,21 @@
         sort_mode: state.sortMode,
       });
 
+      const searchedProjects = sortedProjects.filter(matchesProjectSearch);
+      logProjectPipeline("after-search", searchedProjects, {
+        search_active: Boolean(normalizeSearchText(state.searchQuery)),
+      });
+
       const allSelected = state.selectedOwnerIds.has("__ALL__");
       if (allSelected) {
-        logProjectPipeline("after-filtering", sortedProjects, {
+        logProjectPipeline("after-filtering", searchedProjects, {
           filter_mode: "all-owners",
         });
-        return sortedProjects;
+        return searchedProjects;
       }
 
       const selectedSet = state.selectedOwnerIds;
-      const filtered = sortedProjects.filter((project) => selectedSet.has(getOwnerId(project)));
+      const filtered = searchedProjects.filter((project) => selectedSet.has(getOwnerId(project)));
       logProjectPipeline("after-filtering", filtered, {
         filter_mode: "owner-selection",
         selected_owner_ids: Array.from(selectedSet),
@@ -1431,6 +1574,219 @@
       return card;
     }
 
+    function createHierarchyNode(project, type, children) {
+      return {
+        project,
+        type,
+        children: Array.isArray(children) ? children : [],
+      };
+    }
+
+    function buildProjectHierarchy(projects) {
+      const source = Array.isArray(projects) ? projects : [];
+      const rootOrder = [];
+      const rootGroups = new Map();
+      const ungrouped = [];
+
+      function ensureRoot(rootRef) {
+        if (!rootGroups.has(rootRef)) {
+          rootGroups.set(rootRef, {
+            rootProjects: [],
+            levelOneProjects: [],
+            levelTwoProjects: [],
+          });
+          rootOrder.push(rootRef);
+        }
+        return rootGroups.get(rootRef);
+      }
+
+      source.forEach((project) => {
+        const meta = parseProjectReference(getProjectRef(project));
+        if (!meta.rootRef) {
+          ungrouped.push(createHierarchyNode(project, "standalone", []));
+          return;
+        }
+
+        const group = ensureRoot(meta.rootRef);
+        if (meta.level === 0) {
+          group.rootProjects.push(project);
+          return;
+        }
+        if (meta.level === 1) {
+          group.levelOneProjects.push(project);
+          return;
+        }
+        group.levelTwoProjects.push(project);
+      });
+
+      const nodes = [];
+
+      rootOrder.forEach((rootRef) => {
+        const group = rootGroups.get(rootRef);
+        if (!group) {
+          return;
+        }
+
+        group.rootProjects.forEach((project, index) => {
+          if (index > 0) {
+            nodes.push(createHierarchyNode(project, "root", []));
+            return;
+          }
+
+          const levelOneRefs = new Set(group.levelOneProjects.map((levelOneProject) => getProjectRef(levelOneProject)));
+          const childrenByLevelOne = new Map();
+          const rootChildren = [];
+
+          group.levelTwoProjects.forEach((childProject) => {
+            const meta = parseProjectReference(getProjectRef(childProject));
+            if (!levelOneRefs.has(meta.levelOneRef)) {
+              rootChildren.push(createHierarchyNode(childProject, "child", []));
+              return;
+            }
+            if (!childrenByLevelOne.has(meta.levelOneRef)) {
+              childrenByLevelOne.set(meta.levelOneRef, []);
+            }
+            childrenByLevelOne.get(meta.levelOneRef).push(childProject);
+          });
+
+          const levelOneNodes = group.levelOneProjects.map((levelOneProject) => {
+            const ref = getProjectRef(levelOneProject);
+            const children = (childrenByLevelOne.get(ref) || [])
+              .map((childProject) => createHierarchyNode(childProject, "child", []));
+            return createHierarchyNode(levelOneProject, "sub-parent", children);
+          });
+
+          nodes.push(createHierarchyNode(project, "root", levelOneNodes.concat(rootChildren)));
+        });
+
+        if (group.rootProjects.length > 0) {
+          return;
+        }
+
+        let promotedLocalParent = null;
+        if (group.levelOneProjects.length === 0 && group.levelTwoProjects.length > 0) {
+          promotedLocalParent = group.levelTwoProjects.reduce((best, project) => (
+            !best || compareByReference(project, best) < 0 ? project : best
+          ), null);
+        }
+
+        const parentCandidates = promotedLocalParent
+          ? [promotedLocalParent]
+          : group.levelOneProjects.slice();
+
+        const localParent = parentCandidates.reduce((best, project) => {
+          if (!best) {
+            return project;
+          }
+          const left = parseProjectReference(getProjectRef(project));
+          const right = parseProjectReference(getProjectRef(best));
+          if (left.levelOneNumber !== right.levelOneNumber) {
+            return left.levelOneNumber < right.levelOneNumber ? project : best;
+          }
+          return compareByReference(project, best) < 0 ? project : best;
+        }, null);
+
+        const levelOneRefs = new Set(group.levelOneProjects.map((project) => getProjectRef(project)));
+        const childrenByLevelOne = new Map();
+        group.levelTwoProjects
+          .filter((project) => project !== promotedLocalParent)
+          .forEach((project) => {
+            const meta = parseProjectReference(getProjectRef(project));
+            const parentRef = levelOneRefs.has(meta.levelOneRef)
+              ? meta.levelOneRef
+              : localParent
+                ? getProjectRef(localParent)
+                : "";
+            if (!parentRef) {
+              nodes.push(createHierarchyNode(project, "orphan-child", []));
+              return;
+            }
+            if (!childrenByLevelOne.has(parentRef)) {
+              childrenByLevelOne.set(parentRef, []);
+            }
+            childrenByLevelOne.get(parentRef).push(project);
+          });
+
+        if (!localParent) {
+          return;
+        }
+
+        const localParentRef = getProjectRef(localParent);
+        const localChildren = (childrenByLevelOne.get(localParentRef) || [])
+          .map((project) => createHierarchyNode(project, "child", []));
+
+        const subParentNodes = group.levelOneProjects
+          .filter((project) => getProjectRef(project) !== localParentRef)
+          .map((project) => {
+            const ref = getProjectRef(project);
+            const children = (childrenByLevelOne.get(ref) || [])
+              .map((childProject) => createHierarchyNode(childProject, "child", []));
+            return createHierarchyNode(project, "sub-parent", children);
+          });
+
+        nodes.push(createHierarchyNode(localParent, "local-parent", localChildren.concat(subParentNodes)));
+      });
+
+      return nodes.concat(ungrouped);
+    }
+
+    function createProjectTreeRow(node, depth) {
+      const row = document.createElement("div");
+      row.className = `projectTreeRow projectTreeDepth${Math.min(Number(depth) || 0, 2)}`;
+
+      const ref = getProjectRef(node && node.project);
+      const hasChildren = Boolean(node && node.children && node.children.length > 0);
+      const collapsed = ref ? state.collapsedProjectRefs.has(ref) : false;
+
+      if (hasChildren) {
+        const toggle = document.createElement("button");
+        toggle.type = "button";
+        toggle.className = "treeToggle";
+        toggle.setAttribute("aria-label", collapsed ? `Fold ${ref} ud` : `Fold ${ref} sammen`);
+        toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+        toggle.innerHTML = '<span class="treeToggleIcon" aria-hidden="true"></span>';
+        toggle.addEventListener("click", (event) => {
+          event.stopPropagation();
+          if (!ref) {
+            return;
+          }
+          if (state.collapsedProjectRefs.has(ref)) {
+            state.collapsedProjectRefs.delete(ref);
+          } else {
+            state.collapsedProjectRefs.add(ref);
+          }
+          renderProjects();
+        });
+        row.appendChild(toggle);
+      } else {
+        const spacer = document.createElement("span");
+        spacer.className = "treeToggleSpacer";
+        row.appendChild(spacer);
+      }
+
+      row.appendChild(createProjectCard(node && node.project));
+      return row;
+    }
+
+    function appendProjectHierarchy(nodes, target, depth) {
+      (Array.isArray(nodes) ? nodes : []).forEach((node) => {
+        const currentDepth = Number(depth) || 0;
+        const ref = getProjectRef(node && node.project);
+        const hasChildren = Boolean(node && node.children && node.children.length > 0);
+        target.appendChild(createProjectTreeRow(node, currentDepth));
+        if (hasChildren && !state.collapsedProjectRefs.has(ref)) {
+          appendProjectHierarchy(node.children, target, currentDepth + 1);
+        }
+      });
+    }
+
+    function appendProjectList(projects, target) {
+      const tree = document.createElement("div");
+      tree.className = "projectTree";
+      appendProjectHierarchy(buildProjectHierarchy(projects), tree, 0);
+      target.appendChild(tree);
+    }
+
     function renderDashboard() {
       const name = state.me && state.me.name ? String(state.me.name) : "Fielddesk";
       const firstName = name.split(" ").filter(Boolean)[0] || name;
@@ -1448,6 +1804,7 @@
       setText(projectOpenCount, String(openProjects.length));
       setText(dashboardAttentionCount, String(attentionProjects.length));
       setText(dashboardQaStatus, totalProjects > 0 ? "Via sag" : "-");
+      setText(currentScopeValue, getCurrentScopeLabel());
       setText(
         moduleProjectsMeta,
         totalProjects > 0
@@ -1482,13 +1839,11 @@
       }
 
       if (!groupMode) {
-        visibleProjects.forEach((project) => {
-          projectsContainer.appendChild(createProjectCard(project));
-        });
+        appendProjectList(visibleProjects, projectsContainer);
         const renderedCards = projectsContainer.querySelectorAll(".projectCard").length;
         logProjectPipeline("after-grouping-dedup", visibleProjects, {
           group_mode: false,
-          dedup_applied: false,
+          dedup_applied: true,
         });
         logProjectPipeline("final-render", visibleProjects, {
           rendered_cards: renderedCards,
@@ -1519,9 +1874,7 @@
         header.innerHTML = `<strong>${groupName}</strong><span>${groupProjects.length} sager</span>`;
 
         block.appendChild(header);
-        groupProjects.forEach((project) => {
-          block.appendChild(createProjectCard(project));
-        });
+        appendProjectList(groupProjects, block);
 
         projectsContainer.appendChild(block);
       });
@@ -1530,7 +1883,7 @@
       const renderedCards = projectsContainer.querySelectorAll(".projectCard").length;
       logProjectPipeline("after-grouping-dedup", visibleProjects, {
         group_mode: true,
-        dedup_applied: false,
+        dedup_applied: true,
         grouped_count: groupedCount,
       });
       logProjectPipeline("final-render", visibleProjects, {
@@ -1567,6 +1920,7 @@
     try {
       const me = await apiFetch("/api/me", { method: "GET" });
       state.me = me && me.user ? me.user : null;
+      renderUserChrome();
       if (userPill) {
         const name = state.me && state.me.name ? state.me.name : "Ukendt bruger";
         const role = state.me && state.me.role ? state.me.role : "rolle ukendt";
@@ -1592,6 +1946,21 @@
       sortSelect.addEventListener("change", () => {
         state.sortMode = sortSelect.value;
         renderProjects();
+      });
+    }
+
+    if (projectSearchInput) {
+      projectSearchInput.addEventListener("input", () => {
+        state.searchQuery = projectSearchInput.value || "";
+        renderProjects();
+      });
+    }
+
+    if (sidebarToggle) {
+      sidebarToggle.addEventListener("click", () => {
+        const nextCollapsed = !(appShell && appShell.classList.contains("sidebarCollapsed"));
+        window.localStorage.setItem("fielddesk_sidebar_collapsed", nextCollapsed ? "true" : "false");
+        applySidebarCollapsed(nextCollapsed);
       });
     }
 
@@ -1628,7 +1997,9 @@
     }
   }
 
-  function renderProjectDetail(vm) {
+  function renderProjectDetail(vm, options) {
+    const currentUser = options && options.currentUser ? options.currentUser : null;
+
     function el(id) {
       return document.getElementById(id);
     }
@@ -1645,6 +2016,74 @@
       } else {
         node.classList.remove("fieldValueMuted");
       }
+    }
+
+    function setNote(id, value) {
+      const node = el(id);
+      if (!node) {
+        return;
+      }
+      const safe = value === null || value === undefined || value === "" ? "" : String(value);
+      node.textContent = safe;
+      node.hidden = !safe;
+    }
+
+    function sameDate(left, right) {
+      if (!left || !right) {
+        return false;
+      }
+      return left.getTime() === right.getTime();
+    }
+
+    function getActivitySourceText(detailVm) {
+      if (!detailVm || !detailVm.dates || !detailVm.dates.lastActivityDate) {
+        return null;
+      }
+      const activityDate = detailVm.dates.lastActivityDate;
+      const fromRegistration = sameDate(activityDate, detailVm.dates.lastRegistrationDate);
+      const fromFitterHour = sameDate(activityDate, detailVm.dates.lastFitterHourDate);
+      if (fromRegistration && fromFitterHour) {
+        return "Fra seneste registrering og montørtime i Fielddesk.";
+      }
+      if (fromRegistration) {
+        return "Fra seneste registrering i Fielddesk.";
+      }
+      if (fromFitterHour) {
+        return "Fra seneste montørtime i Fielddesk.";
+      }
+      return "Fra projektets registrerede activity-felt.";
+    }
+
+    function normalizeIdentity(value) {
+      return String(value || "").trim().toLowerCase();
+    }
+
+    function getCurrentUserCodes(user) {
+      if (!user) {
+        return [];
+      }
+      const candidates = [
+        user.username,
+        user.user_name,
+        user.initials,
+        user.login,
+        user.email && String(user.email).split("@")[0],
+      ];
+      return candidates.map(normalizeIdentity).filter(Boolean);
+    }
+
+    function isCurrentUserResponsible(detailVm, user) {
+      if (!detailVm || !detailVm.responsible || !user) {
+        return false;
+      }
+      const responsibleCode = normalizeIdentity(detailVm.responsible.code);
+      const responsibleName = normalizeIdentity(detailVm.responsible.name);
+      const userCodes = getCurrentUserCodes(user);
+      const userName = normalizeIdentity(user.name || user.full_name || user.display_name);
+      return Boolean(
+        (responsibleCode && userCodes.includes(responsibleCode))
+        || (responsibleName && userName && responsibleName === userName)
+      );
     }
 
     function formatDate(value) {
@@ -1676,6 +2115,8 @@
     const headerName = el("projectHeaderName");
     const statusBadge = el("projectStatusBadge");
     const economySection = el("economySection");
+    const relationSection = el("relationSection");
+    const detailResponsible = el("detailResponsible");
 
     if (headerRef) {
       headerRef.textContent = `Ref: ${vm && vm.reference ? vm.reference : "-"}`;
@@ -1702,20 +2143,43 @@
       ? [vm.responsible.teamLeaderCode, vm.responsible.teamLeaderName].filter(Boolean).join(" · ")
       : null;
 
-    setValue("detailResponsible", responsibleText);
+    const currentUserIsResponsible = isCurrentUserResponsible(vm, currentUser);
+
+    setValue("detailResponsible", currentUserIsResponsible ? "Dig" : responsibleText);
+    if (detailResponsible) {
+      detailResponsible.classList.toggle("fieldValueStrong", currentUserIsResponsible);
+    }
+    setNote("detailResponsibleNote", currentUserIsResponsible && responsibleText ? responsibleText : null);
     setValue("detailTeamLeader", teamLeaderText);
-    setValue("detailParentProject", null);
+    if (relationSection) {
+      const parentLabel = vm && vm.relation && vm.relation.parentProjectEkId
+        ? `EK parent ${vm.relation.parentProjectEkId}`
+        : vm && vm.relation && vm.relation.isSubproject
+          ? "Underprojekt uden verificeret parent-reference"
+          : null;
+      relationSection.hidden = !parentLabel;
+      setValue("detailParentProject", parentLabel);
+    }
     setValue("detailActivityDate", vm && vm.dates ? formatDate(vm.dates.lastActivityDate) : null);
+    setNote("detailActivitySource", getActivitySourceText(vm));
     setValue("detailUpdatedDate", vm && vm.dates ? formatDate(vm.dates.updatedDate) : null);
+    setValue("detailLastRegistration", vm && vm.dates ? formatDate(vm.dates.lastRegistrationDate) : null);
+    setValue("detailLastFitterHour", vm && vm.dates ? formatDate(vm.dates.lastFitterHourDate) : null);
     setValue(
       "detailDaysSinceActivity",
       vm && vm.dates && typeof vm.dates.daysSinceActivity === "number"
-        ? String(vm.dates.daysSinceActivity)
+        ? `${vm.dates.daysSinceActivity} dage`
         : null
     );
 
     if (economySection) {
-      economySection.hidden = !(vm && vm.economy && vm.economy._hasWip);
+      const hasVisibleEconomy = Boolean(vm && vm.economy && (
+        vm.economy.wip.margin !== null
+        || vm.economy.wip.costs !== null
+        || vm.economy.wip.ongoing !== null
+        || vm.economy.wip.billed !== null
+      ));
+      economySection.hidden = !hasVisibleEconomy;
     }
 
     setValue("detailMargin", vm && vm.economy ? formatMoney(vm.economy.wip.margin) : null);
@@ -2034,6 +2498,7 @@
     const qaPermissions = {
       canUpdateStatus: false,
     };
+    let projectPageUser = null;
 
     const QA_STATUS_OPTIONS = [
       { value: "NEW", label: "Ny", className: "qaBadgeNew" },
@@ -2093,6 +2558,7 @@
       applyQaStatusPermissions();
       try {
         const response = await apiFetch("/api/me", { method: "GET" });
+        projectPageUser = response && response.user ? response.user : null;
         const role = response && response.user ? response.user.role : null;
         const permissions = getQaPermissionsForRole(role);
         qaPermissions.canUpdateStatus = permissions.canUpdateStatus;
@@ -3072,7 +3538,7 @@
       if (!vm) {
         renderProjectDetailError("Projektdata mangler");
       } else {
-        renderProjectDetail(vm);
+        renderProjectDetail(vm, { currentUser: projectPageUser });
       }
 
       const breakdown = breakdownResult.status === "fulfilled" && breakdownResult.value
