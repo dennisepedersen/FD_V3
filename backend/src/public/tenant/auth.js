@@ -599,7 +599,7 @@
       showingClosedFallback: false,
       currentView: "dashboard",
       searchQuery: projectSearchInput && projectSearchInput.value ? String(projectSearchInput.value).trim() : "",
-      collapsedProjectRefs: new Set(),
+      expandedProjectRefs: new Set(),
     };
 
     applySidebarCollapsed(getSidebarCollapsedPreference());
@@ -905,34 +905,18 @@
       return String(ref || "").trim();
     }
 
-    function parseProjectReference(ref) {
-      const normalized = normalizeProjectRef(ref);
-      const parts = normalized.split("-").map((part) => part.trim()).filter(Boolean);
-      if (!normalized || parts.length === 0) {
-        return {
-          normalized,
-          rootRef: "",
-          level: 0,
-          levelOneRef: normalized,
-          levelOneNumber: Number.POSITIVE_INFINITY,
-        };
-      }
-
-      const level = parts.length <= 1 ? 0 : parts.length === 2 ? 1 : 2;
-      const levelOneRef = parts.length >= 2 ? `${parts[0]}-${parts[1]}` : normalized;
-      const levelOneNumber = parts.length >= 2 ? Number.parseInt(parts[1], 10) : Number.POSITIVE_INFINITY;
-
-      return {
-        normalized,
-        rootRef: parts[0],
-        level,
-        levelOneRef,
-        levelOneNumber: Number.isNaN(levelOneNumber) ? Number.POSITIVE_INFINITY : levelOneNumber,
-      };
-    }
-
     function getProjectRef(project) {
       return normalizeProjectRef(project && project.external_project_ref);
+    }
+
+    function getParentReferenceCandidates(ref) {
+      const normalized = normalizeProjectRef(ref);
+      const parts = normalized.split("-").map((part) => part.trim()).filter(Boolean);
+      const candidates = [];
+      for (let length = parts.length - 1; length >= 1; length -= 1) {
+        candidates.push(parts.slice(0, length).join("-"));
+      }
+      return candidates;
     }
 
     function normalizeSearchText(value) {
@@ -1536,14 +1520,46 @@
       });
     }
 
-    function createProjectCard(project) {
+    function getProjectUrl(project) {
+      return project && project.project_id
+        ? `/project/${encodeURIComponent(String(project.project_id))}`
+        : "";
+    }
+
+    function toggleProjectRef(ref) {
+      if (!ref) {
+        return;
+      }
+      if (state.expandedProjectRefs.has(ref)) {
+        state.expandedProjectRefs.delete(ref);
+      } else {
+        state.expandedProjectRefs.add(ref);
+      }
+      renderProjects();
+    }
+
+    function createProjectCard(project, options) {
+      const settings = options || {};
       const statusView = getStatusView(project);
-      const card = document.createElement("button");
-      card.type = "button";
+      const hasChildren = Boolean(settings.hasChildren);
+      const expanded = Boolean(settings.expanded);
+      const card = document.createElement("article");
       card.className = "projectCard";
       if (project && project.project_id) {
         card.dataset.projectId = String(project.project_id);
       }
+      if (hasChildren) {
+        card.classList.add("projectCardParent");
+        card.setAttribute("role", "button");
+        card.setAttribute("tabindex", "0");
+        card.setAttribute("aria-expanded", expanded ? "true" : "false");
+      }
+
+      const header = document.createElement("div");
+      header.className = "projectCardHeader";
+
+      const titleBlock = document.createElement("div");
+      titleBlock.className = "projectCardTitle";
 
       const name = document.createElement("h3");
       name.className = "projectName";
@@ -1552,6 +1568,17 @@
       const ref = document.createElement("p");
       ref.className = "projectRef";
       ref.textContent = `Ref: ${project && project.external_project_ref ? project.external_project_ref : "-"}`;
+
+      titleBlock.appendChild(name);
+      titleBlock.appendChild(ref);
+      header.appendChild(titleBlock);
+
+      if (hasChildren) {
+        const indicator = document.createElement("span");
+        indicator.className = "projectHierarchyIndicator";
+        indicator.textContent = expanded ? "Skjul" : "Vis";
+        header.appendChild(indicator);
+      }
 
       const lineTwo = document.createElement("div");
       lineTwo.className = "projectLineTwo";
@@ -1563,13 +1590,48 @@
       lineTwo.appendChild(activity);
       lineTwo.appendChild(makeBadge(statusView));
 
-      card.appendChild(name);
-      card.appendChild(ref);
-      card.appendChild(lineTwo);
+      const actions = document.createElement("div");
+      actions.className = "projectCardActions";
 
-      card.addEventListener("click", () => {
+      const projectUrl = getProjectUrl(project);
+      if (projectUrl) {
+        const openLink = document.createElement("a");
+        openLink.className = "projectAction projectActionPrimary";
+        openLink.href = projectUrl;
+        openLink.textContent = "Gå til sag";
+        openLink.addEventListener("click", (event) => {
+          event.stopPropagation();
+        });
+        actions.appendChild(openLink);
+      }
+
+      const quickView = document.createElement("button");
+      quickView.type = "button";
+      quickView.className = "projectAction";
+      quickView.textContent = "Quick View";
+      quickView.addEventListener("click", (event) => {
+        event.stopPropagation();
         openProjectDrawer(project);
       });
+      actions.appendChild(quickView);
+
+      card.appendChild(header);
+      card.appendChild(lineTwo);
+      card.appendChild(actions);
+
+      if (hasChildren) {
+        const refValue = getProjectRef(project);
+        card.addEventListener("click", () => {
+          toggleProjectRef(refValue);
+        });
+        card.addEventListener("keydown", (event) => {
+          if (event.key !== "Enter" && event.key !== " ") {
+            return;
+          }
+          event.preventDefault();
+          toggleProjectRef(refValue);
+        });
+      }
 
       return card;
     }
@@ -1584,150 +1646,32 @@
 
     function buildProjectHierarchy(projects) {
       const source = Array.isArray(projects) ? projects : [];
-      const rootOrder = [];
-      const rootGroups = new Map();
-      const ungrouped = [];
-
-      function ensureRoot(rootRef) {
-        if (!rootGroups.has(rootRef)) {
-          rootGroups.set(rootRef, {
-            rootProjects: [],
-            levelOneProjects: [],
-            levelTwoProjects: [],
-          });
-          rootOrder.push(rootRef);
-        }
-        return rootGroups.get(rootRef);
-      }
+      const nodeByRef = new Map();
+      const nodes = [];
+      const topNodes = [];
 
       source.forEach((project) => {
-        const meta = parseProjectReference(getProjectRef(project));
-        if (!meta.rootRef) {
-          ungrouped.push(createHierarchyNode(project, "standalone", []));
-          return;
+        const ref = getProjectRef(project);
+        const node = createHierarchyNode(project, "top", []);
+        nodes.push(node);
+        if (ref && !nodeByRef.has(ref)) {
+          nodeByRef.set(ref, node);
         }
-
-        const group = ensureRoot(meta.rootRef);
-        if (meta.level === 0) {
-          group.rootProjects.push(project);
-          return;
-        }
-        if (meta.level === 1) {
-          group.levelOneProjects.push(project);
-          return;
-        }
-        group.levelTwoProjects.push(project);
       });
 
-      const nodes = [];
-
-      rootOrder.forEach((rootRef) => {
-        const group = rootGroups.get(rootRef);
-        if (!group) {
+      nodes.forEach((node) => {
+        const ref = getProjectRef(node.project);
+        const parentRef = getParentReferenceCandidates(ref).find((candidate) => nodeByRef.has(candidate));
+        const parentNode = parentRef ? nodeByRef.get(parentRef) : null;
+        if (parentNode && parentNode !== node) {
+          node.type = "child";
+          parentNode.children.push(node);
           return;
         }
-
-        group.rootProjects.forEach((project, index) => {
-          if (index > 0) {
-            nodes.push(createHierarchyNode(project, "root", []));
-            return;
-          }
-
-          const levelOneRefs = new Set(group.levelOneProjects.map((levelOneProject) => getProjectRef(levelOneProject)));
-          const childrenByLevelOne = new Map();
-          const rootChildren = [];
-
-          group.levelTwoProjects.forEach((childProject) => {
-            const meta = parseProjectReference(getProjectRef(childProject));
-            if (!levelOneRefs.has(meta.levelOneRef)) {
-              rootChildren.push(createHierarchyNode(childProject, "child", []));
-              return;
-            }
-            if (!childrenByLevelOne.has(meta.levelOneRef)) {
-              childrenByLevelOne.set(meta.levelOneRef, []);
-            }
-            childrenByLevelOne.get(meta.levelOneRef).push(childProject);
-          });
-
-          const levelOneNodes = group.levelOneProjects.map((levelOneProject) => {
-            const ref = getProjectRef(levelOneProject);
-            const children = (childrenByLevelOne.get(ref) || [])
-              .map((childProject) => createHierarchyNode(childProject, "child", []));
-            return createHierarchyNode(levelOneProject, "sub-parent", children);
-          });
-
-          nodes.push(createHierarchyNode(project, "root", levelOneNodes.concat(rootChildren)));
-        });
-
-        if (group.rootProjects.length > 0) {
-          return;
-        }
-
-        let promotedLocalParent = null;
-        if (group.levelOneProjects.length === 0 && group.levelTwoProjects.length > 0) {
-          promotedLocalParent = group.levelTwoProjects.reduce((best, project) => (
-            !best || compareByReference(project, best) < 0 ? project : best
-          ), null);
-        }
-
-        const parentCandidates = promotedLocalParent
-          ? [promotedLocalParent]
-          : group.levelOneProjects.slice();
-
-        const localParent = parentCandidates.reduce((best, project) => {
-          if (!best) {
-            return project;
-          }
-          const left = parseProjectReference(getProjectRef(project));
-          const right = parseProjectReference(getProjectRef(best));
-          if (left.levelOneNumber !== right.levelOneNumber) {
-            return left.levelOneNumber < right.levelOneNumber ? project : best;
-          }
-          return compareByReference(project, best) < 0 ? project : best;
-        }, null);
-
-        const levelOneRefs = new Set(group.levelOneProjects.map((project) => getProjectRef(project)));
-        const childrenByLevelOne = new Map();
-        group.levelTwoProjects
-          .filter((project) => project !== promotedLocalParent)
-          .forEach((project) => {
-            const meta = parseProjectReference(getProjectRef(project));
-            const parentRef = levelOneRefs.has(meta.levelOneRef)
-              ? meta.levelOneRef
-              : localParent
-                ? getProjectRef(localParent)
-                : "";
-            if (!parentRef) {
-              nodes.push(createHierarchyNode(project, "orphan-child", []));
-              return;
-            }
-            if (!childrenByLevelOne.has(parentRef)) {
-              childrenByLevelOne.set(parentRef, []);
-            }
-            childrenByLevelOne.get(parentRef).push(project);
-          });
-
-        if (!localParent) {
-          return;
-        }
-
-        const localParentRef = getProjectRef(localParent);
-        const localChildren = (childrenByLevelOne.get(localParentRef) || [])
-          .map((project) => createHierarchyNode(project, "child", []));
-
-        const subParentNodes = group.levelOneProjects
-          .filter((project) => getProjectRef(project) !== localParentRef)
-          .map((project) => {
-            const ref = getProjectRef(project);
-            const children = (childrenByLevelOne.get(ref) || [])
-              .map((childProject) => createHierarchyNode(childProject, "child", []));
-            return createHierarchyNode(project, "sub-parent", children);
-          });
-
-        nodes.push(createHierarchyNode(localParent, "local-parent", localChildren.concat(subParentNodes)));
+        topNodes.push(node);
       });
 
-      return nodes.concat(ungrouped);
+      return topNodes;
     }
 
     function createProjectTreeRow(node, depth) {
@@ -1736,35 +1680,13 @@
 
       const ref = getProjectRef(node && node.project);
       const hasChildren = Boolean(node && node.children && node.children.length > 0);
-      const collapsed = ref ? state.collapsedProjectRefs.has(ref) : false;
+      const expanded = ref ? state.expandedProjectRefs.has(ref) : false;
 
       if (hasChildren) {
-        const toggle = document.createElement("button");
-        toggle.type = "button";
-        toggle.className = "treeToggle";
-        toggle.setAttribute("aria-label", collapsed ? `Fold ${ref} ud` : `Fold ${ref} sammen`);
-        toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
-        toggle.innerHTML = '<span class="treeToggleIcon" aria-hidden="true"></span>';
-        toggle.addEventListener("click", (event) => {
-          event.stopPropagation();
-          if (!ref) {
-            return;
-          }
-          if (state.collapsedProjectRefs.has(ref)) {
-            state.collapsedProjectRefs.delete(ref);
-          } else {
-            state.collapsedProjectRefs.add(ref);
-          }
-          renderProjects();
-        });
-        row.appendChild(toggle);
-      } else {
-        const spacer = document.createElement("span");
-        spacer.className = "treeToggleSpacer";
-        row.appendChild(spacer);
+        row.classList.add("projectTreeRowParent");
       }
 
-      row.appendChild(createProjectCard(node && node.project));
+      row.appendChild(createProjectCard(node && node.project, { hasChildren, expanded }));
       return row;
     }
 
@@ -1774,7 +1696,7 @@
         const ref = getProjectRef(node && node.project);
         const hasChildren = Boolean(node && node.children && node.children.length > 0);
         target.appendChild(createProjectTreeRow(node, currentDepth));
-        if (hasChildren && !state.collapsedProjectRefs.has(ref)) {
+        if (hasChildren && state.expandedProjectRefs.has(ref)) {
           appendProjectHierarchy(node.children, target, currentDepth + 1);
         }
       });
