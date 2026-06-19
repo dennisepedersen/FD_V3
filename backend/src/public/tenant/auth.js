@@ -36,6 +36,17 @@
     return token;
   }
 
+  function isTenantAdmin(user) {
+    return String(user && user.role ? user.role : "").trim().toLowerCase() === "tenant_admin";
+  }
+
+  function setAdminNavigationVisibility(user) {
+    const showAdmin = isTenantAdmin(user);
+    document.querySelectorAll("[data-admin-nav]").forEach((item) => {
+      item.hidden = !showAdmin;
+    });
+  }
+
   function isAuthError(error) {
     if (!error) {
       return false;
@@ -1843,6 +1854,7 @@
       const me = await apiFetch("/api/me", { method: "GET" });
       state.me = me && me.user ? me.user : null;
       renderUserChrome();
+      setAdminNavigationVisibility(state.me);
       if (userPill) {
         const name = state.me && state.me.name ? state.me.name : "Ukendt bruger";
         const role = state.me && state.me.role ? state.me.role : "rolle ukendt";
@@ -2543,6 +2555,7 @@
         const response = await apiFetch("/api/me", { method: "GET" });
         projectPageUser = response && response.user ? response.user : null;
         renderProjectUserChrome(projectPageUser);
+        setAdminNavigationVisibility(projectPageUser);
         const role = response && response.user ? response.user.role : null;
         const permissions = getQaPermissionsForRole(role);
         qaPermissions.canUpdateStatus = permissions.canUpdateStatus;
