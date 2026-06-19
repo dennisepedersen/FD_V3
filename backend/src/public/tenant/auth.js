@@ -574,8 +574,38 @@
     const sidebarToggle = document.getElementById("sidebarToggle");
     const logoutBtn = document.getElementById("logoutBtn");
     const dashboardView = document.getElementById("dashboardView");
+    const calendarView = document.getElementById("calendarView");
     const projectsView = document.getElementById("projectsView");
     const viewLinks = Array.from(document.querySelectorAll("[data-view-link]"));
+    const calendarTabs = Array.from(document.querySelectorAll("[data-calendar-tab]"));
+    const calendarPanels = Array.from(document.querySelectorAll("[data-calendar-panel]"));
+    const calendarAccessNotice = document.getElementById("calendarAccessNotice");
+    const absenceOverviewSection = document.getElementById("absenceOverviewSection");
+    const absenceRangeSection = document.getElementById("absenceRangeSection");
+    const absenceListSection = document.getElementById("absenceListSection");
+    const absenceCreateSection = document.getElementById("absenceCreateSection");
+    const absenceFromInput = document.getElementById("absenceFromInput");
+    const absenceToInput = document.getElementById("absenceToInput");
+    const absenceRefreshBtn = document.getElementById("absenceRefreshBtn");
+    const absenceRangeStatus = document.getElementById("absenceRangeStatus");
+    const absenceListMeta = document.getElementById("absenceListMeta");
+    const absenceList = document.getElementById("absenceList");
+    const absenceCreateForm = document.getElementById("absenceCreateForm");
+    const absenceFitterSelect = document.getElementById("absenceFitterSelect");
+    const absenceResourceStatus = document.getElementById("absenceResourceStatus");
+    const absenceTypeSelect = document.getElementById("absenceTypeSelect");
+    const absenceVisibilitySelect = document.getElementById("absenceVisibilitySelect");
+    const absenceStartDateInput = document.getElementById("absenceStartDateInput");
+    const absenceEndDateInput = document.getElementById("absenceEndDateInput");
+    const absenceNoteInput = document.getElementById("absenceNoteInput");
+    const absenceCreateBtn = document.getElementById("absenceCreateBtn");
+    const absenceFormStatus = document.getElementById("absenceFormStatus");
+    const absenceTodayCount = document.getElementById("absenceTodayCount");
+    const absenceTodayHint = document.getElementById("absenceTodayHint");
+    const absenceRestWeekCount = document.getElementById("absenceRestWeekCount");
+    const absenceRestWeekHint = document.getElementById("absenceRestWeekHint");
+    const absenceNextWeekCount = document.getElementById("absenceNextWeekCount");
+    const absenceNextWeekHint = document.getElementById("absenceNextWeekHint");
     const dashboardWelcomeName = document.getElementById("dashboardWelcomeName");
     const dashboardDateText = document.getElementById("dashboardDateText");
     const dashboardProjectCount = document.getElementById("dashboardProjectCount");
@@ -611,6 +641,18 @@
       currentView: "dashboard",
       searchQuery: projectSearchInput && projectSearchInput.value ? String(projectSearchInput.value).trim() : "",
       expandedProjectRefs: new Set(),
+      calendar: {
+        activeTab: "absences",
+        absences: [],
+        from: "",
+        to: "",
+        loadedKey: "",
+        loading: false,
+        accessDenied: false,
+        resources: [],
+        resourcesLoaded: false,
+        resourcesLoading: false,
+      },
     };
 
     applySidebarCollapsed(getSidebarCollapsedPreference());
@@ -680,8 +722,506 @@
       setText(brandUserName, displayName);
     }
 
+    function formatDateInput(date) {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    }
+
+    function parseDateInput(value) {
+      const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (!match) {
+        return null;
+      }
+      const year = Number(match[1]);
+      const month = Number(match[2]);
+      const day = Number(match[3]);
+      const date = new Date(year, month - 1, day);
+      if (
+        date.getFullYear() !== year
+        || date.getMonth() !== month - 1
+        || date.getDate() !== day
+      ) {
+        return null;
+      }
+      return date;
+    }
+
+    function addDays(date, days) {
+      const next = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+      next.setDate(next.getDate() + days);
+      return next;
+    }
+
+    function getWeekStart(date) {
+      const day = date.getDay();
+      const diff = day === 0 ? -6 : 1 - day;
+      return addDays(date, diff);
+    }
+
+    function getAbsenceDateDefaults() {
+      const today = new Date();
+      const todayOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      const nextWeekStart = addDays(getWeekStart(todayOnly), 7);
+      return {
+        today: todayOnly,
+        from: formatDateInput(todayOnly),
+        to: formatDateInput(addDays(nextWeekStart, 6)),
+      };
+    }
+
+    function ensureCalendarDefaults() {
+      if (!state.calendar.from || !state.calendar.to) {
+        const defaults = getAbsenceDateDefaults();
+        state.calendar.from = defaults.from;
+        state.calendar.to = defaults.to;
+      }
+      if (absenceFromInput && !absenceFromInput.value) {
+        absenceFromInput.value = state.calendar.from;
+      }
+      if (absenceToInput && !absenceToInput.value) {
+        absenceToInput.value = state.calendar.to;
+      }
+      if (absenceStartDateInput && !absenceStartDateInput.value) {
+        absenceStartDateInput.value = state.calendar.from;
+      }
+      if (absenceEndDateInput && !absenceEndDateInput.value) {
+        absenceEndDateInput.value = state.calendar.from;
+      }
+    }
+
+    function formatShortDate(value) {
+      const date = parseDateInput(String(value || "").slice(0, 10));
+      if (!date) {
+        return "-";
+      }
+      try {
+        return new Intl.DateTimeFormat("da-DK", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+        }).format(date);
+      } catch (_error) {
+        return formatDateInput(date);
+      }
+    }
+
+    function getAbsenceTypeLabel(type) {
+      const labels = {
+        vacation: "Ferie",
+        vacation_free: "Feriefri",
+        course: "Kursus",
+        sickness: "Sygdom",
+        other: "Andet",
+      };
+      return labels[type] || String(type || "Ukendt");
+    }
+
+    function getAbsenceStatusLabel(status) {
+      const labels = {
+        draft: "Kladde",
+        requested: "Anmodet",
+        approved: "Godkendt",
+        rejected: "Afvist",
+        cancelled: "Annulleret",
+      };
+      return labels[status] || String(status || "Ukendt");
+    }
+
+    function getAbsencePersonLabel(absence) {
+      return String(
+        (absence && (absence.fitter_name || absence.fitter_username || absence.fitter_email || absence.fitter_id))
+        || "Ukendt medarbejder"
+      );
+    }
+
+    function getResourceOptionLabel(resource) {
+      const label = String(resource && resource.label ? resource.label : "").trim();
+      const name = String(resource && resource.name ? resource.name : "").trim();
+      const initials = String(resource && resource.initials ? resource.initials : "").trim();
+      const fallback = String(resource && resource.fitter_id ? resource.fitter_id : "").trim();
+      if (label) {
+        return initials && !label.includes(initials) ? `${label} (${initials})` : label;
+      }
+      if (name) {
+        return initials && !name.includes(initials) ? `${name} (${initials})` : name;
+      }
+      return initials || fallback || "Ukendt medarbejder";
+    }
+
+    function renderResourceOptions() {
+      if (!absenceFitterSelect) {
+        return;
+      }
+
+      const previousValue = absenceFitterSelect.value;
+      absenceFitterSelect.replaceChildren();
+
+      const placeholder = document.createElement("option");
+      placeholder.value = "";
+      placeholder.textContent = "Vælg medarbejder";
+      absenceFitterSelect.appendChild(placeholder);
+
+      const resources = Array.isArray(state.calendar.resources) ? state.calendar.resources : [];
+      resources.forEach((resource) => {
+        const fitterId = String(resource && resource.fitter_id ? resource.fitter_id : "").trim();
+        if (!fitterId) {
+          return;
+        }
+        const option = document.createElement("option");
+        option.value = fitterId;
+        option.textContent = getResourceOptionLabel(resource);
+        absenceFitterSelect.appendChild(option);
+      });
+
+      if (previousValue && resources.some((resource) => String(resource && resource.fitter_id) === previousValue)) {
+        absenceFitterSelect.value = previousValue;
+      }
+
+      absenceFitterSelect.disabled = state.calendar.resourcesLoading || resources.length === 0;
+      if (state.calendar.resourcesLoading) {
+        setText(absenceResourceStatus, "Indlæser medarbejdere...");
+      } else if (resources.length === 0 && state.calendar.resourcesLoaded) {
+        setText(absenceResourceStatus, "Ingen medarbejdere fundet.");
+      } else if (resources.length > 0) {
+        setText(absenceResourceStatus, resources.length === 1 ? "1 medarbejder fundet." : `${resources.length} medarbejdere fundet.`);
+      }
+    }
+
+    function overlapsDateRange(absence, fromDate, toDate) {
+      const start = parseDateInput(String(absence && absence.start_date ? absence.start_date : "").slice(0, 10));
+      const end = parseDateInput(String(absence && absence.end_date ? absence.end_date : "").slice(0, 10));
+      if (!start || !end || !fromDate || !toDate) {
+        return false;
+      }
+      return start <= toDate && end >= fromDate;
+    }
+
+    function countAbsencesInRange(fromDate, toDate) {
+      return state.calendar.absences.filter((absence) => overlapsDateRange(absence, fromDate, toDate)).length;
+    }
+
+    function renderAbsenceOverview() {
+      const defaults = getAbsenceDateDefaults();
+      const today = defaults.today;
+      const currentWeekEnd = addDays(getWeekStart(today), 6);
+      const restOfWeekStart = addDays(today, 1);
+      const nextWeekStart = addDays(getWeekStart(today), 7);
+      const nextWeekEnd = addDays(nextWeekStart, 6);
+      const todayCount = countAbsencesInRange(today, today);
+      const restCount = restOfWeekStart <= currentWeekEnd
+        ? countAbsencesInRange(restOfWeekStart, currentWeekEnd)
+        : 0;
+      const nextCount = countAbsencesInRange(nextWeekStart, nextWeekEnd);
+
+      setText(absenceTodayCount, String(todayCount));
+      setText(absenceRestWeekCount, String(restCount));
+      setText(absenceNextWeekCount, String(nextCount));
+      setText(absenceTodayHint, todayCount === 1 ? "1 fravær i dag" : `${todayCount} fravær i dag`);
+      setText(absenceRestWeekHint, restCount === 1 ? "1 fravær resten af ugen" : `${restCount} fravær resten af ugen`);
+      setText(absenceNextWeekHint, nextCount === 1 ? "1 fravær næste uge" : `${nextCount} fravær næste uge`);
+    }
+
+    function renderAbsenceList() {
+      if (!absenceList) {
+        return;
+      }
+      absenceList.replaceChildren();
+      const absences = Array.isArray(state.calendar.absences) ? state.calendar.absences : [];
+      setText(absenceListMeta, absences.length === 1 ? "1 fravær fundet." : `${absences.length} fravær fundet.`);
+
+      if (absences.length === 0) {
+        const empty = document.createElement("p");
+        empty.className = "calendarMessage";
+        empty.textContent = "Ingen fravær fundet.";
+        absenceList.appendChild(empty);
+        return;
+      }
+
+      absences.forEach((absence) => {
+        const card = document.createElement("article");
+        card.className = "absenceCard";
+
+        const header = document.createElement("div");
+        header.className = "absenceCardHeader";
+
+        const title = document.createElement("p");
+        title.className = "absenceName";
+        title.textContent = getAbsencePersonLabel(absence);
+
+        const status = document.createElement("span");
+        status.className = "tag tagLive";
+        status.textContent = getAbsenceStatusLabel(absence && absence.status);
+
+        header.append(title, status);
+
+        const meta = document.createElement("p");
+        meta.className = "absenceMeta";
+        meta.textContent = `${getAbsenceTypeLabel(absence && absence.absence_type)} · ${formatShortDate(absence && absence.start_date)} til ${formatShortDate(absence && absence.end_date)}`;
+
+        card.append(header, meta);
+
+        if (absence && absence.note) {
+          const note = document.createElement("p");
+          note.className = "absenceNote";
+          note.textContent = String(absence.note);
+          card.appendChild(note);
+        }
+
+        absenceList.appendChild(card);
+      });
+    }
+
+    function setCalendarMessage(message) {
+      setText(absenceRangeStatus, message);
+      setText(absenceListMeta, message);
+    }
+
+    function setCalendarTab(tab) {
+      const nextTab = tab === "tasks" ? "tasks" : "absences";
+      state.calendar.activeTab = nextTab;
+      calendarTabs.forEach((button) => {
+        const active = button.dataset.calendarTab === nextTab;
+        button.classList.toggle("active", active);
+        button.setAttribute("aria-selected", active ? "true" : "false");
+      });
+      calendarPanels.forEach((panel) => {
+        panel.hidden = panel.dataset.calendarPanel !== nextTab;
+      });
+      renderCalendarAccessState();
+      if (nextTab === "absences") {
+        loadCalendarResources();
+        loadCalendarAbsences();
+      }
+    }
+
+    function renderCalendarAccessState() {
+      const accessDenied = state.calendar.accessDenied || !isTenantAdmin(state.me);
+      const showAbsences = state.calendar.activeTab === "absences";
+      if (calendarAccessNotice) {
+        calendarAccessNotice.hidden = !(showAbsences && accessDenied);
+      }
+      [absenceOverviewSection, absenceRangeSection, absenceListSection, absenceCreateSection].forEach((section) => {
+        if (section) {
+          section.hidden = !showAbsences || accessDenied;
+        }
+      });
+      if (accessDenied) {
+        state.calendar.absences = [];
+        renderAbsenceOverview();
+        renderResourceOptions();
+        if (absenceList) {
+          absenceList.replaceChildren();
+        }
+      }
+    }
+
+    async function loadCalendarResources(options) {
+      renderCalendarAccessState();
+      if (!isTenantAdmin(state.me) || state.calendar.activeTab !== "absences") {
+        return;
+      }
+      if (!(options && options.force) && state.calendar.resourcesLoaded) {
+        renderResourceOptions();
+        return;
+      }
+
+      state.calendar.resourcesLoading = true;
+      renderResourceOptions();
+
+      try {
+        const response = await apiFetch("/api/calendar/resources", { method: "GET" });
+        state.calendar.accessDenied = false;
+        state.calendar.resources = response && Array.isArray(response.resources) ? response.resources : [];
+        state.calendar.resourcesLoaded = true;
+        renderCalendarAccessState();
+        renderResourceOptions();
+      } catch (error) {
+        if (error && error.status === 403 && error.code === "calendar_absence_access_denied") {
+          state.calendar.accessDenied = true;
+          renderCalendarAccessState();
+          return;
+        }
+        if (handleAuthFailure(error)) {
+          return;
+        }
+        state.calendar.resources = [];
+        state.calendar.resourcesLoaded = false;
+        renderResourceOptions();
+        setText(absenceResourceStatus, `Kunne ikke hente medarbejdere: ${getErrorMessage(error, "request_failed")}`);
+      } finally {
+        state.calendar.resourcesLoading = false;
+        renderResourceOptions();
+      }
+    }
+
+    function getCalendarRangeFromInputs() {
+      const from = absenceFromInput && absenceFromInput.value ? absenceFromInput.value : state.calendar.from;
+      const to = absenceToInput && absenceToInput.value ? absenceToInput.value : state.calendar.to;
+      const fromDate = parseDateInput(from);
+      const toDate = parseDateInput(to);
+      if (!fromDate || !toDate) {
+        return { error: "Vælg både fra- og til-dato i formatet YYYY-MM-DD." };
+      }
+      if (toDate < fromDate) {
+        return { error: "Til dato må ikke være før fra dato." };
+      }
+      return { from, to };
+    }
+
+    async function loadCalendarAbsences(options) {
+      ensureCalendarDefaults();
+      renderCalendarAccessState();
+      if (!isTenantAdmin(state.me) || state.calendar.activeTab !== "absences") {
+        return;
+      }
+
+      const range = getCalendarRangeFromInputs();
+      if (range.error) {
+        setCalendarMessage(range.error);
+        return;
+      }
+
+      const cacheKey = `${range.from}:${range.to}`;
+      if (!(options && options.force) && state.calendar.loadedKey === cacheKey) {
+        renderAbsenceOverview();
+        renderAbsenceList();
+        return;
+      }
+
+      state.calendar.loading = true;
+      setText(absenceRangeStatus, "Henter fravær...");
+      setText(absenceListMeta, "Indlæser fravær...");
+      if (absenceRefreshBtn) {
+        absenceRefreshBtn.disabled = true;
+      }
+
+      try {
+        const response = await apiFetch(`/api/calendar/absences?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`, { method: "GET" });
+        state.calendar.from = range.from;
+        state.calendar.to = range.to;
+        state.calendar.loadedKey = cacheKey;
+        state.calendar.accessDenied = false;
+        state.calendar.absences = response && Array.isArray(response.absences) ? response.absences : [];
+        setText(absenceRangeStatus, `${formatShortDate(range.from)} til ${formatShortDate(range.to)}`);
+        renderCalendarAccessState();
+        renderAbsenceOverview();
+        renderAbsenceList();
+      } catch (error) {
+        if (error && error.status === 403 && error.code === "calendar_absence_access_denied") {
+          state.calendar.accessDenied = true;
+          renderCalendarAccessState();
+          return;
+        }
+        if (handleAuthFailure(error)) {
+          return;
+        }
+        const message = `Kunne ikke hente fravær: ${getErrorMessage(error, "request_failed")}`;
+        setCalendarMessage(message);
+      } finally {
+        state.calendar.loading = false;
+        if (absenceRefreshBtn) {
+          absenceRefreshBtn.disabled = false;
+        }
+      }
+    }
+
+    function validateAbsenceForm() {
+      const fitterId = absenceFitterSelect ? String(absenceFitterSelect.value || "").trim() : "";
+      const absenceType = absenceTypeSelect ? String(absenceTypeSelect.value || "").trim() : "";
+      const visibilityScope = absenceVisibilitySelect ? String(absenceVisibilitySelect.value || "").trim() : "tenant_admin_only";
+      const startDate = absenceStartDateInput ? String(absenceStartDateInput.value || "").trim() : "";
+      const endDate = absenceEndDateInput ? String(absenceEndDateInput.value || "").trim() : "";
+      const note = absenceNoteInput ? String(absenceNoteInput.value || "").trim() : "";
+      const allowedTypes = new Set(["vacation", "vacation_free", "course", "sickness", "other"]);
+      const allowedVisibility = new Set(["tenant_admin_only", "limited_availability", "manager_full", "finance_relevant", "custom"]);
+      const start = parseDateInput(startDate);
+      const end = parseDateInput(endDate);
+
+      if (!fitterId) {
+        return { error: "Vælg medarbejder." };
+      }
+      if (!allowedTypes.has(absenceType)) {
+        return { error: "Vælg en kendt fraværstype." };
+      }
+      if (!start || !end) {
+        return { error: "Startdato og slutdato er påkrævet." };
+      }
+      if (end < start) {
+        return { error: "Slutdato må ikke være før startdato." };
+      }
+      if (note.length > 1000) {
+        return { error: "Note må højst være 1000 tegn." };
+      }
+      if (!allowedVisibility.has(visibilityScope)) {
+        return { error: "Vælg en kendt synlighed." };
+      }
+
+      return {
+        input: {
+          fitter_id: fitterId,
+          absence_type: absenceType,
+          start_date: startDate,
+          end_date: endDate,
+          note: note || null,
+          visibility_scope: visibilityScope,
+        },
+      };
+    }
+
+    async function submitAbsenceForm(event) {
+      event.preventDefault();
+      if (!isTenantAdmin(state.me)) {
+        state.calendar.accessDenied = true;
+        renderCalendarAccessState();
+        return;
+      }
+
+      const result = validateAbsenceForm();
+      if (result.error) {
+        setText(absenceFormStatus, result.error);
+        return;
+      }
+
+      if (absenceCreateBtn) {
+        absenceCreateBtn.disabled = true;
+      }
+      setText(absenceFormStatus, "Gemmer fravær...");
+
+      try {
+        await apiFetch("/api/calendar/absences", {
+          method: "POST",
+          body: JSON.stringify(result.input),
+        });
+        setText(absenceFormStatus, "Fravær gemt.");
+        if (absenceNoteInput) {
+          absenceNoteInput.value = "";
+        }
+        state.calendar.loadedKey = "";
+        await loadCalendarAbsences({ force: true });
+      } catch (error) {
+        if (error && error.status === 403 && error.code === "calendar_absence_access_denied") {
+          state.calendar.accessDenied = true;
+          renderCalendarAccessState();
+          return;
+        }
+        if (handleAuthFailure(error)) {
+          return;
+        }
+        setText(absenceFormStatus, `Kunne ikke gemme fravær: ${getErrorMessage(error, "request_failed")}`);
+      } finally {
+        if (absenceCreateBtn) {
+          absenceCreateBtn.disabled = false;
+        }
+      }
+    }
+
     function getCurrentAppViewFromHash() {
       const hash = String(window.location.hash || "").replace(/^#/, "").toLowerCase();
+      if (hash === "calendar") {
+        return "calendar";
+      }
       if (hash === "projects") {
         return "projects";
       }
@@ -689,11 +1229,14 @@
     }
 
     function setActiveAppView(view) {
-      const activeView = view === "projects" ? "projects" : "dashboard";
+      const activeView = view === "projects" || view === "calendar" ? view : "dashboard";
       state.currentView = activeView;
 
       if (dashboardView) {
         dashboardView.hidden = activeView !== "dashboard";
+      }
+      if (calendarView) {
+        calendarView.hidden = activeView !== "calendar";
       }
       if (projectsView) {
         projectsView.hidden = activeView !== "projects";
@@ -703,6 +1246,15 @@
         const target = String(link.dataset.viewLink || "").toLowerCase();
         link.classList.toggle("active", target === activeView);
       });
+
+      if (activeView === "calendar") {
+        ensureCalendarDefaults();
+        renderCalendarAccessState();
+        if (state.calendar.activeTab === "absences") {
+          loadCalendarResources();
+          loadCalendarAbsences();
+        }
+      }
     }
 
     function formatDashboardDate() {
@@ -1875,6 +2427,43 @@
     window.addEventListener("hashchange", () => {
       setActiveAppView(getCurrentAppViewFromHash());
     });
+
+    calendarTabs.forEach((button) => {
+      button.addEventListener("click", () => {
+        setCalendarTab(button.dataset.calendarTab);
+      });
+    });
+
+    if (absenceRefreshBtn) {
+      absenceRefreshBtn.addEventListener("click", () => {
+        state.calendar.loadedKey = "";
+        loadCalendarAbsences({ force: true });
+      });
+    }
+
+    if (absenceFromInput) {
+      absenceFromInput.addEventListener("change", () => {
+        state.calendar.from = absenceFromInput.value || state.calendar.from;
+      });
+    }
+
+    if (absenceToInput) {
+      absenceToInput.addEventListener("change", () => {
+        state.calendar.to = absenceToInput.value || state.calendar.to;
+      });
+    }
+
+    if (absenceStartDateInput) {
+      absenceStartDateInput.addEventListener("change", () => {
+        if (absenceEndDateInput && !absenceEndDateInput.value) {
+          absenceEndDateInput.value = absenceStartDateInput.value;
+        }
+      });
+    }
+
+    if (absenceCreateForm) {
+      absenceCreateForm.addEventListener("submit", submitAbsenceForm);
+    }
 
     if (sortSelect) {
       sortSelect.addEventListener("change", () => {

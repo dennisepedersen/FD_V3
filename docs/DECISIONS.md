@@ -64,6 +64,7 @@ Scope: links to decisions; does not duplicate full decisions
 | QA status model v1 is manual; `WAITING` does not identify who is being waited on and must not drive inbox/dashboard responsibility by itself | `docs/modules/qa/QA_STATUS_MODEL.md` |
 | QA v2 per-user state is stored separately from global `qa_threads.status`; participants/read-state enable personal `new`, `seen`, `sent`, and `closed` metadata | `docs/modules/qa/QA_V2_DATA_FOUNDATION.md` |
 | Tenant admin follows a hybrid access model: tenant administration rights do not automatically grant tenant-wide access to project-owned data | `docs/SECURITY_MODEL.md`, `docs/ARCHITECTURE.md` |
+| Fielddesk is the primary source of truth for Calendar / Resource Absence v1; integrations may enrich absence data later but do not define v1 truth | `docs/modules/calendar/CALENDAR_RESOURCE_ABSENCE_MVP.md` |
 
 ## Security And Governance Decisions
 
@@ -87,6 +88,7 @@ These are not decided yet and must not be assumed:
 - Which modules are core versus optional.
 - Which modules must work without E-Komplet.
 - Fielddesk-native project creation/editing model.
+- Final Calendar / Resource Absence RBAC, visibility, approval, and neutral resource-person model.
 - Data policy for Fielddesk-owned, imported, derived, audit, credential, demo, and file data.
 - Storage/file contract and implementation.
 - Permanent AI/Codex governance doc replacing `docs/AI_BOOTSTRAP_CONTEXT.md` as bootstrap context in all references.

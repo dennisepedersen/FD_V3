@@ -9,6 +9,7 @@ const fitterHourQueries = require("../db/queries/fitterHour");
 const fitterBusinessQueries = require("../db/queries/fitterBusiness");
 const projectAccessService = require("../services/projectAccessService");
 const qaRoutes = require("../modules/qa/qa.routes");
+const calendarRoutes = require("../modules/calendar/calendar.routes");
 const { createHttpError } = require("../middleware/errorHandler");
 
 const router = express.Router();
@@ -71,6 +72,7 @@ router.get("/tenant/auth.js", requireTenantHost, (req, res) => {
 });
 
 router.use(qaRoutes);
+router.use(calendarRoutes);
 
 router.get("/api/me", requireTenantHost, requireAuth("access"), async (req, res, next) => {
   if (hasAccessContextMismatch(req)) {

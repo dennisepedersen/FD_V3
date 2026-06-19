@@ -54,6 +54,7 @@ Current:
 - Verified current tenant admin model: `tenant_admin` is a tenant administrator with selected module/admin rights, not an automatic tenant-wide superuser for project-owned data.
 - Project-owned data still requires explicit project scope unless a route has an explicit tenant-wide capability.
 - QA uses both module permission and project/thread scope. Granting `tenant_admin` or `project_leader` `qa:update` does not by itself broaden project scope.
+- Calendar / Resource Absence PR2 exposes full absence read/create API only to `tenant_admin`; `project_leader` and `technician` are denied until masked visibility/resource-scope policy exists.
 
 Planned:
 - Central permission model with route policy: required scope, allowed roles, required entitlements/module permissions.
@@ -102,6 +103,7 @@ Current:
 - Tenant-owned data must include `tenant_id`.
 - Queries must filter by tenant and avoid cross-tenant joins by shape.
 - Composite tenant foreign keys are used in schema direction to keep related rows in the same tenant.
+- `resource_absences` is tenant-owned Fielddesk data for Calendar / Resource Absence and uses tenant-scoped references to v1 resource identity (`fitter`) and actor users.
 - RLS is not yet fully active as database policy.
 
 Planned:
@@ -191,6 +193,7 @@ Current:
 - Module governance is started but not complete.
 - Restarbejde has a draft module definition.
 - QA exists as early backend module code.
+- Calendar / Resource Absence has PR2 tenant-admin API foundation. Visibility is prepared through `visibility_scope`, but no UI route, masked non-admin visibility, or full approval policy exists yet.
 
 Every module must define:
 - Tenant ownership model.
@@ -208,6 +211,14 @@ Restarbejde example:
 - Report exports and file access must be permission-checked and auditable.
 - Prototype frontend state must not become production authorization or storage logic.
 
+Calendar / Resource Absence direction:
+- Absence records are tenant-isolated and Fielddesk-owned.
+- API routes must derive tenant from verified request context and must not accept frontend-supplied tenant authority.
+- PR2 create routes derive actor from auth and set v1 status to `approved` server-side.
+- Visibility must be enforced in backend policy before non-admin roles can read full absence type/reason.
+- Later resource group, manager approval, finance visibility, and unavailable-only views must be explicit capabilities, not frontend-only filtering.
+- Audit events for create, update, cancel, approve, reject, and visibility-sensitive access should be added when write routes/actions are introduced.
+
 ## 9. Known Gaps
 
 Current gaps:
@@ -222,6 +233,7 @@ Current gaps:
 Open decisions:
 - Full RBAC matrix.
 - Full RLS policy design.
+- Full Calendar / Resource Absence visibility, approval, and audit event matrix.
 - File/storage provider and access pattern.
 - Support access policy after phase 1.
 - Module-specific security contracts.

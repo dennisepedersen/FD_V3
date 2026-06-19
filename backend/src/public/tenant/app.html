@@ -671,6 +671,140 @@
       color: var(--text);
     }
 
+    .calendarTabs {
+      display: inline-flex;
+      width: fit-content;
+      gap: 4px;
+      padding: 4px;
+      border: 1px solid rgba(191, 212, 234, 0.16);
+      border-radius: 14px;
+      background: rgba(4, 10, 22, 0.32);
+    }
+
+    .calendarTab {
+      min-height: 36px;
+      padding: 7px 12px;
+      border: 0;
+      border-radius: 10px;
+      background: transparent;
+      color: var(--muted);
+      font: inherit;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .calendarTab.active {
+      background: rgba(94, 200, 229, 0.15);
+      color: #dff7ff;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    }
+
+    .calendarPanel {
+      padding: 14px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .calendarAccessNotice,
+    .calendarMessage {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .calendarAccessNotice {
+      padding: 11px 12px;
+      border: 1px solid rgba(246, 212, 83, 0.22);
+      border-radius: 12px;
+      background: rgba(246, 212, 83, 0.08);
+      color: #f6d453;
+    }
+
+    .calendarOverviewGrid,
+    .calendarFormGrid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+    }
+
+    .absenceList {
+      display: grid;
+      gap: 10px;
+    }
+
+    .absenceCard {
+      padding: 12px;
+      display: grid;
+      gap: 8px;
+      border: 1px solid rgba(191, 212, 234, 0.16);
+      border-radius: 15px;
+      background:
+        linear-gradient(135deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.018)),
+        var(--surface-2);
+    }
+
+    .absenceCardHeader {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .absenceName {
+      margin: 0;
+      color: var(--text);
+      font-weight: 800;
+      line-height: 1.2;
+    }
+
+    .absenceMeta,
+    .absenceNote {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .calendarField {
+      display: grid;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .calendarField input,
+    .calendarField select,
+    .calendarField textarea {
+      width: 100%;
+      min-height: 42px;
+      border: 1px solid rgba(191, 212, 234, 0.18);
+      border-radius: 12px;
+      padding: 9px 11px;
+      font: inherit;
+      background: rgba(4, 10, 22, 0.38);
+      color: var(--text);
+    }
+
+    .calendarField textarea {
+      min-height: 88px;
+      resize: vertical;
+    }
+
+    .calendarFormActions {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .calendarFormStatus {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
     .metaRow,
     .projectLineTwo {
       display: flex;
@@ -811,6 +945,7 @@
     .projectCard:focus-visible,
     .projectAction:focus-visible,
     .moduleCard:focus-visible,
+    .calendarTab:focus-visible,
     .navItem:focus-visible,
     .btn:focus-visible {
       outline: 2px solid var(--brand);
@@ -1178,6 +1313,18 @@
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
 
+      .calendarOverviewGrid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .calendarFormGrid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .calendarFieldWide {
+        grid-column: 1 / -1;
+      }
+
       .projectList,
       .groupBlock {
         grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
@@ -1385,7 +1532,7 @@
               </span>
               <span class="navCopy"><strong>CO2 / ESG</strong><span>CO2-overblik</span></span>
             </a>
-            <a class="navItem navMuted" href="#dashboard" aria-disabled="true">
+            <a class="navItem" href="#calendar" data-view-link="calendar">
               <span class="navIcon" aria-hidden="true">
                 <svg viewBox="0 0 24 24"><path d="M5 5h14v15H5z"></path><path d="M8 3v4"></path><path d="M16 3v4"></path><path d="M5 10h14"></path></svg>
               </span>
@@ -1475,13 +1622,13 @@
               </div>
               <p class="moduleText">Foreløbigt projekt-CO2, datakvalitet og verificerede snapshots kommer senere.</p>
             </article>
-            <article class="moduleCard disabled">
+            <a class="moduleCard" href="#calendar" data-view-link="calendar">
               <div class="moduleTop">
                 <p class="moduleName">Kalender</p>
-                <span class="tag">Kommer senere</span>
+                <span class="tag tagLive">Fravær</span>
               </div>
-              <p class="moduleText">Plan, fravær og deadlines får plads her, når modulet modnes.</p>
-            </article>
+              <p class="moduleText">Plan, fravær og deadlines starter med tenant-ejet fraværsoverblik.</p>
+            </a>
             <article class="moduleCard disabled">
               <div class="moduleTop">
                 <p class="moduleName">Medarbejdere</p>
@@ -1531,6 +1678,128 @@
               <p id="dashboardCo2Average" class="infoValue">Teaser</p>
               <p class="infoHint">Foreløbig placeholder.</p>
             </article>
+          </section>
+        </section>
+
+        <section id="calendarView" class="view" data-view="calendar" hidden>
+          <section class="panel headerPanel">
+            <div class="titleRow">
+              <div>
+                <h1>Kalender</h1>
+                <p class="subtitle">Opgaver og fravær i samme overblik</p>
+              </div>
+              <a class="btn btnCompact" href="#dashboard" data-view-link="dashboard">Dashboard</a>
+            </div>
+          </section>
+
+          <section class="panel calendarPanel">
+            <div class="calendarTabs" role="tablist" aria-label="Kalender">
+              <button class="calendarTab" type="button" role="tab" data-calendar-tab="tasks" aria-selected="false">Opgaver</button>
+              <button class="calendarTab active" type="button" role="tab" data-calendar-tab="absences" aria-selected="true">Fravær</button>
+            </div>
+
+            <div id="calendarTasksPanel" data-calendar-panel="tasks" hidden>
+              <p class="calendarMessage">Kommer senere.</p>
+            </div>
+
+            <div id="calendarAbsencesPanel" data-calendar-panel="absences">
+              <p id="calendarAccessNotice" class="calendarAccessNotice" hidden>Du har ikke adgang til fraværsdata endnu.</p>
+            </div>
+          </section>
+
+          <section id="absenceOverviewSection" class="calendarOverviewGrid" aria-label="Hurtigt overblik">
+            <article class="statCard">
+              <p class="infoLabel">I dag</p>
+              <p id="absenceTodayCount" class="statValue">-</p>
+              <p id="absenceTodayHint" class="infoHint">Indlæser...</p>
+            </article>
+            <article class="statCard">
+              <p class="infoLabel">Resten af ugen</p>
+              <p id="absenceRestWeekCount" class="statValue">-</p>
+              <p id="absenceRestWeekHint" class="infoHint">Indlæser...</p>
+            </article>
+            <article class="statCard">
+              <p class="infoLabel">Næste uge</p>
+              <p id="absenceNextWeekCount" class="statValue">-</p>
+              <p id="absenceNextWeekHint" class="infoHint">Indlæser...</p>
+            </article>
+          </section>
+
+          <section id="absenceRangeSection" class="panel toolbar">
+            <label class="toolbarControl">
+              <span>Fra dato:</span>
+              <input id="absenceFromInput" class="sortSelect" type="date">
+            </label>
+            <label class="toolbarControl">
+              <span>Til dato:</span>
+              <input id="absenceToInput" class="sortSelect" type="date">
+            </label>
+            <button id="absenceRefreshBtn" class="btn btnCompact" type="button">Hent/opdater</button>
+            <div id="absenceRangeStatus" class="metaRow">Vælg periode.</div>
+          </section>
+
+          <section id="absenceListSection" class="panel calendarPanel">
+            <div class="sectionHeader">
+              <div>
+                <h2>Fraværsliste</h2>
+                <p id="absenceListMeta" class="subtitle">Indlæser fravær...</p>
+              </div>
+            </div>
+            <div id="absenceList" class="absenceList" aria-live="polite"></div>
+          </section>
+
+          <section id="absenceCreateSection" class="panel calendarPanel">
+            <div class="sectionHeader">
+              <div>
+                <h2>Opret fravær</h2>
+                <p class="subtitle">Gemmes som godkendt i PR3.</p>
+              </div>
+            </div>
+            <form id="absenceCreateForm" class="calendarFormGrid">
+              <label class="calendarField calendarFieldWide">
+                Medarbejder
+                <select id="absenceFitterSelect" required>
+                  <option value="">Vælg medarbejder</option>
+                </select>
+                <span id="absenceResourceStatus" class="calendarFormStatus">Indlæser medarbejdere...</span>
+              </label>
+              <label class="calendarField">
+                Fraværstype
+                <select id="absenceTypeSelect" required>
+                  <option value="vacation">Ferie</option>
+                  <option value="vacation_free">Feriefri</option>
+                  <option value="course">Kursus</option>
+                  <option value="sickness">Sygdom</option>
+                  <option value="other">Andet</option>
+                </select>
+              </label>
+              <label class="calendarField">
+                Synlighed
+                <select id="absenceVisibilitySelect">
+                  <option value="tenant_admin_only">Kun tenant admin</option>
+                  <option value="limited_availability">Begrænset tilgængelighed</option>
+                  <option value="manager_full">Leder fuld visning</option>
+                  <option value="finance_relevant">Økonomirelevant</option>
+                  <option value="custom">Custom</option>
+                </select>
+              </label>
+              <label class="calendarField">
+                Startdato
+                <input id="absenceStartDateInput" type="date" required>
+              </label>
+              <label class="calendarField">
+                Slutdato
+                <input id="absenceEndDateInput" type="date" required>
+              </label>
+              <label class="calendarField calendarFieldWide">
+                Note
+                <textarea id="absenceNoteInput" maxlength="1000"></textarea>
+              </label>
+              <div class="calendarFormActions calendarFieldWide">
+                <button id="absenceCreateBtn" class="btn btnPrimary" type="submit">Gem fravær</button>
+                <p id="absenceFormStatus" class="calendarFormStatus"></p>
+              </div>
+            </form>
           </section>
         </section>
 
