@@ -20,7 +20,7 @@ Ingen implementering eller arkitekturdesign må startes alene på baggrund af en
 
 ## IDE_COUNTER
 
-Næste ledige ID: IDE-0028
+Næste ledige ID: IDE-0029
 
 ---
 
@@ -1252,6 +1252,80 @@ Forberedelse til fremtidige moduler som:
 - AI-assisterede workflows
 
 Medarbejderportal og Projektroller bliver det centrale daglige arbejdsområde for udførende medarbejdere i Fielddesk.
+
+---
+
+### IDE-0028 – FD som ERP-orchestrator og mulig selvstændig ERP-retning
+
+Dato: 2026-06-13  
+Kilde: Chat / EK v4 API-discovery, fitterhours, materialer, financialposts og dokumentation  
+Status: RAW IDEA / Ikke promoveret til BACKLOG eller SPEC  
+
+#### FORMÅL
+
+Gemme den strategiske idé om, at Fielddesk på lang sigt kan bevæge sig fra dashboard ovenpå E-Komplet til egentlig arbejdsflade/orchestrator for projektstyring, økonomi, timer, materialer, dokumentation og QA.
+
+Idéen er et fremtidsspor. Den må ikke implementeres nu og må ikke behandles som backlog eller spec uden særskilt vurdering.
+
+#### OBSERVATIONER
+
+Ny EK v4 API-dokumentation og safe probes viser, at EK har flere projektorienterede læse- og write-side muligheder:
+
+- `GET /api/v4/projects/id/{id}` kan returnere project detail med noter og timeregistreringer.
+- `purchaseinvoicelines` kan give faktiske materialelinjer/varelinjer pr. projekt via ProjectID-filter.
+- `purchaseorders` kan give købs-/leverandørhoveddata pr. projekt.
+- `financialposts` kan fungere som bro mellem projekt, faktura, `purchaseOrderID`, `fileID` og økonomiske posteringer.
+- `projects/{id}/documentation` kan bruges som dokument-/PDF-/ZIP-kilde.
+- `projects/upload` viser mulighed for at bruge EK som dokumentlager.
+- `projects/{id}/items`, `projects/budgets`, `fitterhours`, `worksheets` m.fl. peger på, at EK API'et også har write-side muligheder.
+
+#### STRATEGISK IDÉ
+
+FD kan på lang sigt udvikle sig i trin:
+
+1. EK-læser
+
+- FD læser projekter, timer, økonomi, materialer og dokumentation fra EK.
+
+2. EK-arbejdsflade
+
+- Projektleder arbejder primært i FD, mens EK fortsat er ERP/bogholderi-systemet bagved.
+
+3. EK-orchestrator
+
+- FD styrer godkendelser, ændringsnoter, forecast, budgetjusteringer, materialer, QA, dokumentation og evt. timer, og skriver kontrolleret tilbage til EK via API.
+
+4. Selvstændig ERP-retning
+
+- På længere sigt kan FD muligvis blive et selvstændigt ERP-lignende system med egen sandhed, egne workflows og valgfri integration til EK, Solar, økonomisystemer og andre datakilder.
+
+#### PRINCIPPER
+
+- Må ikke implementeres nu.
+- Må først vurderes efter læsning, sync, activity, økonomi, materialer og dokumentation er stabile.
+- Write-back til EK må kun ske med audit, ændringsnote, RBAC, tenant-isolation, godkendelsesflow, rollback-/fejlstrategi og tydelig markering af hvilken sandhed der er FD, og hvilken der er EK.
+- FD skal kunne fungere uden EK på længere sigt, men EK-integration kan bruges som læring og overgangsbro.
+- Idéen skal gemmes som fremtidsspor og ikke backlog-promoveres endnu.
+
+#### RISICI
+
+- Risiko for at FD bliver for tæt koblet til EK som implicit sandhed.
+- Risiko for write-back uden tilstrækkelig governance, audit og rollback.
+- Risiko for at projektleder-workflows, økonomi og bogholderi blandes uden klare ejerskabsgrænser.
+- Risiko for at dokumenter, materialer og finansdata bliver gemt eller vist uden tydelig kilde- og sandhedsmarkering.
+
+#### AFHÆNGIGHEDER
+
+- Stabil EK read-side sync.
+- Afklaret project activity-model.
+- Materiale- og økonomimapping.
+- Dokument-/filstorage-governance.
+- RBAC, audit, tenant isolation og godkendelsesflow.
+- Klar data ownership-model for FD-owned truth vs EK-owned truth.
+
+#### NOTER
+
+Denne idé er beslægtet med medarbejderportal, QA, materialestyring, Solar, rapportering og project context, men skal blive i IDE_BANK som RAW IDEA indtil de underliggende datakontrakter er modne.
 
 ---
 
