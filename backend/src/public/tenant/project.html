@@ -54,13 +54,47 @@
       overflow: hidden;
     }
 
+    .appShell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 1fr;
+    }
+
+    .appShell.sidebarCollapsed {
+      --sidebar-expanded-width: 280px;
+      --sidebar-collapsed-width: 78px;
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      border-bottom: 1px solid rgba(191, 212, 234, 0.14);
+      background: rgba(7, 13, 27, 0.88);
+      backdrop-filter: blur(18px);
+    }
+
+    .sideInner {
+      display: grid;
+      gap: 12px;
+      padding: 12px;
+    }
+
+    .brandHeader {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      min-width: 0;
+    }
+
     .topbar {
       position: sticky;
       top: 0;
       z-index: 20;
       display: flex;
       align-items: center;
-      justify-content: space-between;
+      justify-content: flex-end;
       gap: 12px;
       padding: 12px 14px;
       border-bottom: 1px solid rgba(188, 207, 229, 0.14);
@@ -79,22 +113,220 @@
     }
 
     .brandMark {
-      width: 32px;
-      height: 32px;
-      border-radius: 9px;
+      width: 38px;
+      height: 38px;
+      border-radius: 12px;
       display: grid;
       place-items: center;
       background: linear-gradient(135deg, #6aa88f, #2e6f91 52%, #152844);
       box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24), 0 10px 22px rgba(0, 0, 0, 0.34);
       color: #fff;
+      font-size: 13px;
+      font-weight: 800;
+      flex: 0 0 auto;
+    }
+
+    .brandText {
+      min-width: 0;
+    }
+
+    .brandName {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 850;
+      letter-spacing: 0.01em;
+    }
+
+    .brandSub {
+      margin: 1px 0 0;
+      color: var(--muted);
       font-size: 12px;
-      font-weight: 700;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .sidebarToggle {
+      width: 40px;
+      height: 40px;
+      border: 1px solid rgba(191, 212, 234, 0.16);
+      border-radius: 12px;
+      display: inline-grid;
+      place-items: center;
+      background: rgba(255, 255, 255, 0.055);
+      color: #dce7f1;
+      cursor: pointer;
+      flex: 0 0 auto;
+    }
+
+    .sidebarToggle:hover {
+      border-color: rgba(94, 200, 229, 0.34);
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .sidebarToggleIcon {
+      width: 20px;
+      height: 20px;
+      display: block;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      fill: none;
+    }
+
+    .sidebarToggleIcon .iconExpanded {
+      display: block;
+    }
+
+    .sidebarToggleIcon .iconCollapsed {
+      display: none;
+    }
+
+    .sideNav {
+      display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: minmax(150px, 1fr);
+      gap: 8px;
+      overflow-x: auto;
+      padding-bottom: 2px;
+      scrollbar-width: thin;
+    }
+
+    .navSection {
+      display: contents;
+    }
+
+    .navLabel {
+      display: none;
+    }
+
+    .navItem {
+      min-height: 54px;
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      align-items: center;
+      gap: 10px;
+      border: 1px solid rgba(191, 212, 234, 0.14);
+      border-radius: 14px;
+      padding: 9px 11px;
+      background: rgba(255, 255, 255, 0.045);
+      color: #dce7f1;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    .navItem:hover,
+    .navItem.active {
+      border-color: rgba(94, 200, 229, 0.34);
+      background:
+        linear-gradient(135deg, rgba(84, 74, 168, 0.24), rgba(94, 200, 229, 0.13)),
+        rgba(255, 255, 255, 0.06);
+    }
+
+    .navItem.navMuted {
+      opacity: 0.74;
+    }
+
+    .navIcon {
+      width: 22px;
+      height: 22px;
+      display: grid;
+      place-items: center;
+      color: #b9e9f5;
+      flex: 0 0 auto;
+    }
+
+    .navIcon svg {
+      width: 20px;
+      height: 20px;
+      display: block;
+      stroke: currentColor;
+      stroke-width: 1.9;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      fill: none;
+    }
+
+    .navCopy {
+      min-width: 0;
+      display: grid;
+      gap: 2px;
+    }
+
+    .navItem strong {
+      font-size: 13px;
+      line-height: 1.2;
+    }
+
+    .navItem span {
+      color: var(--muted);
+      font-size: 12px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .sidebarCollapsed .brandText,
+    .sidebarCollapsed .navCopy {
+      display: none;
+    }
+
+    .sidebarCollapsed .brandHeader {
+      justify-content: center;
+    }
+
+    .sidebarCollapsed .navItem {
+      grid-template-columns: 1fr;
+      justify-items: center;
+      min-width: 52px;
+    }
+
+    .sidebarCollapsed .sidebarToggleIcon .iconExpanded {
+      display: none;
+    }
+
+    .sidebarCollapsed .sidebarToggleIcon .iconCollapsed {
+      display: block;
+    }
+
+    .mainShell {
+      min-width: 0;
+      display: grid;
+      grid-template-rows: auto 1fr;
     }
 
     .topActions {
       display: inline-flex;
       align-items: center;
       gap: 8px;
+    }
+
+    .logoutIconBtn {
+      min-width: 38px;
+      width: 38px;
+      height: 38px;
+      display: inline-grid;
+      place-items: center;
+      padding: 0;
+      color: #dce7f1;
+      flex: 0 0 auto;
+    }
+
+    .logoutIconBtn svg {
+      width: 19px;
+      height: 19px;
+      display: block;
+      stroke: currentColor;
+      stroke-width: 1.9;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      fill: none;
+    }
+
+    .logoutIconBtn:hover {
+      border-color: rgba(94, 200, 229, 0.34);
+      background: rgba(94, 200, 229, 0.12);
+      color: var(--brand-strong);
     }
 
     .btn {
@@ -167,6 +399,21 @@
       padding: 16px;
       display: grid;
       gap: 10px;
+    }
+
+    .projectBackLink {
+      width: fit-content;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: #b8efff;
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 750;
+    }
+
+    .projectBackLink:hover {
+      color: var(--brand-strong);
     }
 
     .projectRef {
@@ -1058,6 +1305,84 @@
     }
 
     @media (min-width: 1120px) {
+      .appShell {
+        --sidebar-expanded-width: 280px;
+        --sidebar-collapsed-width: 78px;
+        grid-template-columns: var(--sidebar-expanded-width) minmax(0, 1fr);
+        transition: grid-template-columns 0.18s ease;
+      }
+
+      .appShell.sidebarCollapsed {
+        grid-template-columns: var(--sidebar-collapsed-width) minmax(0, 1fr);
+      }
+
+      .sidebar {
+        height: 100vh;
+        border-right: 1px solid rgba(191, 212, 234, 0.14);
+        border-bottom: 0;
+      }
+
+      .sideInner {
+        height: 100vh;
+        align-content: start;
+        padding: 18px 14px;
+        overflow: auto;
+      }
+
+      .sidebarCollapsed .sideInner {
+        padding: 18px 10px;
+      }
+
+      .sideNav {
+        grid-auto-flow: row;
+        grid-auto-columns: unset;
+        grid-auto-rows: auto;
+        overflow: visible;
+        gap: 8px;
+      }
+
+      .navSection {
+        display: grid;
+        gap: 8px;
+      }
+
+      .navLabel {
+        display: block;
+        margin: 12px 6px 2px;
+        color: #7f8da0;
+        font-size: 11px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+      }
+
+      .sidebarCollapsed .brandHeader {
+        display: grid;
+        justify-items: center;
+      }
+
+      .sidebarCollapsed .brand {
+        justify-content: center;
+      }
+
+      .sidebarCollapsed .brandText,
+      .sidebarCollapsed .navLabel,
+      .sidebarCollapsed .navCopy {
+        display: none;
+      }
+
+      .sidebarCollapsed .sidebarToggle {
+        width: 42px;
+        height: 42px;
+      }
+
+      .sidebarCollapsed .navItem {
+        min-height: 48px;
+        grid-template-columns: 1fr;
+        justify-items: center;
+        padding: 10px;
+      }
+
       .page {
         width: min(1320px, 100%);
         grid-template-columns: minmax(0, 1fr) minmax(360px, 420px);
@@ -1113,19 +1438,107 @@
   </style>
 </head>
 <body data-page="project">
-  <header class="topbar">
-    <div class="brand">
-      <div class="brandMark">FD</div>
-      <span>Fielddesk</span>
-    </div>
-    <div class="topActions">
-      <a class="btn" href="/app">Tilbage til sager</a>
-      <button id="logoutBtn" class="btn" type="button">Log ud</button>
-    </div>
-  </header>
+  <div class="appShell">
+    <aside class="sidebar" aria-label="Fielddesk navigation">
+      <div class="sideInner">
+        <div class="brandHeader">
+          <div class="brand">
+            <div id="brandInitials" class="brandMark">FD</div>
+            <div class="brandText">
+              <p class="brandName">Fielddesk</p>
+              <p id="brandUserName" class="brandSub">Indlaeser bruger...</p>
+            </div>
+          </div>
+          <button id="sidebarToggle" class="sidebarToggle" type="button" aria-label="Fold menu" aria-expanded="true">
+            <svg class="sidebarToggleIcon" viewBox="0 0 24 24" aria-hidden="true">
+              <g class="iconExpanded">
+                <path d="M15 6l-6 6 6 6"></path>
+                <path d="M5 6v12"></path>
+              </g>
+              <g class="iconCollapsed">
+                <path d="M4 7h16"></path>
+                <path d="M4 12h16"></path>
+                <path d="M4 17h16"></path>
+              </g>
+            </svg>
+          </button>
+        </div>
 
-  <main class="page">
+        <nav class="sideNav" aria-label="Moduler">
+          <div class="navSection">
+            <span class="navLabel">Overblik</span>
+            <a class="navItem" href="/app#dashboard">
+              <span class="navIcon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M4 13h7V4H4z"></path><path d="M13 20h7V4h-7z"></path><path d="M4 20h7v-5H4z"></path></svg>
+              </span>
+              <span class="navCopy"><strong>Dashboard</strong><span>Mit cockpit</span></span>
+            </a>
+            <a class="navItem active" href="/app#projects" aria-current="page">
+              <span class="navIcon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M4 7h16"></path><path d="M4 12h16"></path><path d="M4 17h10"></path><path d="M4 5v14"></path></svg>
+              </span>
+              <span class="navCopy"><strong>Projekter</strong><span>Sagsoversigt</span></span>
+            </a>
+            <a class="navItem navMuted" href="/app#dashboard" aria-disabled="true">
+              <span class="navIcon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M5 6h14v9H8l-3 3z"></path><path d="M9 10h6"></path><path d="M9 13h4"></path></svg>
+              </span>
+              <span class="navCopy"><strong>QA</strong><span>Via projekt</span></span>
+            </a>
+            <a class="navItem navMuted" href="/app#dashboard" aria-disabled="true">
+              <span class="navIcon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M7 3h7l4 4v14H7z"></path><path d="M14 3v5h5"></path><path d="M9 13h6"></path><path d="M9 16h5"></path></svg>
+              </span>
+              <span class="navCopy"><strong>Dokumenter</strong><span>Preview</span></span>
+            </a>
+          </div>
+          <div class="navSection">
+            <span class="navLabel">Drift</span>
+            <a class="navItem navMuted" href="/app#dashboard" aria-disabled="true">
+              <span class="navIcon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M4 19h16"></path><path d="M7 16V9"></path><path d="M12 16V5"></path><path d="M17 16v-4"></path></svg>
+              </span>
+              <span class="navCopy"><strong>&Oslash;konomi</strong><span>Preview</span></span>
+            </a>
+            <a class="navItem navMuted" href="/app#dashboard" aria-disabled="true">
+              <span class="navIcon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M12 20c5-3 7-7 7-13-4 0-6 1-7 3-1-2-3-3-7-3 0 6 2 10 7 13z"></path><path d="M12 20v-8"></path></svg>
+              </span>
+              <span class="navCopy"><strong>CO2 / ESG</strong><span>Teaser</span></span>
+            </a>
+            <a class="navItem navMuted" href="/app#dashboard" aria-disabled="true">
+              <span class="navIcon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M5 5h14v15H5z"></path><path d="M8 3v4"></path><path d="M16 3v4"></path><path d="M5 10h14"></path></svg>
+              </span>
+              <span class="navCopy"><strong>Kalender</strong><span>Kommer senere</span></span>
+            </a>
+            <a class="navItem navMuted" href="/app#dashboard" aria-disabled="true">
+              <span class="navIcon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4-3 7-7 9-4-2-7-5-7-9V6z"></path><path d="M9.5 12l1.8 1.8 3.7-4"></path></svg>
+              </span>
+              <span class="navCopy"><strong>Admin</strong><span>Indstillinger</span></span>
+            </a>
+          </div>
+        </nav>
+      </div>
+    </aside>
+
+    <div class="mainShell">
+      <header class="topbar">
+        <div class="topActions">
+          <button id="logoutBtn" class="iconBtn logoutIconBtn" type="button" aria-label="Log ud" title="Log ud">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M10 5H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4"></path>
+              <path d="M15 7l5 5-5 5"></path>
+              <path d="M20 12H9"></path>
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <main class="page">
     <section class="panel headerPanel">
+      <a class="projectBackLink" href="/app#projects">Tilbage til projektoversigt</a>
       <p id="projectHeaderRef" class="projectRef">Ref: -</p>
       <h1 id="projectHeaderName" class="projectName">Indlæser sag...</h1>
       <span id="projectStatusBadge" class="badge badgeNeutral">Indlæser</span>
@@ -1249,7 +1662,9 @@
       <p class="sectionState">Baseret p&aring; timeposter, der allerede findes i Fielddesk.</p>
       <div id="hoursList" class="itemList"></div>
     </section>
-  </main>
+      </main>
+    </div>
+  </div>
 
   <div id="qaDrawerShell" class="qaDrawerShell" aria-hidden="true">
     <div id="qaDrawerOverlay" class="qaDrawerOverlay"></div>
