@@ -1576,7 +1576,7 @@
       if (hasChildren) {
         const indicator = document.createElement("span");
         indicator.className = "projectHierarchyIndicator";
-        indicator.textContent = expanded ? "Skjul" : "Vis";
+        indicator.textContent = expanded ? "Skjul undersager" : "Vis undersager";
         header.appendChild(indicator);
       }
 
@@ -2364,6 +2364,10 @@
       return;
     }
 
+    const appShell = document.querySelector(".appShell");
+    const brandInitials = document.getElementById("brandInitials");
+    const brandUserName = document.getElementById("brandUserName");
+    const sidebarToggle = document.getElementById("sidebarToggle");
     const logoutBtn = document.getElementById("logoutBtn");
     const projectId = getProjectIdFromPath();
     const qaSection = document.getElementById("qaSection");
@@ -2398,6 +2402,14 @@
     const qaStayBtn = document.getElementById("qaStayBtn");
     const qaDiscardBtn = document.getElementById("qaDiscardBtn");
 
+    if (sidebarToggle) {
+      sidebarToggle.addEventListener("click", () => {
+        const nextCollapsed = !(appShell && appShell.classList.contains("sidebarCollapsed"));
+        window.localStorage.setItem("fielddesk_sidebar_collapsed", nextCollapsed ? "true" : "false");
+        applyProjectSidebarCollapsed(nextCollapsed);
+      });
+    }
+
     if (!projectId) {
       renderProjectDetailError("Ugyldig sagssti");
       return;
@@ -2421,6 +2433,55 @@
       canUpdateStatus: false,
     };
     let projectPageUser = null;
+
+    function compactProjectUserName(name) {
+      const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
+      if (parts.length <= 2) {
+        return parts.join(" ") || "Fielddesk";
+      }
+      return `${parts[0]} ${parts[1].charAt(0).toUpperCase()}. ${parts[parts.length - 1]}`;
+    }
+
+    function getProjectLoginInitials(user) {
+      const login = String(
+        (user && (user.username || user.login_name || user.loginName))
+          || (user && user.email ? String(user.email).split("@")[0] : "")
+          || ""
+      ).trim();
+
+      if (login) {
+        return login.replace(/[^a-zA-Z0-9]/g, "").slice(0, 4).toUpperCase() || "FD";
+      }
+
+      const nameParts = String(user && user.name ? user.name : "")
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean);
+      const initials = nameParts.map((part) => part.charAt(0)).join("").slice(0, 4).toUpperCase();
+      return initials || "FD";
+    }
+
+    function renderProjectUserChrome(user) {
+      if (brandInitials) {
+        brandInitials.textContent = getProjectLoginInitials(user || {});
+      }
+      if (brandUserName) {
+        brandUserName.textContent = compactProjectUserName(user && user.name ? user.name : "Fielddesk");
+      }
+    }
+
+    function applyProjectSidebarCollapsed(collapsed) {
+      if (!appShell) {
+        return;
+      }
+      appShell.classList.toggle("sidebarCollapsed", Boolean(collapsed));
+      if (sidebarToggle) {
+        sidebarToggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+        sidebarToggle.setAttribute("aria-label", collapsed ? "\u00c5bn menu" : "Fold menu");
+      }
+    }
+
+    applyProjectSidebarCollapsed(window.localStorage.getItem("fielddesk_sidebar_collapsed") === "true");
 
     const QA_STATUS_OPTIONS = [
       { value: "NEW", label: "Ny", className: "qaBadgeNew" },
@@ -2481,6 +2542,7 @@
       try {
         const response = await apiFetch("/api/me", { method: "GET" });
         projectPageUser = response && response.user ? response.user : null;
+        renderProjectUserChrome(projectPageUser);
         const role = response && response.user ? response.user.role : null;
         const permissions = getQaPermissionsForRole(role);
         qaPermissions.canUpdateStatus = permissions.canUpdateStatus;
