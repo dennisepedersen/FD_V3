@@ -26,6 +26,15 @@ Scope: operational Render service identity and deployment checks
 - If a local tool requires `FIELD_DESK_RENDER_SERVICE_ID`, use the verified service id above or configure it through approved local/ops secret handling.
 - If the service id is missing from the environment, Codex may use the Render API to verify the known id rather than discovering all services first.
 
+## LIVE VERIFICATION AFTER DEPLOY
+
+Use separate checks for backend health and tenant UI verification:
+
+- Render/backend health: `https://fielddeskai.onrender.com/health`
+- Tenant-domain UI/live verification: `https://hoyrup-clemmensen.fielddesk.dk`
+
+Do not use `dep.fielddesk.dk` as a standard live-verification domain. It was a manual/AI assumption from the operator username and is not the active Høyrup-Clemmensen tenant domain unless it is explicitly reactivated and documented.
+
 ## DO NOT USE
 
 - Do not deploy, restart, change environment variables, or alter Render production configuration without explicit approval.
