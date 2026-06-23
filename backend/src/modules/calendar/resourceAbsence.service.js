@@ -56,6 +56,10 @@ function normalizeVisibilityScope(value) {
   return normalized;
 }
 
+function normalizeIncludeInactive(value) {
+  return String(value || "").trim().toLowerCase() === "true";
+}
+
 function assertValidDateRange(startDate, endDate) {
   if (endDate < startDate) {
     throw createHttpError(400, "absence_end_date_before_start_date");
@@ -82,13 +86,15 @@ async function listAbsencesForTenantRange({ tenantId, from, to }) {
   }
 }
 
-async function listResourcesForTenant({ tenantId }) {
+async function listResourcesForTenant({ tenantId, includeInactive }) {
   const normalizedTenantId = normalizeRequiredText(tenantId, "tenant_id_required");
+  const normalizedIncludeInactive = normalizeIncludeInactive(includeInactive);
 
   const client = await pool.connect();
   try {
     const resources = await resourceAbsenceRepository.listResourcesForTenant(client, {
       tenantId: normalizedTenantId,
+      includeInactive: normalizedIncludeInactive,
     });
 
     return { resources };

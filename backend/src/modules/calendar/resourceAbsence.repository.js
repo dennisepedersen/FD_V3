@@ -47,7 +47,7 @@ async function listAbsencesForTenantRange(client, { tenantId, from, to }) {
   return rows;
 }
 
-async function listResourcesForTenant(client, { tenantId }) {
+async function listResourcesForTenant(client, { tenantId, includeInactive = false }) {
   const { rows } = await client.query(
     `
       SELECT
@@ -65,14 +65,18 @@ async function listResourcesForTenant(client, { tenantId }) {
             4
           )
         ) AS initials,
-        COALESCE(NULLIF(btrim(name), ''), NULLIF(btrim(username), ''), fitter_id) AS label
+        COALESCE(NULLIF(btrim(name), ''), NULLIF(btrim(username), ''), fitter_id) AS label,
+        is_active_derived AS is_active,
+        is_plannable,
+        end_date
       FROM fitter
       WHERE tenant_id = $1
+        AND ($2::boolean = true OR is_active_derived = true)
       ORDER BY
         COALESCE(NULLIF(btrim(name), ''), NULLIF(btrim(username), ''), fitter_id) ASC,
         fitter_id ASC
     `,
-    [tenantId]
+    [tenantId, includeInactive === true]
   );
 
   return rows;

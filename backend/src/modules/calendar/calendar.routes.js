@@ -42,6 +42,10 @@ function requireCalendarAbsenceAccess(req, action) {
   }
 }
 
+function isIncludeInactiveRequested(value) {
+  return String(value || "").trim().toLowerCase() === "true";
+}
+
 router.get("/api/calendar/absences", requireTenantHost, requireAuth("access"), async (req, res, next) => {
   try {
     const { tenantId } = getTenantContext(req);
@@ -74,10 +78,16 @@ router.get("/api/calendar/absences", requireTenantHost, requireAuth("access"), a
 router.get("/api/calendar/resources", requireTenantHost, requireAuth("access"), async (req, res, next) => {
   try {
     const { tenantId } = getTenantContext(req);
-    requireCalendarAbsenceAccess(req, "read");
+    const access = requireCalendarAbsenceAccess(req, "read");
+    const includeInactive = isIncludeInactiveRequested(req.query?.include_inactive);
+
+    if (includeInactive && access.role !== "tenant_admin") {
+      throw createHttpError(403, "calendar_resource_include_inactive_denied");
+    }
 
     const result = await resourceAbsenceService.listResourcesForTenant({
       tenantId,
+      includeInactive,
     });
 
     res.status(200).json({

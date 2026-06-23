@@ -883,7 +883,7 @@
       if (state.calendar.resourcesLoading) {
         setText(absenceResourceStatus, "Indlæser medarbejdere...");
       } else if (resources.length === 0 && state.calendar.resourcesLoaded) {
-        setText(absenceResourceStatus, "Ingen medarbejdere fundet.");
+        setText(absenceResourceStatus, "Ingen aktive medarbejdere fundet.");
       } else if (resources.length > 0) {
         setText(absenceResourceStatus, resources.length === 1 ? "1 medarbejder fundet." : `${resources.length} medarbejdere fundet.`);
       }

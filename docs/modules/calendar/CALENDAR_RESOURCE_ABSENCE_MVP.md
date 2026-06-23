@@ -1,7 +1,7 @@
 # Calendar / Resource Absence MVP
 
-Status: PR3.1 resource dropdown foundation started  
-Scope: Fielddesk-owned absence data foundation, tenant-admin API, first tenant Kalender/Fravaer UI, and resource dropdown
+Status: PR4 resource dropdown hygiene started
+Scope: Fielddesk-owned absence data foundation, tenant-admin API, first tenant Kalender/Fravaer UI, resource dropdown, and active-resource filtering
 
 ## Decision
 
@@ -63,7 +63,20 @@ Not part of PR3.1:
 - Neutral `resource_person` table.
 - Group membership, approval flow, masked visibility, integrations, audit/events, PDF, or reporting.
 
+## PR4 Resource Dropdown Hygiene
+
+Implemented direction:
+- `GET /api/calendar/resources` returns active fitters by default using `fitter.is_active_derived = true`.
+- The tenant-admin-only query parameter `include_inactive=true` can fetch inactive/historical fitters for later admin/debug use.
+- The resource payload keeps `fitter_id`, `label`, `name`, and `initials`, and adds light status metadata.
+
+Not part of PR4:
+- Resource group tables or group-scoped access.
+- UI toggle for inactive fitters.
+- Approval flow, integrations, PDF, reporting, or tenant-specific rules.
+
 ## Next Backlog Items
 
-- PR4: audit events for create, update, cancel, approve/reject when those actions exist.
-- Later: normalized `resource_groups`, group membership, direct manager/resource owner approval, and masked visibility such as unavailable-only views.
+- PR5: normalized `resource_groups`, group membership, and resource manager ownership foundation.
+- Later: audit events for create, update, cancel, approve/reject when those actions exist.
+- Later: direct manager/resource owner approval and masked visibility such as unavailable-only views.
