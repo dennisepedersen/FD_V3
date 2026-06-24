@@ -791,6 +791,28 @@
       resize: vertical;
     }
 
+    .calendarField select {
+      background-color: #071224;
+      color-scheme: dark;
+      cursor: pointer;
+    }
+
+    .calendarField select:focus {
+      border-color: rgba(94, 200, 229, 0.7);
+      box-shadow: 0 0 0 3px rgba(94, 200, 229, 0.12);
+      outline: none;
+    }
+
+    .calendarField select option {
+      background: #071224;
+      color: var(--text);
+    }
+
+    .calendarField select option:checked {
+      background: #18304b;
+      color: #dff8ff;
+    }
+
     .calendarFormActions {
       display: flex;
       align-items: center;
