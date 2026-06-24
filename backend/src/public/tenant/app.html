@@ -722,18 +722,24 @@
     }
 
     .calendarOverviewGrid,
-    .calendarFormGrid {
+    .calendarFormGrid,
+    .resourceGroupGrid,
+    .resourceGroupFormGrid {
       display: grid;
       grid-template-columns: 1fr;
       gap: 10px;
     }
 
-    .absenceList {
+    .absenceList,
+    .resourceGroupList,
+    .resourceGroupDetailList {
       display: grid;
       gap: 10px;
     }
 
-    .absenceCard {
+    .absenceCard,
+    .resourceGroupCard,
+    .resourceGroupDetailCard {
       padding: 12px;
       display: grid;
       gap: 8px;
@@ -744,14 +750,18 @@
         var(--surface-2);
     }
 
-    .absenceCardHeader {
+    .absenceCardHeader,
+    .resourceGroupCardHeader,
+    .resourceGroupDetailHeader {
       display: flex;
       align-items: flex-start;
       justify-content: space-between;
       gap: 10px;
     }
 
-    .absenceName {
+    .absenceName,
+    .resourceGroupName,
+    .resourceGroupDetailName {
       margin: 0;
       color: var(--text);
       font-weight: 800;
@@ -759,14 +769,41 @@
     }
 
     .absenceMeta,
-    .absenceNote {
+    .absenceNote,
+    .resourceGroupMeta,
+    .resourceGroupNote {
       margin: 0;
       color: var(--muted);
       font-size: 12px;
       line-height: 1.45;
     }
 
-    .calendarField {
+    .resourceGroupActions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .resourceGroupCard.active {
+      border-color: rgba(94, 200, 229, 0.42);
+      background:
+        linear-gradient(135deg, rgba(94, 200, 229, 0.12), rgba(255, 255, 255, 0.026)),
+        var(--surface-2);
+    }
+
+    .resourceGroupAdminNotice {
+      margin: 0;
+      padding: 11px 12px;
+      border: 1px solid rgba(246, 212, 83, 0.22);
+      border-radius: 12px;
+      background: rgba(246, 212, 83, 0.08);
+      color: #f6d453;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .calendarField,
+    .resourceGroupField {
       display: grid;
       gap: 6px;
       color: var(--muted);
@@ -775,7 +812,10 @@
 
     .calendarField input,
     .calendarField select,
-    .calendarField textarea {
+    .calendarField textarea,
+    .resourceGroupField input,
+    .resourceGroupField select,
+    .resourceGroupField textarea {
       width: 100%;
       min-height: 42px;
       border: 1px solid rgba(191, 212, 234, 0.18);
@@ -786,41 +826,48 @@
       color: var(--text);
     }
 
-    .calendarField textarea {
+    .calendarField textarea,
+    .resourceGroupField textarea {
       min-height: 88px;
       resize: vertical;
     }
 
-    .calendarField select {
+    .calendarField select,
+    .resourceGroupField select {
       background-color: #071224;
       color-scheme: dark;
       cursor: pointer;
     }
 
-    .calendarField select:focus {
+    .calendarField select:focus,
+    .resourceGroupField select:focus {
       border-color: rgba(94, 200, 229, 0.7);
       box-shadow: 0 0 0 3px rgba(94, 200, 229, 0.12);
       outline: none;
     }
 
-    .calendarField select option {
+    .calendarField select option,
+    .resourceGroupField select option {
       background: #071224;
       color: var(--text);
     }
 
-    .calendarField select option:checked {
+    .calendarField select option:checked,
+    .resourceGroupField select option:checked {
       background: #18304b;
       color: #dff8ff;
     }
 
-    .calendarFormActions {
+    .calendarFormActions,
+    .resourceGroupFormActions {
       display: flex;
       align-items: center;
       flex-wrap: wrap;
       gap: 10px;
     }
 
-    .calendarFormStatus {
+    .calendarFormStatus,
+    .resourceGroupFormStatus {
       margin: 0;
       color: var(--muted);
       font-size: 12px;
@@ -1339,16 +1386,19 @@
         grid-template-columns: repeat(3, minmax(0, 1fr));
       }
 
-      .calendarFormGrid {
+      .calendarFormGrid,
+      .resourceGroupFormGrid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
 
-      .calendarFieldWide {
+      .calendarFieldWide,
+      .resourceGroupFieldWide {
         grid-column: 1 / -1;
       }
 
       .projectList,
-      .groupBlock {
+      .groupBlock,
+      .resourceGroupGrid {
         grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
       }
 
@@ -1560,11 +1610,11 @@
               </span>
               <span class="navCopy"><strong>Kalender</strong><span>Plan &amp; fravær</span></span>
             </a>
-            <a class="navItem navMuted" href="#dashboard" aria-disabled="true" data-admin-nav hidden>
+            <a class="navItem" href="#resource-groups" data-view-link="resource-groups" data-admin-nav hidden>
               <span class="navIcon" aria-hidden="true">
                 <svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4-3 7-7 9-4-2-7-5-7-9V6z"></path><path d="M9.5 12l1.8 1.8 3.7-4"></path></svg>
               </span>
-              <span class="navCopy"><strong>Admin</strong><span>Indstillinger</span></span>
+              <span class="navCopy"><strong>Admin</strong><span>Ressourcegrupper</span></span>
             </a>
           </div>
         </nav>
@@ -1658,13 +1708,13 @@
               </div>
               <p class="moduleText">Kontakt, roller og kapacitet skal senere samles i et roligt overblik.</p>
             </article>
-            <article class="moduleCard disabled">
+            <a class="moduleCard" href="#resource-groups" data-view-link="resource-groups" data-admin-nav hidden>
               <div class="moduleTop">
                 <p class="moduleName">Indstillinger / Admin</p>
-                <span class="tag">Tenant</span>
+                <span class="tag tagLive">Tenant</span>
               </div>
-              <p class="moduleText">Moduladgang, brugere og platformskonfiguration bliver et eget spor.</p>
-            </article>
+              <p class="moduleText">Administrer Fielddesk-ejede ressourcegrupper uden at ændre kalenderens visning endnu.</p>
+            </a>
           </section>
 
           <div class="sectionHeader">
@@ -1700,6 +1750,134 @@
               <p id="dashboardCo2Average" class="infoValue">Teaser</p>
               <p class="infoHint">Foreløbig placeholder.</p>
             </article>
+          </section>
+        </section>
+
+        <section id="resourceGroupsView" class="view" data-view="resource-groups" hidden>
+          <section class="panel headerPanel">
+            <div class="titleRow">
+              <div>
+                <h1>Ressourcegrupper</h1>
+                <p class="subtitle">Tenant-admin styring af grupper, medlemmer og gruppeansvarlige</p>
+              </div>
+              <a class="btn btnCompact" href="#dashboard" data-view-link="dashboard">Dashboard</a>
+            </div>
+            <p id="resourceGroupAccessNotice" class="resourceGroupAdminNotice" hidden>Du har ikke adgang til ressourcegrupper.</p>
+          </section>
+
+          <section id="resourceGroupToolbarSection" class="panel toolbar">
+            <label class="toolbarControl">
+              <input id="resourceGroupIncludeArchivedInput" type="checkbox">
+              <span>Vis arkiverede</span>
+            </label>
+            <button id="resourceGroupRefreshBtn" class="btn btnCompact" type="button">Opdater</button>
+            <div id="resourceGroupListStatus" class="metaRow">Indlæser grupper...</div>
+          </section>
+
+          <section id="resourceGroupCreateSection" class="panel calendarPanel">
+            <div class="sectionHeader">
+              <div>
+                <h2>Opret gruppe</h2>
+                <p class="subtitle">Fielddesk-ejet gruppe. E-Komplet kan senere bruges som forslag, ikke sandhed.</p>
+              </div>
+            </div>
+            <form id="resourceGroupCreateForm" class="resourceGroupFormGrid">
+              <label class="resourceGroupField">
+                Navn
+                <input id="resourceGroupCreateNameInput" maxlength="160" required>
+              </label>
+              <label class="resourceGroupField resourceGroupFieldWide">
+                Beskrivelse
+                <textarea id="resourceGroupCreateDescriptionInput" maxlength="1000"></textarea>
+              </label>
+              <div class="resourceGroupFormActions resourceGroupFieldWide">
+                <button id="resourceGroupCreateBtn" class="btn btnPrimary" type="submit">Opret gruppe</button>
+                <p id="resourceGroupCreateStatus" class="resourceGroupFormStatus"></p>
+              </div>
+            </form>
+          </section>
+
+          <section id="resourceGroupListSection" class="panel calendarPanel">
+            <div class="sectionHeader">
+              <div>
+                <h2>Grupper</h2>
+                <p id="resourceGroupListMeta" class="subtitle">Indlæser grupper...</p>
+              </div>
+            </div>
+            <div id="resourceGroupList" class="resourceGroupList" aria-live="polite"></div>
+          </section>
+
+          <section id="resourceGroupEditSection" class="panel calendarPanel" hidden>
+            <div class="sectionHeader">
+              <div>
+                <h2>Rediger gruppe</h2>
+                <p id="resourceGroupEditMeta" class="subtitle">Vælg en gruppe.</p>
+              </div>
+            </div>
+            <form id="resourceGroupEditForm" class="resourceGroupFormGrid">
+              <label class="resourceGroupField">
+                Navn
+                <input id="resourceGroupEditNameInput" maxlength="160" required>
+              </label>
+              <label class="resourceGroupField">
+                Status
+                <select id="resourceGroupEditStatusSelect">
+                  <option value="active">Aktiv</option>
+                  <option value="archived">Arkiveret</option>
+                </select>
+              </label>
+              <label class="resourceGroupField resourceGroupFieldWide">
+                Beskrivelse
+                <textarea id="resourceGroupEditDescriptionInput" maxlength="1000"></textarea>
+              </label>
+              <div class="resourceGroupFormActions resourceGroupFieldWide">
+                <button id="resourceGroupEditSaveBtn" class="btn btnPrimary" type="submit">Gem ændringer</button>
+                <button id="resourceGroupArchiveBtn" class="btn btnCompact" type="button">Arkivér</button>
+                <p id="resourceGroupEditStatus" class="resourceGroupFormStatus"></p>
+              </div>
+            </form>
+          </section>
+
+          <section id="resourceGroupMembersSection" class="panel calendarPanel" hidden>
+            <div class="sectionHeader">
+              <div>
+                <h2>Medlemmer</h2>
+                <p id="resourceGroupMembersMeta" class="subtitle">Vælg en gruppe.</p>
+              </div>
+            </div>
+            <form id="resourceGroupMemberAddForm" class="resourceGroupFormGrid">
+              <label class="resourceGroupField resourceGroupFieldWide">
+                Medarbejder
+                <select id="resourceGroupMemberFitterSelect">
+                  <option value="">Vælg medarbejder</option>
+                </select>
+                <span id="resourceGroupMemberResourceStatus" class="resourceGroupFormStatus">Indlæser medarbejdere...</span>
+              </label>
+              <label class="resourceGroupField">
+                Primær gruppe
+                <select id="resourceGroupMemberPrimarySelect">
+                  <option value="false">Nej</option>
+                  <option value="true">Ja</option>
+                </select>
+              </label>
+              <div class="resourceGroupFormActions resourceGroupFieldWide">
+                <button id="resourceGroupMemberAddBtn" class="btn btnPrimary" type="submit">Tilføj medlem</button>
+                <p id="resourceGroupMemberAddStatus" class="resourceGroupFormStatus"></p>
+              </div>
+            </form>
+            <div id="resourceGroupMembersList" class="resourceGroupDetailList" aria-live="polite"></div>
+          </section>
+
+          <section id="resourceGroupManagersSection" class="panel calendarPanel" hidden>
+            <div class="sectionHeader">
+              <div>
+                <h2>Managers</h2>
+                <p id="resourceGroupManagersMeta" class="subtitle">Vælg en gruppe.</p>
+              </div>
+            </div>
+            <p class="resourceGroupAdminNotice">Manager-rollen styrer kun gruppe/scope-administration. Den giver ikke ret til at godkende ferie.</p>
+            <p id="resourceGroupManagerAddNotice" class="calendarMessage">Tilføj manager kræver tenant-user lookup i en senere PR. Eksisterende managers kan redigeres eller fjernes her.</p>
+            <div id="resourceGroupManagersList" class="resourceGroupDetailList" aria-live="polite"></div>
           </section>
         </section>
 

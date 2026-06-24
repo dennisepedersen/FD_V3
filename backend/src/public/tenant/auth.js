@@ -576,6 +576,7 @@
     const logoutBtn = document.getElementById("logoutBtn");
     const dashboardView = document.getElementById("dashboardView");
     const calendarView = document.getElementById("calendarView");
+    const resourceGroupsView = document.getElementById("resourceGroupsView");
     const projectsView = document.getElementById("projectsView");
     const viewLinks = Array.from(document.querySelectorAll("[data-view-link]"));
     const calendarTabs = Array.from(document.querySelectorAll("[data-calendar-tab]"));
@@ -607,6 +608,41 @@
     const absenceRestWeekHint = document.getElementById("absenceRestWeekHint");
     const absenceNextWeekCount = document.getElementById("absenceNextWeekCount");
     const absenceNextWeekHint = document.getElementById("absenceNextWeekHint");
+    const resourceGroupAccessNotice = document.getElementById("resourceGroupAccessNotice");
+    const resourceGroupToolbarSection = document.getElementById("resourceGroupToolbarSection");
+    const resourceGroupCreateSection = document.getElementById("resourceGroupCreateSection");
+    const resourceGroupListSection = document.getElementById("resourceGroupListSection");
+    const resourceGroupEditSection = document.getElementById("resourceGroupEditSection");
+    const resourceGroupMembersSection = document.getElementById("resourceGroupMembersSection");
+    const resourceGroupManagersSection = document.getElementById("resourceGroupManagersSection");
+    const resourceGroupIncludeArchivedInput = document.getElementById("resourceGroupIncludeArchivedInput");
+    const resourceGroupRefreshBtn = document.getElementById("resourceGroupRefreshBtn");
+    const resourceGroupListStatus = document.getElementById("resourceGroupListStatus");
+    const resourceGroupListMeta = document.getElementById("resourceGroupListMeta");
+    const resourceGroupList = document.getElementById("resourceGroupList");
+    const resourceGroupCreateForm = document.getElementById("resourceGroupCreateForm");
+    const resourceGroupCreateNameInput = document.getElementById("resourceGroupCreateNameInput");
+    const resourceGroupCreateDescriptionInput = document.getElementById("resourceGroupCreateDescriptionInput");
+    const resourceGroupCreateBtn = document.getElementById("resourceGroupCreateBtn");
+    const resourceGroupCreateStatus = document.getElementById("resourceGroupCreateStatus");
+    const resourceGroupEditForm = document.getElementById("resourceGroupEditForm");
+    const resourceGroupEditNameInput = document.getElementById("resourceGroupEditNameInput");
+    const resourceGroupEditDescriptionInput = document.getElementById("resourceGroupEditDescriptionInput");
+    const resourceGroupEditStatusSelect = document.getElementById("resourceGroupEditStatusSelect");
+    const resourceGroupEditSaveBtn = document.getElementById("resourceGroupEditSaveBtn");
+    const resourceGroupArchiveBtn = document.getElementById("resourceGroupArchiveBtn");
+    const resourceGroupEditMeta = document.getElementById("resourceGroupEditMeta");
+    const resourceGroupEditStatus = document.getElementById("resourceGroupEditStatus");
+    const resourceGroupMemberAddForm = document.getElementById("resourceGroupMemberAddForm");
+    const resourceGroupMemberFitterSelect = document.getElementById("resourceGroupMemberFitterSelect");
+    const resourceGroupMemberPrimarySelect = document.getElementById("resourceGroupMemberPrimarySelect");
+    const resourceGroupMemberAddBtn = document.getElementById("resourceGroupMemberAddBtn");
+    const resourceGroupMemberAddStatus = document.getElementById("resourceGroupMemberAddStatus");
+    const resourceGroupMemberResourceStatus = document.getElementById("resourceGroupMemberResourceStatus");
+    const resourceGroupMembersMeta = document.getElementById("resourceGroupMembersMeta");
+    const resourceGroupMembersList = document.getElementById("resourceGroupMembersList");
+    const resourceGroupManagersMeta = document.getElementById("resourceGroupManagersMeta");
+    const resourceGroupManagersList = document.getElementById("resourceGroupManagersList");
     const dashboardWelcomeName = document.getElementById("dashboardWelcomeName");
     const dashboardDateText = document.getElementById("dashboardDateText");
     const dashboardProjectCount = document.getElementById("dashboardProjectCount");
@@ -653,6 +689,20 @@
         resources: [],
         resourcesLoaded: false,
         resourcesLoading: false,
+      },
+      resourceGroups: {
+        groups: [],
+        includeArchived: false,
+        selectedGroupId: "",
+        members: [],
+        managers: [],
+        resources: [],
+        resourcesLoaded: false,
+        resourcesLoading: false,
+        groupsLoaded: false,
+        groupsLoading: false,
+        detailsLoading: false,
+        accessDenied: false,
       },
     };
 
@@ -887,6 +937,742 @@
         setText(absenceResourceStatus, "Ingen aktive medarbejdere fundet.");
       } else if (resources.length > 0) {
         setText(absenceResourceStatus, resources.length === 1 ? "1 medarbejder fundet." : `${resources.length} medarbejdere fundet.`);
+      }
+    }
+
+    function getResourceGroupStatusLabel(status) {
+      return String(status || "").toLowerCase() === "archived" ? "Arkiveret" : "Aktiv";
+    }
+
+    function getManagerRoleLabel(role) {
+      const labels = {
+        owner: "Owner",
+        manager: "Manager",
+        viewer: "Viewer",
+      };
+      return labels[String(role || "").toLowerCase()] || "Ukendt";
+    }
+
+    function getResourceGroupErrorMessage(error, fallback) {
+      const code = error && error.code ? String(error.code) : "";
+      const labels = {
+        resource_group_access_denied: "Du har ikke adgang til ressourcegrupper.",
+        resource_group_name_already_exists: "Der findes allerede en ressourcegruppe med det navn.",
+        resource_group_name_required: "Navn er påkrævet.",
+        invalid_resource_group_status: "Vælg en gyldig status.",
+        invalid_resource_group_manager_role: "Vælg en gyldig manager-rolle.",
+        resource_group_member_already_exists: "Medarbejderen er allerede i gruppen.",
+        resource_group_manager_already_exists: "Brugeren er allerede manager på gruppen.",
+        resource_group_not_found: "Ressourcegruppen blev ikke fundet.",
+        resource_group_member_not_found: "Medlemmet blev ikke fundet.",
+        resource_group_manager_not_found: "Manageren blev ikke fundet.",
+        fitter_not_found: "Medarbejderen blev ikke fundet.",
+        tenant_user_not_found: "Brugeren blev ikke fundet.",
+        invalid_boolean: "Vælg ja eller nej.",
+      };
+      return labels[code] || getErrorMessage(error, fallback);
+    }
+
+    function getSelectedResourceGroup() {
+      const selectedId = String(state.resourceGroups.selectedGroupId || "");
+      return state.resourceGroups.groups.find((group) => String(group && group.id) === selectedId) || null;
+    }
+
+    function handleResourceGroupForbidden(error, statusElement) {
+      if (!error || error.status !== 403) {
+        return false;
+      }
+      state.resourceGroups.accessDenied = true;
+      renderResourceGroupAccessState();
+      setText(statusElement, getResourceGroupErrorMessage(error, "Du har ikke adgang til ressourcegrupper."));
+      return true;
+    }
+
+    function renderResourceGroupAccessState() {
+      const accessDenied = state.resourceGroups.accessDenied || !isTenantAdmin(state.me);
+      if (resourceGroupAccessNotice) {
+        resourceGroupAccessNotice.hidden = !accessDenied;
+      }
+      [
+        resourceGroupToolbarSection,
+        resourceGroupCreateSection,
+        resourceGroupListSection,
+        resourceGroupEditSection,
+        resourceGroupMembersSection,
+        resourceGroupManagersSection,
+      ].forEach((section) => {
+        if (section) {
+          section.hidden = accessDenied || (
+            (section === resourceGroupEditSection || section === resourceGroupMembersSection || section === resourceGroupManagersSection)
+            && !getSelectedResourceGroup()
+          );
+        }
+      });
+    }
+
+    function renderResourceGroupResourceOptions() {
+      if (!resourceGroupMemberFitterSelect) {
+        return;
+      }
+
+      const previousValue = resourceGroupMemberFitterSelect.value;
+      resourceGroupMemberFitterSelect.replaceChildren();
+
+      const placeholder = document.createElement("option");
+      placeholder.value = "";
+      placeholder.textContent = "Vælg medarbejder";
+      resourceGroupMemberFitterSelect.appendChild(placeholder);
+
+      const existingMemberIds = new Set(state.resourceGroups.members.map((member) => String(member && member.fitter_id)));
+      const resources = Array.isArray(state.resourceGroups.resources) ? state.resourceGroups.resources : [];
+      resources.forEach((resource) => {
+        const fitterId = String(resource && resource.fitter_id ? resource.fitter_id : "").trim();
+        if (!fitterId || existingMemberIds.has(fitterId)) {
+          return;
+        }
+        const option = document.createElement("option");
+        option.value = fitterId;
+        option.textContent = getResourceOptionLabel(resource);
+        resourceGroupMemberFitterSelect.appendChild(option);
+      });
+
+      if (previousValue) {
+        resourceGroupMemberFitterSelect.value = previousValue;
+      }
+
+      const availableCount = Math.max(0, resourceGroupMemberFitterSelect.options.length - 1);
+      resourceGroupMemberFitterSelect.disabled = state.resourceGroups.resourcesLoading || availableCount === 0;
+      if (state.resourceGroups.resourcesLoading) {
+        setText(resourceGroupMemberResourceStatus, "Indlæser medarbejdere...");
+      } else if (resources.length === 0 && state.resourceGroups.resourcesLoaded) {
+        setText(resourceGroupMemberResourceStatus, "Ingen aktive medarbejdere fundet.");
+      } else if (availableCount === 0 && state.resourceGroups.resourcesLoaded) {
+        setText(resourceGroupMemberResourceStatus, "Alle aktive medarbejdere er allerede i gruppen.");
+      } else if (availableCount > 0) {
+        setText(resourceGroupMemberResourceStatus, availableCount === 1 ? "1 medarbejder kan tilføjes." : `${availableCount} medarbejdere kan tilføjes.`);
+      }
+    }
+
+    function renderResourceGroupList() {
+      if (!resourceGroupList) {
+        return;
+      }
+      resourceGroupList.replaceChildren();
+      const groups = Array.isArray(state.resourceGroups.groups) ? state.resourceGroups.groups : [];
+      setText(resourceGroupListMeta, groups.length === 1 ? "1 gruppe fundet." : `${groups.length} grupper fundet.`);
+
+      if (groups.length === 0) {
+        const empty = document.createElement("p");
+        empty.className = "calendarMessage";
+        empty.textContent = state.resourceGroups.includeArchived ? "Ingen ressourcegrupper fundet." : "Ingen aktive ressourcegrupper fundet.";
+        resourceGroupList.appendChild(empty);
+        return;
+      }
+
+      groups.forEach((group) => {
+        const groupId = String(group && group.id ? group.id : "");
+        const card = document.createElement("article");
+        card.className = "resourceGroupCard";
+        card.classList.toggle("active", groupId && groupId === state.resourceGroups.selectedGroupId);
+
+        const header = document.createElement("div");
+        header.className = "resourceGroupCardHeader";
+
+        const title = document.createElement("p");
+        title.className = "resourceGroupName";
+        title.textContent = String(group && group.name ? group.name : "Unavngivet gruppe");
+
+        const status = document.createElement("span");
+        status.className = String(group && group.status) === "archived" ? "tag tagPreview" : "tag tagLive";
+        status.textContent = getResourceGroupStatusLabel(group && group.status);
+
+        header.append(title, status);
+
+        const description = document.createElement("p");
+        description.className = "resourceGroupNote";
+        description.textContent = group && group.description ? String(group.description) : "Ingen beskrivelse.";
+
+        const actions = document.createElement("div");
+        actions.className = "resourceGroupActions";
+
+        const selectButton = document.createElement("button");
+        selectButton.className = "btn btnCompact";
+        selectButton.type = "button";
+        selectButton.textContent = "Åbn";
+        selectButton.addEventListener("click", () => {
+          selectResourceGroup(groupId);
+        });
+        actions.appendChild(selectButton);
+
+        const archiveButton = document.createElement("button");
+        archiveButton.className = "btn btnCompact";
+        archiveButton.type = "button";
+        archiveButton.textContent = String(group && group.status) === "archived" ? "Aktivér" : "Arkivér";
+        archiveButton.addEventListener("click", () => {
+          updateResourceGroupStatus(groupId, String(group && group.status) === "archived" ? "active" : "archived");
+        });
+        actions.appendChild(archiveButton);
+
+        card.append(header, description, actions);
+        resourceGroupList.appendChild(card);
+      });
+    }
+
+    function fillResourceGroupEditForm() {
+      const group = getSelectedResourceGroup();
+      if (!group) {
+        return;
+      }
+      if (resourceGroupEditNameInput) {
+        resourceGroupEditNameInput.value = group.name || "";
+      }
+      if (resourceGroupEditDescriptionInput) {
+        resourceGroupEditDescriptionInput.value = group.description || "";
+      }
+      if (resourceGroupEditStatusSelect) {
+        resourceGroupEditStatusSelect.value = group.status === "archived" ? "archived" : "active";
+      }
+      setText(resourceGroupEditMeta, group.name || "Valgt gruppe");
+      if (resourceGroupArchiveBtn) {
+        resourceGroupArchiveBtn.textContent = group.status === "archived" ? "Aktivér" : "Arkivér";
+      }
+    }
+
+    function renderResourceGroupMembers() {
+      if (!resourceGroupMembersList) {
+        return;
+      }
+      resourceGroupMembersList.replaceChildren();
+      const group = getSelectedResourceGroup();
+      const members = Array.isArray(state.resourceGroups.members) ? state.resourceGroups.members : [];
+      setText(resourceGroupMembersMeta, group ? (members.length === 1 ? "1 medlem." : `${members.length} medlemmer.`) : "Vælg en gruppe.");
+      renderResourceGroupResourceOptions();
+
+      if (!group) {
+        return;
+      }
+      if (members.length === 0) {
+        const empty = document.createElement("p");
+        empty.className = "calendarMessage";
+        empty.textContent = "Ingen medlemmer i gruppen endnu.";
+        resourceGroupMembersList.appendChild(empty);
+        return;
+      }
+
+      members.forEach((member) => {
+        const fitterId = String(member && member.fitter_id ? member.fitter_id : "");
+        const card = document.createElement("article");
+        card.className = "resourceGroupDetailCard";
+
+        const header = document.createElement("div");
+        header.className = "resourceGroupDetailHeader";
+
+        const title = document.createElement("p");
+        title.className = "resourceGroupDetailName";
+        title.textContent = getResourceOptionLabel(member);
+
+        const tag = document.createElement("span");
+        tag.className = member && member.is_primary ? "tag tagLive" : "tag";
+        tag.textContent = member && member.is_primary ? "Primær" : "Medlem";
+        header.append(title, tag);
+
+        const meta = document.createElement("p");
+        meta.className = "resourceGroupMeta";
+        meta.textContent = `Fitter ID: ${fitterId || "-"}`;
+
+        const actions = document.createElement("div");
+        actions.className = "resourceGroupActions";
+
+        const primaryButton = document.createElement("button");
+        primaryButton.className = "btn btnCompact";
+        primaryButton.type = "button";
+        primaryButton.textContent = member && member.is_primary ? "Sæt ikke primær" : "Sæt primær";
+        primaryButton.addEventListener("click", () => {
+          updateResourceGroupMember(fitterId, !(member && member.is_primary));
+        });
+
+        const removeButton = document.createElement("button");
+        removeButton.className = "btn btnCompact";
+        removeButton.type = "button";
+        removeButton.textContent = "Fjern";
+        removeButton.addEventListener("click", () => {
+          removeResourceGroupMember(fitterId);
+        });
+
+        actions.append(primaryButton, removeButton);
+        card.append(header, meta, actions);
+        resourceGroupMembersList.appendChild(card);
+      });
+    }
+
+    function renderResourceGroupManagers() {
+      if (!resourceGroupManagersList) {
+        return;
+      }
+      resourceGroupManagersList.replaceChildren();
+      const group = getSelectedResourceGroup();
+      const managers = Array.isArray(state.resourceGroups.managers) ? state.resourceGroups.managers : [];
+      setText(resourceGroupManagersMeta, group ? (managers.length === 1 ? "1 manager." : `${managers.length} managers.`) : "Vælg en gruppe.");
+
+      if (!group) {
+        return;
+      }
+      if (managers.length === 0) {
+        const empty = document.createElement("p");
+        empty.className = "calendarMessage";
+        empty.textContent = "Ingen managers på gruppen endnu.";
+        resourceGroupManagersList.appendChild(empty);
+        return;
+      }
+
+      managers.forEach((manager) => {
+        const tenantUserId = String(manager && manager.tenant_user_id ? manager.tenant_user_id : "");
+        const card = document.createElement("article");
+        card.className = "resourceGroupDetailCard";
+
+        const header = document.createElement("div");
+        header.className = "resourceGroupDetailHeader";
+
+        const title = document.createElement("p");
+        title.className = "resourceGroupDetailName";
+        title.textContent = String((manager && (manager.name || manager.email)) || "Ukendt bruger");
+
+        const tag = document.createElement("span");
+        tag.className = "tag tagLive";
+        tag.textContent = getManagerRoleLabel(manager && manager.manager_role);
+        header.append(title, tag);
+
+        const meta = document.createElement("p");
+        meta.className = "resourceGroupMeta";
+        meta.textContent = `${manager && manager.email ? manager.email : "Ingen email"} · ${tenantUserId}`;
+
+        const roleLabel = document.createElement("label");
+        roleLabel.className = "resourceGroupField";
+        roleLabel.textContent = "Rolle";
+        const roleSelect = document.createElement("select");
+        ["owner", "manager", "viewer"].forEach((role) => {
+          const option = document.createElement("option");
+          option.value = role;
+          option.textContent = getManagerRoleLabel(role);
+          roleSelect.appendChild(option);
+        });
+        roleSelect.value = String(manager && manager.manager_role ? manager.manager_role : "viewer");
+        roleSelect.addEventListener("change", () => {
+          updateResourceGroupManager(tenantUserId, roleSelect.value);
+        });
+        roleLabel.appendChild(roleSelect);
+
+        const actions = document.createElement("div");
+        actions.className = "resourceGroupActions";
+        const removeButton = document.createElement("button");
+        removeButton.className = "btn btnCompact";
+        removeButton.type = "button";
+        removeButton.textContent = "Fjern";
+        removeButton.addEventListener("click", () => {
+          removeResourceGroupManager(tenantUserId);
+        });
+        actions.appendChild(removeButton);
+
+        card.append(header, meta, roleLabel, actions);
+        resourceGroupManagersList.appendChild(card);
+      });
+    }
+
+    function renderResourceGroupAdmin() {
+      renderResourceGroupAccessState();
+      renderResourceGroupList();
+      fillResourceGroupEditForm();
+      renderResourceGroupMembers();
+      renderResourceGroupManagers();
+    }
+
+    async function loadResourceGroupResources(options) {
+      if (!isTenantAdmin(state.me)) {
+        return;
+      }
+      if (!(options && options.force) && state.resourceGroups.resourcesLoaded) {
+        renderResourceGroupResourceOptions();
+        return;
+      }
+
+      state.resourceGroups.resourcesLoading = true;
+      renderResourceGroupResourceOptions();
+      try {
+        const response = await apiFetch("/api/calendar/resources", { method: "GET" });
+        state.resourceGroups.resources = response && Array.isArray(response.resources) ? response.resources : [];
+        state.resourceGroups.resourcesLoaded = true;
+      } catch (error) {
+        if (handleResourceGroupForbidden(error, resourceGroupMemberResourceStatus)) {
+          return;
+        }
+        if (handleAuthFailure(error)) {
+          return;
+        }
+        state.resourceGroups.resources = [];
+        state.resourceGroups.resourcesLoaded = false;
+        setText(resourceGroupMemberResourceStatus, `Kunne ikke hente medarbejdere: ${getResourceGroupErrorMessage(error, "request_failed")}`);
+      } finally {
+        state.resourceGroups.resourcesLoading = false;
+        renderResourceGroupResourceOptions();
+      }
+    }
+
+    async function loadResourceGroups(options) {
+      renderResourceGroupAccessState();
+      if (!isTenantAdmin(state.me)) {
+        state.resourceGroups.accessDenied = true;
+        renderResourceGroupAccessState();
+        return;
+      }
+
+      if (!(options && options.force) && state.resourceGroups.groupsLoaded) {
+        renderResourceGroupAdmin();
+        return;
+      }
+
+      state.resourceGroups.groupsLoading = true;
+      setText(resourceGroupListStatus, "Indlæser grupper...");
+      setText(resourceGroupListMeta, "Indlæser grupper...");
+      try {
+        const query = state.resourceGroups.includeArchived ? "?include_archived=true" : "";
+        const response = await apiFetch(`/api/resource-groups${query}`, { method: "GET" });
+        state.resourceGroups.groups = response && Array.isArray(response.groups) ? response.groups : [];
+        state.resourceGroups.groupsLoaded = true;
+        state.resourceGroups.accessDenied = false;
+        if (state.resourceGroups.selectedGroupId && !getSelectedResourceGroup()) {
+          state.resourceGroups.selectedGroupId = "";
+          state.resourceGroups.members = [];
+          state.resourceGroups.managers = [];
+        }
+        setText(resourceGroupListStatus, state.resourceGroups.includeArchived ? "Viser aktive og arkiverede grupper." : "Viser aktive grupper.");
+        renderResourceGroupAdmin();
+      } catch (error) {
+        if (error && error.status === 403) {
+          state.resourceGroups.accessDenied = true;
+          renderResourceGroupAccessState();
+          return;
+        }
+        if (handleAuthFailure(error)) {
+          return;
+        }
+        setText(resourceGroupListStatus, `Kunne ikke hente grupper: ${getResourceGroupErrorMessage(error, "request_failed")}`);
+        setText(resourceGroupListMeta, "Fejl under indlæsning.");
+      } finally {
+        state.resourceGroups.groupsLoading = false;
+      }
+    }
+
+    async function loadResourceGroupDetails(options) {
+      const group = getSelectedResourceGroup();
+      if (!group || !isTenantAdmin(state.me)) {
+        renderResourceGroupAdmin();
+        return;
+      }
+      if (state.resourceGroups.detailsLoading && !(options && options.force)) {
+        return;
+      }
+
+      state.resourceGroups.detailsLoading = true;
+      setText(resourceGroupMembersMeta, "Indlæser medlemmer...");
+      setText(resourceGroupManagersMeta, "Indlæser managers...");
+      try {
+        const [membersResponse, managersResponse] = await Promise.all([
+          apiFetch(`/api/resource-groups/${encodeURIComponent(group.id)}/members`, { method: "GET" }),
+          apiFetch(`/api/resource-groups/${encodeURIComponent(group.id)}/managers`, { method: "GET" }),
+          loadResourceGroupResources(),
+        ]);
+        state.resourceGroups.members = membersResponse && Array.isArray(membersResponse.members) ? membersResponse.members : [];
+        state.resourceGroups.managers = managersResponse && Array.isArray(managersResponse.managers) ? managersResponse.managers : [];
+        renderResourceGroupAdmin();
+      } catch (error) {
+        if (error && error.status === 403) {
+          state.resourceGroups.accessDenied = true;
+          renderResourceGroupAccessState();
+          return;
+        }
+        if (handleAuthFailure(error)) {
+          return;
+        }
+        const message = `Kunne ikke hente gruppedetaljer: ${getResourceGroupErrorMessage(error, "request_failed")}`;
+        setText(resourceGroupMembersMeta, message);
+        setText(resourceGroupManagersMeta, message);
+      } finally {
+        state.resourceGroups.detailsLoading = false;
+      }
+    }
+
+    function selectResourceGroup(groupId) {
+      state.resourceGroups.selectedGroupId = String(groupId || "");
+      state.resourceGroups.members = [];
+      state.resourceGroups.managers = [];
+      setText(resourceGroupEditStatus, "");
+      setText(resourceGroupMemberAddStatus, "");
+      renderResourceGroupAdmin();
+      loadResourceGroupDetails({ force: true });
+    }
+
+    function getResourceGroupCreateInput() {
+      const name = resourceGroupCreateNameInput ? String(resourceGroupCreateNameInput.value || "").trim() : "";
+      const description = resourceGroupCreateDescriptionInput ? String(resourceGroupCreateDescriptionInput.value || "").trim() : "";
+      if (!name) {
+        return { error: "Navn er påkrævet." };
+      }
+      return { input: { name, description: description || null } };
+    }
+
+    function getResourceGroupEditInput() {
+      const name = resourceGroupEditNameInput ? String(resourceGroupEditNameInput.value || "").trim() : "";
+      const description = resourceGroupEditDescriptionInput ? String(resourceGroupEditDescriptionInput.value || "").trim() : "";
+      const status = resourceGroupEditStatusSelect ? String(resourceGroupEditStatusSelect.value || "").trim() : "active";
+      if (!name) {
+        return { error: "Navn er påkrævet." };
+      }
+      if (status !== "active" && status !== "archived") {
+        return { error: "Vælg en gyldig status." };
+      }
+      return { input: { name, description: description || null, status } };
+    }
+
+    async function submitResourceGroupCreate(event) {
+      event.preventDefault();
+      const result = getResourceGroupCreateInput();
+      if (result.error) {
+        setText(resourceGroupCreateStatus, result.error);
+        return;
+      }
+
+      if (resourceGroupCreateBtn) {
+        resourceGroupCreateBtn.disabled = true;
+      }
+      setText(resourceGroupCreateStatus, "Opretter gruppe...");
+      try {
+        const response = await apiFetch("/api/resource-groups", {
+          method: "POST",
+          body: JSON.stringify(result.input),
+        });
+        const groupId = response && response.group && response.group.id ? String(response.group.id) : "";
+        if (resourceGroupCreateForm) {
+          resourceGroupCreateForm.reset();
+        }
+        setText(resourceGroupCreateStatus, "Gruppe oprettet.");
+        state.resourceGroups.groupsLoaded = false;
+        await loadResourceGroups({ force: true });
+        if (groupId) {
+          selectResourceGroup(groupId);
+        }
+      } catch (error) {
+        if (handleResourceGroupForbidden(error, resourceGroupCreateStatus)) {
+          return;
+        }
+        if (handleAuthFailure(error)) {
+          return;
+        }
+        setText(resourceGroupCreateStatus, `Kunne ikke oprette gruppe: ${getResourceGroupErrorMessage(error, "request_failed")}`);
+      } finally {
+        if (resourceGroupCreateBtn) {
+          resourceGroupCreateBtn.disabled = false;
+        }
+      }
+    }
+
+    async function submitResourceGroupEdit(event) {
+      event.preventDefault();
+      const group = getSelectedResourceGroup();
+      if (!group) {
+        setText(resourceGroupEditStatus, "Vælg en gruppe først.");
+        return;
+      }
+      const result = getResourceGroupEditInput();
+      if (result.error) {
+        setText(resourceGroupEditStatus, result.error);
+        return;
+      }
+
+      if (resourceGroupEditSaveBtn) {
+        resourceGroupEditSaveBtn.disabled = true;
+      }
+      setText(resourceGroupEditStatus, "Gemmer ændringer...");
+      try {
+        await apiFetch(`/api/resource-groups/${encodeURIComponent(group.id)}`, {
+          method: "PATCH",
+          body: JSON.stringify(result.input),
+        });
+        setText(resourceGroupEditStatus, "Ændringer gemt.");
+        state.resourceGroups.groupsLoaded = false;
+        await loadResourceGroups({ force: true });
+      } catch (error) {
+        if (handleResourceGroupForbidden(error, resourceGroupEditStatus)) {
+          return;
+        }
+        if (handleAuthFailure(error)) {
+          return;
+        }
+        setText(resourceGroupEditStatus, `Kunne ikke gemme gruppe: ${getResourceGroupErrorMessage(error, "request_failed")}`);
+      } finally {
+        if (resourceGroupEditSaveBtn) {
+          resourceGroupEditSaveBtn.disabled = false;
+        }
+      }
+    }
+
+    async function updateResourceGroupStatus(groupId, status) {
+      const group = state.resourceGroups.groups.find((candidate) => String(candidate && candidate.id) === String(groupId));
+      if (!group) {
+        return;
+      }
+      setText(resourceGroupEditStatus, status === "archived" ? "Arkiverer gruppe..." : "Aktiverer gruppe...");
+      try {
+        await apiFetch(`/api/resource-groups/${encodeURIComponent(group.id)}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            name: group.name,
+            description: group.description || null,
+            status,
+          }),
+        });
+        state.resourceGroups.groupsLoaded = false;
+        await loadResourceGroups({ force: true });
+      } catch (error) {
+        if (handleResourceGroupForbidden(error, resourceGroupEditStatus)) {
+          return;
+        }
+        if (handleAuthFailure(error)) {
+          return;
+        }
+        setText(resourceGroupEditStatus, `Kunne ikke ændre status: ${getResourceGroupErrorMessage(error, "request_failed")}`);
+      }
+    }
+
+    async function submitResourceGroupMemberAdd(event) {
+      event.preventDefault();
+      const group = getSelectedResourceGroup();
+      const fitterId = resourceGroupMemberFitterSelect ? String(resourceGroupMemberFitterSelect.value || "").trim() : "";
+      const isPrimary = resourceGroupMemberPrimarySelect ? String(resourceGroupMemberPrimarySelect.value || "") === "true" : false;
+      if (!group) {
+        setText(resourceGroupMemberAddStatus, "Vælg en gruppe først.");
+        return;
+      }
+      if (!fitterId) {
+        setText(resourceGroupMemberAddStatus, "Vælg medarbejder.");
+        return;
+      }
+
+      if (resourceGroupMemberAddBtn) {
+        resourceGroupMemberAddBtn.disabled = true;
+      }
+      setText(resourceGroupMemberAddStatus, "Tilføjer medlem...");
+      try {
+        await apiFetch(`/api/resource-groups/${encodeURIComponent(group.id)}/members`, {
+          method: "POST",
+          body: JSON.stringify({ fitter_id: fitterId, is_primary: isPrimary }),
+        });
+        setText(resourceGroupMemberAddStatus, "Medlem tilføjet.");
+        if (resourceGroupMemberFitterSelect) {
+          resourceGroupMemberFitterSelect.value = "";
+        }
+        await loadResourceGroupDetails({ force: true });
+      } catch (error) {
+        if (handleResourceGroupForbidden(error, resourceGroupMemberAddStatus)) {
+          return;
+        }
+        if (handleAuthFailure(error)) {
+          return;
+        }
+        setText(resourceGroupMemberAddStatus, `Kunne ikke tilføje medlem: ${getResourceGroupErrorMessage(error, "request_failed")}`);
+      } finally {
+        if (resourceGroupMemberAddBtn) {
+          resourceGroupMemberAddBtn.disabled = false;
+        }
+      }
+    }
+
+    async function updateResourceGroupMember(fitterId, isPrimary) {
+      const group = getSelectedResourceGroup();
+      if (!group || !fitterId) {
+        return;
+      }
+      setText(resourceGroupMemberAddStatus, "Opdaterer medlem...");
+      try {
+        await apiFetch(`/api/resource-groups/${encodeURIComponent(group.id)}/members/${encodeURIComponent(fitterId)}`, {
+          method: "PATCH",
+          body: JSON.stringify({ is_primary: isPrimary === true }),
+        });
+        await loadResourceGroupDetails({ force: true });
+        setText(resourceGroupMemberAddStatus, "Medlem opdateret.");
+      } catch (error) {
+        if (handleResourceGroupForbidden(error, resourceGroupMemberAddStatus)) {
+          return;
+        }
+        if (handleAuthFailure(error)) {
+          return;
+        }
+        setText(resourceGroupMemberAddStatus, `Kunne ikke opdatere medlem: ${getResourceGroupErrorMessage(error, "request_failed")}`);
+      }
+    }
+
+    async function removeResourceGroupMember(fitterId) {
+      const group = getSelectedResourceGroup();
+      if (!group || !fitterId) {
+        return;
+      }
+      setText(resourceGroupMemberAddStatus, "Fjerner medlem...");
+      try {
+        await apiFetch(`/api/resource-groups/${encodeURIComponent(group.id)}/members/${encodeURIComponent(fitterId)}`, {
+          method: "DELETE",
+        });
+        await loadResourceGroupDetails({ force: true });
+        setText(resourceGroupMemberAddStatus, "Medlem fjernet.");
+      } catch (error) {
+        if (handleResourceGroupForbidden(error, resourceGroupMemberAddStatus)) {
+          return;
+        }
+        if (handleAuthFailure(error)) {
+          return;
+        }
+        setText(resourceGroupMemberAddStatus, `Kunne ikke fjerne medlem: ${getResourceGroupErrorMessage(error, "request_failed")}`);
+      }
+    }
+
+    async function updateResourceGroupManager(tenantUserId, managerRole) {
+      const group = getSelectedResourceGroup();
+      if (!group || !tenantUserId) {
+        return;
+      }
+      try {
+        await apiFetch(`/api/resource-groups/${encodeURIComponent(group.id)}/managers/${encodeURIComponent(tenantUserId)}`, {
+          method: "PATCH",
+          body: JSON.stringify({ manager_role: managerRole }),
+        });
+        await loadResourceGroupDetails({ force: true });
+      } catch (error) {
+        if (handleResourceGroupForbidden(error, resourceGroupManagersMeta)) {
+          return;
+        }
+        if (handleAuthFailure(error)) {
+          return;
+        }
+        setText(resourceGroupManagersMeta, `Kunne ikke opdatere manager: ${getResourceGroupErrorMessage(error, "request_failed")}`);
+      }
+    }
+
+    async function removeResourceGroupManager(tenantUserId) {
+      const group = getSelectedResourceGroup();
+      if (!group || !tenantUserId) {
+        return;
+      }
+      try {
+        await apiFetch(`/api/resource-groups/${encodeURIComponent(group.id)}/managers/${encodeURIComponent(tenantUserId)}`, {
+          method: "DELETE",
+        });
+        await loadResourceGroupDetails({ force: true });
+      } catch (error) {
+        if (handleResourceGroupForbidden(error, resourceGroupManagersMeta)) {
+          return;
+        }
+        if (handleAuthFailure(error)) {
+          return;
+        }
+        setText(resourceGroupManagersMeta, `Kunne ikke fjerne manager: ${getResourceGroupErrorMessage(error, "request_failed")}`);
       }
     }
 
@@ -1220,6 +2006,9 @@
 
     function getCurrentAppViewFromHash() {
       const hash = String(window.location.hash || "").replace(/^#/, "").toLowerCase();
+      if (hash === "resource-groups") {
+        return "resource-groups";
+      }
       if (hash === "calendar") {
         return "calendar";
       }
@@ -1230,7 +2019,7 @@
     }
 
     function setActiveAppView(view) {
-      const activeView = view === "projects" || view === "calendar" ? view : "dashboard";
+      const activeView = view === "projects" || view === "calendar" || view === "resource-groups" ? view : "dashboard";
       state.currentView = activeView;
 
       if (dashboardView) {
@@ -1238,6 +2027,9 @@
       }
       if (calendarView) {
         calendarView.hidden = activeView !== "calendar";
+      }
+      if (resourceGroupsView) {
+        resourceGroupsView.hidden = activeView !== "resource-groups";
       }
       if (projectsView) {
         projectsView.hidden = activeView !== "projects";
@@ -1255,6 +2047,10 @@
           loadCalendarResources();
           loadCalendarAbsences();
         }
+      }
+      if (activeView === "resource-groups") {
+        renderResourceGroupAccessState();
+        loadResourceGroups();
       }
     }
 
@@ -2464,6 +3260,44 @@
 
     if (absenceCreateForm) {
       absenceCreateForm.addEventListener("submit", submitAbsenceForm);
+    }
+
+    if (resourceGroupIncludeArchivedInput) {
+      resourceGroupIncludeArchivedInput.addEventListener("change", () => {
+        state.resourceGroups.includeArchived = Boolean(resourceGroupIncludeArchivedInput.checked);
+        state.resourceGroups.groupsLoaded = false;
+        loadResourceGroups({ force: true });
+      });
+    }
+
+    if (resourceGroupRefreshBtn) {
+      resourceGroupRefreshBtn.addEventListener("click", () => {
+        state.resourceGroups.groupsLoaded = false;
+        loadResourceGroups({ force: true });
+      });
+    }
+
+    if (resourceGroupCreateForm) {
+      resourceGroupCreateForm.addEventListener("submit", submitResourceGroupCreate);
+    }
+
+    if (resourceGroupEditForm) {
+      resourceGroupEditForm.addEventListener("submit", submitResourceGroupEdit);
+    }
+
+    if (resourceGroupArchiveBtn) {
+      resourceGroupArchiveBtn.addEventListener("click", () => {
+        const group = getSelectedResourceGroup();
+        if (!group) {
+          setText(resourceGroupEditStatus, "Vælg en gruppe først.");
+          return;
+        }
+        updateResourceGroupStatus(group.id, group.status === "archived" ? "active" : "archived");
+      });
+    }
+
+    if (resourceGroupMemberAddForm) {
+      resourceGroupMemberAddForm.addEventListener("submit", submitResourceGroupMemberAdd);
     }
 
     if (sortSelect) {

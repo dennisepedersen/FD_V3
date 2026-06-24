@@ -109,6 +109,7 @@ Current:
 - `resource_groups`, `resource_group_members`, and `resource_group_managers` are tenant-owned Fielddesk data for future resource scoping.
 - Resource group manager roles (`owner`, `manager`, `viewer`) are scope/administration metadata only. They do not automatically grant absence approval rights.
 - Resource group administration API routes require tenant host, access token, token tenant matching the resolved tenant, and tenant-admin module access in PR6.
+- PR7a resource group admin UI is tenant-admin-only and relies on the same backend API authorization; non-admin users do not see the navigation entry.
 - Imported E-Komplet group data may be used as later seed/suggestion input, but Fielddesk-owned resource groups are the canonical source once created.
 - RLS is not yet fully active as database policy.
 
@@ -223,6 +224,7 @@ Calendar / Resource Absence direction:
 - API routes must derive tenant from verified request context and must not accept frontend-supplied tenant authority.
 - PR2 create routes derive actor from auth and set v1 status to `approved` server-side.
 - PR6 resource group API routes are tenant-admin-only; `manager_role` is not an approval permission.
+- PR7a only adds tenant-admin UI for manual group administration. It does not alter Calendar resource scope or grant approval capabilities.
 - Visibility must be enforced in backend policy before non-admin roles can read full absence type/reason.
 - Later resource group, manager approval, finance visibility, and unavailable-only views must be explicit capabilities, not frontend-only filtering.
 - Audit events for create, update, cancel, approve, reject, and visibility-sensitive access should be added when write routes/actions are introduced.

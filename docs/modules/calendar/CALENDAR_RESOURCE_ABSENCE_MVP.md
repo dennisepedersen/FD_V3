@@ -1,7 +1,7 @@
 # Calendar / Resource Absence MVP
 
-Status: PR6 resource group API foundation started
-Scope: Fielddesk-owned absence data foundation, tenant-admin API, first tenant Kalender/Fravaer UI, resource dropdown, active-resource filtering, resource group data foundation, and resource group administration API
+Status: PR7a resource group admin UI started
+Scope: Fielddesk-owned absence data foundation, tenant-admin API, first tenant Kalender/Fravaer UI, resource dropdown, active-resource filtering, resource group data foundation, resource group administration API, and tenant-admin resource group UI
 
 ## Decision
 
@@ -110,8 +110,25 @@ Not part of PR6:
 - E-Komplet group import/seed.
 - Approval flow, visibility engine, integrations, PDF, reporting, or tenant-specific rules.
 
+## PR7a Resource Group Admin UI
+
+Implemented direction:
+- Tenant-admin users can open Admin / Ressourcegrupper from the tenant shell.
+- The UI lists active groups by default and can include archived groups.
+- Tenant-admin users can create, edit, activate, and archive Fielddesk-owned resource groups.
+- Tenant-admin users can view group members, add active fitters through the existing tenant-admin resource endpoint, update `is_primary`, and remove members.
+- Tenant-admin users can view existing group managers, update `manager_role`, and remove managers.
+- Manager roles remain group/scope administration metadata only and do not grant or imply absence approval rights.
+
+Not part of PR7a:
+- Calendar/resource dropdown filtering by groups.
+- "Mine medarbejdere" default scope.
+- Add-manager UI for arbitrary tenant users; this requires a tenant-user lookup/admin endpoint in a later PR.
+- E-Komplet group import/seed.
+- Approval flow, visibility engine, integrations, PDF, reporting, or tenant-specific rules.
+
 ## Next Backlog Items
 
-- PR7: group-aware resource listing and default "mine medarbejdere" design, once API usage is verified.
+- PR7b: group-aware resource listing and default "mine medarbejdere" design, once admin UI usage is verified.
 - Later: audit events for create, update, cancel, approve/reject when those actions exist.
 - Later: direct manager/resource owner approval and masked visibility such as unavailable-only views.
