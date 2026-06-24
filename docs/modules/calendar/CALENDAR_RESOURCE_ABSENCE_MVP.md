@@ -1,11 +1,13 @@
 # Calendar / Resource Absence MVP
 
-Status: PR4 resource dropdown hygiene started
-Scope: Fielddesk-owned absence data foundation, tenant-admin API, first tenant Kalender/Fravaer UI, resource dropdown, and active-resource filtering
+Status: PR5 resource group foundation started
+Scope: Fielddesk-owned absence data foundation, tenant-admin API, first tenant Kalender/Fravaer UI, resource dropdown, active-resource filtering, and resource group data foundation
 
 ## Decision
 
 Fielddesk is the primary source of truth for resource absence in v1. Integrations such as E-Komplet, Outlook, Microsoft Graph, or other systems may enrich data later, but v1 absence records are owned by Fielddesk.
+
+Fielddesk is also the primary source of truth for resource groups. Imported E-Komplet `resource_groups_json` values may be used later as seed data or suggestions, but they do not define the canonical Fielddesk group model.
 
 ## PR1 Foundation
 
@@ -75,8 +77,24 @@ Not part of PR4:
 - UI toggle for inactive fitters.
 - Approval flow, integrations, PDF, reporting, or tenant-specific rules.
 
+## PR5 Resource Group Foundation
+
+Implemented direction:
+- `resource_groups` stores tenant-owned Fielddesk resource groups.
+- `resource_group_members` allows a fitter to be in multiple groups.
+- `resource_group_managers` allows a group to have multiple tenant-user managers with `owner`, `manager`, or `viewer` role metadata.
+- V1 membership still references `fitter.fitter_id`; a neutral `resource_person` model can be added later.
+- Manager/viewer relation prepares future "mine grupper" and "mine medarbejdere" scope, but does not by itself grant approval rights.
+- Apprentices or shared resources can belong to multiple groups without hardcoding tenant-specific rules.
+
+Not part of PR5:
+- UI for groups.
+- Filtering `GET /api/calendar/resources` by groups.
+- E-Komplet group import/seed.
+- Approval flow, visibility engine, integrations, PDF, reporting, or tenant-specific rules.
+
 ## Next Backlog Items
 
-- PR5: normalized `resource_groups`, group membership, and resource manager ownership foundation.
+- PR6: read-only resource group API and group-filtered resource listing.
 - Later: audit events for create, update, cancel, approve/reject when those actions exist.
 - Later: direct manager/resource owner approval and masked visibility such as unavailable-only views.

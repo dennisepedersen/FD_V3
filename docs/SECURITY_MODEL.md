@@ -106,6 +106,9 @@ Current:
 - Queries must filter by tenant and avoid cross-tenant joins by shape.
 - Composite tenant foreign keys are used in schema direction to keep related rows in the same tenant.
 - `resource_absences` is tenant-owned Fielddesk data for Calendar / Resource Absence and uses tenant-scoped references to v1 resource identity (`fitter`) and actor users.
+- `resource_groups`, `resource_group_members`, and `resource_group_managers` are tenant-owned Fielddesk data for future resource scoping.
+- Resource group manager roles (`owner`, `manager`, `viewer`) are scope/administration metadata only. They do not automatically grant absence approval rights.
+- Imported E-Komplet group data may be used as later seed/suggestion input, but Fielddesk-owned resource groups are the canonical source once created.
 - RLS is not yet fully active as database policy.
 
 Planned:
