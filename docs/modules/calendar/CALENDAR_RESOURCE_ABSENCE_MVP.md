@@ -122,6 +122,13 @@ Implemented direction:
 - Member lookup is separate from `GET /api/calendar/resources`; Resource Group Admin must not inherit Calendar dropdown filtering.
 - V1 group members still store `fitter_id`, so the lookup can only return resources present in the current `fitter` table. A full HC employee base requires a later neutral `resource_person` model/import.
 
+Follow-up data-source repair:
+- Resource Group member lookup depends on `fitter` being correctly populated.
+- EK `/api/v4/fitters` is the verified source for fitter master import.
+- The endpoint is treated as an unpaginated full-list endpoint based on current EK documentation and read-only verification.
+- Fielddesk derives active status from EK `endDate`; no `endDate` means active.
+- EK `resourceGroups` / `ressourceGroupString` values observed on fitterhours payloads may be used later as seed/suggestions only. Fielddesk-owned resource groups remain the truth.
+
 Not part of PR7a:
 - Calendar/resource dropdown filtering by groups.
 - "Mine medarbejdere" default scope.

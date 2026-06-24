@@ -788,10 +788,10 @@ function buildFitterCategoryEndpointVariants(baseUrl) {
 function buildFittersEndpointVariants(baseUrl) {
   const normalized = normalizeBase(baseUrl);
   const variants = [
+    `${normalized}/api/v4/fitters`,
+    `${normalized}/api/v4.0/fitters`,
     `${normalized}/api/v3.0/fitters`,
     `${normalized}/api/v3/fitters`,
-    `${normalized}/api/v4.0/fitters`,
-    `${normalized}/api/v4/fitters`,
   ].map((url) => url.replace(/([^:]\/)(\/+)/g, "$1"));
   return [...new Set(variants)];
 }
@@ -914,13 +914,18 @@ function mapFitterRow(raw) {
     email: asNullableText(pickAny(raw, ["Email", "email"])),
     phone: asNullableText(pickAny(raw, ["Phone", "phone", "PhoneNumber", "phoneNumber"])),
     salaryId: asNullableText(pickAny(raw, ["SalaryID", "SalaryId", "salaryID", "salaryId"])),
-    oldReference: asNullableText(pickAny(raw, ["OldReference", "oldReference"])),
+    oldReference: asNullableText(pickAny(raw, ["EmployeeNumber", "employeeNumber", "OldReference", "oldReference"])),
     jobPosition: asNullableText(pickAny(raw, ["JobPosition", "jobPosition", "Title", "title"])),
     startDate: asNullableTimestamp(pickAny(raw, ["StartDate", "startDate"])),
     endDate,
     isActiveDerived: deriveIsActiveFromEndDate(endDate),
     isPlannable: asNullableBoolean(pickAny(raw, ["IsPlannable", "isPlannable"])),
-    includeInExport: asNullableBoolean(pickAny(raw, ["IncludeInExport", "includeInExport"])),
+    includeInExport: asNullableBoolean(pickAny(raw, [
+      "IsIncludedInSalaryExport",
+      "isIncludedInSalaryExport",
+      "IncludeInExport",
+      "includeInExport",
+    ])),
     salaryPeriodTypeId: asNullableText(pickAny(raw, ["SalaryPeriodTypeID", "SalaryPeriodTypeId", "salaryPeriodTypeID", "salaryPeriodTypeId"])),
     salaryPeriodTypeName: asNullableText(pickAny(raw, ["SalaryPeriodTypeName", "salaryPeriodTypeName"])),
     isSalesPerson: asNullableBoolean(pickAny(raw, ["IsSalesPerson", "isSalesPerson"])),
@@ -2263,6 +2268,20 @@ async function fetchEndpointPage({ endpointBase, page, pageSize, headers, update
   return parsePagedPayload(payload);
 }
 
+async function fetchFittersFullList({ endpointBase, headers, retryPolicy = null }) {
+  const payload = await fetchJsonWithRetry(endpointBase, { headers, retryPolicy });
+  if (!Array.isArray(payload) && !Array.isArray(payload?.data)) {
+    throw new Error("fitters_unexpected_payload_shape");
+  }
+
+  const parsed = parsePagedPayload(payload);
+  return {
+    rows: parsed.rows,
+    nextPage: parsed.nextPage,
+    total: parsed.total,
+  };
+}
+
 async function discoverCompatibleProjectEndpoints({ endpointBases, headers, retryPolicy = null }) {
   const compatible = [];
   let lastError = null;
@@ -2561,6 +2580,180 @@ async function getGenericEndpointsAndHeaders({ cfg, endpointKey }) {
   };
 }
 
+async function runFittersFullListEndpoint({ job, endpointBases, headers, normalizedMode, strategyMeta }) {
+  let lastError = null;
+
+  await withTransaction(async (client) => {
+    await markEndpointState(client, {
+      tenantId: job.tenant_id,
+      endpointKey: "fitters",
+      status: "running",
+      jobId: job.id,
+      currentJobId: job.id,
+      currentMode: normalizedMode,
+      syncStrategy: strategyMeta.materialized ? strategyMeta.strategy : SYNC_STRATEGIES.NOT_MATERIALIZED,
+      lastAttemptAt: nowIso(),
+      lastSuccessAt: null,
+      lastSuccessfulPage: null,
+      lastSuccessfulCursor: null,
+      lastSeenRemoteCursor: null,
+      updatedAfterWatermark: null,
+      rowsFetchedDelta: 0,
+      rowsPersistedDelta: 0,
+      pagesProcessedLastJob: 0,
+      rowsFetchedLastJob: 0,
+      retryCount: 0,
+      pendingBacklogCount: null,
+      failedPageCount: null,
+      lastHttpStatus: null,
+      heartbeatAt: nowIso(),
+      nextPlannedAt: null,
+      errorMessage: null,
+    });
+  });
+
+  for (const endpointBase of endpointBases) {
+    try {
+      await heartbeat(job.id);
+
+      const parsed = await fetchFittersFullList({
+        endpointBase,
+        headers,
+        retryPolicy: getReadEndpointRetryPolicy("fitters", "full-list"),
+      });
+      const rowsFetched = parsed.rows.length;
+      const mappedRows = parsed.rows
+        .map((row) => mapFitterRow(row))
+        .filter(Boolean);
+
+      let rowsPersisted = 0;
+      await withTransaction(async (client) => {
+        rowsPersisted = await upsertFitterBatch(client, {
+          tenantId: job.tenant_id,
+          mappedRows,
+        });
+
+        await appendPageLog(client, {
+          tenantId: job.tenant_id,
+          jobId: job.id,
+          endpointKey: "fitters",
+          mode: normalizedMode,
+          pageNumber: 1,
+          nextPage: null,
+          status: "success",
+          rowsFetched,
+          rowsPersisted,
+          httpStatus: 200,
+          errorMessage: null,
+          retryCount: 0,
+          startedAt: nowIso(),
+          finishedAt: nowIso(),
+          attemptNo: 1,
+        });
+
+        await markEndpointState(client, {
+          tenantId: job.tenant_id,
+          endpointKey: "fitters",
+          status: "success",
+          jobId: job.id,
+          currentJobId: null,
+          currentMode: normalizedMode,
+          syncStrategy: strategyMeta.materialized ? strategyMeta.strategy : SYNC_STRATEGIES.NOT_MATERIALIZED,
+          lastAttemptAt: nowIso(),
+          lastSuccessAt: nowIso(),
+          lastSuccessfulPage: 1,
+          lastSuccessfulCursor: null,
+          lastSeenRemoteCursor: parsed.nextPage == null ? null : String(parsed.nextPage),
+          updatedAfterWatermark: null,
+          rowsFetchedDelta: rowsFetched,
+          rowsPersistedDelta: rowsPersisted,
+          pagesProcessedLastJob: 1,
+          rowsFetchedLastJob: rowsFetched,
+          retryCount: 0,
+          pendingBacklogCount: null,
+          failedPageCount: null,
+          lastHttpStatus: 200,
+          heartbeatAt: nowIso(),
+          nextPlannedAt: new Date(Date.now() + DELTA_INTERVAL_MS).toISOString(),
+          errorMessage: null,
+        });
+
+        await syncJobQueries.markJobProgress(client, {
+          jobId: job.id,
+          rowsProcessed: rowsPersisted,
+          pagesProcessed: 1,
+        });
+      });
+
+      console.log(
+        `[syncWorker] endpoint=fitters source=${endpointBase} fullList=true rowsFetched=${rowsFetched} rowsPersisted=${rowsPersisted}`
+      );
+
+      return {
+        pagesProcessed: 1,
+        rowsProcessed: rowsPersisted,
+        retriesQueued: 0,
+      };
+    } catch (error) {
+      lastError = error;
+      if (/\(404\)|\(400\)/.test(String(error.message || ""))) {
+        continue;
+      }
+      break;
+    }
+  }
+
+  const errorMessage = String(lastError?.message || "fitters_full_list_import_failed").slice(0, 2000);
+  await withTransaction(async (client) => {
+    await appendPageLog(client, {
+      tenantId: job.tenant_id,
+      jobId: job.id,
+      endpointKey: "fitters",
+      mode: normalizedMode,
+      pageNumber: 1,
+      nextPage: null,
+      status: "failed",
+      rowsFetched: 0,
+      rowsPersisted: 0,
+      httpStatus: null,
+      errorMessage,
+      retryCount: 0,
+      startedAt: nowIso(),
+      finishedAt: nowIso(),
+      attemptNo: 1,
+    });
+
+    await markEndpointState(client, {
+      tenantId: job.tenant_id,
+      endpointKey: "fitters",
+      status: "failed",
+      jobId: job.id,
+      currentJobId: null,
+      currentMode: normalizedMode,
+      syncStrategy: strategyMeta.materialized ? strategyMeta.strategy : SYNC_STRATEGIES.NOT_MATERIALIZED,
+      lastAttemptAt: nowIso(),
+      lastSuccessAt: null,
+      lastSuccessfulPage: null,
+      lastSuccessfulCursor: null,
+      lastSeenRemoteCursor: null,
+      updatedAfterWatermark: null,
+      rowsFetchedDelta: 0,
+      rowsPersistedDelta: 0,
+      pagesProcessedLastJob: 0,
+      rowsFetchedLastJob: 0,
+      retryCount: 1,
+      pendingBacklogCount: null,
+      failedPageCount: null,
+      lastHttpStatus: null,
+      heartbeatAt: nowIso(),
+      nextPlannedAt: new Date(Date.now() + DELTA_INTERVAL_MS).toISOString(),
+      errorMessage,
+    });
+  });
+
+  throw lastError || new Error("fitters_full_list_import_failed");
+}
+
 async function runReadOnlyEndpoint({ job, cfg, endpointKey, mode, cutoffContext = null }) {
   const normalizedMode = modeFromJobType(mode, SYNC_MODES.SLOW_RECONCILIATION);
   const strategyMeta = ENDPOINT_STRATEGY[endpointKey] || {
@@ -2572,6 +2765,16 @@ async function runReadOnlyEndpoint({ job, cfg, endpointKey, mode, cutoffContext 
   const isFitterCategories = endpointKey === "fittercategories";
   const isFitters = endpointKey === "fitters";
   const isFitterHours = endpointKey === "fitterhours";
+  if (isFitters) {
+    return runFittersFullListEndpoint({
+      job,
+      endpointBases,
+      headers,
+      normalizedMode,
+      strategyMeta,
+    });
+  }
+
   const readEndpointPrimaryPageSize = (isFitterCategories || isFitters || isFitterHours)
     ? FITTER_PAGE_SIZE_PRIMARY
     : PAGE_SIZE;
