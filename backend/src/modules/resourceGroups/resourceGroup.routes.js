@@ -81,6 +81,7 @@ router.get("/api/resource-groups/member-resources", requireTenantHost, requireAu
 
     const result = await resourceGroupService.listMemberResourceOptionsForTenant({
       tenantId,
+      includeInactive: req.query?.include_inactive,
     });
 
     res.status(200).json({

@@ -139,13 +139,15 @@ async function listGroupsForTenant({ tenantId, includeArchived }) {
   }
 }
 
-async function listMemberResourceOptionsForTenant({ tenantId }) {
+async function listMemberResourceOptionsForTenant({ tenantId, includeInactive }) {
   const normalizedTenantId = normalizeUuid(tenantId, "tenant_id_required");
+  const normalizedIncludeInactive = normalizeBoolean(includeInactive, false);
 
   const client = await pool.connect();
   try {
     const resources = await resourceGroupRepository.listMemberResourceOptions(client, {
       tenantId: normalizedTenantId,
+      includeInactive: normalizedIncludeInactive,
     });
 
     return { resources };

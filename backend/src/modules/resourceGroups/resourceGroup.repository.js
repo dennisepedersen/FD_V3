@@ -157,7 +157,7 @@ async function findTenantUserById(client, { tenantId, tenantUserId }) {
   return rows[0] || null;
 }
 
-async function listMemberResourceOptions(client, { tenantId }) {
+async function listMemberResourceOptions(client, { tenantId, includeInactive = false }) {
   const { rows } = await client.query(
     `
       SELECT
@@ -190,6 +190,7 @@ async function listMemberResourceOptions(client, { tenantId }) {
         'fitter' AS source
       FROM fitter
       WHERE tenant_id = $1
+        AND ($2::boolean = true OR is_active_derived IS TRUE)
       ORDER BY
         CASE
           WHEN is_active_derived IS TRUE THEN 0
@@ -199,7 +200,7 @@ async function listMemberResourceOptions(client, { tenantId }) {
         COALESCE(NULLIF(btrim(name), ''), NULLIF(btrim(username), ''), fitter_id) ASC,
         fitter_id ASC
     `,
-    [tenantId]
+    [tenantId, includeInactive === true]
   );
 
   return rows;
