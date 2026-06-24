@@ -1,7 +1,7 @@
 # Calendar / Resource Absence MVP
 
-Status: PR5 resource group foundation started
-Scope: Fielddesk-owned absence data foundation, tenant-admin API, first tenant Kalender/Fravaer UI, resource dropdown, active-resource filtering, and resource group data foundation
+Status: PR6 resource group API foundation started
+Scope: Fielddesk-owned absence data foundation, tenant-admin API, first tenant Kalender/Fravaer UI, resource dropdown, active-resource filtering, resource group data foundation, and resource group administration API
 
 ## Decision
 
@@ -93,8 +93,25 @@ Not part of PR5:
 - E-Komplet group import/seed.
 - Approval flow, visibility engine, integrations, PDF, reporting, or tenant-specific rules.
 
+## PR6 Resource Group API Foundation
+
+Implemented direction:
+- `GET /api/resource-groups` lists tenant-scoped resource groups; active groups are default and `include_archived=true` can include archived groups.
+- `POST /api/resource-groups` creates a tenant-scoped group.
+- `PATCH /api/resource-groups/:groupId` updates group `name`, `description`, or `status`.
+- Member endpoints manage `resource_group_members` by `fitter_id`.
+- Manager endpoints manage `resource_group_managers` by `tenant_user_id` and `manager_role`.
+- API routes require tenant host, access token, token tenant matching resolved tenant, and tenant-admin resource group module access.
+- Resource group manager roles remain group administration/scope metadata only and do not grant or imply absence approval rights.
+
+Not part of PR6:
+- UI for groups.
+- Filtering Kalender resource dropdowns by groups.
+- E-Komplet group import/seed.
+- Approval flow, visibility engine, integrations, PDF, reporting, or tenant-specific rules.
+
 ## Next Backlog Items
 
-- PR6: read-only resource group API and group-filtered resource listing.
+- PR7: group-aware resource listing and default "mine medarbejdere" design, once API usage is verified.
 - Later: audit events for create, update, cancel, approve/reject when those actions exist.
 - Later: direct manager/resource owner approval and masked visibility such as unavailable-only views.

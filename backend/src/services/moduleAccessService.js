@@ -11,6 +11,11 @@ const MODULE_REGISTRY = Object.freeze({
     enabled: true,
     actions: Object.freeze(["read", "create"]),
   }),
+  resource_groups: Object.freeze({
+    key: "resource_groups",
+    enabled: true,
+    actions: Object.freeze(["read", "create", "update", "delete"]),
+  }),
 });
 
 const ROLE_PERMISSIONS = Object.freeze({
@@ -20,6 +25,10 @@ const ROLE_PERMISSIONS = Object.freeze({
     "qa:update",
     "calendar_absence:read",
     "calendar_absence:create",
+    "resource_groups:read",
+    "resource_groups:create",
+    "resource_groups:update",
+    "resource_groups:delete",
   ]),
   project_leader: Object.freeze(["qa:read", "qa:create", "qa:update"]),
   technician: Object.freeze(["qa:read", "qa:create"]),

@@ -66,6 +66,7 @@ Scope: links to decisions; does not duplicate full decisions
 | Tenant admin follows a hybrid access model: tenant administration rights do not automatically grant tenant-wide access to project-owned data | `docs/SECURITY_MODEL.md`, `docs/ARCHITECTURE.md` |
 | Fielddesk is the primary source of truth for Calendar / Resource Absence v1; integrations may enrich absence data later but do not define v1 truth | `docs/modules/calendar/CALENDAR_RESOURCE_ABSENCE_MVP.md` |
 | Fielddesk-owned resource groups are the canonical group model for Calendar / Resource Absence; E-Komplet groups may only seed or suggest later | `docs/modules/calendar/CALENDAR_RESOURCE_ABSENCE_MVP.md`, `docs/SECURITY_MODEL.md` |
+| Resource group API v1 is tenant-admin-only; resource group manager roles are scope/admin metadata and do not imply absence approval rights | `docs/modules/calendar/CALENDAR_RESOURCE_ABSENCE_MVP.md`, `docs/SECURITY_MODEL.md` |
 
 ## Security And Governance Decisions
 
