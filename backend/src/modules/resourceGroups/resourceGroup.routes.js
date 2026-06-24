@@ -74,6 +74,25 @@ router.get("/api/resource-groups", requireTenantHost, requireAuth("access"), asy
   }
 });
 
+router.get("/api/resource-groups/member-resources", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  try {
+    const { tenantId } = getTenantContext(req);
+    requireResourceGroupAccess(req, "read");
+
+    const result = await resourceGroupService.listMemberResourceOptionsForTenant({
+      tenantId,
+    });
+
+    res.status(200).json({
+      success: true,
+      resources: result.resources,
+    });
+  } catch (error) {
+    logRouteError(req, "/api/resource-groups/member-resources", "GET", error);
+    next(error);
+  }
+});
+
 router.post("/api/resource-groups", requireTenantHost, requireAuth("access"), async (req, res, next) => {
   try {
     const { tenantId, userId } = getTenantContext(req);

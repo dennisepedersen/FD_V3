@@ -110,6 +110,7 @@ Current:
 - Resource group manager roles (`owner`, `manager`, `viewer`) are scope/administration metadata only. They do not automatically grant absence approval rights.
 - Resource group administration API routes require tenant host, access token, token tenant matching the resolved tenant, and tenant-admin module access in PR6.
 - PR7a resource group admin UI is tenant-admin-only and relies on the same backend API authorization; non-admin users do not see the navigation entry.
+- PR7a member lookup uses a read-only tenant-admin-only Resource Group endpoint and is limited to current attachable `fitter` records until a neutral resource/person model exists.
 - Imported E-Komplet group data may be used as later seed/suggestion input, but Fielddesk-owned resource groups are the canonical source once created.
 - RLS is not yet fully active as database policy.
 

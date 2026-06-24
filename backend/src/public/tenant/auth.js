@@ -953,6 +953,18 @@
       return labels[String(role || "").toLowerCase()] || "Ukendt";
     }
 
+    function getResourceGroupMemberOptionLabel(resource) {
+      const baseLabel = getResourceOptionLabel(resource);
+      const status = String(resource && resource.status ? resource.status : "").toLowerCase();
+      if (status === "ended") {
+        return `${baseLabel} - fratrådt`;
+      }
+      if (status === "inactive") {
+        return `${baseLabel} - inaktiv`;
+      }
+      return baseLabel;
+    }
+
     function getResourceGroupErrorMessage(error, fallback) {
       const code = error && error.code ? String(error.code) : "";
       const labels = {
@@ -1032,7 +1044,7 @@
         }
         const option = document.createElement("option");
         option.value = fitterId;
-        option.textContent = getResourceOptionLabel(resource);
+        option.textContent = getResourceGroupMemberOptionLabel(resource);
         resourceGroupMemberFitterSelect.appendChild(option);
       });
 
@@ -1045,9 +1057,9 @@
       if (state.resourceGroups.resourcesLoading) {
         setText(resourceGroupMemberResourceStatus, "Indlæser medarbejdere...");
       } else if (resources.length === 0 && state.resourceGroups.resourcesLoaded) {
-        setText(resourceGroupMemberResourceStatus, "Ingen aktive medarbejdere fundet.");
+        setText(resourceGroupMemberResourceStatus, "Ingen medarbejdere fundet i det nuværende fitter-grundlag.");
       } else if (availableCount === 0 && state.resourceGroups.resourcesLoaded) {
-        setText(resourceGroupMemberResourceStatus, "Alle aktive medarbejdere er allerede i gruppen.");
+        setText(resourceGroupMemberResourceStatus, "Alle tilgængelige medarbejdere i fitter-grundlaget er allerede i gruppen.");
       } else if (availableCount > 0) {
         setText(resourceGroupMemberResourceStatus, availableCount === 1 ? "1 medarbejder kan tilføjes." : `${availableCount} medarbejdere kan tilføjes.`);
       }
@@ -1298,7 +1310,7 @@
       state.resourceGroups.resourcesLoading = true;
       renderResourceGroupResourceOptions();
       try {
-        const response = await apiFetch("/api/calendar/resources", { method: "GET" });
+        const response = await apiFetch("/api/resource-groups/member-resources", { method: "GET" });
         state.resourceGroups.resources = response && Array.isArray(response.resources) ? response.resources : [];
         state.resourceGroups.resourcesLoaded = true;
       } catch (error) {

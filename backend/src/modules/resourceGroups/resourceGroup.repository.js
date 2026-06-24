@@ -157,6 +157,54 @@ async function findTenantUserById(client, { tenantId, tenantUserId }) {
   return rows[0] || null;
 }
 
+async function listMemberResourceOptions(client, { tenantId }) {
+  const { rows } = await client.query(
+    `
+      SELECT
+        id,
+        fitter_id,
+        name,
+        username,
+        email,
+        UPPER(
+          LEFT(
+            REGEXP_REPLACE(
+              COALESCE(NULLIF(btrim(name), ''), NULLIF(btrim(username), ''), fitter_id),
+              '[^[:alnum:]]',
+              '',
+              'g'
+            ),
+            4
+          )
+        ) AS initials,
+        COALESCE(NULLIF(btrim(name), ''), NULLIF(btrim(username), ''), fitter_id) AS label,
+        is_active_derived AS is_active,
+        is_plannable,
+        end_date,
+        CASE
+          WHEN is_active_derived IS TRUE THEN 'active'
+          WHEN end_date IS NOT NULL AND end_date::date < CURRENT_DATE THEN 'ended'
+          WHEN is_active_derived IS FALSE THEN 'inactive'
+          ELSE 'unknown'
+        END AS status,
+        'fitter' AS source
+      FROM fitter
+      WHERE tenant_id = $1
+      ORDER BY
+        CASE
+          WHEN is_active_derived IS TRUE THEN 0
+          WHEN is_active_derived IS NULL THEN 1
+          ELSE 2
+        END,
+        COALESCE(NULLIF(btrim(name), ''), NULLIF(btrim(username), ''), fitter_id) ASC,
+        fitter_id ASC
+    `,
+    [tenantId]
+  );
+
+  return rows;
+}
+
 async function listMembers(client, { tenantId, groupId }) {
   const { rows } = await client.query(
     `
@@ -418,6 +466,7 @@ module.exports = {
   findGroupById,
   findTenantUserById,
   listGroups,
+  listMemberResourceOptions,
   listManagers,
   listMembers,
   removeManager,

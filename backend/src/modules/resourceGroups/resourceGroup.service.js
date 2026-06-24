@@ -139,6 +139,21 @@ async function listGroupsForTenant({ tenantId, includeArchived }) {
   }
 }
 
+async function listMemberResourceOptionsForTenant({ tenantId }) {
+  const normalizedTenantId = normalizeUuid(tenantId, "tenant_id_required");
+
+  const client = await pool.connect();
+  try {
+    const resources = await resourceGroupRepository.listMemberResourceOptions(client, {
+      tenantId: normalizedTenantId,
+    });
+
+    return { resources };
+  } finally {
+    client.release();
+  }
+}
+
 async function createGroupForTenant(input) {
   const tenantId = normalizeUuid(input?.tenantId, "tenant_id_required");
   const name = normalizeRequiredText(input?.name, "resource_group_name_required");
@@ -389,6 +404,7 @@ module.exports = {
   addMemberToGroup,
   createGroupForTenant,
   listGroupsForTenant,
+  listMemberResourceOptionsForTenant,
   listManagersForGroup,
   listMembersForGroup,
   removeManagerFromGroup,

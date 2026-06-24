@@ -116,14 +116,17 @@ Implemented direction:
 - Tenant-admin users can open Admin / Ressourcegrupper from the tenant shell.
 - The UI lists active groups by default and can include archived groups.
 - Tenant-admin users can create, edit, activate, and archive Fielddesk-owned resource groups.
-- Tenant-admin users can view group members, add active fitters through the existing tenant-admin resource endpoint, update `is_primary`, and remove members.
+- Tenant-admin users can view group members, add attachable tenant fitters through `GET /api/resource-groups/member-resources`, update `is_primary`, and remove members.
 - Tenant-admin users can view existing group managers, update `manager_role`, and remove managers.
 - Manager roles remain group/scope administration metadata only and do not grant or imply absence approval rights.
+- Member lookup is separate from `GET /api/calendar/resources`; Resource Group Admin must not inherit Calendar dropdown filtering.
+- V1 group members still store `fitter_id`, so the lookup can only return resources present in the current `fitter` table. A full HC employee base requires a later neutral `resource_person` model/import.
 
 Not part of PR7a:
 - Calendar/resource dropdown filtering by groups.
 - "Mine medarbejdere" default scope.
 - Add-manager UI for arbitrary tenant users; this requires a tenant-user lookup/admin endpoint in a later PR.
+- Full employee/person master data beyond current `fitter` records.
 - E-Komplet group import/seed.
 - Approval flow, visibility engine, integrations, PDF, reporting, or tenant-specific rules.
 

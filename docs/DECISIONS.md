@@ -68,6 +68,7 @@ Scope: links to decisions; does not duplicate full decisions
 | Fielddesk-owned resource groups are the canonical group model for Calendar / Resource Absence; E-Komplet groups may only seed or suggest later | `docs/modules/calendar/CALENDAR_RESOURCE_ABSENCE_MVP.md`, `docs/SECURITY_MODEL.md` |
 | Resource group API v1 is tenant-admin-only; resource group manager roles are scope/admin metadata and do not imply absence approval rights | `docs/modules/calendar/CALENDAR_RESOURCE_ABSENCE_MVP.md`, `docs/SECURITY_MODEL.md` |
 | Resource Group Admin UI v1 is tenant-admin-only and does not change Calendar scope, absence visibility, or approval rights | `docs/modules/calendar/CALENDAR_RESOURCE_ABSENCE_MVP.md`, `docs/SECURITY_MODEL.md` |
+| Resource Group Admin member lookup must use Resource Group API scope, not Calendar dropdown filtering; v1 remains limited to attachable `fitter_id` records until a neutral resource/person model exists | `docs/modules/calendar/CALENDAR_RESOURCE_ABSENCE_MVP.md`, `docs/SECURITY_MODEL.md` |
 
 ## Security And Governance Decisions
 
