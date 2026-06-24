@@ -954,7 +954,25 @@
     }
 
     function getResourceGroupMemberOptionLabel(resource) {
-      const baseLabel = getResourceOptionLabel(resource);
+      const name = String(
+        resource && (resource.name || resource.label || resource.fitter_id)
+          ? (resource.name || resource.label || resource.fitter_id)
+          : "Ukendt medarbejder"
+      ).trim();
+      const shortCode = String(resource && resource.short_code ? resource.short_code : "").trim().toUpperCase();
+      const number = String(
+        resource && (resource.old_reference || resource.salary_id || resource.fitter_id)
+          ? (resource.old_reference || resource.salary_id || resource.fitter_id)
+          : ""
+      ).trim();
+      const meta = [];
+      if (shortCode) {
+        meta.push(shortCode);
+      }
+      if (number && number !== shortCode) {
+        meta.push(number);
+      }
+      const baseLabel = meta.length ? `${name} · ${meta.join(" · ")}` : name;
       const status = String(resource && resource.status ? resource.status : "").toLowerCase();
       if (status === "ended") {
         return `${baseLabel} - fratrådt`;

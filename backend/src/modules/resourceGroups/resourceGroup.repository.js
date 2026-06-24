@@ -166,17 +166,9 @@ async function listMemberResourceOptions(client, { tenantId, includeInactive = f
         name,
         username,
         email,
-        UPPER(
-          LEFT(
-            REGEXP_REPLACE(
-              COALESCE(NULLIF(btrim(name), ''), NULLIF(btrim(username), ''), fitter_id),
-              '[^[:alnum:]]',
-              '',
-              'g'
-            ),
-            4
-          )
-        ) AS initials,
+        old_reference,
+        salary_id,
+        UPPER(NULLIF(btrim(split_part(email, '@', 1)), '')) AS short_code,
         COALESCE(NULLIF(btrim(name), ''), NULLIF(btrim(username), ''), fitter_id) AS label,
         is_active_derived AS is_active,
         is_plannable,
