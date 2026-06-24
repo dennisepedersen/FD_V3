@@ -30,13 +30,15 @@ Current:
 - Tenant users belong to one tenant through `tenant_user.tenant_id`.
 - Tenant login uses backend validation and JWT direction from `docs/V3_FOUNDATION_DESIGN.md`.
 - JWT claims include actor scope, tenant id, role, subject, issue time, and expiry.
+- Tenant access tokens are a temporary session bridge: normal tenant login lasts 8h, and tenant "remember me" login lasts 7d.
+- Tenant access tokens are still stored in browser `localStorage` in this temporary PR.
 - Tenant resolution happens before tenant login and app access.
 - Invitation/onboarding flows create the first tenant admin.
 
 Planned:
 - More formal token/session policy for tenant UI.
 - Clear refresh/logout/session lifecycle.
-- Possible replacement of temporary browser token storage direction.
+- Replace temporary browser token storage with refresh-token/httpOnly cookie renewal, rotation, revocation, and logout invalidation.
 
 Open:
 - Final tenant UI session storage model.

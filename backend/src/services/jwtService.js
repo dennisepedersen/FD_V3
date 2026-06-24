@@ -1,13 +1,14 @@
 const jwt = require("jsonwebtoken");
 const env = require("../config/env");
 
-const ACCESS_TTL = "15m";
+const ACCESS_TTL = "8h";
+const REMEMBER_ME_ACCESS_TTL = "7d";
 const GLOBAL_ADMIN_TTL = "12h";
 // Onboarding tokens are intentionally short-lived (15-60 min target window).
 // Current value: 30 minutes.
 const ONBOARDING_TTL = "30m";
 
-function issueAccessToken({ userId, tenantId, role, email }) {
+function issueAccessToken({ userId, tenantId, role, email, rememberMe = false }) {
   return jwt.sign(
     {
       sub: userId,
@@ -18,7 +19,7 @@ function issueAccessToken({ userId, tenantId, role, email }) {
       type: "access",
     },
     env.JWT_SECRET,
-    { expiresIn: ACCESS_TTL }
+    { expiresIn: rememberMe ? REMEMBER_ME_ACCESS_TTL : ACCESS_TTL }
   );
 }
 

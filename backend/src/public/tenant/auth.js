@@ -528,6 +528,7 @@
 
       const login = document.getElementById("login").value.trim();
       const password = document.getElementById("password").value;
+      const rememberMe = Boolean(document.getElementById("rememberMe")?.checked);
       if (loginSubmitBtn) {
         loginSubmitBtn.disabled = true;
         loginSubmitBtn.textContent = "Logger ind...";
@@ -537,7 +538,7 @@
         const data = await apiFetch("/v1/auth/login", {
           method: "POST",
           headers: {},
-          body: JSON.stringify({ login, password }),
+          body: JSON.stringify({ login, password, remember_me: rememberMe }),
         });
 
         if (!data || !data.access_token) {

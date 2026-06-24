@@ -247,6 +247,24 @@
       box-shadow: 0 0 0 3px rgba(94, 200, 229, 0.12);
     }
 
+    .rememberRow {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 38px;
+      color: #dbe6f0;
+      font-size: 13px;
+      font-weight: 650;
+    }
+
+    .rememberRow input {
+      width: 18px;
+      height: 18px;
+      min-height: 18px;
+      margin: 0;
+      accent-color: var(--brand);
+    }
+
     .loginButton {
       min-height: 50px;
       border: 1px solid rgba(94, 200, 229, 0.46);
@@ -367,6 +385,10 @@
           <label>
             Adgangskode
             <input id="password" name="password" type="password" autocomplete="current-password" required>
+          </label>
+          <label class="rememberRow">
+            <input id="rememberMe" name="remember_me" type="checkbox">
+            <span>Husk mig</span>
           </label>
           <button id="loginSubmitBtn" class="loginButton" type="submit">Åbn Fielddesk</button>
         </form>

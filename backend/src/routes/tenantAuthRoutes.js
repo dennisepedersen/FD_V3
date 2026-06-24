@@ -17,8 +17,9 @@ const loginRateLimit = rateLimitRedis({
 router.post("/v1/auth/login", requireTenantHost, loginRateLimit, async (req, res, next) => {
   // Accepts { login, password } where login is a username (3-4 alpha chars) or legacy email.
   // Legacy mode: email fallback is kept for backward compatibility and is planned for phase-out.
-  const { login, email: legacyEmail, password } = req.body || {};
+  const { login, email: legacyEmail, password, remember_me } = req.body || {};
   const identifier = login || legacyEmail;
+  const rememberMe = remember_me === true;
   if (!identifier || !password) {
     return next(createHttpError(400, "Missing login fields"));
   }
@@ -77,6 +78,7 @@ router.post("/v1/auth/login", requireTenantHost, loginRateLimit, async (req, res
       tenantId: user.tenant_id,
       role: user.role,
       email: user.email,
+      rememberMe,
     });
 
     await auditQueries.insertAuditEvent(client, {
