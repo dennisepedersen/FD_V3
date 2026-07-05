@@ -64,6 +64,25 @@ router.get("/app", requireTenantHost, (req, res) => {
   res.sendFile(path.join(tenantPublicDir, "app.html"));
 });
 
+router.get("/", requireTenantHost, (req, res) => {
+  res.sendFile(path.join(tenantPublicDir, "app.html"));
+});
+
+router.get("/sager", requireTenantHost, (req, res) => {
+  res.sendFile(path.join(tenantPublicDir, "app.html"));
+});
+
+router.get("/kalender", requireTenantHost, (req, res) => {
+  res.sendFile(path.join(tenantPublicDir, "app.html"));
+});
+
+router.get("/indstillinger", requireTenantHost, (req, res) => {
+  res.sendFile(path.join(tenantPublicDir, "app.html"));
+});
+
+router.get("/sager/:projectId", requireTenantHost, (req, res) => {
+  res.sendFile(path.join(tenantPublicDir, "project.html"));
+});
 router.get("/project/:projectId", requireTenantHost, (req, res) => {
   res.sendFile(path.join(tenantPublicDir, "project.html"));
 });

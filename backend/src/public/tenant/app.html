@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Fielddesk</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@500;700&family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
   <style>
     :root {
       --bg: #070d1b;
@@ -1542,6 +1545,1113 @@
       }
 
     }
+  
+    /* Fielddesk case overview refresh */
+    .caseOverviewActive,
+    .caseOverviewActive body {
+      background: #f0faf5;
+    }
+
+    .appShell.caseOverviewActive {
+      min-height: 100dvh;
+      background: #f0faf5;
+      color: #0e1018;
+      font-family: "Plus Jakarta Sans", "Segoe UI", sans-serif;
+    }
+
+    .appShell.caseOverviewActive .mainShell {
+      background: #f0faf5;
+    }
+
+    .fdMono,
+    .fdCaseStatValue,
+    .fdCaseNumber,
+    .fdProgressText,
+    .fdObsDays,
+    .fdMetricValue,
+    .fdSheetStatValue {
+      font-family: "DM Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .fdCaseView {
+      min-height: 100%;
+      color: #0e1018;
+    }
+
+    .fdCaseSurface {
+      min-height: 100dvh;
+      background: #f0faf5;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .fdStatusBar {
+      height: 34px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 22px 0;
+      color: #0e1018;
+      font-size: 13px;
+      font-weight: 800;
+      position: relative;
+      flex: 0 0 auto;
+    }
+
+    .fdStatusNotch {
+      position: absolute;
+      left: 50%;
+      top: 8px;
+      width: 112px;
+      height: 28px;
+      transform: translateX(-50%);
+      border-radius: 999px;
+      background: #070b14;
+    }
+
+    .fdStatusRight {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+    }
+
+    .fdSignalBars {
+      width: 18px;
+      height: 12px;
+      display: inline-flex;
+      gap: 2px;
+      align-items: end;
+    }
+
+    .fdSignalBars span {
+      display: block;
+      width: 3px;
+      border-radius: 3px;
+      background: #0e1018;
+    }
+
+    .fdSignalBars span:nth-child(1) { height: 4px; }
+    .fdSignalBars span:nth-child(2) { height: 6px; }
+    .fdSignalBars span:nth-child(3) { height: 8px; }
+    .fdSignalBars span:nth-child(4) { height: 10px; }
+
+    .fdBattery {
+      width: 22px;
+      height: 11px;
+      border: 1.5px solid #7a8c88;
+      border-radius: 999px;
+      padding: 1px;
+      position: relative;
+      display: inline-block;
+    }
+
+    .fdBattery::before {
+      content: "";
+      position: absolute;
+      right: -3px;
+      top: 3px;
+      width: 2px;
+      height: 5px;
+      border-radius: 2px;
+      background: #7a8c88;
+    }
+
+    .fdBattery::after {
+      content: "";
+      display: block;
+      height: 100%;
+      width: 75%;
+      border-radius: 999px;
+      background: #059669;
+    }
+
+    .fdCaseContent {
+      display: grid;
+      gap: 14px;
+      min-height: 0;
+    }
+
+    .fdCaseMobileHeader,
+    .fdCaseDesktopHeader {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      min-width: 0;
+    }
+
+    .fdSectionLabel {
+      margin: 0 0 3px;
+      color: #a8d4be;
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    .fdCaseTitle {
+      margin: 0;
+      color: #0e1018;
+      font-size: 20px;
+      line-height: 1.15;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+
+    .fdCaseDesktopHeader .fdCaseTitle {
+      font-size: 24px;
+    }
+
+    .fdHeaderActions,
+    .fdTopbarActions {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      flex: 0 0 auto;
+    }
+
+    .fdBellButton,
+    .fdCaseTopBell {
+      width: 36px;
+      height: 36px;
+      display: inline-grid;
+      place-items: center;
+      border: 0;
+      border-radius: 16px;
+      background: #fff;
+      color: #7a8c88;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.07), 0 0 0 1px rgba(5,150,105,0.10);
+      position: relative;
+    }
+
+    .fdBellButton::after,
+    .fdCaseTopBell::after {
+      content: "";
+      position: absolute;
+      top: 8px;
+      right: 9px;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #e11d48;
+      box-shadow: 0 0 0 2px #fff;
+    }
+
+    .fdAvatar,
+    .fdAvatarFallback {
+      width: var(--fd-avatar-size, 24px);
+      height: var(--fd-avatar-size, 24px);
+      border-radius: 999px;
+      display: inline-grid;
+      place-items: center;
+      flex: 0 0 auto;
+      color: #fff;
+      font-size: calc(var(--fd-avatar-size, 24px) * 0.38);
+      font-weight: 800;
+      line-height: 1;
+      box-shadow: 0 0 0 2px #fff;
+    }
+
+    .fdAvatarGroup {
+      display: inline-flex;
+      align-items: center;
+      min-width: 0;
+    }
+
+    .fdAvatarGroup .fdAvatar + .fdAvatar {
+      margin-left: -6px;
+    }
+
+    .fdCaseSearch,
+    .fdMobileSearch {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 42px;
+      border: 0;
+      border-radius: 16px;
+      padding: 0 16px;
+      background: #fff;
+      color: #c0c4d4;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.07), 0 0 0 1px rgba(5,150,105,0.10);
+    }
+
+    .fdCaseSearch input,
+    .fdMobileSearch input,
+    .appShell.caseOverviewActive .topSearch input {
+      width: 100%;
+      min-width: 0;
+      min-height: 40px;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: #0e1018;
+      font: inherit;
+      font-size: 14px;
+    }
+
+    .fdCaseSearch input::placeholder,
+    .fdMobileSearch input::placeholder,
+    .appShell.caseOverviewActive .topSearch input::placeholder {
+      color: #c0c4d4;
+    }
+
+    .fdCaseStats {
+      display: flex;
+      gap: 10px;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+
+    .fdCaseStats::-webkit-scrollbar,
+    .fdCaseList::-webkit-scrollbar,
+    .drawerBody::-webkit-scrollbar {
+      display: none;
+    }
+
+    .fdCaseStatCard {
+      min-width: 76px;
+      min-height: 66px;
+      display: grid;
+      align-content: center;
+      gap: 5px;
+      padding: 12px 14px;
+      border-radius: 16px;
+      background: #fff;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06), 0 0 0 1px rgba(5,150,105,0.08);
+    }
+
+    .fdCaseStatLabel,
+    .fdSheetLabel,
+    .fdTinyLabel {
+      margin: 0;
+      color: #a8b4b0;
+      font-size: 9px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    .fdCaseStatValue {
+      margin: 0;
+      color: #0e1018;
+      font-size: 20px;
+      line-height: 1;
+      font-weight: 800;
+    }
+
+    .fdCaseStatValue.fdObsValue { color: #d97706; }
+    .fdCaseStatValue.fdScopeValue { color: #4f46e5; }
+
+    .fdCaseControls {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .fdCaseFilters {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+
+    .fdCaseFilters::-webkit-scrollbar { display: none; }
+
+    .fdFilterPill {
+      min-height: 30px;
+      border-radius: 999px;
+      border: 1.5px solid rgba(5,150,105,0.10);
+      padding: 0 13px;
+      background: #fff;
+      color: #7a8c88;
+      font: inherit;
+      font-size: 11px;
+      font-weight: 800;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+
+    .fdFilterPill.active {
+      border-color: #d1fae5;
+      background: #ecfdf5;
+      color: #059669;
+    }
+
+    .fdFilterPill:disabled {
+      opacity: 0.48;
+      cursor: not-allowed;
+    }
+
+    .fdSortHint {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      color: #a8b4b0;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .fdCaseList {
+      display: grid;
+      gap: 10px;
+      min-width: 0;
+      min-height: 0;
+    }
+
+    .fdCaseCard,
+    .fdCaseRow {
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06), 0 0 0 1px rgba(5,150,105,0.08);
+    }
+
+    .fdCaseCard {
+      display: grid;
+      gap: 12px;
+      padding: 16px;
+    }
+
+    .fdCaseCardTop,
+    .fdCaseCardMeta,
+    .fdCaseCardFooter,
+    .fdCaseRowLeft,
+    .fdCaseRowMiddle,
+    .fdCaseRowActions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .fdCaseCardTitleWrap,
+    .fdCaseRowTitleWrap {
+      min-width: 0;
+      display: grid;
+      gap: 5px;
+      flex: 1 1 auto;
+    }
+
+    .fdCaseName {
+      margin: 0;
+      color: #0e1018;
+      font-size: 13px;
+      line-height: 1.2;
+      font-weight: 800;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .fdCaseMetaLine {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      min-width: 0;
+      color: #a8b4b0;
+      font-size: 10px;
+    }
+
+    .fdCaseNumber {
+      font-size: 10px;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+
+    .fdLocationText,
+    .fdChangedText {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .fdStatusDot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex: 0 0 auto;
+      background: #059669;
+    }
+
+    .fdStatusDot.obs { background: #f59e0b; }
+    .fdStatusDot.kritisk { background: #e11d48; }
+
+    .fdObsBadge,
+    .fdObsDays {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      background: #fff7ed;
+      color: #c2410c;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .fdObsBadge {
+      min-height: 18px;
+      padding: 0 7px;
+      font-size: 9px;
+    }
+
+    .fdObsDays {
+      min-height: 20px;
+      padding: 0 7px;
+      font-size: 9px;
+    }
+
+    .fdProgressText {
+      margin-left: auto;
+      color: #059669;
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .fdProgressText.low { color: #d97706; }
+    .fdProgressText.mid { color: #2563eb; }
+
+    .fdProgressTrack {
+      width: 100%;
+      height: 6px;
+      border-radius: 999px;
+      overflow: hidden;
+      background: #f0faf5;
+    }
+
+    .fdProgressTrack.sheet {
+      height: 8px;
+    }
+
+    .fdProgressFill {
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #059669, #10b981);
+    }
+
+    .fdProgressFill.low { background: linear-gradient(90deg, #d97706, #2563eb); }
+    .fdProgressFill.mid { background: linear-gradient(90deg, #2563eb, #059669); }
+
+    .fdCardActions {
+      margin-left: auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex: 0 0 auto;
+    }
+
+    .fdCaseBtn {
+      min-height: 30px;
+      border-radius: 12px;
+      border: 1px solid #d1fae5;
+      padding: 0 11px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      font: inherit;
+      font-size: 11px;
+      font-weight: 800;
+      line-height: 1;
+      text-decoration: none;
+      white-space: nowrap;
+      cursor: pointer;
+      transition: transform 0.08s ease;
+    }
+
+    .fdCaseBtn:active { transform: scale(0.97); }
+
+    .fdCaseBtn.secondary {
+      background: #ecfdf5;
+      color: #059669;
+    }
+
+    .fdCaseBtn.primary {
+      border-color: transparent;
+      background: linear-gradient(135deg, #059669, #10b981);
+      color: #fff;
+      box-shadow: 0 3px 8px rgba(5,150,105,0.25);
+    }
+
+    .fdCaseFab,
+    .fdDesktopCta {
+      border: 0;
+      background: linear-gradient(135deg, #059669, #10b981);
+      color: #fff;
+      box-shadow: 0 6px 20px rgba(5,150,105,0.45);
+      display: inline-grid;
+      place-items: center;
+      cursor: pointer;
+    }
+
+    .fdCaseFab {
+      position: fixed;
+      right: 20px;
+      bottom: 84px;
+      z-index: 30;
+      width: 50px;
+      height: 50px;
+      border-radius: 999px;
+    }
+
+    .fdDesktopCta {
+      min-height: 40px;
+      padding: 0 16px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .fdBottomNav {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 20;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      padding: 12px 20px max(22px, env(safe-area-inset-bottom));
+      border-top: 1px solid rgba(5,150,105,0.10);
+      background: rgba(240,250,245,0.96);
+      backdrop-filter: blur(20px);
+    }
+
+    .fdBottomLink {
+      min-width: 0;
+      display: grid;
+      justify-items: center;
+      gap: 4px;
+      color: #a8b4b0;
+      text-decoration: none;
+      font-size: 9px;
+      font-weight: 800;
+    }
+
+    .fdBottomIcon {
+      width: 40px;
+      height: 32px;
+      border-radius: 16px;
+      display: grid;
+      place-items: center;
+    }
+
+    .fdBottomLink.active {
+      color: #059669;
+    }
+
+    .fdBottomLink.active .fdBottomIcon {
+      background: #ecfdf5;
+    }
+
+    .fdLoadingList {
+      display: grid;
+      gap: 10px;
+    }
+
+    .fdSkeleton {
+      height: 126px;
+      border-radius: 16px;
+      background: linear-gradient(90deg, #ffffff 0%, #f7fffb 45%, #ffffff 100%);
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06), 0 0 0 1px rgba(5,150,105,0.08);
+    }
+
+    .fdEmptyState,
+    .fdErrorState {
+      display: grid;
+      gap: 10px;
+      justify-items: start;
+      padding: 18px;
+      border-radius: 16px;
+      background: #fff;
+      color: #7a8c88;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06), 0 0 0 1px rgba(5,150,105,0.08);
+      font-size: 13px;
+    }
+
+    .fdRetryBtn {
+      min-height: 34px;
+      border-radius: 12px;
+      border: 1px solid #d1fae5;
+      background: #ecfdf5;
+      color: #059669;
+      font: inherit;
+      font-size: 12px;
+      font-weight: 800;
+      padding: 0 12px;
+      cursor: pointer;
+    }
+
+    .appShell.caseOverviewActive .drawerShell {
+      z-index: 80;
+    }
+
+    .appShell.caseOverviewActive + .drawerShell .drawerOverlay,
+    .drawerShell.open .drawerOverlay {
+      background: rgba(15,31,24,0.45);
+      backdrop-filter: blur(3px);
+    }
+
+    .appShell.caseOverviewActive ~ .drawerShell .drawerPanel,
+    .drawerPanel {
+      color: #0e1018;
+      background: #fff;
+    }
+
+    .drawerHandle {
+      width: 40px;
+      height: 4px;
+      border-radius: 999px;
+      background: #e2e8f0;
+      margin: 12px auto 2px;
+      flex: 0 0 auto;
+    }
+
+    .fdSheetHeader {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 16px 14px;
+      border-bottom: 1px solid rgba(5,150,105,0.10);
+    }
+
+    .fdSheetTitleBlock {
+      min-width: 0;
+      display: grid;
+      gap: 5px;
+    }
+
+    .fdSheetTitle {
+      margin: 0;
+      color: #0e1018;
+      font-size: 18px;
+      line-height: 1.2;
+      font-weight: 800;
+      overflow-wrap: anywhere;
+    }
+
+    .fdSheetMeta {
+      margin: 0;
+      color: #a8b4b0;
+      font-size: 11px;
+    }
+
+    .fdSheetBody {
+      display: grid;
+      gap: 16px;
+      padding: 14px 16px 16px;
+      overflow: auto;
+      scrollbar-width: none;
+    }
+
+    .fdSheetStatGrid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      border: 1px solid #d1fae5;
+      border-radius: 16px;
+      overflow: hidden;
+      background: #fff;
+    }
+
+    .fdSheetStat {
+      min-width: 0;
+      display: grid;
+      gap: 5px;
+      padding: 10px 8px;
+      background: #f8fefb;
+      border-right: 1px solid #d1fae5;
+    }
+
+    .fdSheetStat:nth-child(even) { background: #fff; }
+    .fdSheetStat:last-child { border-right: 0; }
+
+    .fdSheetStatValue {
+      color: #0e1018;
+      font-size: 11px;
+      font-weight: 800;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .fdSheetSection {
+      display: grid;
+      gap: 9px;
+    }
+
+    .fdSheetProgressTop,
+    .fdSheetTeamRow,
+    .fdSheetTabs,
+    .fdSheetFooter {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .fdSheetProgressTop {
+      justify-content: space-between;
+    }
+
+    .fdSheetTeamRow {
+      justify-content: space-between;
+    }
+
+    .fdSheetCounters {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: #7a8c88;
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .fdSheetTabs {
+      border-bottom: 1px solid #ecfdf5;
+    }
+
+    .fdSheetTab {
+      border: 0;
+      background: transparent;
+      color: #a8b4b0;
+      padding: 0 0 9px;
+      font: inherit;
+      font-size: 12px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    .fdSheetTab.active {
+      color: #059669;
+      box-shadow: inset 0 -2px 0 #059669;
+    }
+
+    .fdSheetPanel {
+      min-height: 78px;
+      color: #7a8c88;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .fdSheetFooter {
+      padding: 12px 16px max(12px, env(safe-area-inset-bottom));
+      border-top: 1px solid #ecfdf5;
+      background: #fff;
+    }
+
+    .fdSheetFooter .fdCaseBtn {
+      flex: 1 1 0;
+      min-height: 44px;
+      border-radius: 16px;
+      font-size: 13px;
+    }
+
+    .fdCaseBtn[aria-disabled="true"] {
+      opacity: 0.52;
+      pointer-events: none;
+    }
+
+    @keyframes sheetUp {
+      from { transform: translateY(100%); }
+      to { transform: translateY(0); }
+    }
+
+    @media (max-width: 767px) {
+      body:has(.caseOverviewActive) {
+        background: #f0faf5;
+      }
+
+      .appShell.caseOverviewActive {
+        display: block;
+      }
+
+      .appShell.caseOverviewActive .sidebar,
+      .appShell.caseOverviewActive .topbar {
+        display: none;
+      }
+
+      .appShell.caseOverviewActive .page {
+        width: 100%;
+        min-height: 100dvh;
+        margin: 0;
+        padding: 0;
+        display: block;
+      }
+
+      .fdCaseSurface {
+        display: flex;
+        flex-direction: column;
+        padding-bottom: 88px;
+      }
+
+      .fdCaseContent {
+        flex: 1 1 auto;
+        padding: 28px 20px 0;
+        overflow: hidden;
+      }
+
+      .fdCaseDesktopHeader,
+      .fdDesktopCta {
+        display: none;
+      }
+
+      .fdCaseList {
+        overflow: auto;
+        padding-bottom: 18px;
+      }
+
+      .fdCaseRow {
+        display: none;
+      }
+
+      .fdSortHint {
+        font-size: 10px;
+      }
+
+      .drawerPanel {
+        top: auto;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        width: 100%;
+        height: auto;
+        max-height: 88%;
+        border-left: 0;
+        border-radius: 24px 24px 0 0;
+        transform: translateY(100%);
+        box-shadow: 0 -8px 40px rgba(5,150,105,0.12);
+      }
+
+      .drawerShell.open .drawerPanel {
+        transform: translateY(0);
+        animation: sheetUp 300ms cubic-bezier(0.22,1,0.36,1);
+      }
+
+      .drawerHeader,
+      .drawerBody,
+      .drawerFooter {
+        display: none;
+      }
+    }
+
+    @media (min-width: 768px) {
+      body:has(.caseOverviewActive) {
+        background: #f0faf5;
+      }
+
+      .appShell.caseOverviewActive {
+        grid-template-columns: 260px minmax(0, 1fr);
+      }
+
+      .appShell.caseOverviewActive .sidebar {
+        height: 100vh;
+        border-right: 1px solid rgba(5,150,105,0.10);
+        border-bottom: 0;
+        background: rgba(255,255,255,0.94);
+        color: #0e1018;
+      }
+
+      .appShell.caseOverviewActive .sideInner {
+        height: 100vh;
+        padding: 22px 16px 14px;
+        align-content: start;
+      }
+
+      .appShell.caseOverviewActive .brandMark {
+        width: 32px;
+        height: 32px;
+        border-radius: 999px;
+        background: #059669;
+        box-shadow: none;
+      }
+
+      .appShell.caseOverviewActive .brandName {
+        color: #0e1018;
+      }
+
+      .appShell.caseOverviewActive .brandSub,
+      .appShell.caseOverviewActive .navItem span {
+        color: #7a8c88;
+      }
+
+      .appShell.caseOverviewActive .sidebarToggle {
+        display: none;
+      }
+
+      .appShell.caseOverviewActive .sideNav {
+        grid-auto-flow: row;
+        grid-auto-columns: unset;
+        overflow: visible;
+        gap: 8px;
+      }
+
+      .appShell.caseOverviewActive .navSection {
+        display: grid;
+        gap: 8px;
+      }
+
+      .appShell.caseOverviewActive .navLabel {
+        display: block;
+        margin: 18px 8px 4px;
+        color: #a8d4be;
+        font-size: 10px;
+      }
+
+      .appShell.caseOverviewActive .navItem {
+        min-height: 44px;
+        border: 0;
+        border-radius: 16px;
+        background: transparent;
+        color: #7a8c88;
+        box-shadow: none;
+      }
+
+      .appShell.caseOverviewActive .navItem.active,
+      .appShell.caseOverviewActive .navItem:hover {
+        background: #ecfdf5;
+        color: #059669;
+      }
+
+      .appShell.caseOverviewActive .navIcon {
+        color: currentColor;
+      }
+
+      .appShell.caseOverviewActive .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        padding: 18px 30px;
+        border-bottom: 1px solid rgba(5,150,105,0.10);
+        background: #f0faf5;
+        box-shadow: none;
+        color: #0e1018;
+      }
+
+      .appShell.caseOverviewActive .topSearch {
+        max-width: none;
+        min-height: 42px;
+        border: 0;
+        border-radius: 16px;
+        background: #fff;
+        color: #c0c4d4;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.07), 0 0 0 1px rgba(5,150,105,0.10);
+      }
+
+      .appShell.caseOverviewActive .statusPill {
+        min-height: 34px;
+        border: 1px solid #d1fae5;
+        background: #ecfdf5;
+        color: #a8d4be;
+        font-size: 11px;
+      }
+
+      .appShell.caseOverviewActive .logoutIconBtn {
+        background: #fff;
+        color: #7a8c88;
+        border: 0;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.07), 0 0 0 1px rgba(5,150,105,0.10);
+      }
+
+      .appShell.caseOverviewActive .page {
+        width: 100%;
+        max-width: none;
+        padding: 30px;
+        display: block;
+      }
+
+      .fdStatusBar,
+      .fdCaseMobileHeader,
+      .fdMobileSearch,
+      .fdBottomNav,
+      .fdCaseFab {
+        display: none;
+      }
+
+      .fdCaseSurface {
+        min-height: calc(100dvh - 102px);
+        overflow: visible;
+      }
+
+      .fdCaseContent {
+        gap: 24px;
+      }
+
+      .fdCaseStats {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 18px;
+        overflow: visible;
+      }
+
+      .fdCaseStatCard {
+        min-height: 74px;
+      }
+
+      .fdCaseControls {
+        margin-top: -4px;
+      }
+
+      .fdCaseCard {
+        display: none;
+      }
+
+      .fdCaseRow {
+        min-height: 64px;
+        display: grid;
+        grid-template-columns: minmax(260px, 1fr) minmax(250px, 0.62fr) auto;
+        align-items: center;
+        gap: 18px;
+        padding: 12px 18px;
+      }
+
+      .fdCaseRowMiddle {
+        justify-content: end;
+      }
+
+      .fdRowProgress {
+        width: min(160px, 36vw);
+        display: grid;
+        gap: 5px;
+      }
+
+      .fdCaseRowActions {
+        justify-content: flex-end;
+      }
+
+      .drawerPanel {
+        top: 0;
+        right: 0;
+        left: auto;
+        bottom: auto;
+        width: min(520px, 100vw);
+        height: 100%;
+        max-height: none;
+        border-radius: 24px 0 0 24px;
+        transform: translateX(100%);
+        box-shadow: -24px 0 70px rgba(5, 80, 58, 0.18);
+      }
+
+      .drawerShell.open .drawerPanel {
+        transform: translateX(0);
+      }
+
+      .drawerHeader,
+      .drawerBody,
+      .drawerFooter {
+        display: none;
+      }
+    }
   </style>
 </head>
 <body data-page="app">
@@ -2003,54 +3113,79 @@
           </section>
         </section>
 
-        <section id="projectsView" class="view" data-view="projects" hidden>
-          <section class="panel headerPanel">
-            <div class="titleRow">
-              <div>
-                <h1>Sagsoversigt</h1>
+        <section id="projectsView" class="view fdCaseView" data-view="projects" hidden>
+          <div class="fdCaseSurface">
+            <div class="fdStatusBar" aria-hidden="true">
+              <span>9:41</span>
+              <span class="fdStatusNotch"></span>
+              <span class="fdStatusRight"><span class="fdSignalBars"><span></span><span></span><span></span><span></span></span><span>5G</span><span class="fdBattery"></span></span>
+            </div>
+
+            <div class="fdCaseContent">
+              <header class="fdCaseMobileHeader">
+                <div>
+                  <p class="fdSectionLabel">Projekter</p>
+                  <h1 class="fdCaseTitle">Sagsoversigt</h1>
+                </div>
+                <div class="fdHeaderActions">
+                  <button class="fdBellButton" type="button" aria-label="Notifikationer"><span data-icon="bell"></span></button>
+                  <span id="caseMobileAvatar" class="fdAvatarFallback" style="--fd-avatar-size: 36px; background:#059669;">D</span>
+                </div>
+              </header>
+
+              <label class="fdMobileSearch" for="caseMobileSearchInput" aria-label="Sog i sager">
+                <span data-icon="search"></span>
+                <input id="caseMobileSearchInput" type="search" placeholder="Sog i sager...">
+              </label>
+
+              <header class="fdCaseDesktopHeader">
+                <div>
+                  <p class="fdSectionLabel">Projekter</p>
+                  <h1 class="fdCaseTitle">Sagsoversigt</h1>
+                </div>
+                <button id="caseDesktopCreateBtn" class="fdDesktopCta" type="button"><span data-icon="filter"></span><span>Fielddesk</span></button>
+              </header>
+
+              <section class="fdCaseStats" aria-label="Projekt status">
+                <article class="fdCaseStatCard">
+                  <p class="fdCaseStatLabel">Sager</p>
+                  <p id="dashboardProjectCount" class="fdCaseStatValue">-</p>
+                </article>
+                <article class="fdCaseStatCard">
+                  <p class="fdCaseStatLabel">Aktive</p>
+                  <p id="projectOpenCount" class="fdCaseStatValue">-</p>
+                </article>
+                <article class="fdCaseStatCard">
+                  <p class="fdCaseStatLabel">OBS</p>
+                  <p id="dashboardAttentionCount" class="fdCaseStatValue fdObsValue">-</p>
+                </article>
+                <article class="fdCaseStatCard">
+                  <p class="fdCaseStatLabel">Visning</p>
+                  <p id="currentScopeValue" class="fdCaseStatValue fdScopeValue">Mine</p>
+                </article>
+              </section>
+
+              <div class="fdCaseControls">
+                <div id="caseFilterPills" class="fdCaseFilters" role="tablist" aria-label="Sagsfiltre">
+                  <button class="fdFilterPill" type="button" data-case-filter="all" role="tab" aria-selected="false" aria-disabled="true" disabled title="Alle sager er ikke tilgaengelige i dette endpoint endnu">Alle</button>
+                  <button class="fdFilterPill active" type="button" data-case-filter="mine" role="tab" aria-selected="true">Mine Projekter</button>
+                  <button class="fdFilterPill" type="button" data-case-filter="obs" role="tab" aria-selected="false">OBS</button>
+                </div>
+                <span class="fdSortHint"><span data-icon="filter"></span><span>Sortering: Projekter (igangv.)</span></span>
               </div>
-              <a class="btn btnCompact" href="#dashboard" data-view-link="dashboard">Dashboard</a>
+
+              <div id="listMetaText" class="fdTinyLabel">Indlaeser sager...</div>
+              <section id="projectsContainer" class="fdCaseList" aria-live="polite"></section>
             </div>
-            <div id="userPill" class="userPill">Indlæser bruger...</div>
-          </section>
 
-          <section class="projectStats" aria-label="Projekt status">
-            <article class="statCard">
-              <p class="infoLabel">Sager</p>
-              <p id="dashboardProjectCount" class="statValue">-</p>
-            </article>
-            <article class="statCard">
-              <p class="infoLabel">Aktive</p>
-              <p id="projectOpenCount" class="statValue">-</p>
-            </article>
-            <article class="statCard">
-              <p class="infoLabel">OBS</p>
-              <p id="dashboardAttentionCount" class="statValue">-</p>
-            </article>
-            <article class="statCard">
-              <p class="infoLabel">Visning</p>
-              <p id="currentScopeValue" class="statValue">Mine</p>
-            </article>
-          </section>
-
-          <section class="panel toolbar">
-            <div class="metaRow" id="listMetaText">Indlæser sager...</div>
-            <label class="toolbarControl">
-              <span>Sortering:</span>
-              <select id="sortSelect" class="sortSelect">
-                <option value="ref_asc">Projektnr. (stigende)</option>
-                <option value="ref_desc">Projektnr. (faldende)</option>
-                <option value="activity_desc">Sidste aktivitet (nyeste)</option>
-                <option value="activity_asc">Sidste aktivitet (ældste)</option>
-              </select>
-            </label>
-            <div id="scopeRow" class="scopeRow" hidden>
-              <p class="scopeRowLabel">Visning</p>
-              <div id="scopeChips" class="scopeChips"></div>
-            </div>
-          </section>
-
-          <section id="projectsContainer" class="projectList" aria-live="polite"></section>
+            <button id="caseFab" class="fdCaseFab" type="button" aria-label="Opret sag" aria-disabled="true"><span data-icon="plus"></span></button>
+            <nav class="fdBottomNav" aria-label="Mobil navigation">
+              <a class="fdBottomLink" href="/" data-view-link="dashboard"><span class="fdBottomIcon" data-icon="dashboard"></span><span>Hjem</span></a>
+              <a class="fdBottomLink active" href="/sager" data-view-link="projects"><span class="fdBottomIcon" data-icon="folder"></span><span>Sager</span></a>
+              <a class="fdBottomLink" href="/kalender" data-view-link="calendar"><span class="fdBottomIcon" data-icon="calendar"></span><span>Kalender</span></a>
+              <a class="fdBottomLink" href="/indstillinger" data-view-link="resource-groups"><span class="fdBottomIcon" data-icon="settings"></span><span>Indstillinger</span></a>
+            </nav>
+          </div>
         </section>
       </main>
     </div>

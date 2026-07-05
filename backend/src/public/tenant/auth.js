@@ -77,7 +77,7 @@
 
   function getProjectIdFromPath() {
     const path = String(window.location.pathname || "");
-    const match = path.match(/^\/project\/([^/]+)$/);
+    const match = path.match(/^\/(?:project|sager)\/([^/]+)$/);
     if (!match || !match[1]) {
       return null;
     }
@@ -653,6 +653,10 @@
     const moduleProjectsMeta = document.getElementById("moduleProjectsMeta");
     const projectSearchInput = document.getElementById("projectSearchInput");
     const currentScopeValue = document.getElementById("currentScopeValue");
+    const caseMobileSearchInput = document.getElementById("caseMobileSearchInput");
+    const caseMobileAvatar = document.getElementById("caseMobileAvatar");
+    const caseFab = document.getElementById("caseFab");
+    const caseDesktopCreateBtn = document.getElementById("caseDesktopCreateBtn");
     const sortSelect = document.getElementById("sortSelect");
     const listMetaText = document.getElementById("listMetaText");
     const scopeRow = document.getElementById("scopeRow");
@@ -677,9 +681,13 @@
       showingClosedFallback: false,
       currentView: "dashboard",
       searchQuery: projectSearchInput && projectSearchInput.value ? String(projectSearchInput.value).trim() : "",
+      caseFilter: "mine",
+      projectsLoading: false,
+      projectLoadError: "",
       expandedProjectRefs: new Set(),
       calendar: {
         activeTab: "absences",
+        resourceScope: "mine",
         absences: [],
         from: "",
         to: "",
@@ -688,6 +696,7 @@
         accessDenied: false,
         resources: [],
         resourcesLoaded: false,
+        resourcesLoadedScope: "",
         resourcesLoading: false,
       },
       resourceGroups: {
@@ -715,8 +724,31 @@
       "activity_at",
       "activity_date",
     ];
-    const PIPELINE_TRACE_REFS = new Set(["80229", "80229-001"]);
-    const PROJECT_LIST_DEBUG_ENABLED = true;
+    const PIPELINE_TRACE_REFS = new Set();
+    const PROJECT_LIST_DEBUG_ENABLED = false;
+    const CALENDAR_RESOURCE_SCOPE_CONFIG = Object.freeze({
+      mine: Object.freeze({
+        key: "mine",
+        label: "Mine medarbejdere",
+        enabled: true,
+        visible: true,
+        endpoint: "/api/calendar/resources",
+      }),
+      group: Object.freeze({
+        key: "group",
+        label: "Mine grupper",
+        enabled: false,
+        visible: false,
+        endpoint: null,
+      }),
+      all: Object.freeze({
+        key: "all",
+        label: "Alle medarbejdere",
+        enabled: false,
+        visible: false,
+        endpoint: null,
+      }),
+    });
 
     function setText(node, value) {
       if (node) {
@@ -899,6 +931,34 @@
         return initials && !name.includes(initials) ? `${name} (${initials})` : name;
       }
       return initials || fallback || "Ukendt medarbejder";
+    }
+
+    function getCalendarResourceScopeConfig() {
+      return CALENDAR_RESOURCE_SCOPE_CONFIG;
+    }
+
+    function getCalendarResourceScopeDefinition(scope) {
+      const normalized = String(scope || "mine").trim().toLowerCase();
+      return getCalendarResourceScopeConfig()[normalized] || getCalendarResourceScopeConfig().mine;
+    }
+
+    function getActiveCalendarResourceScope() {
+      const configuredScope = getCalendarResourceScopeDefinition(state.calendar.resourceScope);
+      return configuredScope.enabled ? configuredScope.key : "mine";
+    }
+
+    function setActiveCalendarResourceScope(scope) {
+      const nextScope = getCalendarResourceScopeDefinition(scope);
+      state.calendar.resourceScope = nextScope.enabled ? nextScope.key : "mine";
+      if (state.calendar.resourcesLoadedScope !== state.calendar.resourceScope) {
+        state.calendar.resourcesLoaded = false;
+      }
+      return state.calendar.resourceScope;
+    }
+
+    function getCalendarResourceScopeEndpoint(scope) {
+      const definition = getCalendarResourceScopeDefinition(scope);
+      return definition.enabled ? definition.endpoint : null;
     }
 
     function renderResourceOptions() {
@@ -1834,12 +1894,33 @@
       }
     }
 
-    async function loadCalendarResources(options) {
+    async function loadCalendarResourcesForScope(scope, options) {
+      const requestedScope = getCalendarResourceScopeDefinition(scope);
+
       renderCalendarAccessState();
       if (!isTenantAdmin(state.me) || state.calendar.activeTab !== "absences") {
         return;
       }
-      if (!(options && options.force) && state.calendar.resourcesLoaded) {
+      if (!requestedScope.enabled) {
+        state.calendar.resources = [];
+        state.calendar.resourcesLoaded = false;
+        state.calendar.resourcesLoadedScope = "";
+        renderResourceOptions();
+        setText(absenceResourceStatus, "Ressourcevisningen er ikke aktiv endnu.");
+        return;
+      }
+
+      const activeScope = setActiveCalendarResourceScope(requestedScope.key);
+      const endpoint = getCalendarResourceScopeEndpoint(activeScope);
+      if (!endpoint) {
+        state.calendar.resources = [];
+        state.calendar.resourcesLoaded = false;
+        state.calendar.resourcesLoadedScope = "";
+        renderResourceOptions();
+        setText(absenceResourceStatus, "Ressourcevisningen er ikke aktiv endnu.");
+        return;
+      }
+      if (!(options && options.force) && state.calendar.resourcesLoaded && state.calendar.resourcesLoadedScope === activeScope) {
         renderResourceOptions();
         return;
       }
@@ -1848,10 +1929,11 @@
       renderResourceOptions();
 
       try {
-        const response = await apiFetch("/api/calendar/resources", { method: "GET" });
+        const response = await apiFetch(endpoint, { method: "GET" });
         state.calendar.accessDenied = false;
         state.calendar.resources = response && Array.isArray(response.resources) ? response.resources : [];
         state.calendar.resourcesLoaded = true;
+        state.calendar.resourcesLoadedScope = activeScope;
         renderCalendarAccessState();
         renderResourceOptions();
       } catch (error) {
@@ -1865,12 +1947,17 @@
         }
         state.calendar.resources = [];
         state.calendar.resourcesLoaded = false;
+        state.calendar.resourcesLoadedScope = "";
         renderResourceOptions();
         setText(absenceResourceStatus, `Kunne ikke hente medarbejdere: ${getErrorMessage(error, "request_failed")}`);
       } finally {
         state.calendar.resourcesLoading = false;
         renderResourceOptions();
       }
+    }
+
+    async function loadCalendarResources(options) {
+      return loadCalendarResourcesForScope(getActiveCalendarResourceScope(), options);
     }
 
     function getCalendarRangeFromInputs() {
@@ -3229,10 +3316,530 @@
       }
     }
 
+
+    function escapeHtml(value) {
+      return String(value === null || value === undefined ? "" : value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function firstText() {
+      for (let i = 0; i < arguments.length; i += 1) {
+        const value = String(arguments[i] === null || arguments[i] === undefined ? "" : arguments[i]).trim();
+        if (value) return value;
+      }
+      return null;
+    }
+
+    function firstNumber() {
+      for (let i = 0; i < arguments.length; i += 1) {
+        const parsed = Number(arguments[i]);
+        if (Number.isFinite(parsed)) return parsed;
+      }
+      return null;
+    }
+
+    function clampPercent(value) {
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed)) return null;
+      return Math.max(0, Math.min(100, parsed));
+    }
+
+    function formatMoney(value) {
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed)) return null;
+      try {
+        return new Intl.NumberFormat("da-DK", { maximumFractionDigits: 0 }).format(parsed) + " kr.";
+      } catch (_error) {
+        return String(Math.round(parsed)) + " kr.";
+      }
+    }
+
+    function formatCaseDate(value) {
+      const date = toDate(value);
+      if (!date) return null;
+      return formatActivityDate(date);
+    }
+
+    function buildLocation(raw) {
+      const direct = firstText(raw && raw.location, raw && raw.address, raw && raw.associatedAddress);
+      const zip = firstText(raw && raw.zip, raw && raw.zip_code, raw && raw.postal_code);
+      const city = firstText(raw && raw.city, raw && raw.town);
+      if (direct && city && !direct.toLowerCase().includes(city.toLowerCase())) return direct + ", " + city;
+      return direct || [zip, city].filter(Boolean).join(" ") || null;
+    }
+
+    function initialsFromName(value) {
+      const text = String(value || "").trim();
+      if (!text) return null;
+      const compact = text.replace(/[^A-Za-zA-Z\u00c0-\u024F]/g, "").toUpperCase();
+      if (compact.length <= 3 && compact.length > 0) return compact.slice(0, 2);
+      const parts = text.split(/\s+/).filter(Boolean);
+      if (parts.length === 1) return compact.slice(0, 2) || null;
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    }
+
+    function teamInitialsFromProject(raw) {
+      const team = [];
+      [
+        firstText(raw && raw.responsible_name, raw && raw.responsible_code),
+        firstText(raw && raw.team_leader_name, raw && raw.team_leader_code),
+        firstText(raw && raw.owner_name, raw && raw.owner_display_name),
+      ].forEach((value) => {
+        const initials = initialsFromName(value);
+        if (initials && !team.includes(initials)) team.push(initials);
+      });
+      return team.slice(0, 3);
+    }
+
+    function stableAvatarColor(initials) {
+      const fixed = { MK: "#059669", JL: "#2563eb", TP: "#7c3aed", SR: "#d97706", AL: "#e11d48" };
+      const key = String(initials || "").toUpperCase();
+      if (fixed[key]) return fixed[key];
+      const palette = ["#059669", "#2563eb", "#7c3aed", "#d97706", "#e11d48", "#0f766e"];
+      let hash = 0;
+      for (let i = 0; i < key.length; i += 1) hash = ((hash * 31) + key.charCodeAt(i)) >>> 0;
+      return palette[hash % palette.length];
+    }
+
+    function progressToneClass(value) {
+      if (value === null || value === undefined) return "low";
+      if (value > 80) return "high";
+      if (value >= 50) return "mid";
+      return "low";
+    }
+
+    function mapProjectToCaseOverviewItem(raw) {
+      const id = firstText(raw && raw.project_id, raw && raw.id, raw && raw.projectID);
+      const number = firstText(raw && raw.external_project_ref, raw && raw.reference, raw && raw.project_ref) || "-";
+      const name = firstText(raw && raw.name, raw && raw.project_name, raw && raw.projectName) || "Unavngivet sag";
+      const obsDays = firstNumber(raw && raw.calculated_days_since_last_registration, raw && raw.CalculatedDaysSinceLastRegistration);
+      const backendObs = String(firstText(raw && raw.operational_attention, raw && raw.status) || "").toLowerCase().includes("obs")
+        || String(raw && raw.ready_to_bill) === "true";
+      const backendCritical = String(firstText(raw && raw.operational_attention, raw && raw.status) || "").toLowerCase().includes("critical");
+      const closed = isClosedStatus(raw);
+      const status = backendCritical ? "kritisk" : (!closed && ((typeof obsDays === "number" && obsDays > 30) || backendObs) ? "obs" : "aktiv");
+      const progressPercent = clampPercent(firstNumber(raw && raw.coverage, raw && raw.coverageInPercent, raw && raw.progressPercent));
+      const spentPercent = clampPercent(firstNumber(raw && raw.coverage, raw && raw.spent_percent, raw && raw.spentPercent));
+      const activityDate = getActivityDate(raw);
+      return {
+        id: id || number,
+        raw,
+        name,
+        number,
+        obsDays: typeof obsDays === "number" ? obsDays : null,
+        status,
+        phase: firstText(raw && raw.phase, raw && raw.activity_status),
+        budget: formatMoney(firstNumber(raw && raw.budget_total, raw && raw.projectBudget, raw && raw.total_turn_over_exp)),
+        spentPercent,
+        deadline: formatCaseDate(firstText(raw && raw.end_date, raw && raw.endDate, raw && raw.deadline)),
+        location: buildLocation(raw),
+        team: teamInitialsFromProject(raw),
+        co2: firstText(raw && raw.co2, raw && raw.co2_total),
+        documentsCount: firstNumber(raw && raw.documents_count, raw && raw.documentsCount),
+        commentsCount: firstNumber(raw && raw.comments_count, raw && raw.commentsCount),
+        progressPercent,
+        description: firstText(raw && raw.projectDescription, raw && raw.description),
+        milestones: Array.isArray(raw && raw.milestones) ? raw.milestones : [],
+        activity: [],
+        activityDate,
+        updatedDate: toDate(raw && (raw.source_updated_at || raw.updated_at)),
+        responsibleText: firstText(raw && raw.responsible_name, raw && raw.responsible_code, raw && raw.team_leader_name, raw && raw.team_leader_code),
+        isClosed: closed,
+      };
+    }
+
+    function getCaseItems() {
+      const openProjects = state.projects.filter((project) => !isClosedStatus(project));
+      state.showingClosedFallback = openProjects.length === 0 && state.projects.length > 0;
+      return (openProjects.length > 0 ? openProjects : state.projects.slice()).map(mapProjectToCaseOverviewItem);
+    }
+
+    function caseSearchBlob(item) {
+      return [item.name, item.number, item.location, item.responsibleText, item.team.join(" ")]
+        .map(normalizeSearchText)
+        .filter(Boolean)
+        .join(" ");
+    }
+
+    function getVisibleCaseItems() {
+      const sortedRaw = sortProjects(state.projects.filter((project) => !isClosedStatus(project)));
+      const source = sortedRaw.length > 0 ? sortedRaw : sortProjects(state.projects);
+      let items = source.map(mapProjectToCaseOverviewItem);
+      const query = normalizeSearchText(state.searchQuery);
+      if (query) items = items.filter((item) => caseSearchBlob(item).includes(query));
+      if (state.caseFilter === "obs") items = items.filter((item) => item.status === "obs" || item.status === "kritisk");
+      return items;
+    }
+
+    function renderIcon(name) {
+      const common = 'width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"';
+      const icons = {
+        dashboard: '<svg ' + common + '><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect></svg>',
+        folder: '<svg ' + common + '><path d="M3 7h6l2 2h10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><path d="M3 7V5a2 2 0 0 1 2-2h4l2 4"></path></svg>',
+        calendar: '<svg ' + common + '><rect x="3" y="4" width="18" height="18" rx="2"></rect><path d="M16 2v4"></path><path d="M8 2v4"></path><path d="M3 10h18"></path></svg>',
+        settings: '<svg ' + common + '><path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5z"></path><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.65 1.65 0 0 0 15 19.4a1.65 1.65 0 0 0-1 .6 1.65 1.65 0 0 0-.4 1.08V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 8.6 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-.6-1 1.65 1.65 0 0 0-1.08-.4H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 8.6a1.65 1.65 0 0 0-.33-1.82l-.06-.06A2 2 0 1 1 7.04 3.9l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-.6 1.65 1.65 0 0 0 .4-1.08V3a2 2 0 1 1 4 0v.09A1.65 1.65 0 0 0 15.4 4.6a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.4.24.64.65.6 1.12V12c.04.47-.2.88-.6 1z"></path></svg>',
+        search: '<svg ' + common + '><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>',
+        bell: '<svg ' + common + '><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 7h18s-3 0-3-7"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>',
+        arrow: '<svg ' + common.replace('width="18" height="18"', 'width="11" height="11"') + '><path d="M7 7h10v10"></path><path d="M7 17 17 7"></path></svg>',
+        filter: '<svg ' + common.replace('width="18" height="18"', 'width="14" height="14"') + '><path d="M3 5h18"></path><path d="M6 12h12"></path><path d="M10 19h4"></path></svg>',
+        plus: '<svg ' + common.replace('width="18" height="18"', 'width="20" height="20"') + '><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>',
+        pin: '<svg ' + common.replace('width="18" height="18"', 'width="10" height="10"') + '><path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>',
+        x: '<svg ' + common + '><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>',
+        euro: '<svg ' + common.replace('width="18" height="18"', 'width="14" height="14"') + '><path d="M4 10h10"></path><path d="M4 14h9"></path><path d="M17 5a7 7 0 1 0 0 14"></path></svg>',
+        chart: '<svg ' + common.replace('width="18" height="18"', 'width="14" height="14"') + '><path d="M3 3v18h18"></path><path d="M7 16V9"></path><path d="M12 16V5"></path><path d="M17 16v-3"></path></svg>',
+        clock: '<svg ' + common.replace('width="18" height="18"', 'width="14" height="14"') + '><circle cx="12" cy="12" r="10"></circle><path d="M12 6v6l4 2"></path></svg>',
+        leaf: '<svg ' + common.replace('width="18" height="18"', 'width="14" height="14"') + '><path d="M11 20A7 7 0 0 1 4 13c0-6 8-10 16-10 0 8-4 16-10 16Z"></path><path d="M4 21c4-4 8-7 14-9"></path></svg>',
+        paperclip: '<svg ' + common.replace('width="18" height="18"', 'width="14" height="14"') + '><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 1 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>',
+        message: '<svg ' + common.replace('width="18" height="18"', 'width="14" height="14"') + '><path d="M21 15a4 4 0 0 1-4 4H7l-4 4V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"></path></svg>'
+      };
+      return icons[name] || "";
+    }
+
+    function renderInlineIcons(root) {
+      (root || document).querySelectorAll("[data-icon]").forEach((node) => {
+        node.innerHTML = renderIcon(node.dataset.icon);
+      });
+    }
+
+    function renderAvatar(initials, size) {
+      const safe = escapeHtml(initials || "D");
+      return '<span class="fdAvatar" style="--fd-avatar-size:' + (size || 24) + 'px; background:' + stableAvatarColor(safe) + ';">' + safe + '</span>';
+    }
+
+    function renderAvatarGroup(team) {
+      const initials = Array.isArray(team) && team.length ? team.slice(0, 3) : ["D"];
+      return '<span class="fdAvatarGroup">' + initials.map((item) => renderAvatar(item, 24)).join("") + '</span>';
+    }
+
+    function renderProgressBar(value, sheet) {
+      const percent = clampPercent(value) || 0;
+      const tone = progressToneClass(value);
+      return '<div class="fdProgressTrack' + (sheet ? ' sheet' : '') + '"><div class="fdProgressFill ' + tone + '" style="width:' + percent + '%"></div></div>';
+    }
+
+    function progressLabel(item) {
+      return typeof item.progressPercent === "number" ? Math.round(item.progressPercent) + "%" : "--";
+    }
+
+    function projectDetailUrl(item) {
+      return item && item.id ? "/sager/" + encodeURIComponent(String(item.id)) : "/sager";
+    }
+
+    function createCaseCard(item) {
+      const tone = progressToneClass(item.progressPercent);
+      const obs = item.status === "obs" || item.status === "kritisk";
+      const article = document.createElement("article");
+      article.className = "fdCaseCard";
+      article.innerHTML =
+        '<div class="fdCaseCardTop">' +
+          '<span class="fdStatusDot ' + escapeHtml(item.status) + '"></span>' +
+          '<div class="fdCaseCardTitleWrap">' +
+            '<p class="fdCaseName">' + escapeHtml(item.name) + '</p>' +
+            '<div class="fdCaseMetaLine"><span class="fdCaseNumber">Sag ' + escapeHtml(item.number) + '</span><span data-icon="pin"></span><span class="fdLocationText">' + escapeHtml(item.location || "--") + '</span></div>' +
+          '</div>' +
+          (obs ? '<span class="fdObsBadge">OBS</span>' : '') +
+          '<span class="fdProgressText ' + tone + '">' + escapeHtml(progressLabel(item)) + '</span>' +
+        '</div>' +
+        renderProgressBar(item.progressPercent, false) +
+        '<div class="fdCaseCardFooter">' +
+          renderAvatarGroup(item.team) +
+          (item.obsDays !== null ? '<span class="fdObsDays">' + escapeHtml(item.obsDays) + 'd</span>' : '') +
+          '<div class="fdCardActions"><a class="fdCaseBtn secondary" href="' + projectDetailUrl(item) + '">Gaa til sag</a><button class="fdCaseBtn primary" type="button" data-quick-view="' + escapeHtml(item.id) + '"><span data-icon="arrow"></span>Quick View</button></div>' +
+        '</div>';
+      renderInlineIcons(article);
+      const quick = article.querySelector("[data-quick-view]");
+      if (quick) quick.addEventListener("click", () => openProjectDrawer(item.raw));
+      return article;
+    }
+
+    function createCaseRow(item) {
+      const tone = progressToneClass(item.progressPercent);
+      const obs = item.status === "obs" || item.status === "kritisk";
+      const row = document.createElement("article");
+      row.className = "fdCaseRow";
+      row.innerHTML =
+        '<div class="fdCaseRowLeft">' +
+          '<span class="fdStatusDot ' + escapeHtml(item.status) + '"></span>' +
+          '<div class="fdCaseRowTitleWrap">' +
+            '<p class="fdCaseName">' + escapeHtml(item.name) + '</p>' +
+            '<div class="fdCaseMetaLine"><span class="fdCaseNumber">Sag ' + escapeHtml(item.number) + '</span><span>·</span><span class="fdChangedText">Sidst aendret ' + escapeHtml(formatActivityDate(item.updatedDate || item.activityDate)) + '</span><span data-icon="pin"></span><span class="fdLocationText">' + escapeHtml(item.location || "--") + '</span></div>' +
+          '</div>' +
+          (obs ? '<span class="fdObsBadge">OBS</span>' : '') +
+        '</div>' +
+        '<div class="fdCaseRowMiddle"><div class="fdRowProgress">' + renderProgressBar(item.progressPercent, false) + '</div><span class="fdProgressText ' + tone + '">' + escapeHtml(progressLabel(item)) + '</span>' + renderAvatarGroup(item.team) + (item.obsDays !== null ? '<span class="fdObsDays">OBS ' + escapeHtml(item.obsDays) + ' dage</span>' : '') + '</div>' +
+        '<div class="fdCaseRowActions"><a class="fdCaseBtn secondary" href="' + projectDetailUrl(item) + '">Gaa til sag</a><button class="fdCaseBtn primary" type="button" data-quick-view="' + escapeHtml(item.id) + '"><span data-icon="arrow"></span>Quick View</button></div>';
+      renderInlineIcons(row);
+      const quick = row.querySelector("[data-quick-view]");
+      if (quick) quick.addEventListener("click", () => openProjectDrawer(item.raw));
+      return row;
+    }
+
+    function renderCaseFilters() {
+      document.querySelectorAll("[data-case-filter]").forEach((button) => {
+        const active = button.dataset.caseFilter === state.caseFilter;
+        button.classList.toggle("active", active);
+        button.setAttribute("aria-selected", active ? "true" : "false");
+      });
+    }
+
+    function currentCaseFilterLabel() {
+      if (state.caseFilter === "obs") return "OBS";
+      if (state.caseFilter === "all") return "Alle mine";
+      return "Mine";
+    }
+
+    function renderProjects() {
+      if (!projectsContainer) return;
+      projectsContainer.innerHTML = "";
+      renderCaseFilters();
+      renderDashboard();
+
+      if (state.projectsLoading) {
+        setText(listMetaText, "Indlaeser sager...");
+        const loader = document.createElement("div");
+        loader.className = "fdLoadingList";
+        loader.innerHTML = '<div class="fdSkeleton"></div><div class="fdSkeleton"></div><div class="fdSkeleton"></div>';
+        projectsContainer.appendChild(loader);
+        return;
+      }
+
+      if (state.projectLoadError) {
+        setText(listMetaText, "Fejl under indlaesning");
+        const error = document.createElement("div");
+        error.className = "fdErrorState";
+        error.innerHTML = '<strong>Kunne ikke hente sager</strong><span>' + escapeHtml(state.projectLoadError) + '</span><button class="fdRetryBtn" type="button">Prov igen</button>';
+        const retry = error.querySelector("button");
+        if (retry) retry.addEventListener("click", loadProjects);
+        projectsContainer.appendChild(error);
+        return;
+      }
+
+      const visibleItems = getVisibleCaseItems();
+      const caseLabel = state.showingClosedFallback ? "sager" : "aktive sager";
+      setText(listMetaText, visibleItems.length + " " + caseLabel + " i aktuel visning");
+
+      if (visibleItems.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "fdEmptyState";
+        empty.textContent = "Ingen sager at vise.";
+        projectsContainer.appendChild(empty);
+        return;
+      }
+
+      visibleItems.forEach((item) => {
+        projectsContainer.appendChild(createCaseCard(item));
+        projectsContainer.appendChild(createCaseRow(item));
+      });
+    }
+
+    function renderDashboard() {
+      const name = state.me && state.me.name ? String(state.me.name) : "Fielddesk";
+      const firstName = name.split(" ").filter(Boolean)[0] || name;
+      const items = getCaseItems();
+      const activeItems = items.filter((item) => item.status === "aktiv");
+      const attentionItems = items.filter((item) => item.status === "obs" || item.status === "kritisk");
+      setText(dashboardWelcomeName, firstName);
+      setText(dashboardDateText, formatDashboardDate());
+      setText(dashboardProjectCount, String(getVisibleCaseItems().length));
+      setText(dashboardOpenCount, String(activeItems.length));
+      setText(projectOpenCount, String(activeItems.length));
+      setText(dashboardAttentionCount, String(attentionItems.length));
+      setText(dashboardQaStatus, items.length > 0 ? "Via sag" : "-");
+      setText(currentScopeValue, currentCaseFilterLabel());
+      setText(moduleProjectsMeta, items.length > 0 ? activeItems.length + " aktive sager · " + items.length + " i alt" : "Ingen sager hentet endnu");
+    }
+
+    async function loadProjects() {
+      state.projectsLoading = true;
+      state.projectLoadError = "";
+      renderProjects();
+      try {
+        const response = await apiFetch("/api/projects?scope=mine", { method: "GET" });
+        state.projects = response && Array.isArray(response.projects) ? response.projects : [];
+        state.ownerLabelMap.clear();
+      } catch (error) {
+        if (handleAuthFailure(error)) return;
+        state.projects = [];
+        state.projectLoadError = getErrorMessage(error, "request_failed");
+      } finally {
+        state.projectsLoading = false;
+        renderProjects();
+      }
+    }
+
+    function getRoutePathForView(view) {
+      if (view === "projects") return "/sager";
+      if (view === "calendar") return "/kalender";
+      if (view === "resource-groups") return "/indstillinger";
+      return "/";
+    }
+
+    function getCurrentAppViewFromHash() {
+      const path = String(window.location.pathname || "/").toLowerCase();
+      if (path === "/sager" || path.indexOf("/sager/") === 0) return "projects";
+      if (path === "/kalender") return "calendar";
+      if (path === "/indstillinger") return "resource-groups";
+      const hash = String(window.location.hash || "").replace(/^#/, "").toLowerCase();
+      if (hash === "resource-groups") return "resource-groups";
+      if (hash === "calendar") return "calendar";
+      if (hash === "projects") return "projects";
+      return "dashboard";
+    }
+
+    function setActiveAppView(view) {
+      const activeView = view === "projects" || view === "calendar" || view === "resource-groups" ? view : "dashboard";
+      state.currentView = activeView;
+      if (appShell) appShell.classList.toggle("caseOverviewActive", activeView === "projects");
+      if (dashboardView) dashboardView.hidden = activeView !== "dashboard";
+      if (calendarView) calendarView.hidden = activeView !== "calendar";
+      if (resourceGroupsView) resourceGroupsView.hidden = activeView !== "resource-groups";
+      if (projectsView) projectsView.hidden = activeView !== "projects";
+      viewLinks.forEach((link) => {
+        const target = String(link.dataset.viewLink || "").toLowerCase();
+        const isActive = target === activeView;
+        link.classList.toggle("active", isActive);
+        if (isActive) link.setAttribute("aria-current", "page");
+        else link.removeAttribute("aria-current");
+      });
+      if (activeView === "projects") renderProjects();
+      if (activeView === "calendar") {
+        ensureCalendarDefaults();
+        renderCalendarAccessState();
+        if (state.calendar.activeTab === "absences") {
+          loadCalendarResources();
+          loadCalendarAbsences();
+        }
+      }
+      if (activeView === "resource-groups") {
+        renderResourceGroupAccessState();
+        loadResourceGroups();
+      }
+    }
+
+    function navigateToView(view, options) {
+      const path = getRoutePathForView(view);
+      if (window.location.pathname !== path) {
+        if (options && options.replace) window.history.replaceState({}, "", path);
+        else window.history.pushState({}, "", path);
+      }
+      setActiveAppView(view);
+    }
+
+    function wireCaseNavigation() {
+      viewLinks.forEach((link) => {
+        if (link.dataset.fdRouteWired === "true") return;
+        link.dataset.fdRouteWired = "true";
+        const view = String(link.dataset.viewLink || "").toLowerCase();
+        if (view === "projects" || view === "calendar" || view === "resource-groups" || view === "dashboard") {
+          link.href = getRoutePathForView(view);
+          link.addEventListener("click", (event) => {
+            if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+            event.preventDefault();
+            navigateToView(view);
+          });
+        }
+      });
+    }
+
+    function renderDrawerLoading(project) {
+      const panel = document.querySelector(".drawerPanel");
+      if (!panel) return;
+      const item = mapProjectToCaseOverviewItem(project || {});
+      panel.innerHTML = '<div class="drawerHandle"></div><div class="fdSheetHeader"><div class="fdSheetTitleBlock"><p class="fdSheetMeta">Indlaeser Quick View</p><h2 id="drawerTitle" class="fdSheetTitle">' + escapeHtml(item.name || "Sag") + '</h2></div><button class="iconBtn" type="button" aria-label="Luk" data-drawer-close><span data-icon="x"></span></button></div><div class="fdSheetBody"><div class="fdSkeleton"></div></div>';
+      renderInlineIcons(panel);
+      const close = panel.querySelector("[data-drawer-close]");
+      if (close) close.addEventListener("click", closeDrawer);
+    }
+
+    function renderDrawerError(message) {
+      const panel = document.querySelector(".drawerPanel");
+      if (!panel) return;
+      panel.innerHTML = '<div class="drawerHandle"></div><div class="fdSheetHeader"><div class="fdSheetTitleBlock"><p class="fdSheetMeta">Quick View</p><h2 id="drawerTitle" class="fdSheetTitle">Sag</h2></div><button class="iconBtn" type="button" aria-label="Luk" data-drawer-close><span data-icon="x"></span></button></div><div class="fdSheetBody"><div class="fdErrorState">' + escapeHtml(message || "Kunne ikke vise sag.") + '</div></div>';
+      renderInlineIcons(panel);
+      const close = panel.querySelector("[data-drawer-close]");
+      if (close) close.addEventListener("click", closeDrawer);
+    }
+
+    function renderDrawerNotFound() {
+      renderDrawerError("Projektet blev ikke fundet eller du har ikke adgang.");
+    }
+
+    function renderSheetTabContent(panel, item, tab) {
+      if (!panel) return;
+      if (tab === "activity") {
+        const last = item.activityDate ? "Sidste aktivitet: " + formatActivityDate(item.activityDate) : "Ingen aktivitet at vise";
+        panel.textContent = last;
+        return;
+      }
+      if (tab === "docs") {
+        if (typeof item.documentsCount === "number") panel.textContent = item.documentsCount + " dokumenter registreret.";
+        else panel.textContent = "Ingen dokumenter at vise";
+        return;
+      }
+      panel.textContent = item.description || "Ingen beskrivelse";
+    }
+
+    function wireSheetTabs(panel, item) {
+      const content = panel.querySelector("[data-sheet-panel]");
+      panel.querySelectorAll("[data-sheet-tab]").forEach((button) => {
+        button.addEventListener("click", () => {
+          panel.querySelectorAll("[data-sheet-tab]").forEach((candidate) => candidate.classList.toggle("active", candidate === button));
+          renderSheetTabContent(content, item, button.dataset.sheetTab || "overview");
+        });
+      });
+      renderSheetTabContent(content, item, "overview");
+    }
+
+    function renderDrawerProject(project, summary) {
+      const panel = document.querySelector(".drawerPanel");
+      if (!panel) return;
+      const item = mapProjectToCaseOverviewItem(project || {});
+      const tone = progressToneClass(item.progressPercent);
+      const totalHours = summary && summary.total_project_relevant_hours !== null && summary.total_project_relevant_hours !== undefined
+        ? Number(summary.total_project_relevant_hours).toLocaleString("da-DK", { maximumFractionDigits: 1 }) + " t."
+        : null;
+      const statusLabel = item.status === "obs" ? "OBS" : item.status === "kritisk" ? "Kritisk" : "Aktiv";
+      panel.innerHTML =
+        '<div class="drawerHandle"></div>' +
+        '<div class="fdSheetHeader">' +
+          '<div class="fdSheetTitleBlock"><div><span class="fdObsBadge">' + escapeHtml(statusLabel) + '</span> <span class="fdCaseNumber">Sag ' + escapeHtml(item.number) + '</span></div><h2 id="drawerTitle" class="fdSheetTitle">' + escapeHtml(item.name) + '</h2><p class="fdSheetMeta">' + escapeHtml([item.location, item.phase].filter(Boolean).join(" · ") || "Lokation/fase mangler") + '</p></div>' +
+          '<button class="iconBtn" type="button" aria-label="Luk" data-drawer-close><span data-icon="x"></span></button>' +
+        '</div>' +
+        '<div class="fdSheetBody">' +
+          '<div class="fdSheetStatGrid">' +
+            '<div class="fdSheetStat"><span data-icon="euro"></span><span class="fdSheetLabel">Budget</span><span class="fdSheetStatValue">' + escapeHtml(item.budget || "--") + '</span></div>' +
+            '<div class="fdSheetStat"><span data-icon="chart"></span><span class="fdSheetLabel">Forbrug</span><span class="fdSheetStatValue">' + escapeHtml(typeof item.spentPercent === "number" ? Math.round(item.spentPercent) + "%" : "--") + '</span></div>' +
+            '<div class="fdSheetStat"><span data-icon="clock"></span><span class="fdSheetLabel">Deadline</span><span class="fdSheetStatValue">' + escapeHtml(item.deadline || "--") + '</span></div>' +
+            '<div class="fdSheetStat"><span data-icon="leaf"></span><span class="fdSheetLabel">CO2</span><span class="fdSheetStatValue">' + escapeHtml(item.co2 || "--") + '</span></div>' +
+          '</div>' +
+          '<section class="fdSheetSection"><div class="fdSheetProgressTop"><p class="fdTinyLabel">Fremdrift</p><span class="fdProgressText ' + tone + '">' + escapeHtml(progressLabel(item)) + '</span></div>' + renderProgressBar(item.progressPercent, true) + '</section>' +
+          '<section class="fdSheetTeamRow"><div><p class="fdTinyLabel">Team</p>' + renderAvatarGroup(item.team) + '</div><div class="fdSheetCounters"><span data-icon="paperclip"></span><span>' + escapeHtml(item.documentsCount !== null ? item.documentsCount : 0) + '</span><span data-icon="message"></span><span>' + escapeHtml(item.commentsCount !== null ? item.commentsCount : 0) + '</span></div></section>' +
+          (totalHours ? '<section class="fdSheetSection"><p class="fdTinyLabel">Timer</p><p class="fdSheetPanel">' + escapeHtml(totalHours) + ' syncede timer. ' + escapeHtml(summary && summary.definition && summary.definition.description ? summary.definition.description : "") + '</p></section>' : '') +
+          '<div class="fdSheetTabs" role="tablist"><button class="fdSheetTab active" type="button" data-sheet-tab="overview">Overblik</button><button class="fdSheetTab" type="button" data-sheet-tab="activity">Aktivitet</button><button class="fdSheetTab" type="button" data-sheet-tab="docs">Dokumenter</button></div>' +
+          '<div class="fdSheetPanel" data-sheet-panel></div>' +
+        '</div>' +
+        '<div class="fdSheetFooter"><a id="openProjectPageLink" class="fdCaseBtn secondary" href="' + projectDetailUrl(item) + '">Gaa til sag</a><span class="fdCaseBtn primary" aria-disabled="true">Registrer timer</span></div>';
+      renderInlineIcons(panel);
+      const close = panel.querySelector("[data-drawer-close]");
+      if (close) close.addEventListener("click", closeDrawer);
+      const openLink = panel.querySelector("#openProjectPageLink");
+      if (openLink) openLink.addEventListener("click", closeDrawer);
+      wireSheetTabs(panel, item);
+    }
+
     try {
       const me = await apiFetch("/api/me", { method: "GET" });
       state.me = me && me.user ? me.user : null;
       renderUserChrome();
+      if (caseMobileAvatar) {
+        const avatarInitials = initialsFromName(state.me && state.me.name ? state.me.name : "D") || "D";
+        caseMobileAvatar.textContent = avatarInitials.slice(0, 2);
+        caseMobileAvatar.style.background = stableAvatarColor(avatarInitials);
+      }
       setAdminNavigationVisibility(state.me);
       if (userPill) {
         const name = state.me && state.me.name ? state.me.name : "Ukendt bruger";
@@ -3250,11 +3857,15 @@
       return;
     }
 
-    setActiveAppView(getCurrentAppViewFromHash());
+    wireCaseNavigation();
+    renderInlineIcons(document);
+    navigateToView(getCurrentAppViewFromHash(), { replace: true });
     window.addEventListener("hashchange", () => {
+      navigateToView(getCurrentAppViewFromHash(), { replace: true });
+    });
+    window.addEventListener("popstate", () => {
       setActiveAppView(getCurrentAppViewFromHash());
     });
-
     calendarTabs.forEach((button) => {
       button.addEventListener("click", () => {
         setCalendarTab(button.dataset.calendarTab);
@@ -3340,10 +3951,36 @@
     if (projectSearchInput) {
       projectSearchInput.addEventListener("input", () => {
         state.searchQuery = projectSearchInput.value || "";
+        if (caseMobileSearchInput && caseMobileSearchInput.value !== state.searchQuery) {
+          caseMobileSearchInput.value = state.searchQuery;
+        }
         renderProjects();
       });
     }
 
+    if (caseMobileSearchInput) {
+      caseMobileSearchInput.addEventListener("input", () => {
+        state.searchQuery = caseMobileSearchInput.value || "";
+        if (projectSearchInput && projectSearchInput.value !== state.searchQuery) {
+          projectSearchInput.value = state.searchQuery;
+        }
+        renderProjects();
+      });
+    }
+
+    document.querySelectorAll("[data-case-filter]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.caseFilter = button.dataset.caseFilter || "mine";
+        renderProjects();
+      });
+    });
+
+    [caseFab, caseDesktopCreateBtn].forEach((button) => {
+      if (!button) return;
+      button.addEventListener("click", () => {
+        button.setAttribute("aria-disabled", "true");
+      });
+    });
     if (sidebarToggle) {
       sidebarToggle.addEventListener("click", () => {
         const nextCollapsed = !(appShell && appShell.classList.contains("sidebarCollapsed"));
