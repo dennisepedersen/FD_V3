@@ -1272,9 +1272,9 @@
       --fd-page-bg: #f0faf5;
       --fd-card-bg: #ffffff;
       --fd-text: #0e1018;
-      --fd-secondary: #7a8c88;
-      --fd-muted: #a8b4b0;
-      --fd-subtle: #a8d4be;
+      --fd-secondary: #5f706b;
+      --fd-muted: #64736f;
+      --fd-subtle: #4f9f78;
       --fd-card-shadow: 0 1px 4px rgba(0,0,0,0.06), 0 0 0 1px rgba(5,150,105,0.08);
     }
 
@@ -1343,6 +1343,25 @@
 
     .projectBackLink:hover {
       color: var(--fd-brand-light);
+    }
+    /* Fielddesk contrast polish: project chrome readability only, QA/dataflow unchanged. */
+    .brandSub,
+    .navItem span {
+      color: var(--fd-secondary);
+      font-weight: 600;
+    }
+
+    .navItem strong {
+      font-weight: 800;
+    }
+
+    .navLabel {
+      color: var(--fd-muted);
+      font-weight: 800;
+    }
+
+    .projectBackLink {
+      font-weight: 800;
     }
     @media (min-width: 760px) {
       .topbar {

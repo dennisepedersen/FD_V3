@@ -16,9 +16,9 @@
       --fd-page-bg: #f0faf5;
       --fd-card-bg: #ffffff;
       --fd-text: #0e1018;
-      --fd-secondary: #7a8c88;
-      --fd-muted: #a8b4b0;
-      --fd-subtle: #a8d4be;
+      --fd-secondary: #5f706b;
+      --fd-muted: #64736f;
+      --fd-subtle: #4f9f78;
       --fd-obs: #f59e0b;
       --fd-obs-bg: #fff7ed;
       --fd-obs-text: #c2410c;
@@ -1788,6 +1788,100 @@
     .resourceGroupAdminNotice {
       border-color: rgba(5, 150, 105, 0.10);
       background: #fff;
+      color: var(--fd-secondary);
+    }
+    /* Fielddesk contrast polish: readable soft text without changing layout or flows. */
+    .appShell .fdSectionLabel,
+    .appShell .eyebrow,
+    .appShell .sectionHeader .subtitle,
+    .appShell .infoLabel,
+    .appShell .statLabel,
+    .appShell .fdCaseStatLabel,
+    .appShell .fdSheetLabel,
+    .appShell .fdTinyLabel {
+      color: var(--fd-muted);
+      font-weight: 800;
+    }
+
+    .appShell .brandSub,
+    .appShell .heroText,
+    .appShell .subtitle,
+    .appShell .moduleText,
+    .appShell .infoHint,
+    .appShell .projectRef,
+    .appShell .activityText,
+    .appShell .scopeRowLabel,
+    .appShell .toolbarControl,
+    .appShell .metaRow,
+    .appShell .navItem span,
+    .appShell .fdCaseMetaLine,
+    .appShell .fdSheetMeta,
+    .appShell .fdSheetPanel {
+      color: var(--fd-secondary);
+    }
+
+    .appShell .moduleText,
+    .appShell .infoHint,
+    .appShell .heroText,
+    .appShell .calendarMessage,
+    .appShell .resourceGroupAdminNotice {
+      font-weight: 600;
+      line-height: 1.5;
+    }
+
+    .appShell .infoLabel,
+    .appShell .moduleName,
+    .appShell .navItem strong {
+      font-weight: 800;
+    }
+
+    .appShell .tag,
+    .appShell .pill,
+    .appShell .statusPill,
+    .appShell .userPill,
+    .appShell .fdFilterPill {
+      color: var(--fd-secondary);
+      border-color: rgba(5, 150, 105, 0.16);
+      font-weight: 800;
+    }
+
+    .appShell .tagLive,
+    .appShell .fdFilterPill.active {
+      border-color: #a7f3d0;
+      background: var(--fd-brand-soft);
+      color: #047857;
+    }
+
+    .appShell .tagPreview {
+      border-color: #fed7aa;
+      background: var(--fd-obs-bg);
+      color: var(--fd-obs-text);
+    }
+
+    .appShell .moduleCard.disabled,
+    .appShell .infoCard.disabled {
+      opacity: 0.86;
+    }
+
+    .appShell .moduleCard.disabled .moduleText,
+    .appShell .infoCard.disabled .infoHint,
+    .appShell .infoCard.disabled .infoLabel,
+    .appShell .infoCard.disabled .infoValue {
+      color: var(--fd-secondary);
+    }
+
+    .appShell .topSearch input::placeholder,
+    .appShell .fdCaseSearch input::placeholder,
+    .appShell .fdMobileSearch input::placeholder,
+    .appShell.caseOverviewActive .topSearch input::placeholder {
+      color: #7b8783;
+    }
+
+    .appShell .fdSectionLabel {
+      color: var(--fd-subtle);
+    }
+
+    .appShell .fdSheetCounters {
       color: var(--fd-secondary);
     }
     /* Fielddesk case overview refresh */
