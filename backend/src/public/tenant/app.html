@@ -9,27 +9,43 @@
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@500;700&family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #070d1b;
-      --bg-2: #0d2035;
-      --surface: rgba(22, 33, 52, 0.72);
-      --surface-solid: #111b2c;
-      --surface-2: rgba(34, 47, 69, 0.66);
-      --surface-3: rgba(47, 63, 88, 0.58);
-      --text: #f5f8fc;
-      --muted: #a8b5c6;
-      --muted-2: #7f8fa4;
-      --border: rgba(191, 212, 234, 0.18);
-      --border-strong: rgba(191, 212, 234, 0.28);
-      --brand: #5ec8e5;
-      --brand-strong: #dff8ff;
-      --brand-soft: rgba(94, 200, 229, 0.14);
-      --green: #72d6a0;
-      --yellow: #f6d453;
-      --pink: #f06aa9;
+      --fd-brand: #059669;
+      --fd-brand-light: #10b981;
+      --fd-brand-soft: #ecfdf5;
+      --fd-brand-border: #d1fae5;
+      --fd-page-bg: #f0faf5;
+      --fd-card-bg: #ffffff;
+      --fd-text: #0e1018;
+      --fd-secondary: #7a8c88;
+      --fd-muted: #a8b4b0;
+      --fd-subtle: #a8d4be;
+      --fd-obs: #f59e0b;
+      --fd-obs-bg: #fff7ed;
+      --fd-obs-text: #c2410c;
+      --fd-critical: #e11d48;
+      --fd-card-shadow: 0 1px 4px rgba(0,0,0,0.06), 0 0 0 1px rgba(5,150,105,0.08);
+      --fd-search-shadow: 0 1px 4px rgba(0,0,0,0.07), 0 0 0 1px rgba(5,150,105,0.10);
+      --bg: var(--fd-page-bg);
+      --bg-2: var(--fd-brand-soft);
+      --surface: rgba(255, 255, 255, 0.92);
+      --surface-solid: var(--fd-card-bg);
+      --surface-2: rgba(255, 255, 255, 0.98);
+      --surface-3: #f8fefb;
+      --text: var(--fd-text);
+      --muted: var(--fd-secondary);
+      --muted-2: var(--fd-muted);
+      --border: rgba(5, 150, 105, 0.10);
+      --border-strong: var(--fd-brand-border);
+      --brand: var(--fd-brand);
+      --brand-strong: var(--fd-brand);
+      --brand-soft: var(--fd-brand-soft);
+      --green: var(--fd-brand-light);
+      --yellow: var(--fd-obs);
+      --pink: var(--fd-critical);
       --radius: 16px;
       --drawer-width: min(520px, 100vw);
-      --shadow-soft: 0 24px 70px rgba(0, 0, 0, 0.34);
-      --shadow-card: 0 16px 40px rgba(0, 0, 0, 0.22);
+      --shadow-soft: 0 20px 58px rgba(5, 150, 105, 0.10);
+      --shadow-card: var(--fd-card-shadow);
     }
 
     * {
@@ -1546,6 +1562,234 @@
 
     }
   
+    /* Fielddesk UI foundation: shared visual language for tenant app chrome and low-risk overview surfaces. */
+    body {
+      background: var(--fd-page-bg);
+      color: var(--fd-text);
+      font-family: "Plus Jakarta Sans", "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+    }
+
+    .appShell,
+    .mainShell {
+      background: var(--fd-page-bg);
+    }
+    .fdSectionLabel,
+    .eyebrow,
+    .sectionHeader .subtitle,
+    .infoLabel,
+    .statLabel {
+      color: var(--fd-muted);
+    }
+
+    .brandName,
+    .heroTitle,
+    .sectionHeader h2,
+    .titleRow h1,
+    .moduleName,
+    .infoValue,
+    .statValue {
+      color: var(--fd-text);
+      letter-spacing: 0;
+    }
+
+    .brandSub,
+    .heroText,
+    .subtitle,
+    .moduleText,
+    .infoHint,
+    .projectRef,
+    .activityText,
+    .scopeRowLabel,
+    .toolbarControl,
+    .metaRow {
+      color: var(--fd-secondary);
+    }
+
+    .sidebar,
+    .topbar,
+    .panel,
+    .moduleCard,
+    .infoCard,
+    .statCard,
+    .projectCard,
+    .calendarPanel,
+    .resourceGroupCard,
+    .resourceGroupDetailCard {
+      border-color: rgba(5, 150, 105, 0.10);
+      background: var(--fd-card-bg);
+      color: var(--fd-text);
+      box-shadow: var(--fd-card-shadow);
+    }
+
+    .sidebar,
+    .topbar {
+      box-shadow: none;
+    }
+
+    .brandMark {
+      background: linear-gradient(135deg, var(--fd-brand), var(--fd-brand-light));
+      box-shadow: 0 6px 18px rgba(5, 150, 105, 0.26);
+    }
+
+    .sidebarToggle,
+    .logoutIconBtn,
+    .iconBtn {
+      border-color: rgba(5, 150, 105, 0.10);
+      background: #fff;
+      color: var(--fd-secondary);
+    }
+
+    .sidebarToggle:hover,
+    .logoutIconBtn:hover,
+    .iconBtn:hover {
+      border-color: var(--fd-brand-border);
+      background: var(--fd-brand-soft);
+      color: var(--fd-brand);
+    }
+
+    .navItem {
+      border-color: rgba(5, 150, 105, 0.10);
+      background: #fff;
+      color: var(--fd-secondary);
+    }
+
+    .navItem:hover,
+    .navItem.active {
+      border-color: var(--fd-brand-border);
+      background: var(--fd-brand-soft);
+      color: var(--fd-brand);
+    }
+
+    .navIcon {
+      color: currentColor;
+    }
+
+    .navItem span {
+      color: var(--fd-secondary);
+    }
+
+    .topSearch {
+      border: 0;
+      border-radius: 16px;
+      background: #fff;
+      color: #c0c4d4;
+      box-shadow: var(--fd-search-shadow);
+    }
+
+    .topSearch input {
+      color: var(--fd-text);
+    }
+
+    .topSearch input::placeholder {
+      color: #c0c4d4;
+    }
+
+    .statusPill,
+    .userPill,
+    .pill,
+    .tag {
+      border-color: rgba(5, 150, 105, 0.10);
+      background: #fff;
+      color: var(--fd-secondary);
+    }
+
+    .tagLive {
+      border-color: var(--fd-brand-border);
+      background: var(--fd-brand-soft);
+      color: var(--fd-brand);
+    }
+
+    .tagPreview {
+      border-color: rgba(245, 158, 11, 0.22);
+      background: var(--fd-obs-bg);
+      color: var(--fd-obs-text);
+    }
+
+    .btn,
+    .btnCompact,
+    .calendarTab,
+    .fdRetryBtn {
+      border-color: var(--fd-brand-border);
+      background: var(--fd-brand-soft);
+      color: var(--fd-brand);
+      font-weight: 800;
+      box-shadow: none;
+    }
+
+    .btn:hover,
+    .btnCompact:hover,
+    .calendarTab:hover,
+    .fdRetryBtn:hover {
+      background: #dcfce7;
+    }
+
+    .btnPrimary {
+      border-color: transparent;
+      background: linear-gradient(135deg, var(--fd-brand), var(--fd-brand-light));
+      color: #fff;
+      box-shadow: 0 6px 20px rgba(5, 150, 105, 0.26);
+    }
+
+    .heroPanel,
+    .headerPanel {
+      border-color: rgba(5, 150, 105, 0.10);
+      background: linear-gradient(135deg, #ffffff, #f8fefb);
+      box-shadow: var(--fd-card-shadow);
+    }
+
+    .moduleCard:hover {
+      border-color: var(--fd-brand-border);
+      background: var(--fd-brand-soft);
+    }
+
+    .infoValue,
+    .statValue {
+      font-family: "DM Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-weight: 800;
+    }
+
+    .calendarTabs {
+      border-color: rgba(5, 150, 105, 0.10);
+      background: #fff;
+    }
+
+    .calendarTab.active {
+      background: var(--fd-brand-soft);
+      color: var(--fd-brand);
+    }
+
+    .calendarField input,
+    .calendarField select,
+    .calendarField textarea,
+    .resourceGroupField input,
+    .resourceGroupField select,
+    .resourceGroupField textarea,
+    .sortSelect {
+      border-color: rgba(5, 150, 105, 0.10);
+      background: #fff;
+      color: var(--fd-text);
+      box-shadow: 0 0 0 1px rgba(5, 150, 105, 0.02);
+    }
+
+    .calendarField input:focus,
+    .calendarField select:focus,
+    .calendarField textarea:focus,
+    .resourceGroupField input:focus,
+    .resourceGroupField select:focus,
+    .resourceGroupField textarea:focus,
+    .sortSelect:focus {
+      border-color: var(--fd-brand-light);
+      box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.12);
+      outline: none;
+    }
+
+    .calendarAccessNotice,
+    .calendarMessage,
+    .resourceGroupAdminNotice {
+      border-color: rgba(5, 150, 105, 0.10);
+      background: #fff;
+      color: var(--fd-secondary);
+    }
     /* Fielddesk case overview refresh */
     .caseOverviewActive,
     .caseOverviewActive body {

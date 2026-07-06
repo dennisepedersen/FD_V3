@@ -4,18 +4,31 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Fielddesk Login</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@500;700&family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #070d1b;
-      --surface: rgba(20, 32, 52, 0.72);
-      --surface-strong: rgba(28, 43, 67, 0.86);
-      --text: #f5f8fc;
-      --muted: #a8b5c6;
-      --border: rgba(191, 212, 234, 0.18);
-      --brand: #5ec8e5;
-      --brand-soft: rgba(94, 200, 229, 0.14);
-      --warning: #f6d453;
-      --shadow: 0 28px 80px rgba(0, 0, 0, 0.36);
+      --fd-brand: #059669;
+      --fd-brand-light: #10b981;
+      --fd-brand-soft: #ecfdf5;
+      --fd-brand-border: #d1fae5;
+      --fd-page-bg: #f0faf5;
+      --fd-card-bg: #ffffff;
+      --fd-text: #0e1018;
+      --fd-secondary: #7a8c88;
+      --fd-muted: #a8b4b0;
+      --fd-obs: #f59e0b;
+      --bg: var(--fd-page-bg);
+      --surface: rgba(255, 255, 255, 0.96);
+      --surface-strong: #ffffff;
+      --text: var(--fd-text);
+      --muted: var(--fd-secondary);
+      --border: rgba(5, 150, 105, 0.10);
+      --brand: var(--fd-brand);
+      --brand-soft: var(--fd-brand-soft);
+      --warning: var(--fd-obs);
+      --shadow: 0 18px 58px rgba(5, 150, 105, 0.12);
     }
 
     * {
@@ -309,6 +322,77 @@
       display: none !important;
     }
 
+    /* Fielddesk UI foundation: login keeps auth flow, adopts shared visual tokens. */
+    body {
+      font-family: "Plus Jakarta Sans", "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      background: var(--fd-page-bg);
+      color: var(--fd-text);
+    }
+
+    .brandBar {
+      border-color: rgba(5, 150, 105, 0.10);
+      background: rgba(240, 250, 245, 0.94);
+      color: var(--fd-text);
+    }
+
+    .brandMark {
+      background: linear-gradient(135deg, var(--fd-brand), var(--fd-brand-light));
+      box-shadow: 0 6px 18px rgba(5, 150, 105, 0.26);
+    }
+
+    .brandName,
+    .formHeader h2,
+    h1 {
+      color: var(--fd-text);
+      letter-spacing: 0;
+    }
+
+    .brandSub,
+    .formHeader p,
+    .lead,
+    label,
+    .securityNote {
+      color: var(--fd-secondary);
+    }
+
+    .introPanel,
+    .loginPanel {
+      border-color: rgba(5, 150, 105, 0.10);
+      background: #fff;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06), 0 0 0 1px rgba(5,150,105,0.08);
+    }
+
+    .eyebrow {
+      color: var(--fd-subtle, #a8d4be);
+    }
+
+    .signal,
+    .envPill {
+      border-color: rgba(5, 150, 105, 0.10);
+      background: #fff;
+      color: var(--fd-secondary);
+    }
+
+    input {
+      border-color: rgba(5, 150, 105, 0.10);
+      background: #fff;
+      color: var(--fd-text);
+    }
+
+    input:focus {
+      border-color: var(--fd-brand-light);
+      box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.12);
+    }
+
+    .loginButton {
+      border-color: transparent;
+      background: linear-gradient(135deg, var(--fd-brand), var(--fd-brand-light));
+      box-shadow: 0 6px 20px rgba(5, 150, 105, 0.26);
+    }
+
+    .loginButton:hover {
+      background: linear-gradient(135deg, #047857, var(--fd-brand-light));
+    }
     @media (min-width: 820px) {
       .loginShell {
         padding: 30px;

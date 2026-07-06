@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Fielddesk Project</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@500;700&family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
   <style>
     :root {
       --bg: #0b1725;
@@ -1260,6 +1263,87 @@
       }
     }
 
+    /* Fielddesk UI foundation: cautious project-detail chrome only. */
+    :root {
+      --fd-brand: #059669;
+      --fd-brand-light: #10b981;
+      --fd-brand-soft: #ecfdf5;
+      --fd-brand-border: #d1fae5;
+      --fd-page-bg: #f0faf5;
+      --fd-card-bg: #ffffff;
+      --fd-text: #0e1018;
+      --fd-secondary: #7a8c88;
+      --fd-muted: #a8b4b0;
+      --fd-subtle: #a8d4be;
+      --fd-card-shadow: 0 1px 4px rgba(0,0,0,0.06), 0 0 0 1px rgba(5,150,105,0.08);
+    }
+
+    body {
+      font-family: "Plus Jakarta Sans", "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+    }
+
+    .sidebar,
+    .topbar {
+      border-color: rgba(5, 150, 105, 0.10);
+      background: rgba(255, 255, 255, 0.94);
+      color: var(--fd-text);
+      box-shadow: none;
+    }
+
+    .brandMark {
+      background: linear-gradient(135deg, var(--fd-brand), var(--fd-brand-light));
+      box-shadow: 0 6px 18px rgba(5, 150, 105, 0.26);
+    }
+
+    .brandName {
+      color: var(--fd-text);
+    }
+
+    .brandSub,
+    .navItem span {
+      color: var(--fd-secondary);
+    }
+
+    .sidebarToggle,
+    .logoutIconBtn,
+    .topbar .btn {
+      border-color: rgba(5, 150, 105, 0.10);
+      background: #fff;
+      color: var(--fd-secondary);
+    }
+
+    .sidebarToggle:hover,
+    .logoutIconBtn:hover,
+    .topbar .btn:hover {
+      border-color: var(--fd-brand-border);
+      background: var(--fd-brand-soft);
+      color: var(--fd-brand);
+    }
+
+    .navItem {
+      border-color: rgba(5, 150, 105, 0.10);
+      background: #fff;
+      color: var(--fd-secondary);
+    }
+
+    .navItem:hover,
+    .navItem.active {
+      border-color: var(--fd-brand-border);
+      background: var(--fd-brand-soft);
+      color: var(--fd-brand);
+    }
+
+    .navIcon {
+      color: currentColor;
+    }
+
+    .projectBackLink {
+      color: var(--fd-brand);
+    }
+
+    .projectBackLink:hover {
+      color: var(--fd-brand-light);
+    }
     @media (min-width: 760px) {
       .topbar {
         padding: 12px 24px;
