@@ -16,8 +16,9 @@
       --fd-page-bg: #f0faf5;
       --fd-card-bg: #ffffff;
       --fd-text: #0e1018;
-      --fd-secondary: #7a8c88;
-      --fd-muted: #a8b4b0;
+      --fd-secondary: #5f706b;
+      --fd-muted: #64736f;
+      --fd-subtle: #4f9f78;
       --fd-obs: #f59e0b;
       --bg: var(--fd-page-bg);
       --surface: rgba(255, 255, 255, 0.96);
@@ -392,6 +393,32 @@
 
     .loginButton:hover {
       background: linear-gradient(135deg, #047857, var(--fd-brand-light));
+    }
+    /* Fielddesk contrast polish: readable login copy, unchanged auth flow. */
+    .brandSub,
+    .formHeader p,
+    .lead,
+    label,
+    .securityNote,
+    .signal,
+    .envPill {
+      color: var(--fd-secondary);
+    }
+
+    .lead,
+    .securityNote,
+    .signal,
+    .envPill {
+      font-weight: 600;
+    }
+
+    .eyebrow {
+      color: var(--fd-subtle);
+      font-weight: 800;
+    }
+
+    input::placeholder {
+      color: #7b8783;
     }
     @media (min-width: 820px) {
       .loginShell {
