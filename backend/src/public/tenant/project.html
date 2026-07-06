@@ -1363,6 +1363,295 @@
     .projectBackLink {
       font-weight: 800;
     }
+    /* Fielddesk project detail visual polish: light content surface, unchanged structure and QA flow. */
+    :root {
+      --fd-obs: #f59e0b;
+      --fd-obs-bg: #fff7ed;
+      --fd-obs-text: #c2410c;
+      --fd-critical: #e11d48;
+      --fd-soft-panel: #f8fefb;
+      --fd-soft-shadow: 0 1px 4px rgba(0,0,0,0.06), 0 0 0 1px rgba(5,150,105,0.08);
+    }
+
+    body,
+    .appShell,
+    .mainShell {
+      background: var(--fd-page-bg);
+      color: var(--fd-text);
+    }
+
+    .page {
+      gap: 16px;
+      color: var(--fd-text);
+    }
+
+    .panel,
+    .sectionPanel,
+    .qaPanel {
+      border-color: rgba(5, 150, 105, 0.10);
+      border-radius: 16px;
+      background: var(--fd-card-bg);
+      color: var(--fd-text);
+      box-shadow: var(--fd-soft-shadow);
+      backdrop-filter: none;
+    }
+
+    .headerPanel {
+      border-color: rgba(5, 150, 105, 0.12);
+      border-radius: 20px;
+      background: linear-gradient(135deg, #ffffff, var(--fd-soft-panel));
+      color: var(--fd-text);
+      box-shadow: var(--fd-soft-shadow);
+    }
+
+    .projectRef {
+      color: var(--fd-muted);
+    }
+
+    .projectName,
+    .sectionTitle,
+    .fieldValue,
+    .summaryValue,
+    .itemTitle,
+    .qaThreadTitle,
+    .qaDrawerTitle,
+    .qaUnsavedTitle,
+    .qaMessageText {
+      color: var(--fd-text);
+    }
+
+    .projectBackLink {
+      min-height: 32px;
+      padding: 0 11px;
+      border: 1px solid var(--fd-brand-border);
+      border-radius: 999px;
+      background: var(--fd-brand-soft);
+      color: var(--fd-brand);
+      font-weight: 800;
+    }
+
+    .projectBackLink:hover {
+      background: #dcfce7;
+      color: #047857;
+    }
+
+    .sectionTitle,
+    .fieldLabel,
+    .summaryLabel,
+    .qaSummaryLabel,
+    .qaLabel,
+    .qaThreadGroupLabel,
+    .qaThreadPreviewLabel,
+    .qaAllColumnTitle {
+      color: var(--fd-subtle);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.1em;
+    }
+
+    .field,
+    .fieldSubtle,
+    .placeholder,
+    .sectionState,
+    .itemCard,
+    .summaryCard,
+    .qaSummaryCard,
+    .qaComposer,
+    .qaEmptyState,
+    .qaMessageCard,
+    .qaAllColumn {
+      border-color: rgba(5, 150, 105, 0.10);
+      border-radius: 14px;
+      background: var(--fd-soft-panel);
+      color: var(--fd-text);
+      box-shadow: none;
+    }
+
+    .fieldNote,
+    .fieldValueMuted,
+    .itemMeta,
+    .sectionState,
+    .placeholder,
+    .qaMetaText,
+    .qaEmptyText,
+    .qaThreadPreview,
+    .qaThreadMeta,
+    .qaThreadUpdated,
+    .qaDrawerMeta,
+    .qaMessageMeta,
+    .qaUnsavedText {
+      color: var(--fd-secondary);
+    }
+
+    .fieldValueStrong,
+    .summaryValue,
+    .qaSummaryValue {
+      color: var(--fd-brand);
+    }
+
+    .badge,
+    .miniBadge,
+    .qaBadge {
+      border-color: rgba(5, 150, 105, 0.12);
+      background: #fff;
+      color: var(--fd-secondary);
+      font-weight: 800;
+    }
+
+    .badgeNeutral,
+    .qaBadgeClosed,
+    .qaBadgeMuted {
+      border-color: rgba(5, 150, 105, 0.12);
+      background: #f8fafc;
+      color: var(--fd-secondary);
+    }
+
+    .badgeWarning,
+    .miniBadgePending,
+    .qaBadgeWaiting,
+    .qaBadgeWaitingContext {
+      border-color: #fed7aa;
+      background: var(--fd-obs-bg);
+      color: var(--fd-obs-text);
+    }
+
+    .badgeCritical,
+    .qaBadgeHigh {
+      border-color: #fecdd3;
+      background: #fff1f2;
+      color: #be123c;
+    }
+
+    .qaBadgeNew {
+      border-color: #bfdbfe;
+      background: #eff6ff;
+      color: #1d4ed8;
+    }
+
+    .qaBadgeAnswered {
+      border-color: var(--fd-brand-border);
+      background: var(--fd-brand-soft);
+      color: #047857;
+    }
+
+    .btn {
+      border-color: var(--fd-brand-border);
+      border-radius: 12px;
+      background: var(--fd-brand-soft);
+      color: var(--fd-brand);
+      font-weight: 800;
+      box-shadow: none;
+    }
+
+    .btn:hover {
+      background: #dcfce7;
+      color: #047857;
+    }
+
+    .btnPrimary {
+      border-color: transparent;
+      background: linear-gradient(135deg, var(--fd-brand), var(--fd-brand-light));
+      color: #fff;
+      box-shadow: 0 6px 20px rgba(5,150,105,0.26);
+    }
+
+    .btnPrimary:hover {
+      background: linear-gradient(135deg, #047857, var(--fd-brand-light));
+      color: #fff;
+    }
+
+    .qaPanel {
+      gap: 14px;
+      background: #fff;
+    }
+
+    .qaThreadCard {
+      border-color: rgba(5, 150, 105, 0.10);
+      border-radius: 14px;
+      background: #fff;
+      color: var(--fd-text);
+      box-shadow: var(--fd-soft-shadow);
+    }
+
+    .qaThreadCardWaiting {
+      border-color: #fed7aa;
+      background: var(--fd-obs-bg);
+    }
+
+    .qaThreadCardAttention {
+      border-color: var(--fd-brand-border);
+      background: var(--fd-brand-soft);
+    }
+
+    .qaThreadCard:hover {
+      border-color: var(--fd-brand-border);
+      background: var(--fd-soft-panel);
+    }
+
+    .qaThreadUpdated,
+    .qaWaitingHint {
+      font-weight: 800;
+    }
+
+    .qaWaitingHint {
+      color: var(--fd-obs-text);
+    }
+
+    .qaInput,
+    .qaSelect,
+    .qaTextarea {
+      border-color: rgba(5, 150, 105, 0.12);
+      background: #fff;
+      color: var(--fd-text);
+    }
+
+    .qaInput::placeholder,
+    .qaTextarea::placeholder {
+      color: #7b8783;
+    }
+
+    .qaInput:focus,
+    .qaSelect:focus,
+    .qaTextarea:focus {
+      border-color: var(--fd-brand-light);
+      outline: 3px solid rgba(5, 150, 105, 0.12);
+    }
+
+    .qaDrawerOverlay {
+      background: rgba(15, 31, 24, 0.45);
+    }
+
+    .qaDrawerPanel,
+    .qaUnsavedCard {
+      border-color: rgba(5, 150, 105, 0.12);
+      background: #fff;
+      color: var(--fd-text);
+      box-shadow: 0 20px 58px rgba(5, 150, 105, 0.14);
+    }
+
+    .qaDrawerHeader,
+    .qaDrawerFooter,
+    .qaNewThreadForm,
+    .qaAllThreadsView {
+      border-color: rgba(5, 150, 105, 0.10);
+      background: var(--fd-soft-panel);
+      color: var(--fd-text);
+      backdrop-filter: none;
+    }
+
+    .qaDrawerBody {
+      background: #fff;
+    }
+
+    .qaUnsavedConfirm {
+      background: rgba(15, 31, 24, 0.45);
+    }
+
+    .qaDangerBtn {
+      border-color: #fecdd3;
+      background: #fff1f2;
+      color: #be123c;
+    }
     @media (min-width: 760px) {
       .topbar {
         padding: 12px 24px;
