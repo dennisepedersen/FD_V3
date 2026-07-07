@@ -1,4 +1,4 @@
-﻿# FD V3 Architecture
+# FD V3 Architecture
 
 Status: current architecture overview  
 Scope: canonical overview only; detailed decisions stay in linked docs
@@ -164,18 +164,17 @@ Open:
 ## 9. File And Storage Strategy
 
 Current:
-- No finalized FD file/storage architecture document.
-- Existing docs identify file/blob cleanup and future storage needs.
-- Prototype modules may use local/browser storage, but that is not production architecture.
+- Fielddesk uses PostgreSQL for structured data and Azure Blob Storage for binary files.
+- Storage metadata is tenant-scoped in Postgres through the shared `storage_object` foundation.
+- Binary file access is backend-owned; frontend code must not hold Azure credentials or rely on public blob URLs.
+- Prototype modules may use local/browser storage only outside production architecture.
 
 Planned:
 - Central file/storage service for drawings, photos, reports, and module files.
 - Tenant/project scoped metadata in Postgres.
-- Object/blob storage for binary files.
 - Safe download/upload authorization through backend.
 
 Open:
-- Final provider and storage contract.
 - File retention rules.
 - Virus scanning, signed URL, versioning, and report snapshot policy.
 

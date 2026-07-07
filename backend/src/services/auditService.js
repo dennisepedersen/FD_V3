@@ -1,4 +1,4 @@
-﻿const auditQueries = require("../db/queries/audit");
+const auditQueries = require("../db/queries/audit");
 
 const ALLOWED_EVENT_TYPES = Object.freeze([
   "invitation_created",
@@ -27,6 +27,9 @@ const ALLOWED_EVENT_TYPES = Object.freeze([
   "project_equipment_cctv_archived",
   "project_equipment_cctv_checked",
   "project_equipment_cctv_exported",
+  "storage_object_uploaded",
+  "storage_object_downloaded",
+  "storage_object_deleted",
 ]);
 
 const TENANT_SCOPED_ACTOR_SCOPES = new Set(["tenant"]);
