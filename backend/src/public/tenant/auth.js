@@ -572,7 +572,6 @@
     const appShell = document.querySelector(".appShell");
     const brandInitials = document.getElementById("brandInitials");
     const brandUserName = document.getElementById("brandUserName");
-    const sidebarToggle = document.getElementById("sidebarToggle");
     const logoutBtn = document.getElementById("logoutBtn");
     const dashboardView = document.getElementById("dashboardView");
     const calendarView = document.getElementById("calendarView");
@@ -715,7 +714,6 @@
       },
     };
 
-    applySidebarCollapsed(getSidebarCollapsedPreference());
 
     const ACTIVITY_FIELD_CANDIDATES = [
       "last_activity_at",
@@ -753,21 +751,6 @@
     function setText(node, value) {
       if (node) {
         node.textContent = value;
-      }
-    }
-
-    function getSidebarCollapsedPreference() {
-      return window.localStorage.getItem("fielddesk_sidebar_collapsed") === "true";
-    }
-
-    function applySidebarCollapsed(collapsed) {
-      if (!appShell) {
-        return;
-      }
-      appShell.classList.toggle("sidebarCollapsed", Boolean(collapsed));
-      if (sidebarToggle) {
-        sidebarToggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
-        sidebarToggle.setAttribute("aria-label", collapsed ? "Åbn menu" : "Fold menu");
       }
     }
 
@@ -3548,7 +3531,7 @@
         '<div class="fdCaseCardFooter">' +
           renderAvatarGroup(item.team) +
           (item.obsDays !== null ? '<span class="fdObsDays">' + escapeHtml(item.obsDays) + 'd</span>' : '') +
-          '<div class="fdCardActions"><a class="fdCaseBtn secondary" href="' + projectDetailUrl(item) + '">Gaa til sag</a><button class="fdCaseBtn primary" type="button" data-quick-view="' + escapeHtml(item.id) + '"><span data-icon="arrow"></span>Quick View</button></div>' +
+          '<div class="fdCardActions"><a class="fdCaseBtn secondary" href="' + projectDetailUrl(item) + '">Gå til sag</a><button class="fdCaseBtn primary" type="button" data-quick-view="' + escapeHtml(item.id) + '"><span data-icon="arrow"></span>Quick View</button></div>' +
         '</div>';
       renderInlineIcons(article);
       const quick = article.querySelector("[data-quick-view]");
@@ -3571,7 +3554,7 @@
           (obs ? '<span class="fdObsBadge">OBS</span>' : '') +
         '</div>' +
         '<div class="fdCaseRowMiddle"><div class="fdRowProgress">' + renderProgressBar(item.progressPercent, false) + '</div><span class="fdProgressText ' + tone + '">' + escapeHtml(progressLabel(item)) + '</span>' + renderAvatarGroup(item.team) + (item.obsDays !== null ? '<span class="fdObsDays">OBS ' + escapeHtml(item.obsDays) + ' dage</span>' : '') + '</div>' +
-        '<div class="fdCaseRowActions"><a class="fdCaseBtn secondary" href="' + projectDetailUrl(item) + '">Gaa til sag</a><button class="fdCaseBtn primary" type="button" data-quick-view="' + escapeHtml(item.id) + '"><span data-icon="arrow"></span>Quick View</button></div>';
+        '<div class="fdCaseRowActions"><a class="fdCaseBtn secondary" href="' + projectDetailUrl(item) + '">Gå til sag</a><button class="fdCaseBtn primary" type="button" data-quick-view="' + escapeHtml(item.id) + '"><span data-icon="arrow"></span>Quick View</button></div>';
       renderInlineIcons(row);
       const quick = row.querySelector("[data-quick-view]");
       if (quick) quick.addEventListener("click", () => openProjectDrawer(item.raw));
@@ -3822,7 +3805,7 @@
           '<div class="fdSheetTabs" role="tablist"><button class="fdSheetTab active" type="button" data-sheet-tab="overview">Overblik</button><button class="fdSheetTab" type="button" data-sheet-tab="activity">Aktivitet</button><button class="fdSheetTab" type="button" data-sheet-tab="docs">Dokumenter</button></div>' +
           '<div class="fdSheetPanel" data-sheet-panel></div>' +
         '</div>' +
-        '<div class="fdSheetFooter"><a id="openProjectPageLink" class="fdCaseBtn secondary" href="' + projectDetailUrl(item) + '">Gaa til sag</a><span class="fdCaseBtn primary" aria-disabled="true">Registrer timer</span></div>';
+        '<div class="fdSheetFooter"><a id="openProjectPageLink" class="fdCaseBtn secondary" href="' + projectDetailUrl(item) + '">Gå til sag</a><span class="fdCaseBtn primary" aria-disabled="true">Registrer timer</span></div>';
       renderInlineIcons(panel);
       const close = panel.querySelector("[data-drawer-close]");
       if (close) close.addEventListener("click", closeDrawer);
@@ -3981,13 +3964,6 @@
         button.setAttribute("aria-disabled", "true");
       });
     });
-    if (sidebarToggle) {
-      sidebarToggle.addEventListener("click", () => {
-        const nextCollapsed = !(appShell && appShell.classList.contains("sidebarCollapsed"));
-        window.localStorage.setItem("fielddesk_sidebar_collapsed", nextCollapsed ? "true" : "false");
-        applySidebarCollapsed(nextCollapsed);
-      });
-    }
 
     if (drawerCloseBtn) {
       drawerCloseBtn.addEventListener("click", closeDrawer);
@@ -4470,7 +4446,6 @@
     const appShell = document.querySelector(".appShell");
     const brandInitials = document.getElementById("brandInitials");
     const brandUserName = document.getElementById("brandUserName");
-    const sidebarToggle = document.getElementById("sidebarToggle");
     const logoutBtn = document.getElementById("logoutBtn");
     const projectId = getProjectIdFromPath();
     const qaSection = document.getElementById("qaSection");
@@ -4505,13 +4480,6 @@
     const qaStayBtn = document.getElementById("qaStayBtn");
     const qaDiscardBtn = document.getElementById("qaDiscardBtn");
 
-    if (sidebarToggle) {
-      sidebarToggle.addEventListener("click", () => {
-        const nextCollapsed = !(appShell && appShell.classList.contains("sidebarCollapsed"));
-        window.localStorage.setItem("fielddesk_sidebar_collapsed", nextCollapsed ? "true" : "false");
-        applyProjectSidebarCollapsed(nextCollapsed);
-      });
-    }
 
     if (!projectId) {
       renderProjectDetailError("Ugyldig sagssti");
@@ -4572,19 +4540,6 @@
         brandUserName.textContent = compactProjectUserName(user && user.name ? user.name : "Fielddesk");
       }
     }
-
-    function applyProjectSidebarCollapsed(collapsed) {
-      if (!appShell) {
-        return;
-      }
-      appShell.classList.toggle("sidebarCollapsed", Boolean(collapsed));
-      if (sidebarToggle) {
-        sidebarToggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
-        sidebarToggle.setAttribute("aria-label", collapsed ? "\u00c5bn menu" : "Fold menu");
-      }
-    }
-
-    applyProjectSidebarCollapsed(window.localStorage.getItem("fielddesk_sidebar_collapsed") === "true");
 
     const QA_STATUS_OPTIONS = [
       { value: "NEW", label: "Ny", className: "qaBadgeNew" },
