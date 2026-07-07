@@ -4467,8 +4467,6 @@
     const qaDrawerTitle = document.getElementById("qaDrawerTitle");
     const qaDrawerMeta = document.getElementById("qaDrawerMeta");
     const qaDrawerBody = document.getElementById("qaDrawerBody");
-    const qaStatusSelect = document.getElementById("qaStatusSelect");
-    const qaStatusSaveBtn = document.getElementById("qaStatusSaveBtn");
     const qaMessageForm = document.getElementById("qaMessageForm");
     const qaMessageInput = document.getElementById("qaMessageInput");
     const qaAddMessageBtn = document.getElementById("qaAddMessageBtn");
@@ -4499,9 +4497,6 @@
       allSort: qaAllSortSelect && qaAllSortSelect.value ? qaAllSortSelect.value : "activity_desc",
       isLoadingThreads: false,
       isSaving: false,
-    };
-    const qaPermissions = {
-      canUpdateStatus: false,
     };
     let projectPageUser = null;
 
@@ -4573,45 +4568,17 @@
       return QA_STATUS_OPTIONS.find((item) => item.value === normalized) || QA_STATUS_OPTIONS[0];
     }
 
-    function getQaPermissionsForRole(role) {
-      const normalizedRole = String(role || "").trim().toLowerCase();
-      return {
-        canUpdateStatus: normalizedRole === "tenant_admin" || normalizedRole === "project_leader",
-      };
-    }
-
-    function applyQaStatusPermissions() {
-      const canUpdateStatus = Boolean(qaPermissions.canUpdateStatus);
-      if (qaStatusSelect) {
-        qaStatusSelect.disabled = !canUpdateStatus;
-        qaStatusSelect.title = canUpdateStatus
-          ? "Opdater QA-status"
-          : "QA-status er skrivebeskyttet for din rolle.";
-      }
-      if (qaStatusSaveBtn) {
-        qaStatusSaveBtn.hidden = !canUpdateStatus;
-        qaStatusSaveBtn.disabled = !canUpdateStatus;
-      }
-    }
-
     async function loadQaPermissions() {
-      qaPermissions.canUpdateStatus = false;
-      applyQaStatusPermissions();
       try {
         const response = await apiFetch("/api/me", { method: "GET" });
         projectPageUser = response && response.user ? response.user : null;
         renderProjectUserChrome(projectPageUser);
         setAdminNavigationVisibility(projectPageUser);
-        const role = response && response.user ? response.user.role : null;
-        const permissions = getQaPermissionsForRole(role);
-        qaPermissions.canUpdateStatus = permissions.canUpdateStatus;
       } catch (error) {
         if (handleAuthFailure(error)) {
           return false;
         }
-        qaPermissions.canUpdateStatus = false;
       }
-      applyQaStatusPermissions();
       return true;
     }
 
@@ -4852,10 +4819,7 @@
       }
       if (qaState.modalMode === "thread") {
         const message = qaMessageInput ? qaMessageInput.value.trim() : "";
-        const statusChanged = qaStatusSelect && qaState.detailThread
-          ? qaStatusSelect.value !== getQaStatusView(qaState.detailThread.status).value
-          : false;
-        return Boolean(message || statusChanged);
+        return Boolean(message);
       }
       return false;
     }
@@ -4884,12 +4848,6 @@
       if (qaMessageForm) {
         qaMessageForm.hidden = mode !== "thread";
       }
-      const showThreadControls = mode === "thread";
-      const controls = qaStatusSelect ? qaStatusSelect.closest(".qaDrawerControls") : null;
-      if (controls) {
-        controls.hidden = !showThreadControls;
-      }
-      applyQaStatusPermissions();
     }
 
     function openQaDrawerShell() {
@@ -5261,10 +5219,6 @@
           `Opdateret ${formatQaDate(activityAt)}`,
         ].filter(Boolean).join(" · ");
       }
-      if (qaStatusSelect) {
-        qaStatusSelect.value = statusView.value;
-      }
-      applyQaStatusPermissions();
 
       qaDrawerBody.innerHTML = "";
       const badgeRow = document.createElement("div");
@@ -5458,34 +5412,6 @@
       }
     }
 
-    async function saveQaStatus() {
-      if (!qaState.activeThreadId || !qaStatusSelect || !qaStatusSaveBtn) {
-        return;
-      }
-      if (!qaPermissions.canUpdateStatus) {
-        applyQaStatusPermissions();
-        renderQaDrawerNotice("Du har ikke adgang til at aendre QA-status.", true);
-        return;
-      }
-
-      qaStatusSaveBtn.disabled = true;
-      try {
-        await apiFetch(`/api/qa/threads/${encodeURIComponent(qaState.activeThreadId)}/status`, {
-          method: "PATCH",
-          body: JSON.stringify({ status: qaStatusSelect.value }),
-        });
-        await loadQaThreadDetail(qaState.activeThreadId);
-        await loadQaThreads();
-      } catch (error) {
-        const errorMessage = qaErrorMessage(error, "Kunne ikke opdatere status.");
-        if (errorMessage) {
-          renderQaDrawerNotice(errorMessage, true);
-        }
-      } finally {
-        qaStatusSaveBtn.disabled = false;
-      }
-    }
-
     if (qaUi) {
       renderQaSummary();
       renderQaThreadList();
@@ -5525,9 +5451,6 @@
       qaMessageForm.addEventListener("submit", addQaMessage);
     }
 
-    if (qaStatusSaveBtn) {
-      qaStatusSaveBtn.addEventListener("click", saveQaStatus);
-    }
 
     if (qaAllSearchInput) {
       qaAllSearchInput.addEventListener("input", () => {

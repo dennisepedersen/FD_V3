@@ -974,13 +974,6 @@
       font-size: 13px;
     }
 
-    .qaDrawerControls {
-      grid-column: 1 / -1;
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 8px;
-    }
-
     .iconBtn {
       min-width: 38px;
       height: 38px;
@@ -1613,11 +1606,6 @@
         grid-template-columns: minmax(0, 1fr) 150px;
       }
 
-      .qaDrawerControls {
-        grid-template-columns: minmax(0, 1fr) auto;
-        align-items: end;
-      }
-
       .qaAllControls {
         grid-template-columns: minmax(0, 1fr) 190px;
       }
@@ -1941,18 +1929,6 @@
           <p id="qaDrawerMeta" class="qaDrawerMeta">-</p>
         </div>
         <button id="qaDrawerCloseBtn" class="iconBtn" type="button" aria-label="Luk">×</button>
-        <div class="qaDrawerControls" hidden>
-          <label class="qaLabel">
-            Status
-            <select id="qaStatusSelect" class="qaSelect">
-              <option value="NEW">Ny</option>
-              <option value="WAITING">Venter</option>
-              <option value="ANSWERED">Besvaret</option>
-              <option value="CLOSED">Lukket</option>
-            </select>
-          </label>
-          <button id="qaStatusSaveBtn" class="btn btnCompact" type="button">Gem status</button>
-        </div>
       </div>
       <form id="qaNewThreadForm" class="qaComposer qaNewThreadForm" hidden>
         <div class="qaFormGrid">
