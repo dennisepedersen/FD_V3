@@ -4571,6 +4571,9 @@
       target: null,
       stream: null,
       detector: null,
+      zxingReader: null,
+      zxingControls: null,
+      scannerKind: null,
       animationFrame: null,
       rawValue: '',
       normalizedMac: null,
@@ -5568,13 +5571,32 @@
       equipmentScannerState.animationFrame = null;
       equipmentScannerState.isScanning = false;
       equipmentScannerState.isDetecting = false;
+      if (equipmentScannerState.zxingControls && typeof equipmentScannerState.zxingControls.stop === "function") {
+        try {
+          equipmentScannerState.zxingControls.stop();
+        } catch (_error) {
+          // Best-effort cleanup; manual input remains available.
+        }
+      }
+      equipmentScannerState.zxingControls = null;
+      equipmentScannerState.zxingReader = null;
+      if (window.ZXingBrowser?.BrowserCodeReader?.releaseAllStreams) {
+        try {
+          window.ZXingBrowser.BrowserCodeReader.releaseAllStreams();
+        } catch (_error) {
+          // Best-effort cleanup; manual input remains available.
+        }
+      }
       if (equipmentScannerState.stream) {
         equipmentScannerState.stream.getTracks().forEach((track) => track.stop());
       }
       equipmentScannerState.stream = null;
+      equipmentScannerState.scannerKind = null;
       if (equipmentScannerVideo) {
         equipmentScannerVideo.pause();
         equipmentScannerVideo.srcObject = null;
+        equipmentScannerVideo.removeAttribute("src");
+        equipmentScannerVideo.load();
       }
     }
 
@@ -5597,8 +5619,14 @@
       setEquipmentScannerActions(true);
     }
 
+    function isEquipmentIosDevice() {
+      const ua = String(navigator.userAgent || "");
+      const platform = String(navigator.platform || "");
+      return /iPad|iPhone|iPod/i.test(ua) || (platform === "MacIntel" && Number(navigator.maxTouchPoints || 0) > 1);
+    }
+
     async function createEquipmentBarcodeDetector() {
-      if (!("BarcodeDetector" in window)) {
+      if (!("BarcodeDetector" in window) || isEquipmentIosDevice()) {
         return null;
       }
       try {
@@ -5618,6 +5646,22 @@
         } catch (__error) {
           return null;
         }
+      }
+    }
+
+    function createEquipmentZxingReader() {
+      const zxing = window.ZXingBrowser;
+      if (!zxing || typeof zxing.BrowserMultiFormatReader !== "function") {
+        return null;
+      }
+      try {
+        return new zxing.BrowserMultiFormatReader(undefined, {
+          delayBetweenScanAttempts: 220,
+          delayBetweenScanSuccess: 500,
+          tryPlayVideoTimeout: 6000,
+        });
+      } catch (_error) {
+        return null;
       }
     }
 
@@ -5647,7 +5691,7 @@
           return;
         }
       } catch (_error) {
-        setEquipmentScannerStatus("Scanner stadig. Hold koden roligt foran kameraet.", false);
+        setEquipmentScannerStatus("Scanner stadig. Hold koden roligt inden for rammen.", false);
       } finally {
         equipmentScannerState.isDetecting = false;
       }
@@ -5655,11 +5699,76 @@
         scheduleEquipmentScanFrame();
       }
     }
-
     function getEquipmentScannerTargetLabel(target) {
       if (target === "mac") return "MAC-adresse";
       if (target === "serial") return "serienummer";
       return "kontrolværdi";
+    }
+
+    async function startEquipmentNativeScanner(detector) {
+      try {
+        setEquipmentScannerStatus("Åbner kamera...", false);
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: { facingMode: { ideal: "environment" } },
+        });
+        equipmentScannerState.stream = stream;
+        equipmentScannerState.detector = detector;
+        equipmentScannerState.scannerKind = "native";
+        equipmentScannerState.isScanning = true;
+        if (equipmentScannerVideo) {
+          equipmentScannerVideo.srcObject = stream;
+          await equipmentScannerVideo.play();
+        }
+        setEquipmentScannerStatus("Hold koden inden for rammen.", false);
+        scheduleEquipmentScanFrame();
+      } catch (error) {
+        stopEquipmentScannerStream();
+        throw error;
+      }
+    }
+
+    async function startEquipmentZxingScanner(reader) {
+      try {
+        setEquipmentScannerStatus("Åbner kamera...", false);
+        equipmentScannerState.zxingReader = reader;
+        equipmentScannerState.scannerKind = "zxing";
+        const controls = await reader.decodeFromConstraints({
+          video: { facingMode: { ideal: "environment" } },
+        }, equipmentScannerVideo, (result, error, controlsRef) => {
+          if (result) {
+            const raw = typeof result.getText === "function" ? result.getText() : String(result.text || result.rawValue || "");
+            setEquipmentScannerResult(raw);
+            return;
+          }
+          if (controlsRef && !equipmentScannerState.zxingControls) {
+            equipmentScannerState.zxingControls = controlsRef;
+          }
+          if (error && error.name && !/NotFound|Checksum|Format/i.test(String(error.name))) {
+            setEquipmentScannerStatus("Scanner stadig. Hold koden inden for rammen.", false);
+          }
+        });
+        equipmentScannerState.zxingControls = controls;
+        setEquipmentScannerStatus("Hold koden inden for rammen.", false);
+      } catch (error) {
+        stopEquipmentScannerStream();
+        throw error;
+      }
+    }
+
+    function handleEquipmentScannerStartError(error) {
+      stopEquipmentScannerStream();
+      if (equipmentScannerVideo) equipmentScannerVideo.hidden = true;
+      const name = error && error.name ? String(error.name) : "";
+      if (name === "NotAllowedError" || name === "SecurityError") {
+        setEquipmentScannerStatus("Kameraadgang blev afvist. Indtast værdien manuelt.", true);
+        return;
+      }
+      if (name === "NotFoundError" || name === "OverconstrainedError" || name === "NotReadableError") {
+        setEquipmentScannerStatus("Der blev ikke fundet et brugbart kamera. Indtast værdien manuelt.", true);
+        return;
+      }
+      setEquipmentScannerStatus("Kameraet kunne ikke startes. Indtast værdien manuelt.", true);
     }
 
     async function startEquipmentScanner() {
@@ -5673,43 +5782,35 @@
         setEquipmentScannerStatus("Scanning understøttes ikke i denne browser endnu. Indtast værdien manuelt.", true);
         return;
       }
-      const detector = await createEquipmentBarcodeDetector();
-      if (!detector) {
-        if (equipmentScannerVideo) equipmentScannerVideo.hidden = true;
-        setEquipmentScannerStatus("Scanning understøttes ikke i denne browser endnu. Indtast værdien manuelt.", true);
-        return;
-      }
-      try {
-        setEquipmentScannerStatus("Åbner kamera...", false);
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: false,
-          video: { facingMode: { ideal: "environment" } },
-        });
-        equipmentScannerState.stream = stream;
-        equipmentScannerState.detector = detector;
-        equipmentScannerState.isScanning = true;
-        if (equipmentScannerVideo) {
-          equipmentScannerVideo.srcObject = stream;
-          await equipmentScannerVideo.play();
-        }
-        setEquipmentScannerStatus("Hold koden foran kameraet.", false);
-        scheduleEquipmentScanFrame();
-      } catch (error) {
-        stopEquipmentScannerStream();
-        if (equipmentScannerVideo) equipmentScannerVideo.hidden = true;
-        const name = error && error.name ? String(error.name) : "";
-        if (name === "NotAllowedError" || name === "SecurityError") {
-          setEquipmentScannerStatus("Kameraadgang blev afvist. Indtast værdien manuelt.", true);
-          return;
-        }
-        if (name === "NotFoundError" || name === "OverconstrainedError") {
-          setEquipmentScannerStatus("Der blev ikke fundet et brugbart kamera. Indtast værdien manuelt.", true);
-          return;
-        }
-        setEquipmentScannerStatus("Kameraet kunne ikke startes. Indtast værdien manuelt.", true);
-      }
-    }
 
+      const nativeDetector = await createEquipmentBarcodeDetector();
+      if (nativeDetector) {
+        try {
+          await startEquipmentNativeScanner(nativeDetector);
+          return;
+        } catch (error) {
+          const name = error && error.name ? String(error.name) : "";
+          if (name === "NotAllowedError" || name === "SecurityError" || name === "NotFoundError" || name === "OverconstrainedError") {
+            handleEquipmentScannerStartError(error);
+            return;
+          }
+        }
+      }
+
+      const zxingReader = createEquipmentZxingReader();
+      if (zxingReader) {
+        try {
+          await startEquipmentZxingScanner(zxingReader);
+          return;
+        } catch (error) {
+          handleEquipmentScannerStartError(error);
+          return;
+        }
+      }
+
+      if (equipmentScannerVideo) equipmentScannerVideo.hidden = true;
+      setEquipmentScannerStatus("Scanning understøttes ikke i denne browser endnu. Indtast værdien manuelt.", true);
+    }
     function openEquipmentScanner(target) {
       if (!equipmentScannerShell) {
         return;
