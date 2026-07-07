@@ -63,11 +63,6 @@
       grid-template-columns: 1fr;
     }
 
-    .appShell.sidebarCollapsed {
-      --sidebar-expanded-width: 280px;
-      --sidebar-collapsed-width: 78px;
-    }
-
     .sidebar {
       position: sticky;
       top: 0;
@@ -147,43 +142,6 @@
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-    }
-
-    .sidebarToggle {
-      width: 40px;
-      height: 40px;
-      border: 1px solid rgba(191, 212, 234, 0.16);
-      border-radius: 12px;
-      display: inline-grid;
-      place-items: center;
-      background: rgba(255, 255, 255, 0.055);
-      color: #dce7f1;
-      cursor: pointer;
-      flex: 0 0 auto;
-    }
-
-    .sidebarToggle:hover {
-      border-color: rgba(94, 200, 229, 0.34);
-      background: rgba(255, 255, 255, 0.08);
-    }
-
-    .sidebarToggleIcon {
-      width: 20px;
-      height: 20px;
-      display: block;
-      stroke: currentColor;
-      stroke-width: 2;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-      fill: none;
-    }
-
-    .sidebarToggleIcon .iconExpanded {
-      display: block;
-    }
-
-    .sidebarToggleIcon .iconCollapsed {
-      display: none;
     }
 
     .sideNav {
@@ -267,29 +225,6 @@
       font-size: 12px;
       overflow: hidden;
       text-overflow: ellipsis;
-    }
-
-    .sidebarCollapsed .brandText,
-    .sidebarCollapsed .navCopy {
-      display: none;
-    }
-
-    .sidebarCollapsed .brandHeader {
-      justify-content: center;
-    }
-
-    .sidebarCollapsed .navItem {
-      grid-template-columns: 1fr;
-      justify-items: center;
-      min-width: 52px;
-    }
-
-    .sidebarCollapsed .sidebarToggleIcon .iconExpanded {
-      display: none;
-    }
-
-    .sidebarCollapsed .sidebarToggleIcon .iconCollapsed {
-      display: block;
     }
 
     .mainShell {
@@ -1303,16 +1238,12 @@
     .navItem span {
       color: var(--fd-secondary);
     }
-
-    .sidebarToggle,
     .logoutIconBtn,
     .topbar .btn {
       border-color: rgba(5, 150, 105, 0.10);
       background: #fff;
       color: var(--fd-secondary);
     }
-
-    .sidebarToggle:hover,
     .logoutIconBtn:hover,
     .topbar .btn:hover {
       border-color: var(--fd-brand-border);
@@ -1698,14 +1629,7 @@
 
     @media (min-width: 1120px) {
       .appShell {
-        --sidebar-expanded-width: 280px;
-        --sidebar-collapsed-width: 78px;
-        grid-template-columns: var(--sidebar-expanded-width) minmax(0, 1fr);
-        transition: grid-template-columns 0.18s ease;
-      }
-
-      .appShell.sidebarCollapsed {
-        grid-template-columns: var(--sidebar-collapsed-width) minmax(0, 1fr);
+        grid-template-columns: 280px minmax(0, 1fr);
       }
 
       .sidebar {
@@ -1719,10 +1643,6 @@
         align-content: start;
         padding: 18px 14px;
         overflow: auto;
-      }
-
-      .sidebarCollapsed .sideInner {
-        padding: 18px 10px;
       }
 
       .sideNav {
@@ -1746,33 +1666,6 @@
         font-weight: 800;
         text-transform: uppercase;
         letter-spacing: 0.12em;
-      }
-
-      .sidebarCollapsed .brandHeader {
-        display: grid;
-        justify-items: center;
-      }
-
-      .sidebarCollapsed .brand {
-        justify-content: center;
-      }
-
-      .sidebarCollapsed .brandText,
-      .sidebarCollapsed .navLabel,
-      .sidebarCollapsed .navCopy {
-        display: none;
-      }
-
-      .sidebarCollapsed .sidebarToggle {
-        width: 42px;
-        height: 42px;
-      }
-
-      .sidebarCollapsed .navItem {
-        min-height: 48px;
-        grid-template-columns: 1fr;
-        justify-items: center;
-        padding: 10px;
       }
 
       .page {
@@ -1841,16 +1734,6 @@
               <p id="brandUserName" class="brandSub">Indlaeser bruger...</p>
             </div>
           </div>
-          <button id="sidebarToggle" class="sidebarToggle" type="button" aria-label="Fold menu" aria-expanded="true">
-            <svg class="sidebarToggleIcon" viewBox="0 0 24 24" aria-hidden="true">
-              <g class="iconExpanded">
-                <path d="M15 6l-6 6 6 6"></path>
-              </g>
-              <g class="iconCollapsed">
-                <path d="M9 6l6 6-6 6"></path>
-              </g>
-            </svg>
-          </button>
         </div>
 
         <nav class="sideNav" aria-label="Moduler">
@@ -2058,7 +1941,7 @@
           <p id="qaDrawerMeta" class="qaDrawerMeta">-</p>
         </div>
         <button id="qaDrawerCloseBtn" class="iconBtn" type="button" aria-label="Luk">×</button>
-        <div class="qaDrawerControls">
+        <div class="qaDrawerControls" hidden>
           <label class="qaLabel">
             Status
             <select id="qaStatusSelect" class="qaSelect">
