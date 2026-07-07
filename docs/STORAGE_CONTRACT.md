@@ -1,12 +1,12 @@
-﻿# FD Storage Contract
+# FD Storage Contract
 
-Status: Draft / Proposed  
+Status: Current foundation direction
 Scope: Shared storage/file governance contract for FD modules  
-Last updated: 2026-05-24
+Last updated: 2026-07-07
 
 This document defines shared Fielddesk direction for files, binary artifacts, uploads, downloads, storage metadata, retention, archive, and access rules.
 
-It is governance-light, implementation-light, platform-oriented, and vendor/cloud-neutral. It does not define a storage provider, database schema, API implementation, CDN setup, upload library, or migration.
+It is governance-light and platform-oriented. The initial provider direction is Azure Blob Storage with backend-owned access and Postgres metadata. It does not define module-specific UI, document folders, CDN setup, upload sessions, or generated report flows.
 
 ## 1. Purpose
 
@@ -26,6 +26,10 @@ The contract defines ownership, shared storage concepts, lifecycle, metadata dir
 ## 2. Core Principles
 
 Storage service owns binary objects.
+
+Azure Blob Storage is the initial external binary storage provider.
+
+Postgres owns storage metadata through the shared `storage_object` foundation.
 
 Modules own metadata/domain relationships only.
 
@@ -319,7 +323,6 @@ These are not implemented by this contract.
 
 Not decided in this contract:
 
-- blob/object provider
 - CDN strategy
 - signed URL vs API streaming policy
 - image resizing pipeline

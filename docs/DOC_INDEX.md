@@ -1,4 +1,4 @@
-﻿# FD V3 Doc Index
+# FD V3 Doc Index
 
 Status: current documentation index  
 Scope: points to docs; does not replace them
@@ -12,6 +12,8 @@ Scope: points to docs; does not replace them
 | `docs/AI_GOVERNANCE.md` | Canonical AI/Codex governance and working rules | Current |
 | `docs/AI_BOOTSTRAP_CONTEXT.md` | Bootstrap/historical transition context and known foundation risks | Context, not permanent canonical AI governance |
 | `docs/PROJECT_CONTEXT_CONTRACT.md` | Shared project context contract for modules | Draft/Proposed contract |
+| `docs/DATA_POLICY.md` | Structured data vs Azure Blob file storage direction | Current |
+| `docs/STORAGE_CONTRACT.md` | Shared storage/file governance contract for modules | Current foundation direction |
 | `docs/REPORT_ENGINE_CONTRACT.md` | Shared report/export contract for modules | Draft/Proposed contract |
 | `docs/MODULE_REGISTRY_CONTRACT.md` | Shared module registry, enablement and discovery contract | Draft/Proposed contract |
 | `docs/V3_BUILD_GATECHECK.md` | Build gate rules before implementation | Current |
