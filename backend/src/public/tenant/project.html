@@ -1714,28 +1714,62 @@
       align-items: end;
     }
 
-    .equipmentMacSegments {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      align-items: center;
+    .equipmentMacInputRow {
+      grid-template-columns: minmax(0, max-content) auto;
+      column-gap: 10px;
+      row-gap: 6px;
+      align-items: end;
+      max-width: 100%;
+    }
+
+    .equipmentMacInputRow .qaLabel {
       min-width: 0;
     }
 
+    .equipmentMacInputRow .btn {
+      align-self: end;
+      min-height: 38px;
+    }
+
+    .equipmentMacSegments {
+      display: inline-flex;
+      flex-wrap: nowrap;
+      gap: 2px;
+      align-items: center;
+      width: max-content;
+      max-width: 100%;
+      padding: 3px 4px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      background: #fff;
+    }
+
     .equipmentMacSegment {
-      width: 46px;
-      min-height: 42px;
-      padding: 8px 6px;
+      width: 31px;
+      min-height: 34px;
+      padding: 5px 3px;
+      border-color: transparent;
+      background: #f8fafc;
       text-align: center;
       text-transform: uppercase;
+      font-size: 13px;
       font-weight: 850;
-      letter-spacing: 0.04em;
+      letter-spacing: 0.02em;
+    }
+
+    .equipmentMacSegment:focus {
+      border-color: var(--brand);
+      background: #fff;
+      box-shadow: 0 0 0 2px rgba(94, 200, 229, 0.18);
+      outline: none;
     }
 
     .equipmentMacSeparator {
-      color: #475569;
+      color: #64748b;
+      font-size: 13px;
       font-weight: 900;
       line-height: 1;
+      margin: 0 -1px;
     }
 
     .equipmentMacFeedback {
@@ -2343,7 +2377,7 @@
           <div class="equipmentFormGrid">
             <label class="qaLabel">Kamera-ID<input id="equipmentCameraIdInput" class="qaInput" type="text" maxlength="80" required placeholder="CAM-001" /></label>
             <label class="qaLabel">Status<select id="equipmentStatusSelect" class="qaSelect"><option value="registered">Registreret</option><option value="planned">Planlagt</option><option value="mounted">Monteret</option><option value="checked">Kontrolleret</option><option value="deviation">Afvigelse</option></select></label>
-            <div class="equipmentInputWithAction">
+            <div class="equipmentInputWithAction equipmentMacInputRow">
               <label class="qaLabel">MAC-adresse
                 <input id="equipmentMacInput" type="hidden" />
                 <span id="equipmentMacSegments" class="equipmentMacSegments" role="group" aria-label="MAC-adresse">
