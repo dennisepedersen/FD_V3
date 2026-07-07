@@ -491,6 +491,7 @@
       const error = new Error(code || `request_failed_${response.status}`);
       error.status = response.status;
       error.code = code;
+      error.details = payload && payload.error ? payload.error.details : null;
       throw error;
     }
 
@@ -3977,6 +3978,7 @@
       drawerOverlay.addEventListener("click", closeDrawer);
     }
 
+
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && drawerShell && drawerShell.classList.contains("open")) {
         closeDrawer();
@@ -4477,7 +4479,37 @@
     const qaUnsavedConfirm = document.getElementById("qaUnsavedConfirm");
     const qaStayBtn = document.getElementById("qaStayBtn");
     const qaDiscardBtn = document.getElementById("qaDiscardBtn");
-
+    const equipmentSection = document.getElementById("equipmentSection");
+    const equipmentMetaText = document.getElementById("equipmentMetaText");
+    const equipmentSummaryGrid = document.getElementById("equipmentSummaryGrid");
+    const equipmentStateNode = document.getElementById("equipmentState");
+    const equipmentList = document.getElementById("equipmentList");
+    const equipmentSearchInput = document.getElementById("equipmentSearchInput");
+    const equipmentAddBtn = document.getElementById("equipmentAddBtn");
+    const equipmentCheckBtn = document.getElementById("equipmentCheckBtn");
+    const equipmentExportLink = document.getElementById("equipmentExportLink");
+    const equipmentDrawerShell = document.getElementById("equipmentDrawerShell");
+    const equipmentDrawerOverlay = document.getElementById("equipmentDrawerOverlay");
+    const equipmentDrawerCloseBtn = document.getElementById("equipmentDrawerCloseBtn");
+    const equipmentDrawerTitle = document.getElementById("equipmentDrawerTitle");
+    const equipmentDrawerMeta = document.getElementById("equipmentDrawerMeta");
+    const equipmentCameraForm = document.getElementById("equipmentCameraForm");
+    const equipmentCameraIdInput = document.getElementById("equipmentCameraIdInput");
+    const equipmentMacInput = document.getElementById("equipmentMacInput");
+    const equipmentSerialInput = document.getElementById("equipmentSerialInput");
+    const equipmentModelInput = document.getElementById("equipmentModelInput");
+    const equipmentLocationInput = document.getElementById("equipmentLocationInput");
+    const equipmentStatusSelect = document.getElementById("equipmentStatusSelect");
+    const equipmentNoteInput = document.getElementById("equipmentNoteInput");
+    const equipmentFormStatus = document.getElementById("equipmentFormStatus");
+    const equipmentArchiveBtn = document.getElementById("equipmentArchiveBtn");
+    const equipmentCancelBtn = document.getElementById("equipmentCancelBtn");
+    const equipmentSaveBtn = document.getElementById("equipmentSaveBtn");
+    const equipmentCheckView = document.getElementById("equipmentCheckView");
+    const equipmentCheckInput = document.getElementById("equipmentCheckInput");
+    const equipmentCheckSubmitBtn = document.getElementById("equipmentCheckSubmitBtn");
+    const equipmentCheckStatus = document.getElementById("equipmentCheckStatus");
+    const equipmentCheckResult = document.getElementById("equipmentCheckResult");
 
     if (!projectId) {
       renderProjectDetailError("Ugyldig sagssti");
@@ -4497,6 +4529,25 @@
       allSort: qaAllSortSelect && qaAllSortSelect.value ? qaAllSortSelect.value : "activity_desc",
       isLoadingThreads: false,
       isSaving: false,
+    };
+
+    const equipmentUi = Boolean(equipmentSection && equipmentSummaryGrid && equipmentStateNode && equipmentList);
+    const equipmentStatuses = [
+      { value: "registered", label: "Registreret", className: "qaBadgeNew" },
+      { value: "planned", label: "Planlagt", className: "qaBadgeMuted" },
+      { value: "mounted", label: "Monteret", className: "qaBadgeWaitingContext" },
+      { value: "checked", label: "Kontrolleret", className: "qaBadgeAnswered" },
+      { value: "deviation", label: "Afvigelse", className: "qaBadgeHigh" },
+    ];
+    const equipmentState = {
+      cameras: [],
+      summary: { registered: 0, planned: 0, mounted: 0, checked: 0, deviation: 0 },
+      search: "",
+      activeCameraId: null,
+      mode: null,
+      checkCamera: null,
+      searchTimer: null,
+      isLoading: false,
     };
     let projectPageUser = null;
 
@@ -5412,6 +5463,434 @@
       }
     }
 
+
+    function getEquipmentStatusView(status) {
+      const normalized = String(status || "registered").trim().toLowerCase();
+      return equipmentStatuses.find((item) => item.value === normalized) || equipmentStatuses[0];
+    }
+
+    function setEquipmentStateMessage(message, isError) {
+      if (!equipmentStateNode) {
+        return;
+      }
+      equipmentStateNode.hidden = !message;
+      equipmentStateNode.textContent = message || "";
+      equipmentStateNode.style.borderColor = isError ? "#f2b3b3" : "";
+      equipmentStateNode.style.background = isError ? "#fff0f0" : "";
+      equipmentStateNode.style.color = isError ? "#991b1b" : "";
+    }
+
+    function equipmentErrorMessage(error, fallback) {
+      if (error && error.status === 401) {
+        logout();
+        return null;
+      }
+      if (error && error.status === 403) {
+        return "Du har ikke adgang til Projektudstyr beta.";
+      }
+      if (error && error.status === 409) {
+        const field = error.details && error.details.field ? error.details.field : null;
+        if (field === "mac_address") {
+          return "MAC-adressen findes allerede paa dette projekt.";
+        }
+        if (field === "serial_number") {
+          return "Serienummeret findes allerede paa dette projekt.";
+        }
+        return "Kameraet matcher en eksisterende aktiv registrering.";
+      }
+      if (error && error.code === "invalid_mac_address") {
+        return "MAC-adressen skal have 12 hex-tegn, fx 00:11:22:33:44:55.";
+      }
+      return getErrorMessage(error, fallback);
+    }
+
+    function renderEquipmentSummary() {
+      if (!equipmentSummaryGrid) {
+        return;
+      }
+      equipmentSummaryGrid.innerHTML = "";
+      equipmentStatuses.forEach((status) => {
+        const card = document.createElement("div");
+        card.className = "qaSummaryCard";
+        const label = document.createElement("span");
+        label.className = "qaSummaryLabel";
+        label.textContent = status.label;
+        const value = document.createElement("span");
+        value.className = "qaSummaryValue";
+        value.textContent = String(Number(equipmentState.summary[status.value] || 0));
+        card.appendChild(label);
+        card.appendChild(value);
+        equipmentSummaryGrid.appendChild(card);
+      });
+    }
+
+    function makeEquipmentMeta(label, value) {
+      const item = document.createElement("div");
+      item.className = "equipmentMetaItem";
+      const labelNode = document.createElement("span");
+      labelNode.className = "equipmentMetaLabel";
+      labelNode.textContent = label;
+      const valueNode = document.createElement("span");
+      valueNode.className = "equipmentMetaValue";
+      valueNode.textContent = value || "-";
+      item.appendChild(labelNode);
+      item.appendChild(valueNode);
+      return item;
+    }
+
+    function renderEquipmentList() {
+      if (!equipmentUi || !equipmentList) {
+        return;
+      }
+      equipmentList.innerHTML = "";
+      renderEquipmentSummary();
+      const count = equipmentState.cameras.length;
+      if (equipmentMetaText) {
+        equipmentMetaText.textContent = count === 1 ? "1 CCTV-kamera" : `${count} CCTV-kameraer`;
+      }
+      if (equipmentState.isLoading) {
+        setEquipmentStateMessage("Indlaeser CCTV...", false);
+        return;
+      }
+      if (!count) {
+        setEquipmentStateMessage(equipmentState.search ? "Ingen kameraer matcher filteret." : "Ingen CCTV-kameraer registreret endnu.", false);
+        return;
+      }
+      setEquipmentStateMessage("", false);
+      equipmentState.cameras.forEach((camera) => {
+        const statusView = getEquipmentStatusView(camera.status);
+        const card = document.createElement("article");
+        card.className = "equipmentCard";
+        const top = document.createElement("div");
+        top.className = "equipmentCardTop";
+        const title = document.createElement("h3");
+        title.className = "equipmentTitle";
+        title.textContent = camera.camera_id || "Kamera";
+        const badges = document.createElement("div");
+        badges.className = "qaBadgeRow";
+        badges.appendChild(makeQaBadge(statusView.label, statusView.className));
+        top.appendChild(title);
+        top.appendChild(badges);
+        const grid = document.createElement("div");
+        grid.className = "equipmentMetaGrid";
+        grid.appendChild(makeEquipmentMeta("MAC", camera.mac_address));
+        grid.appendChild(makeEquipmentMeta("S/N", camera.serial_number));
+        grid.appendChild(makeEquipmentMeta("Model", camera.model));
+        grid.appendChild(makeEquipmentMeta("Placering", camera.location_text));
+        const actions = document.createElement("div");
+        actions.className = "equipmentCardActions";
+        const editBtn = document.createElement("button");
+        editBtn.type = "button";
+        editBtn.className = "btn btnCompact";
+        editBtn.textContent = "Rediger";
+        editBtn.addEventListener("click", () => openEquipmentCameraForm(camera));
+        const checkBtn = document.createElement("button");
+        checkBtn.type = "button";
+        checkBtn.className = "btn btnCompact";
+        checkBtn.textContent = "Kontroller";
+        checkBtn.addEventListener("click", () => openEquipmentCheck(camera.camera_id || camera.mac_address || camera.serial_number || ""));
+        actions.appendChild(editBtn);
+        actions.appendChild(checkBtn);
+        card.appendChild(top);
+        card.appendChild(grid);
+        if (camera.note) {
+          const note = document.createElement("p");
+          note.className = "equipmentNote";
+          note.textContent = camera.note;
+          card.appendChild(note);
+        }
+        card.appendChild(actions);
+        equipmentList.appendChild(card);
+      });
+    }
+
+    function fillEquipmentForm(camera) {
+      if (equipmentCameraIdInput) equipmentCameraIdInput.value = camera?.camera_id || "";
+      if (equipmentMacInput) equipmentMacInput.value = camera?.mac_address || "";
+      if (equipmentSerialInput) equipmentSerialInput.value = camera?.serial_number || "";
+      if (equipmentModelInput) equipmentModelInput.value = camera?.model || "";
+      if (equipmentLocationInput) equipmentLocationInput.value = camera?.location_text || "";
+      if (equipmentStatusSelect) equipmentStatusSelect.value = camera?.status || "registered";
+      if (equipmentNoteInput) equipmentNoteInput.value = camera?.note || "";
+      if (equipmentFormStatus) equipmentFormStatus.textContent = "";
+    }
+
+    function openEquipmentDrawer() {
+      if (!equipmentDrawerShell) {
+        return;
+      }
+      equipmentDrawerShell.classList.add("open");
+      equipmentDrawerShell.setAttribute("aria-hidden", "false");
+      document.body.classList.add("equipment-modal-open");
+    }
+
+    function closeEquipmentDrawer() {
+      if (!equipmentDrawerShell) {
+        return;
+      }
+      equipmentDrawerShell.classList.remove("open");
+      equipmentDrawerShell.setAttribute("aria-hidden", "true");
+      document.body.classList.remove("equipment-modal-open");
+      equipmentState.activeCameraId = null;
+      equipmentState.mode = null;
+      equipmentState.checkCamera = null;
+      if (equipmentFormStatus) equipmentFormStatus.textContent = "";
+      if (equipmentCheckStatus) equipmentCheckStatus.textContent = "";
+      if (equipmentCheckResult) equipmentCheckResult.innerHTML = "";
+    }
+
+    function setEquipmentMode(mode) {
+      equipmentState.mode = mode;
+      if (equipmentCameraForm) equipmentCameraForm.hidden = mode !== "form";
+      if (equipmentCheckView) equipmentCheckView.hidden = mode !== "check";
+    }
+
+    function openEquipmentCameraForm(camera, prefill = {}) {
+      setEquipmentMode("form");
+      equipmentState.activeCameraId = camera?.id || null;
+      fillEquipmentForm(camera || prefill);
+      if (equipmentDrawerTitle) equipmentDrawerTitle.textContent = camera ? "Rediger kamera" : "Tilfoej kamera";
+      if (equipmentDrawerMeta) equipmentDrawerMeta.textContent = "Projektudstyr Beta · CCTV";
+      if (equipmentArchiveBtn) equipmentArchiveBtn.hidden = !camera;
+      openEquipmentDrawer();
+      if (equipmentCameraIdInput) equipmentCameraIdInput.focus();
+    }
+
+    function openEquipmentCheck(prefillValue) {
+      setEquipmentMode("check");
+      equipmentState.checkCamera = null;
+      if (equipmentDrawerTitle) equipmentDrawerTitle.textContent = "Kontroller kamera";
+      if (equipmentDrawerMeta) equipmentDrawerMeta.textContent = "Sog paa MAC, S/N eller Kamera-ID";
+      if (equipmentCheckInput) equipmentCheckInput.value = prefillValue || "";
+      if (equipmentCheckStatus) equipmentCheckStatus.textContent = "";
+      if (equipmentCheckResult) equipmentCheckResult.innerHTML = "";
+      openEquipmentDrawer();
+      if (equipmentCheckInput) equipmentCheckInput.focus();
+    }
+
+    function getEquipmentFormPayload() {
+      return {
+        camera_id: equipmentCameraIdInput ? equipmentCameraIdInput.value.trim() : "",
+        mac_address: equipmentMacInput ? equipmentMacInput.value.trim() || null : null,
+        serial_number: equipmentSerialInput ? equipmentSerialInput.value.trim() || null : null,
+        model: equipmentModelInput ? equipmentModelInput.value.trim() || null : null,
+        location_text: equipmentLocationInput ? equipmentLocationInput.value.trim() || null : null,
+        status: equipmentStatusSelect ? equipmentStatusSelect.value : "registered",
+        note: equipmentNoteInput ? equipmentNoteInput.value.trim() || null : null,
+      };
+    }
+
+    async function loadEquipmentCctv() {
+      if (!equipmentUi) {
+        return;
+      }
+      equipmentState.isLoading = true;
+      renderEquipmentList();
+      try {
+        const query = equipmentState.search ? `?q=${encodeURIComponent(equipmentState.search)}` : "";
+        const response = await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/equipment/cctv${query}`, { method: "GET" });
+        if (equipmentSection) equipmentSection.hidden = false;
+        equipmentState.summary = response && response.summary ? response.summary : equipmentState.summary;
+        equipmentState.cameras = response && Array.isArray(response.cameras) ? response.cameras : [];
+        if (equipmentExportLink) {
+          equipmentExportLink.href = `/api/projects/${encodeURIComponent(projectId)}/equipment/cctv/export.csv`;
+        }
+      } catch (error) {
+        if (equipmentSection) equipmentSection.hidden = true;
+        const message = equipmentErrorMessage(error, "Kunne ikke hente CCTV-udstyr.");
+        if (!message) {
+          return;
+        }
+        equipmentState.cameras = [];
+        setEquipmentStateMessage(message, true);
+      } finally {
+        equipmentState.isLoading = false;
+      }
+      renderEquipmentList();
+    }
+
+    async function saveEquipmentCamera(event) {
+      event.preventDefault();
+      const payload = getEquipmentFormPayload();
+      if (!payload.camera_id) {
+        if (equipmentFormStatus) equipmentFormStatus.textContent = "Kamera-ID er paakraevet.";
+        return;
+      }
+      if (equipmentSaveBtn) equipmentSaveBtn.disabled = true;
+      if (equipmentFormStatus) equipmentFormStatus.textContent = "Gemmer...";
+      try {
+        const isEdit = Boolean(equipmentState.activeCameraId);
+        await apiFetch(isEdit
+          ? `/api/projects/${encodeURIComponent(projectId)}/equipment/cctv/${encodeURIComponent(equipmentState.activeCameraId)}`
+          : `/api/projects/${encodeURIComponent(projectId)}/equipment/cctv`, {
+          method: isEdit ? "PATCH" : "POST",
+          body: JSON.stringify(payload),
+        });
+        await loadEquipmentCctv();
+        closeEquipmentDrawer();
+      } catch (error) {
+        const message = equipmentErrorMessage(error, "Kunne ikke gemme kamera.");
+        if (equipmentFormStatus && message) equipmentFormStatus.textContent = message;
+      } finally {
+        if (equipmentSaveBtn) equipmentSaveBtn.disabled = false;
+      }
+    }
+
+    async function archiveEquipmentCamera() {
+      if (!equipmentState.activeCameraId) {
+        return;
+      }
+      if (equipmentArchiveBtn) equipmentArchiveBtn.disabled = true;
+      if (equipmentFormStatus) equipmentFormStatus.textContent = "Arkiverer...";
+      try {
+        await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/equipment/cctv/${encodeURIComponent(equipmentState.activeCameraId)}`, { method: "DELETE" });
+        await loadEquipmentCctv();
+        closeEquipmentDrawer();
+      } catch (error) {
+        const message = equipmentErrorMessage(error, "Kunne ikke arkivere kamera.");
+        if (equipmentFormStatus && message) equipmentFormStatus.textContent = message;
+      } finally {
+        if (equipmentArchiveBtn) equipmentArchiveBtn.disabled = false;
+      }
+    }
+
+    function renderEquipmentCheckResult(result, query) {
+      if (!equipmentCheckResult) {
+        return;
+      }
+      equipmentCheckResult.innerHTML = "";
+      const card = document.createElement("div");
+      card.className = result && result.found ? "equipmentResultCard" : "equipmentResultCard notFound";
+      const title = document.createElement("h3");
+      title.className = "equipmentTitle";
+      title.textContent = result && result.found ? "Kamera fundet" : "Ikke fundet";
+      card.appendChild(title);
+      if (result && result.warning) {
+        const warning = document.createElement("p");
+        warning.className = "equipmentNote";
+        warning.textContent = result.warning === "multiple_possible_matches" ? "Flere mulige matches. Brug en mere praecis vaerdi." : "Resultatet er et delvist match.";
+        card.appendChild(warning);
+      }
+      if (result && result.found && result.camera) {
+        const camera = result.camera;
+        equipmentState.checkCamera = camera;
+        const grid = document.createElement("div");
+        grid.className = "equipmentMetaGrid";
+        grid.appendChild(makeEquipmentMeta("Kamera-ID", camera.camera_id));
+        grid.appendChild(makeEquipmentMeta("MAC", camera.mac_address));
+        grid.appendChild(makeEquipmentMeta("S/N", camera.serial_number));
+        grid.appendChild(makeEquipmentMeta("Model", camera.model));
+        grid.appendChild(makeEquipmentMeta("Placering", camera.location_text));
+        grid.appendChild(makeEquipmentMeta("Status", getEquipmentStatusView(camera.status).label));
+        card.appendChild(grid);
+        if (camera.note) {
+          const note = document.createElement("p");
+          note.className = "equipmentNote";
+          note.textContent = camera.note;
+          card.appendChild(note);
+        }
+        const actions = document.createElement("div");
+        actions.className = "equipmentResultActions";
+        const checkedBtn = document.createElement("button");
+        checkedBtn.type = "button";
+        checkedBtn.className = "btn btnPrimary btnCompact";
+        checkedBtn.textContent = "Marker som kontrolleret";
+        checkedBtn.addEventListener("click", () => markEquipmentChecked(camera));
+        actions.appendChild(checkedBtn);
+        card.appendChild(actions);
+      } else {
+        equipmentState.checkCamera = null;
+        const text = document.createElement("p");
+        text.className = "equipmentNote";
+        text.textContent = "Opret kameraet, hvis vaerdien hoerer til dette projekt.";
+        const createBtn = document.createElement("button");
+        createBtn.type = "button";
+        createBtn.className = "btn btnPrimary btnCompact";
+        createBtn.textContent = "Opret nyt kamera";
+        createBtn.addEventListener("click", () => openEquipmentCameraForm(null, guessEquipmentPrefill(query)));
+        card.appendChild(text);
+        card.appendChild(createBtn);
+      }
+      equipmentCheckResult.appendChild(card);
+    }
+
+    function guessEquipmentPrefill(query) {
+      const value = String(query || "").trim();
+      const compact = value.replace(/[^0-9a-fA-F]/g, "");
+      if (/^[0-9a-fA-F]{12}$/.test(compact)) {
+        return { camera_id: "", mac_address: value };
+      }
+      return { camera_id: value, mac_address: "" };
+    }
+
+    async function checkEquipmentCamera() {
+      const query = equipmentCheckInput ? equipmentCheckInput.value.trim() : "";
+      if (!query) {
+        if (equipmentCheckStatus) equipmentCheckStatus.textContent = "Indtast MAC, S/N eller Kamera-ID.";
+        return;
+      }
+      if (equipmentCheckSubmitBtn) equipmentCheckSubmitBtn.disabled = true;
+      if (equipmentCheckStatus) equipmentCheckStatus.textContent = "Kontrollerer...";
+      if (equipmentCheckResult) equipmentCheckResult.innerHTML = "";
+      try {
+        const result = await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/equipment/cctv/check?q=${encodeURIComponent(query)}`, { method: "GET" });
+        if (equipmentCheckStatus) equipmentCheckStatus.textContent = "";
+        renderEquipmentCheckResult(result, query);
+      } catch (error) {
+        const message = equipmentErrorMessage(error, "Kunne ikke kontrollere kamera.");
+        if (equipmentCheckStatus && message) equipmentCheckStatus.textContent = message;
+      } finally {
+        if (equipmentCheckSubmitBtn) equipmentCheckSubmitBtn.disabled = false;
+      }
+    }
+
+    async function markEquipmentChecked(camera) {
+      if (!camera || !camera.id) {
+        return;
+      }
+      if (equipmentCheckStatus) equipmentCheckStatus.textContent = "Marker som kontrolleret...";
+      try {
+        await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/equipment/cctv/${encodeURIComponent(camera.id)}`, {
+          method: "PATCH",
+          body: JSON.stringify({ status: "checked" }),
+        });
+        await loadEquipmentCctv();
+        await checkEquipmentCamera();
+      } catch (error) {
+        const message = equipmentErrorMessage(error, "Kunne ikke opdatere status.");
+        if (equipmentCheckStatus && message) equipmentCheckStatus.textContent = message;
+      }
+    }
+
+    async function exportEquipmentCsv(event) {
+      event.preventDefault();
+      if (!equipmentExportLink) {
+        return;
+      }
+      equipmentExportLink.textContent = "Henter...";
+      try {
+        const token = getToken();
+        const response = await window.fetch(`/api/projects/${encodeURIComponent(projectId)}/equipment/cctv/export.csv`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!response.ok) {
+          throw new Error(`csv_export_failed_${response.status}`);
+        }
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "fielddesk-cctv.csv";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+      } catch (error) {
+        setEquipmentStateMessage("Kunne ikke hente CSV eksport.", true);
+      } finally {
+        equipmentExportLink.textContent = "CSV";
+      }
+    }
     if (qaUi) {
       renderQaSummary();
       renderQaThreadList();
@@ -5474,7 +5953,69 @@
       qaDiscardBtn.addEventListener("click", () => closeQaDrawer(true));
     }
 
+
+    if (equipmentUi) {
+      renderEquipmentSummary();
+      renderEquipmentList();
+    }
+
+    if (equipmentAddBtn) {
+      equipmentAddBtn.addEventListener("click", () => openEquipmentCameraForm(null));
+    }
+
+    if (equipmentCheckBtn) {
+      equipmentCheckBtn.addEventListener("click", () => openEquipmentCheck(""));
+    }
+
+    if (equipmentExportLink) {
+      equipmentExportLink.addEventListener("click", exportEquipmentCsv);
+    }
+
+    if (equipmentSearchInput) {
+      equipmentSearchInput.addEventListener("input", () => {
+        equipmentState.search = equipmentSearchInput.value.trim();
+        window.clearTimeout(equipmentState.searchTimer);
+        equipmentState.searchTimer = window.setTimeout(loadEquipmentCctv, 220);
+      });
+    }
+
+    if (equipmentCameraForm) {
+      equipmentCameraForm.addEventListener("submit", saveEquipmentCamera);
+    }
+
+    if (equipmentArchiveBtn) {
+      equipmentArchiveBtn.addEventListener("click", archiveEquipmentCamera);
+    }
+
+    if (equipmentCancelBtn) {
+      equipmentCancelBtn.addEventListener("click", closeEquipmentDrawer);
+    }
+
+    if (equipmentDrawerOverlay) {
+      equipmentDrawerOverlay.addEventListener("click", closeEquipmentDrawer);
+    }
+
+    if (equipmentDrawerCloseBtn) {
+      equipmentDrawerCloseBtn.addEventListener("click", closeEquipmentDrawer);
+    }
+
+    if (equipmentCheckSubmitBtn) {
+      equipmentCheckSubmitBtn.addEventListener("click", checkEquipmentCamera);
+    }
+
+    if (equipmentCheckInput) {
+      equipmentCheckInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          checkEquipmentCamera();
+        }
+      });
+    }
     document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && equipmentDrawerShell && equipmentDrawerShell.classList.contains("open")) {
+        closeEquipmentDrawer();
+        return;
+      }
       if (event.key === "Escape" && qaDrawerShell && qaDrawerShell.classList.contains("open")) {
         if (qaUnsavedConfirm && !qaUnsavedConfirm.hidden) {
           hideQaUnsavedConfirm();
@@ -5490,9 +6031,10 @@
         return;
       }
 
-      const [projectResult, breakdownResult] = await Promise.allSettled([
+      const [projectResult, breakdownResult, equipmentResult] = await Promise.allSettled([
         apiFetch(`/api/projects/${encodeURIComponent(projectId)}`, { method: "GET" }),
         apiFetch(`/api/projects/${encodeURIComponent(projectId)}/fitterhours/breakdown`, { method: "GET" }),
+        apiFetch(`/api/projects/${encodeURIComponent(projectId)}/equipment/cctv`, { method: "GET" }),
       ]);
 
       if (projectResult.status === "rejected") {
@@ -5512,6 +6054,15 @@
         : null;
       renderFittersSectionFromBreakdown(breakdown);
       renderHoursSectionFromBreakdown(breakdown);
+      if (equipmentResult && equipmentResult.status === "fulfilled" && equipmentResult.value) {
+        if (equipmentSection) equipmentSection.hidden = false;
+        equipmentState.summary = equipmentResult.value.summary || equipmentState.summary;
+        equipmentState.cameras = Array.isArray(equipmentResult.value.cameras) ? equipmentResult.value.cameras : [];
+        renderEquipmentList();
+      } else {
+        if (equipmentSection) equipmentSection.hidden = true;
+        await loadEquipmentCctv();
+      }
       await loadQaThreads();
     } catch (error) {
       if (handleAuthFailure(error)) {

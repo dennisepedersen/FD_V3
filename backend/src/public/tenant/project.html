@@ -53,7 +53,8 @@
     }
 
     body.drawer-open,
-    body.qa-modal-open {
+    body.qa-modal-open,
+    body.equipment-modal-open {
       overflow: hidden;
     }
 
@@ -1576,6 +1577,150 @@
       background: #fff1f2;
       color: #be123c;
     }
+
+    .equipmentPanel {
+      gap: 14px;
+    }
+
+    .equipmentHeaderRow,
+    .equipmentToolbar,
+    .equipmentCardTop,
+    .equipmentCardActions,
+    .equipmentResultActions {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .equipmentHeaderCopy {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .equipmentActions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .equipmentSearch {
+      display: grid;
+      gap: 5px;
+      flex: 1 1 260px;
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      font-weight: 800;
+    }
+
+    .equipmentSummaryGrid,
+    .equipmentFormGrid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+    }
+
+    .equipmentList {
+      display: grid;
+      gap: 8px;
+    }
+
+    .equipmentCard {
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--surface-2);
+      padding: 11px;
+      display: grid;
+      gap: 9px;
+    }
+
+    .equipmentTitle {
+      margin: 0;
+      color: var(--text);
+      font-size: 15px;
+      font-weight: 800;
+      overflow-wrap: anywhere;
+    }
+
+    .equipmentMetaGrid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 6px;
+    }
+
+    .equipmentMetaItem {
+      display: grid;
+      gap: 2px;
+      min-width: 0;
+    }
+
+    .equipmentMetaLabel {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .equipmentMetaValue {
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 700;
+      overflow-wrap: anywhere;
+    }
+
+    .equipmentNote {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.4;
+      overflow-wrap: anywhere;
+    }
+
+    .equipmentDrawerBody {
+      display: grid;
+      gap: 12px;
+      padding: 14px;
+      overflow: auto;
+    }
+
+    .equipmentCheckView,
+    .equipmentCheckResult {
+      display: grid;
+      gap: 12px;
+    }
+
+    .equipmentResultCard {
+      border: 1px solid var(--fd-brand-border, var(--border));
+      border-radius: 14px;
+      background: var(--fd-brand-soft, rgba(94, 200, 229, 0.1));
+      padding: 12px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .equipmentResultCard.notFound {
+      border-color: #fed7aa;
+      background: var(--fd-obs-bg, rgba(248, 204, 87, 0.12));
+    }
+
+    .equipmentFormStatus {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .equipmentDangerBtn {
+      border-color: #fecdd3;
+      background: #fff1f2;
+      color: #be123c;
+    }
     @media (min-width: 760px) {
       .topbar {
         padding: 12px 24px;
@@ -1598,8 +1743,14 @@
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
 
-      .qaSummaryGrid {
+      .qaSummaryGrid,
+      .equipmentSummaryGrid {
         grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+
+      .equipmentFormGrid,
+      .equipmentMetaGrid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
       }
 
       .qaFormGrid {
@@ -1816,6 +1967,29 @@
       <div id="qaThreadList" class="qaThreadList"></div>
     </section>
 
+
+    <section id="equipmentSection" class="panel sectionPanel equipmentPanel" hidden>
+      <div class="equipmentHeaderRow">
+        <div class="equipmentHeaderCopy">
+          <h2 class="sectionTitle">Projektudstyr Beta &middot; CCTV</h2>
+          <p id="equipmentMetaText" class="qaMetaText">Indlaeser CCTV...</p>
+        </div>
+        <div class="equipmentActions">
+          <button id="equipmentCheckBtn" class="btn btnCompact" type="button">Kontroller kamera</button>
+          <button id="equipmentAddBtn" class="btn btnPrimary btnCompact" type="button">Tilfoej kamera</button>
+          <a id="equipmentExportLink" class="btn btnCompact" href="#">CSV</a>
+        </div>
+      </div>
+      <div class="equipmentToolbar">
+        <label class="equipmentSearch">
+          Soeg/filter
+          <input id="equipmentSearchInput" class="qaInput" type="search" placeholder="Kamera-ID, MAC, S/N, placering" />
+        </label>
+      </div>
+      <div id="equipmentSummaryGrid" class="equipmentSummaryGrid" aria-live="polite"></div>
+      <div id="equipmentState" class="sectionState">Indlaeser CCTV...</div>
+      <div id="equipmentList" class="equipmentList" aria-live="polite"></div>
+    </section>
     <section class="panel sectionPanel">
       <h2 class="sectionTitle">Ansvar</h2>
       <div class="fieldGrid">
@@ -1990,6 +2164,47 @@
             <button id="qaStayBtn" class="btn btnPrimary" type="button">Bliv og fortsæt</button>
             <button id="qaDiscardBtn" class="btn qaDangerBtn" type="button">Luk uden at gemme</button>
           </div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+
+  <div id="equipmentDrawerShell" class="qaDrawerShell" aria-hidden="true">
+    <div id="equipmentDrawerOverlay" class="qaDrawerOverlay"></div>
+    <aside class="qaDrawerPanel" aria-modal="true" role="dialog" aria-labelledby="equipmentDrawerTitle">
+      <div class="qaDrawerHeader">
+        <div>
+          <h2 id="equipmentDrawerTitle" class="qaDrawerTitle">Projektudstyr</h2>
+          <p id="equipmentDrawerMeta" class="qaDrawerMeta">CCTV beta</p>
+        </div>
+        <button id="equipmentDrawerCloseBtn" class="iconBtn" type="button" aria-label="Luk">&times;</button>
+      </div>
+      <div class="equipmentDrawerBody">
+        <form id="equipmentCameraForm" class="qaComposer" hidden>
+          <div class="equipmentFormGrid">
+            <label class="qaLabel">Kamera-ID<input id="equipmentCameraIdInput" class="qaInput" type="text" maxlength="80" required placeholder="CAM-001" /></label>
+            <label class="qaLabel">Status<select id="equipmentStatusSelect" class="qaSelect"><option value="registered">Registreret</option><option value="planned">Planlagt</option><option value="mounted">Monteret</option><option value="checked">Kontrolleret</option><option value="deviation">Afvigelse</option></select></label>
+            <label class="qaLabel">MAC-adresse<input id="equipmentMacInput" class="qaInput" type="text" maxlength="64" placeholder="00:11:22:33:44:55" /></label>
+            <label class="qaLabel">Serienummer / S/N<input id="equipmentSerialInput" class="qaInput" type="text" maxlength="120" /></label>
+            <label class="qaLabel">Type/model<input id="equipmentModelInput" class="qaInput" type="text" maxlength="160" /></label>
+            <label class="qaLabel">Placering<input id="equipmentLocationInput" class="qaInput" type="text" maxlength="240" /></label>
+          </div>
+          <label class="qaLabel">Note<textarea id="equipmentNoteInput" class="qaTextarea" maxlength="1200"></textarea></label>
+          <p id="equipmentFormStatus" class="equipmentFormStatus"></p>
+          <div class="qaFormActions">
+            <button id="equipmentArchiveBtn" class="btn equipmentDangerBtn btnCompact" type="button" hidden>Arkiver</button>
+            <button id="equipmentCancelBtn" class="btn btnCompact" type="button">Annuller</button>
+            <button id="equipmentSaveBtn" class="btn btnPrimary btnCompact" type="submit">Gem kamera</button>
+          </div>
+        </form>
+        <div id="equipmentCheckView" class="equipmentCheckView" hidden>
+          <label class="qaLabel">MAC, S/N eller Kamera-ID<input id="equipmentCheckInput" class="qaInput" type="search" placeholder="Scan eller skriv vaerdi" /></label>
+          <div class="qaFormActions">
+            <button id="equipmentCheckSubmitBtn" class="btn btnPrimary btnCompact" type="button">Kontroller</button>
+          </div>
+          <p id="equipmentCheckStatus" class="equipmentFormStatus"></p>
+          <div id="equipmentCheckResult" class="equipmentCheckResult"></div>
         </div>
       </div>
     </aside>

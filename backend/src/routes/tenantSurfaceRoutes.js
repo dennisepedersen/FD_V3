@@ -11,6 +11,7 @@ const projectAccessService = require("../services/projectAccessService");
 const qaRoutes = require("../modules/qa/qa.routes");
 const calendarRoutes = require("../modules/calendar/calendar.routes");
 const resourceGroupRoutes = require("../modules/resourceGroups/resourceGroup.routes");
+const projectEquipmentRoutes = require("../modules/projectEquipment/projectEquipment.routes");
 const { createHttpError } = require("../middleware/errorHandler");
 
 const router = express.Router();
@@ -94,6 +95,7 @@ router.get("/tenant/auth.js", requireTenantHost, (req, res) => {
 router.use(qaRoutes);
 router.use(calendarRoutes);
 router.use(resourceGroupRoutes);
+router.use(projectEquipmentRoutes);
 
 router.get("/api/me", requireTenantHost, requireAuth("access"), async (req, res, next) => {
   if (hasAccessContextMismatch(req)) {
