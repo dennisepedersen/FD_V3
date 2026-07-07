@@ -1714,6 +1714,41 @@
       align-items: end;
     }
 
+    .equipmentMacSegments {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+      min-width: 0;
+    }
+
+    .equipmentMacSegment {
+      width: 46px;
+      min-height: 42px;
+      padding: 8px 6px;
+      text-align: center;
+      text-transform: uppercase;
+      font-weight: 850;
+      letter-spacing: 0.04em;
+    }
+
+    .equipmentMacSeparator {
+      color: #475569;
+      font-weight: 900;
+      line-height: 1;
+    }
+
+    .equipmentMacFeedback {
+      min-height: 17px;
+      color: #64748b;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .equipmentMacFeedback.isError {
+      color: #be123c;
+    }
+
     .equipmentDrawerBody {
       display: grid;
       gap: 12px;
@@ -2309,7 +2344,23 @@
             <label class="qaLabel">Kamera-ID<input id="equipmentCameraIdInput" class="qaInput" type="text" maxlength="80" required placeholder="CAM-001" /></label>
             <label class="qaLabel">Status<select id="equipmentStatusSelect" class="qaSelect"><option value="registered">Registreret</option><option value="planned">Planlagt</option><option value="mounted">Monteret</option><option value="checked">Kontrolleret</option><option value="deviation">Afvigelse</option></select></label>
             <div class="equipmentInputWithAction">
-              <label class="qaLabel">MAC-adresse<input id="equipmentMacInput" class="qaInput" type="text" maxlength="64" placeholder="00:11:22:33:44:55" /></label>
+              <label class="qaLabel">MAC-adresse
+                <input id="equipmentMacInput" type="hidden" />
+                <span id="equipmentMacSegments" class="equipmentMacSegments" role="group" aria-label="MAC-adresse">
+                  <input class="qaInput equipmentMacSegment" type="text" inputmode="text" maxlength="2" autocomplete="off" autocapitalize="characters" spellcheck="false" data-mac-segment="0" aria-label="MAC gruppe 1" />
+                  <span class="equipmentMacSeparator">:</span>
+                  <input class="qaInput equipmentMacSegment" type="text" inputmode="text" maxlength="2" autocomplete="off" autocapitalize="characters" spellcheck="false" data-mac-segment="1" aria-label="MAC gruppe 2" />
+                  <span class="equipmentMacSeparator">:</span>
+                  <input class="qaInput equipmentMacSegment" type="text" inputmode="text" maxlength="2" autocomplete="off" autocapitalize="characters" spellcheck="false" data-mac-segment="2" aria-label="MAC gruppe 3" />
+                  <span class="equipmentMacSeparator">:</span>
+                  <input class="qaInput equipmentMacSegment" type="text" inputmode="text" maxlength="2" autocomplete="off" autocapitalize="characters" spellcheck="false" data-mac-segment="3" aria-label="MAC gruppe 4" />
+                  <span class="equipmentMacSeparator">:</span>
+                  <input class="qaInput equipmentMacSegment" type="text" inputmode="text" maxlength="2" autocomplete="off" autocapitalize="characters" spellcheck="false" data-mac-segment="4" aria-label="MAC gruppe 5" />
+                  <span class="equipmentMacSeparator">:</span>
+                  <input class="qaInput equipmentMacSegment" type="text" inputmode="text" maxlength="2" autocomplete="off" autocapitalize="characters" spellcheck="false" data-mac-segment="5" aria-label="MAC gruppe 6" />
+                </span>
+                <span id="equipmentMacFeedback" class="equipmentMacFeedback" aria-live="polite"></span>
+              </label>
               <button id="equipmentMacScanBtn" class="btn btnCompact" type="button">Scan</button>
             </div>
             <div class="equipmentInputWithAction">

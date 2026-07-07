@@ -4497,6 +4497,8 @@
     const equipmentCameraForm = document.getElementById("equipmentCameraForm");
     const equipmentCameraIdInput = document.getElementById("equipmentCameraIdInput");
     const equipmentMacInput = document.getElementById("equipmentMacInput");
+    const equipmentMacSegmentInputs = Array.from(document.querySelectorAll("[data-mac-segment]"));
+    const equipmentMacFeedback = document.getElementById("equipmentMacFeedback");
     const equipmentMacScanBtn = document.getElementById("equipmentMacScanBtn");
     const equipmentSerialInput = document.getElementById("equipmentSerialInput");
     const equipmentSerialScanBtn = document.getElementById("equipmentSerialScanBtn");
@@ -5549,14 +5551,145 @@
       return normalizeEquipmentMacPreview(value) || String(value || "").trim();
     }
 
-    function formatEquipmentMacInput(input) {
-      if (!input) {
+    function sanitizeEquipmentMacSegment(value) {
+      return String(value || "").replace(/[^0-9a-fA-F]/g, "").toUpperCase().slice(0, 2);
+    }
+
+    function focusEquipmentMacSegment(index) {
+      const input = equipmentMacSegmentInputs[index];
+      if (!input) return;
+      input.focus();
+      input.select();
+    }
+
+    function setEquipmentMacFeedback(message, isError = false) {
+      if (!equipmentMacFeedback) return;
+      equipmentMacFeedback.textContent = message || "";
+      equipmentMacFeedback.classList.toggle("isError", Boolean(isError));
+    }
+
+    function getEquipmentMacCompact() {
+      return equipmentMacSegmentInputs.map((input) => sanitizeEquipmentMacSegment(input.value)).join("");
+    }
+
+    function getEquipmentMacState() {
+      const compact = getEquipmentMacCompact();
+      if (!compact) {
+        return { valid: true, value: null, compact, isEmpty: true };
+      }
+      if (/^[0-9A-F]{12}$/.test(compact)) {
+        return { valid: true, value: compact.match(/.{1,2}/g).join(":"), compact, isEmpty: false };
+      }
+      return { valid: false, value: compact, compact, isEmpty: false };
+    }
+
+    function syncEquipmentMacHidden(options = {}) {
+      equipmentMacSegmentInputs.forEach((input) => {
+        input.value = sanitizeEquipmentMacSegment(input.value);
+      });
+      const state = getEquipmentMacState();
+      if (equipmentMacInput) {
+        equipmentMacInput.value = state.valid ? (state.value || "") : state.value;
+      }
+      if (options.showFeedback) {
+        setEquipmentMacFeedback(state.valid ? "" : "MAC-adressen skal udfyldes med 6 grupper a 2 hex-tegn.", !state.valid);
+      } else if (state.valid) {
+        setEquipmentMacFeedback("", false);
+      }
+      return state;
+    }
+
+    function setEquipmentMacValue(value, options = {}) {
+      const raw = String(value || "").trim();
+      if (!raw) {
+        equipmentMacSegmentInputs.forEach((input) => { input.value = ""; });
+        if (equipmentMacInput) equipmentMacInput.value = "";
+        setEquipmentMacFeedback("", false);
+        return true;
+      }
+      const compact = raw.replace(/[^0-9a-fA-F]/g, "").toUpperCase();
+      if (!/^[0-9A-F]{12}$/.test(compact)) {
+        setEquipmentMacFeedback("MAC-adressen skal udfyldes med 6 grupper a 2 hex-tegn.", true);
+        return false;
+      }
+      const pairs = compact.match(/.{1,2}/g);
+      equipmentMacSegmentInputs.forEach((input, index) => {
+        input.value = pairs[index] || "";
+      });
+      syncEquipmentMacHidden();
+      if (options.focusSerial && equipmentSerialInput) {
+        equipmentSerialInput.focus();
+        equipmentSerialInput.select();
+      }
+      return true;
+    }
+
+    function handleEquipmentMacPaste(event) {
+      const text = event.clipboardData?.getData("text") || "";
+      if (!text) return;
+      event.preventDefault();
+      setEquipmentMacValue(text, { focusSerial: true });
+    }
+
+    function handleEquipmentMacSegmentInput(event, index) {
+      const input = event.currentTarget;
+      const compact = String(input.value || "").replace(/[^0-9a-fA-F]/g, "").toUpperCase();
+      if (compact.length > 2) {
+        setEquipmentMacValue(compact, { focusSerial: compact.length >= 12 });
         return;
       }
-      const formatted = normalizeEquipmentMacPreview(input.value);
-      if (formatted) {
-        input.value = formatted;
+      input.value = compact.slice(0, 2);
+      if (input.value.length === 2 && index < equipmentMacSegmentInputs.length - 1) {
+        focusEquipmentMacSegment(index + 1);
+      } else if (input.value.length === 2 && index === equipmentMacSegmentInputs.length - 1 && equipmentSerialInput) {
+        equipmentSerialInput.focus();
+        equipmentSerialInput.select();
       }
+      syncEquipmentMacHidden({ showFeedback: false });
+    }
+
+    function handleEquipmentMacSegmentKeydown(event, index) {
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      if (event.key === "Enter" || (event.key === "Tab" && !event.shiftKey)) {
+        const state = syncEquipmentMacHidden({ showFeedback: event.key === "Enter" });
+        if (state.valid && !state.isEmpty && equipmentSerialInput) {
+          event.preventDefault();
+          equipmentSerialInput.focus();
+          equipmentSerialInput.select();
+        }
+        return;
+      }
+      if (event.key === "Backspace" && !event.currentTarget.value && index > 0) {
+        event.preventDefault();
+        focusEquipmentMacSegment(index - 1);
+        return;
+      }
+      if (event.key === ":" || event.key === "-" || event.key === " ") {
+        event.preventDefault();
+        if (index < equipmentMacSegmentInputs.length - 1) focusEquipmentMacSegment(index + 1);
+        return;
+      }
+      if (!/^[0-9a-fA-F]$/.test(event.key)) return;
+      event.preventDefault();
+      let targetIndex = index;
+      let target = equipmentMacSegmentInputs[targetIndex];
+      if (!target) return;
+      let current = sanitizeEquipmentMacSegment(target.value);
+      const hasSelection = target.selectionStart !== target.selectionEnd;
+      if (hasSelection) current = "";
+      if (current.length >= 2 && targetIndex < equipmentMacSegmentInputs.length - 1) {
+        targetIndex += 1;
+        target = equipmentMacSegmentInputs[targetIndex];
+        current = sanitizeEquipmentMacSegment(target.value);
+      }
+      target.value = `${current}${event.key.toUpperCase()}`.slice(0, 2);
+      if (target.value.length === 2 && targetIndex < equipmentMacSegmentInputs.length - 1) {
+        focusEquipmentMacSegment(targetIndex + 1);
+      } else if (target.value.length === 2 && targetIndex === equipmentMacSegmentInputs.length - 1 && equipmentSerialInput) {
+        equipmentSerialInput.focus();
+        equipmentSerialInput.select();
+      }
+      syncEquipmentMacHidden({ showFeedback: false });
     }
 
     const EQUIPMENT_MODEL_SEPARATOR = " · ";
@@ -5927,9 +6060,10 @@
       const target = equipmentScannerState.target;
       const mac = equipmentScannerState.normalizedMac;
       const value = target === "serial" ? raw : (mac || raw);
-      if (target === "mac" && equipmentMacInput) {
-        equipmentMacInput.value = value;
-        if (equipmentFormStatus) equipmentFormStatus.textContent = "Scannet MAC-adresse indsat.";
+      if (target === "mac") {
+        if (setEquipmentMacValue(value, { focusSerial: true }) && equipmentFormStatus) {
+          equipmentFormStatus.textContent = "Scannet MAC-adresse indsat.";
+        }
       } else if (target === "serial" && equipmentSerialInput) {
         equipmentSerialInput.value = value;
         if (equipmentFormStatus) equipmentFormStatus.textContent = "Scannet serienummer indsat.";
@@ -6071,7 +6205,7 @@
     function fillEquipmentForm(camera) {
       const brandModel = getEquipmentCameraBrandModel(camera);
       if (equipmentCameraIdInput) equipmentCameraIdInput.value = camera?.camera_id || "";
-      if (equipmentMacInput) equipmentMacInput.value = formatEquipmentMac(camera?.mac_address);
+      setEquipmentMacValue(camera?.mac_address || "");
       if (equipmentSerialInput) equipmentSerialInput.value = camera?.serial_number || "";
       if (equipmentBrandInput) equipmentBrandInput.value = brandModel.brand;
       if (equipmentModelInput) equipmentModelInput.value = brandModel.model;
@@ -6137,11 +6271,10 @@
     }
 
     function getEquipmentFormPayload() {
-      const macValue = equipmentMacInput ? equipmentMacInput.value.trim() : "";
-      const formattedMac = normalizeEquipmentMacPreview(macValue);
+      const macState = syncEquipmentMacHidden();
       return {
         camera_id: equipmentCameraIdInput ? equipmentCameraIdInput.value.trim() : "",
-        mac_address: macValue ? (formattedMac || macValue) : null,
+        mac_address: macState.valid ? macState.value : macState.value,
         serial_number: equipmentSerialInput ? equipmentSerialInput.value.trim() || null : null,
         model: combineEquipmentBrandModel(equipmentBrandInput ? equipmentBrandInput.value : "", equipmentModelInput ? equipmentModelInput.value : ""),
         location_text: equipmentLocationInput ? equipmentLocationInput.value.trim() || null : null,
@@ -6185,6 +6318,12 @@
 
     async function saveEquipmentCamera(event) {
       event.preventDefault();
+      const macState = syncEquipmentMacHidden({ showFeedback: true });
+      if (!macState.valid) {
+        if (equipmentFormStatus) equipmentFormStatus.textContent = "MAC-adressen er ufuldstændig.";
+        focusEquipmentMacSegment(0);
+        return;
+      }
       const payload = getEquipmentFormPayload();
       if (!payload.camera_id) {
         if (equipmentFormStatus) equipmentFormStatus.textContent = "Kamera-ID er påkrævet.";
@@ -6489,8 +6628,19 @@
       equipmentCameraForm.addEventListener("submit", saveEquipmentCamera);
     }
 
-    if (equipmentMacInput) {
-      equipmentMacInput.addEventListener("blur", () => formatEquipmentMacInput(equipmentMacInput));
+    equipmentMacSegmentInputs.forEach((input, index) => {
+      input.addEventListener("keydown", (event) => handleEquipmentMacSegmentKeydown(event, index));
+      input.addEventListener("input", (event) => handleEquipmentMacSegmentInput(event, index));
+      input.addEventListener("paste", handleEquipmentMacPaste);
+      input.addEventListener("blur", () => syncEquipmentMacHidden({ showFeedback: false }));
+    });
+
+    if (equipmentSerialInput) {
+      equipmentSerialInput.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        if (equipmentSerialInput.value.trim() && equipmentBrandInput) equipmentBrandInput.focus();
+      });
     }
 
     if (equipmentBrandInput) {
