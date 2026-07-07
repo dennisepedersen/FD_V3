@@ -92,6 +92,10 @@ router.get("/tenant/auth.js", requireTenantHost, (req, res) => {
   res.sendFile(path.join(tenantPublicDir, "auth.js"));
 });
 
+router.get("/tenant/vendor/zxing-browser.min.js", requireTenantHost, (req, res) => {
+  res.sendFile(path.join(tenantPublicDir, "vendor", "zxing-browser.min.js"));
+});
+
 router.use(qaRoutes);
 router.use(calendarRoutes);
 router.use(resourceGroupRoutes);
