@@ -89,13 +89,21 @@ function csvEscape(value) {
   return text;
 }
 
+function formatCctvMacForDisplay(value) {
+  const raw = String(value || "").trim();
+  const compact = raw.replace(/[^0-9a-fA-F]/g, "").toUpperCase();
+  if (!/^[0-9A-F]{12}$/.test(compact)) {
+    return raw;
+  }
+  return compact.match(/.{1,2}/g).join(":");
+}
 function buildCctvCsv(cameras) {
   const columns = ["camera_id", "mac", "serial_number", "model", "location", "status", "note"];
   const lines = [columns.join(",")];
   cameras.forEach((camera) => {
     lines.push([
       camera.camera_id,
-      camera.mac_address,
+      formatCctvMacForDisplay(camera.mac_address),
       camera.serial_number,
       camera.model,
       camera.location_text,

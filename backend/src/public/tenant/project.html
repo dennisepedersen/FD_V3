@@ -2316,7 +2316,10 @@
               <label class="qaLabel">Serienummer / S/N<input id="equipmentSerialInput" class="qaInput" type="text" maxlength="120" /></label>
               <button id="equipmentSerialScanBtn" class="btn btnCompact" type="button">Scan</button>
             </div>
-            <label class="qaLabel">Type/model<input id="equipmentModelInput" class="qaInput" type="text" maxlength="160" /></label>
+            <label class="qaLabel">Mærke<input id="equipmentBrandInput" class="qaInput" type="text" maxlength="80" list="equipmentBrandSuggestions" autocomplete="off" /></label>
+            <label class="qaLabel">Model<input id="equipmentModelInput" class="qaInput" type="text" maxlength="120" list="equipmentModelSuggestions" autocomplete="off" /></label>
+            <datalist id="equipmentBrandSuggestions"></datalist>
+            <datalist id="equipmentModelSuggestions"></datalist>
             <label class="qaLabel">Placering<input id="equipmentLocationInput" class="qaInput" type="text" maxlength="240" /></label>
           </div>
           <label class="qaLabel">Note<textarea id="equipmentNoteInput" class="qaTextarea" maxlength="1200"></textarea></label>

@@ -4500,7 +4500,10 @@
     const equipmentMacScanBtn = document.getElementById("equipmentMacScanBtn");
     const equipmentSerialInput = document.getElementById("equipmentSerialInput");
     const equipmentSerialScanBtn = document.getElementById("equipmentSerialScanBtn");
+    const equipmentBrandInput = document.getElementById("equipmentBrandInput");
     const equipmentModelInput = document.getElementById("equipmentModelInput");
+    const equipmentBrandSuggestions = document.getElementById("equipmentBrandSuggestions");
+    const equipmentModelSuggestions = document.getElementById("equipmentModelSuggestions");
     const equipmentLocationInput = document.getElementById("equipmentLocationInput");
     const equipmentStatusSelect = document.getElementById("equipmentStatusSelect");
     const equipmentNoteInput = document.getElementById("equipmentNoteInput");
@@ -4566,6 +4569,7 @@
       searchTimer: null,
       isLoading: false,
       feedbackTimer: null,
+      suggestionCameras: [],
     };
     const equipmentScannerState = {
       target: null,
@@ -5541,6 +5545,78 @@
       return compact.match(/.{1,2}/g).join(":").toUpperCase();
     }
 
+    function formatEquipmentMac(value) {
+      return normalizeEquipmentMacPreview(value) || String(value || "").trim();
+    }
+
+    function formatEquipmentMacInput(input) {
+      if (!input) {
+        return;
+      }
+      const formatted = normalizeEquipmentMacPreview(input.value);
+      if (formatted) {
+        input.value = formatted;
+      }
+    }
+
+    const EQUIPMENT_MODEL_SEPARATOR = " · ";
+
+    function splitEquipmentBrandModel(value) {
+      const raw = String(value || "").trim();
+      if (!raw) {
+        return { brand: "", model: "" };
+      }
+      const parts = raw.split(EQUIPMENT_MODEL_SEPARATOR);
+      if (parts.length >= 2) {
+        return {
+          brand: parts.shift().trim(),
+          model: parts.join(EQUIPMENT_MODEL_SEPARATOR).trim(),
+        };
+      }
+      return { brand: "", model: raw };
+    }
+
+    function combineEquipmentBrandModel(brandValue, modelValue) {
+      const brand = String(brandValue || "").trim();
+      const model = String(modelValue || "").trim();
+      if (brand && model) return `${brand}${EQUIPMENT_MODEL_SEPARATOR}${model}`;
+      return model || brand || null;
+    }
+
+    function getEquipmentCameraBrandModel(camera) {
+      return splitEquipmentBrandModel(camera && camera.model);
+    }
+
+    function setEquipmentDatalistOptions(datalist, values) {
+      if (!datalist) return;
+      datalist.innerHTML = "";
+      values.slice(0, 16).forEach((value) => {
+        const option = document.createElement("option");
+        option.value = value;
+        datalist.appendChild(option);
+      });
+    }
+
+    function updateEquipmentBrandModelSuggestions() {
+      const brandMap = new Map();
+      const sameBrandModels = new Map();
+      const otherModels = new Map();
+      const selectedBrand = String(equipmentBrandInput && equipmentBrandInput.value ? equipmentBrandInput.value : "").trim().toLowerCase();
+      const suggestionCameras = equipmentState.suggestionCameras.length ? equipmentState.suggestionCameras : equipmentState.cameras;
+      suggestionCameras.forEach((camera) => {
+        const parsed = getEquipmentCameraBrandModel(camera);
+        const brand = parsed.brand.trim();
+        const model = parsed.model.trim();
+        if (brand) brandMap.set(brand.toLowerCase(), brand);
+        if (model) {
+          const target = brand && selectedBrand && brand.toLowerCase() === selectedBrand ? sameBrandModels : otherModels;
+          target.set(model.toLowerCase(), model);
+        }
+      });
+      setEquipmentDatalistOptions(equipmentBrandSuggestions, Array.from(brandMap.values()).sort((a, b) => a.localeCompare(b, "da")));
+      setEquipmentDatalistOptions(equipmentModelSuggestions, [...sameBrandModels.values(), ...otherModels.values()]);
+    }
+
     function setEquipmentScannerStatus(message, isError = false) {
       if (!equipmentScannerStatus) {
         return;
@@ -5959,9 +6035,11 @@
         top.appendChild(badges);
         const grid = document.createElement("div");
         grid.className = "equipmentMetaGrid";
-        grid.appendChild(makeEquipmentMeta("MAC", camera.mac_address));
+        const brandModel = getEquipmentCameraBrandModel(camera);
+        grid.appendChild(makeEquipmentMeta("MAC", formatEquipmentMac(camera.mac_address)));
         grid.appendChild(makeEquipmentMeta("S/N", camera.serial_number));
-        grid.appendChild(makeEquipmentMeta("Model", camera.model));
+        grid.appendChild(makeEquipmentMeta("Mærke", brandModel.brand));
+        grid.appendChild(makeEquipmentMeta("Model", brandModel.model));
         grid.appendChild(makeEquipmentMeta("Placering", camera.location_text));
         const actions = document.createElement("div");
         actions.className = "equipmentCardActions";
@@ -5991,14 +6069,17 @@
     }
 
     function fillEquipmentForm(camera) {
+      const brandModel = getEquipmentCameraBrandModel(camera);
       if (equipmentCameraIdInput) equipmentCameraIdInput.value = camera?.camera_id || "";
-      if (equipmentMacInput) equipmentMacInput.value = camera?.mac_address || "";
+      if (equipmentMacInput) equipmentMacInput.value = formatEquipmentMac(camera?.mac_address);
       if (equipmentSerialInput) equipmentSerialInput.value = camera?.serial_number || "";
-      if (equipmentModelInput) equipmentModelInput.value = camera?.model || "";
+      if (equipmentBrandInput) equipmentBrandInput.value = brandModel.brand;
+      if (equipmentModelInput) equipmentModelInput.value = brandModel.model;
       if (equipmentLocationInput) equipmentLocationInput.value = camera?.location_text || "";
       if (equipmentStatusSelect) equipmentStatusSelect.value = camera?.status || "registered";
       if (equipmentNoteInput) equipmentNoteInput.value = camera?.note || "";
       if (equipmentFormStatus) equipmentFormStatus.textContent = "";
+      updateEquipmentBrandModelSuggestions();
     }
 
     function openEquipmentDrawer() {
@@ -6048,7 +6129,7 @@
       equipmentState.checkCamera = null;
       if (equipmentDrawerTitle) equipmentDrawerTitle.textContent = "Kontroller kamera";
       if (equipmentDrawerMeta) equipmentDrawerMeta.textContent = "Søg på MAC, S/N eller Kamera-ID";
-      if (equipmentCheckInput) equipmentCheckInput.value = prefillValue || "";
+      if (equipmentCheckInput) equipmentCheckInput.value = formatEquipmentMac(prefillValue) || "";
       if (equipmentCheckStatus) equipmentCheckStatus.textContent = "";
       if (equipmentCheckResult) equipmentCheckResult.innerHTML = "";
       openEquipmentDrawer();
@@ -6056,11 +6137,13 @@
     }
 
     function getEquipmentFormPayload() {
+      const macValue = equipmentMacInput ? equipmentMacInput.value.trim() : "";
+      const formattedMac = normalizeEquipmentMacPreview(macValue);
       return {
         camera_id: equipmentCameraIdInput ? equipmentCameraIdInput.value.trim() : "",
-        mac_address: equipmentMacInput ? equipmentMacInput.value.trim() || null : null,
+        mac_address: macValue ? (formattedMac || macValue) : null,
         serial_number: equipmentSerialInput ? equipmentSerialInput.value.trim() || null : null,
-        model: equipmentModelInput ? equipmentModelInput.value.trim() || null : null,
+        model: combineEquipmentBrandModel(equipmentBrandInput ? equipmentBrandInput.value : "", equipmentModelInput ? equipmentModelInput.value : ""),
         location_text: equipmentLocationInput ? equipmentLocationInput.value.trim() || null : null,
         status: equipmentStatusSelect ? equipmentStatusSelect.value : "registered",
         note: equipmentNoteInput ? equipmentNoteInput.value.trim() || null : null,
@@ -6079,6 +6162,10 @@
         if (equipmentSection) equipmentSection.hidden = false;
         equipmentState.summary = response && response.summary ? response.summary : equipmentState.summary;
         equipmentState.cameras = response && Array.isArray(response.cameras) ? response.cameras : [];
+        if (!equipmentState.search || !equipmentState.suggestionCameras.length) {
+          equipmentState.suggestionCameras = equipmentState.cameras;
+        }
+        updateEquipmentBrandModelSuggestions();
         if (equipmentExportLink) {
           equipmentExportLink.href = `/api/projects/${encodeURIComponent(projectId)}/equipment/cctv/export.csv`;
         }
@@ -6170,10 +6257,12 @@
         card.appendChild(badges);
         const grid = document.createElement("div");
         grid.className = "equipmentMetaGrid";
+        const brandModel = getEquipmentCameraBrandModel(camera);
         grid.appendChild(makeEquipmentMeta("Kamera-ID", camera.camera_id));
-        grid.appendChild(makeEquipmentMeta("MAC", camera.mac_address));
+        grid.appendChild(makeEquipmentMeta("MAC", formatEquipmentMac(camera.mac_address)));
         grid.appendChild(makeEquipmentMeta("S/N", camera.serial_number));
-        grid.appendChild(makeEquipmentMeta("Model", camera.model));
+        grid.appendChild(makeEquipmentMeta("Mærke", brandModel.brand));
+        grid.appendChild(makeEquipmentMeta("Model", brandModel.model));
         grid.appendChild(makeEquipmentMeta("Placering", camera.location_text));
         grid.appendChild(makeEquipmentMeta("Status", statusView.label));
         grid.appendChild(makeEquipmentMeta("Note", camera.note));
@@ -6226,7 +6315,7 @@
       const value = String(query || "").trim();
       const compact = value.replace(/[^0-9a-fA-F]/g, "");
       if (/^[0-9a-fA-F]{12}$/.test(compact)) {
-        return { camera_id: "", mac_address: value };
+        return { camera_id: "", mac_address: normalizeEquipmentMacPreview(value) || value };
       }
       return { camera_id: value, mac_address: "" };
     }
@@ -6242,12 +6331,13 @@
       if (equipmentCheckResult) equipmentCheckResult.innerHTML = "";
       try {
         const result = await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/equipment/cctv/check?q=${encodeURIComponent(query)}`, { method: "GET" });
+        const displayQuery = formatEquipmentMac(query);
         if (equipmentCheckStatus) {
           equipmentCheckStatus.textContent = result && result.found && result.camera
-            ? `Kamera ${getEquipmentCameraLabel(result.camera, query)} fundet.`
-            : `Ikke fundet: ${query}`;
+            ? `Kamera ${getEquipmentCameraLabel(result.camera, displayQuery)} fundet.`
+            : `Ikke fundet: ${displayQuery}`;
         }
-        renderEquipmentCheckResult(result, query);
+        renderEquipmentCheckResult(result, displayQuery);
       } catch (error) {
         const message = equipmentErrorMessage(error, "Kunne ikke kontrollere kamera.");
         if (equipmentCheckStatus && message) equipmentCheckStatus.textContent = message;
@@ -6397,6 +6487,19 @@
 
     if (equipmentCameraForm) {
       equipmentCameraForm.addEventListener("submit", saveEquipmentCamera);
+    }
+
+    if (equipmentMacInput) {
+      equipmentMacInput.addEventListener("blur", () => formatEquipmentMacInput(equipmentMacInput));
+    }
+
+    if (equipmentBrandInput) {
+      equipmentBrandInput.addEventListener("input", updateEquipmentBrandModelSuggestions);
+      equipmentBrandInput.addEventListener("change", updateEquipmentBrandModelSuggestions);
+    }
+
+    if (equipmentModelInput) {
+      equipmentModelInput.addEventListener("focus", updateEquipmentBrandModelSuggestions);
     }
 
     if (equipmentArchiveBtn) {
