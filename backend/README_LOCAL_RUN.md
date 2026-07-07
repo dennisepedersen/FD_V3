@@ -28,6 +28,8 @@ CREATE DATABASE fielddesk_v3;
 
 Default connection assumes `postgres:postgres` on `localhost:5432`. Adjust `DATABASE_URL` in step 3 if your setup differs.
 
+Port 55432 is not the default local DB port in this guide. Use 55432 only when you have explicitly started a Docker container, tunnel, or proxy that exposes Postgres there; verify it with Test-NetConnection 127.0.0.1 -Port 55432. If that check fails and 5432 succeeds, set DATABASE_URL to the 5432 database.
+
 ## Step 3: Set Environment Variables
 
 Copy `.env.example` to `.env` and fill in:

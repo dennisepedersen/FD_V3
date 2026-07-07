@@ -1,4 +1,8 @@
-﻿const { createHttpError } = require("../middleware/errorHandler");
+const { createHttpError } = require("../middleware/errorHandler");
+
+function isEnabledFlag(value) {
+  return ["1", "true", "yes", "on"].includes(String(value || "").trim().toLowerCase());
+}
 
 const MODULE_REGISTRY = Object.freeze({
   qa: Object.freeze({
@@ -16,6 +20,11 @@ const MODULE_REGISTRY = Object.freeze({
     enabled: true,
     actions: Object.freeze(["read", "create", "update", "delete"]),
   }),
+  project_equipment_beta: Object.freeze({
+    key: "project_equipment_beta",
+    enabled: isEnabledFlag(process.env.PROJECT_EQUIPMENT_BETA_ENABLED),
+    actions: Object.freeze(["read", "create", "update", "delete", "export"]),
+  }),
 });
 
 const ROLE_PERMISSIONS = Object.freeze({
@@ -29,9 +38,30 @@ const ROLE_PERMISSIONS = Object.freeze({
     "resource_groups:create",
     "resource_groups:update",
     "resource_groups:delete",
+    "project_equipment_beta:read",
+    "project_equipment_beta:create",
+    "project_equipment_beta:update",
+    "project_equipment_beta:delete",
+    "project_equipment_beta:export",
   ]),
-  project_leader: Object.freeze(["qa:read", "qa:create", "qa:update"]),
-  technician: Object.freeze(["qa:read", "qa:create"]),
+  project_leader: Object.freeze([
+    "qa:read",
+    "qa:create",
+    "qa:update",
+    "project_equipment_beta:read",
+    "project_equipment_beta:create",
+    "project_equipment_beta:update",
+    "project_equipment_beta:delete",
+    "project_equipment_beta:export",
+  ]),
+  technician: Object.freeze([
+    "qa:read",
+    "qa:create",
+    "project_equipment_beta:read",
+    "project_equipment_beta:create",
+    "project_equipment_beta:update",
+    "project_equipment_beta:export",
+  ]),
 });
 
 function safeDeny() {

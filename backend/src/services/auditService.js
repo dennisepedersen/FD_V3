@@ -22,6 +22,11 @@ const ALLOWED_EVENT_TYPES = Object.freeze([
   "qa_thread_status_changed",
   "qa_thread_seen",
   "qa_thread_participant_added",
+  "project_equipment_cctv_created",
+  "project_equipment_cctv_updated",
+  "project_equipment_cctv_archived",
+  "project_equipment_cctv_checked",
+  "project_equipment_cctv_exported",
 ]);
 
 const TENANT_SCOPED_ACTOR_SCOPES = new Set(["tenant"]);
