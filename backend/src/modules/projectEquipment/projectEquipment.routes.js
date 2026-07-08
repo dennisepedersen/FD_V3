@@ -184,6 +184,14 @@ function formatCctvMacForDisplay(value) {
   }
   return compact.match(/.{1,2}/g).join(":");
 }
+function safeAttachmentFilename(value, fallback) {
+  const normalized = String(value || fallback || "fielddesk-cctv")
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]/g, "_")
+    .replace(/_+/g, "_")
+    .slice(0, 120);
+  return normalized || fallback || "fielddesk-cctv";
+}
 function buildCctvCsv(cameras) {
   const columns = ["camera_id", "mac", "serial_number", "model", "location", "status", "note"];
   const lines = [columns.join(",")];
@@ -279,6 +287,32 @@ router.get("/api/projects/:projectId/equipment/cctv/export.csv", requireTenantHo
   }
 });
 
+router.get("/api/projects/:projectId/equipment/cctv/export.pdf", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  try {
+    const { tenantId, userId } = getTenantContext(req);
+    requireProjectEquipmentAccess(req, "export");
+    requireProjectEquipmentBetaScope(req);
+
+    const result = await projectEquipmentService.exportCctvPdf({
+      tenantId,
+      userId,
+      projectId: req.params.projectId,
+    });
+
+    const filenameRef = result.project?.external_project_ref || result.project?.project_id || "project";
+    const dateStamp = new Date().toISOString().slice(0, 10);
+    const filename = safeAttachmentFilename(`Fielddesk-CCTV-${filenameRef}-${dateStamp}.pdf`, "Fielddesk-CCTV.pdf");
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Cache-Control", "private, no-store");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.setHeader("Content-Length", String(result.pdf.length));
+    res.status(200).send(result.pdf);
+  } catch (error) {
+    logRouteError(req, "/api/projects/:projectId/equipment/cctv/export.pdf", "GET", error);
+    next(error);
+  }
+});
 router.post("/api/projects/:projectId/equipment/cctv", requireTenantHost, requireAuth("access"), async (req, res, next) => {
   try {
     const { tenantId, userId } = getTenantContext(req);

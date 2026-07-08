@@ -388,6 +388,42 @@ async function listCctvImagesForCamera(client, { tenantId, projectId, cameraReco
   return rows;
 }
 
+async function listCctvImagesForProject(client, { tenantId, projectId }) {
+  const { rows } = await client.query(
+    `
+      SELECT
+        image.id AS image_id,
+        image.tenant_id,
+        image.project_id,
+        image.camera_record_id,
+        image.storage_object_id,
+        image.slot_type,
+        image.created_by_user_id,
+        image.created_at,
+        image.updated_by_user_id,
+        image.updated_at,
+        storage.storage_provider,
+        storage.storage_key,
+        storage.original_filename,
+        storage.content_type,
+        storage.byte_size,
+        storage.checksum_sha256,
+        storage.metadata
+      FROM project_equipment_cctv_image image
+      JOIN storage_object storage
+        ON storage.tenant_id = image.tenant_id
+       AND storage.id = image.storage_object_id
+       AND storage.deleted_at IS NULL
+      WHERE image.tenant_id = $1
+        AND image.project_id = $2
+        AND image.deleted_at IS NULL
+      ORDER BY image.camera_record_id ASC, image.slot_type ASC
+    `,
+    [tenantId, projectId]
+  );
+
+  return rows;
+}
 async function findCctvImageSlot(client, { tenantId, projectId, cameraRecordId, slotType }) {
   const { rows } = await client.query(
     `
@@ -514,6 +550,7 @@ module.exports = {
   insertCctvImageSlot,
   getCctvSummary,
   listCctvImagesForCamera,
+  listCctvImagesForProject,
   listCctvForProject,
   searchCctv,
   softDeleteCctvImageSlot,
