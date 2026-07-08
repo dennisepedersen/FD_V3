@@ -4489,6 +4489,7 @@
     const equipmentAddBtn = document.getElementById("equipmentAddBtn");
     const equipmentCheckBtn = document.getElementById("equipmentCheckBtn");
     const equipmentExportLink = document.getElementById("equipmentExportLink");
+    const equipmentPdfExportLink = document.getElementById("equipmentPdfExportLink");
     const equipmentDrawerShell = document.getElementById("equipmentDrawerShell");
     const equipmentDrawerOverlay = document.getElementById("equipmentDrawerOverlay");
     const equipmentDrawerCloseBtn = document.getElementById("equipmentDrawerCloseBtn");
@@ -6658,6 +6659,9 @@
         if (equipmentExportLink) {
           equipmentExportLink.href = `/api/projects/${encodeURIComponent(projectId)}/equipment/cctv/export.csv`;
         }
+        if (equipmentPdfExportLink) {
+          equipmentPdfExportLink.href = `/api/projects/${encodeURIComponent(projectId)}/equipment/cctv/export.pdf`;
+        }
       } catch (error) {
         if (equipmentSection) equipmentSection.hidden = true;
         const message = equipmentErrorMessage(error, "Kunne ikke hente CCTV-udstyr.");
@@ -6892,6 +6896,40 @@
         equipmentExportLink.textContent = "CSV";
       }
     }
+    async function exportEquipmentPdf(event) {
+      event.preventDefault();
+      if (!equipmentPdfExportLink) {
+        return;
+      }
+      equipmentPdfExportLink.textContent = "Henter PDF...";
+      try {
+        const token = getToken();
+        const response = await window.fetch(`/api/projects/${encodeURIComponent(projectId)}/equipment/cctv/export.pdf`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!response.ok) {
+          throw new Error(`pdf_export_failed_${response.status}`);
+        }
+        const blob = await response.blob();
+        const disposition = response.headers.get("Content-Disposition") || "";
+        const match = disposition.match(/filename="?([^";]+)"?/i);
+        const filename = match && match[1] ? match[1] : "Fielddesk-CCTV.pdf";
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+        showEquipmentFeedback("PDF export hentet.");
+      } catch (error) {
+        setEquipmentStateMessage("Kunne ikke hente PDF eksport.", true);
+        showEquipmentFeedback("Kunne ikke hente PDF export.", true);
+      } finally {
+        equipmentPdfExportLink.textContent = "Eksportér PDF";
+      }
+    }
     if (qaUi) {
       renderQaSummary();
       renderQaThreadList();
@@ -6970,6 +7008,10 @@
 
     if (equipmentExportLink) {
       equipmentExportLink.addEventListener("click", exportEquipmentCsv);
+    }
+
+    if (equipmentPdfExportLink) {
+      equipmentPdfExportLink.addEventListener("click", exportEquipmentPdf);
     }
 
     if (equipmentSearchInput) {

@@ -8,6 +8,7 @@ const storageObjectQueries = require("../../db/queries/storageObject");
 const fileStorageService = require("../../services/fileStorageService");
 const projectAccessService = require("../../services/projectAccessService");
 const projectEquipmentRepository = require("./projectEquipment.repository");
+const { buildCctvPdfReport } = require("./cctvPdfReport");
 
 const ALLOWED_STATUSES = new Set(["registered", "planned", "mounted", "checked", "deviation"]);
 const CCTV_IMAGE_SLOTS = Object.freeze(["projection", "installation"]);
@@ -15,6 +16,7 @@ const CCTV_IMAGE_SLOT_LABELS = Object.freeze({
   projection: "Projektering",
   installation: "Installation",
 });
+const MAX_CCTV_PDF_CAMERAS = 100;
 const ALLOWED_IMAGE_TYPES = Object.freeze({
   "image/jpeg": Object.freeze([".jpg", ".jpeg"]),
   "image/png": Object.freeze([".png"]),
@@ -516,6 +518,81 @@ async function checkCctv({ tenantId, userId, projectId, query }) {
   }
 }
 
+function getSlotImage(slots, slotType) {
+  return slots && Object.prototype.hasOwnProperty.call(slots, slotType) ? slots[slotType] : null;
+}
+
+function streamToBuffer(stream, maxBytes) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let total = 0;
+    stream.on("data", (chunk) => {
+      total += chunk.length;
+      if (total > maxBytes) {
+        reject(createHttpError(413, "cctv_pdf_image_too_large"));
+        stream.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    stream.on("error", reject);
+    stream.on("end", () => resolve(Buffer.concat(chunks)));
+  });
+}
+
+async function getExportedByLabel(client, { tenantId, userId }) {
+  const { rows } = await client.query(
+    `
+      SELECT name, email, username
+      FROM tenant_user
+      WHERE tenant_id = $1
+        AND id = $2
+      LIMIT 1
+    `,
+    [tenantId, userId]
+  );
+  const user = rows[0] || null;
+  return user?.name || user?.username || user?.email || userId;
+}
+
+async function hydrateCctvPdfImages({ imageRowsByCameraId }) {
+  const maxBytes = fileStorageService.getMaxUploadBytes();
+  const hydrated = new Map();
+
+  for (const [cameraId, slots] of imageRowsByCameraId.entries()) {
+    const cameraSlots = {};
+    for (const slotType of CCTV_IMAGE_SLOTS) {
+      const image = getSlotImage(slots, slotType);
+      if (!image) {
+        cameraSlots[slotType] = { hasImage: false };
+        continue;
+      }
+
+      const slot = {
+        hasImage: true,
+        contentType: image.content_type,
+        byteSize: Number(image.byte_size || 0),
+        filename: image.original_filename || null,
+        buffer: null,
+      };
+
+      try {
+        const object = await fileStorageService.getObjectStream({ key: image.storage_key });
+        slot.buffer = await streamToBuffer(object.stream, maxBytes);
+      } catch (error) {
+        console.warn("[projectEquipment.service] cctv_pdf_image_fetch_failed", {
+          camera_record_id: cameraId,
+          slot_type: slotType,
+          error_message: error?.message || null,
+        });
+      }
+      cameraSlots[slotType] = slot;
+    }
+    hydrated.set(cameraId, cameraSlots);
+  }
+
+  return hydrated;
+}
 async function exportCctvCsv({ tenantId, userId, projectId }) {
   const client = await pool.connect();
   try {
@@ -546,6 +623,72 @@ async function exportCctvCsv({ tenantId, userId, projectId }) {
   }
 }
 
+async function exportCctvPdf({ tenantId, userId, projectId }) {
+  const client = await pool.connect();
+  try {
+    const projectContext = await requireProject(client, { tenantId, userId, projectId });
+    const cameras = await projectEquipmentRepository.listCctvForProject(client, {
+      tenantId,
+      projectId: projectContext.projectId,
+    });
+
+    if (cameras.length > MAX_CCTV_PDF_CAMERAS) {
+      throw createHttpError(413, "cctv_pdf_camera_limit_exceeded");
+    }
+
+    const imageRows = await projectEquipmentRepository.listCctvImagesForProject(client, {
+      tenantId,
+      projectId: projectContext.projectId,
+    });
+    const imageRowsByCameraId = new Map();
+    imageRows.forEach((row) => {
+      const cameraId = String(row.camera_record_id);
+      const slots = imageRowsByCameraId.get(cameraId) || {};
+      slots[row.slot_type] = row;
+      imageRowsByCameraId.set(cameraId, slots);
+    });
+
+    const hydratedImages = await hydrateCctvPdfImages({ imageRowsByCameraId });
+    const reportCameras = cameras.map((camera) => ({
+      ...camera,
+      reportSlots: {
+        projection: hydratedImages.get(String(camera.id))?.projection || { hasImage: false },
+        installation: hydratedImages.get(String(camera.id))?.installation || { hasImage: false },
+      },
+    }));
+    const exportedBy = await getExportedByLabel(client, { tenantId, userId });
+    const generatedAt = new Date();
+    const pdf = await buildCctvPdfReport({
+      project: projectContext.project,
+      cameras: reportCameras,
+      generatedAt,
+      exportedBy,
+    });
+
+    await logEquipmentAuditEvent(client, {
+      tenantId,
+      userId,
+      eventType: "project_equipment_cctv_pdf_exported",
+      resourceId: projectContext.projectId,
+      projectId: projectContext.projectId,
+      reason: "project_equipment_cctv_pdf_exported",
+      metadata: {
+        row_count: cameras.length,
+        projection_image_count: reportCameras.filter((camera) => camera.reportSlots.projection.hasImage).length,
+        installation_image_count: reportCameras.filter((camera) => camera.reportSlots.installation.hasImage).length,
+        byte_size: pdf.length,
+      },
+    });
+
+    return {
+      project: projectContext.project,
+      generatedAt,
+      pdf,
+    };
+  } finally {
+    client.release();
+  }
+}
 async function listCctvImages({ tenantId, userId, projectId, cameraRecordId }) {
   const client = await pool.connect();
   try {
@@ -788,6 +931,7 @@ module.exports = {
   createCctv,
   deleteCctvImage,
   exportCctvCsv,
+  exportCctvPdf,
   getCctvImageContent,
   listCctvForProject,
   listCctvImages,
