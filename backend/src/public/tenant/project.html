@@ -1820,6 +1820,160 @@
       line-height: 1.45;
     }
 
+
+    .equipmentImageStatusRow,
+    .equipmentImageSlotGrid,
+    .equipmentImageSlotActions,
+    .equipmentImageViewerTabs {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .equipmentImageStatusRow {
+      justify-content: flex-start;
+    }
+
+    .equipmentImageBadge {
+      border: 1px solid #cbd5e1;
+      border-radius: 999px;
+      background: #f8fafc;
+      color: #334155;
+      padding: 5px 8px;
+      font-size: 12px;
+      font-weight: 850;
+    }
+
+    .equipmentImageBadge.hasImage {
+      border-color: #bbf7d0;
+      background: #f0fdf4;
+      color: #166534;
+    }
+
+    .equipmentImageSection {
+      display: grid;
+      gap: 10px;
+      padding: 10px;
+      border: 1px solid #cbd5e1;
+      border-radius: 10px;
+      background: #f8fafc;
+    }
+
+    .equipmentImageSlotGrid {
+      align-items: stretch;
+    }
+
+    .equipmentImageSlotCard {
+      flex: 1 1 210px;
+      min-width: 0;
+      display: grid;
+      gap: 8px;
+      padding: 10px;
+      border: 1px solid #cbd5e1;
+      border-radius: 10px;
+      background: #fff;
+    }
+
+    .equipmentImagePreview {
+      display: grid;
+      place-items: center;
+      min-height: 118px;
+      overflow: hidden;
+      border: 1px dashed #cbd5e1;
+      border-radius: 8px;
+      background: #f8fafc;
+      color: #64748b;
+      font-size: 13px;
+      font-weight: 800;
+      text-align: center;
+    }
+
+    .equipmentImagePreview img {
+      width: 100%;
+      height: 100%;
+      max-height: 180px;
+      object-fit: cover;
+      display: block;
+    }
+
+    .equipmentImageViewerShell {
+      position: fixed;
+      inset: 0;
+      z-index: 95;
+      display: none;
+    }
+
+    .equipmentImageViewerShell.open {
+      display: block;
+    }
+
+    .equipmentImageViewerOverlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.64);
+    }
+
+    .equipmentImageViewerPanel {
+      position: absolute;
+      inset: 18px;
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr);
+      gap: 12px;
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 14px;
+      border-radius: 14px;
+      background: #fff;
+      box-shadow: 0 22px 70px rgba(15, 23, 42, 0.32);
+    }
+
+    .equipmentImageViewerHeader {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+    }
+
+    .equipmentImageViewerBody {
+      display: grid;
+      gap: 10px;
+      min-height: 0;
+      overflow: auto;
+    }
+
+    .equipmentImageCompareGrid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+    }
+
+    .equipmentImageViewerPane {
+      display: grid;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .equipmentImageViewerFrame {
+      display: grid;
+      place-items: center;
+      min-height: 220px;
+      border: 1px solid #cbd5e1;
+      border-radius: 10px;
+      background: #0f172a;
+      color: #cbd5e1;
+      overflow: hidden;
+      text-align: center;
+      font-weight: 850;
+    }
+
+    .equipmentImageViewerFrame img {
+      width: 100%;
+      height: 100%;
+      max-height: 70vh;
+      object-fit: contain;
+      display: block;
+    }
     .equipmentDangerBtn {
       border-color: #fecdd3;
       background: #fff1f2;
@@ -1944,7 +2098,10 @@
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
 
-      .qaFormGrid {
+
+      .equipmentImageCompareGrid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }      .qaFormGrid {
         grid-template-columns: minmax(0, 1fr) 150px;
       }
 
@@ -2408,6 +2565,13 @@
             <label class="qaLabel">Placering<input id="equipmentLocationInput" class="qaInput" type="text" maxlength="240" /></label>
           </div>
           <label class="qaLabel">Note<textarea id="equipmentNoteInput" class="qaTextarea" maxlength="1200"></textarea></label>
+          <section id="equipmentImageSection" class="equipmentImageSection" hidden>
+            <div>
+              <span class="equipmentMetaLabel">Billeder</span>
+              <p id="equipmentImageStatus" class="equipmentFormStatus">Gem kameraet, før billeder kan tilføjes.</p>
+            </div>
+            <div id="equipmentImageSlots" class="equipmentImageSlotGrid"></div>
+          </section>
           <p id="equipmentFormStatus" class="equipmentFormStatus"></p>
           <div class="qaFormActions">
             <button id="equipmentArchiveBtn" class="btn equipmentDangerBtn btnCompact" type="button" hidden>Arkiver</button>
@@ -2428,6 +2592,20 @@
     </aside>
   </div>
 
+  <div id="equipmentImageViewerShell" class="equipmentImageViewerShell" aria-hidden="true">
+    <div id="equipmentImageViewerOverlay" class="equipmentImageViewerOverlay"></div>
+    <section class="equipmentImageViewerPanel" role="dialog" aria-modal="true" aria-labelledby="equipmentImageViewerTitle">
+      <div class="equipmentImageViewerHeader">
+        <div>
+          <h2 id="equipmentImageViewerTitle" class="qaDrawerTitle">Billeder</h2>
+          <p id="equipmentImageViewerMeta" class="qaDrawerMeta">Projektudstyr Beta · CCTV</p>
+        </div>
+        <button id="equipmentImageViewerCloseBtn" class="iconBtn" type="button" aria-label="Luk">&times;</button>
+      </div>
+      <div id="equipmentImageViewerTabs" class="equipmentImageViewerTabs" role="tablist" aria-label="Billedvisning"></div>
+      <div id="equipmentImageViewerBody" class="equipmentImageViewerBody"></div>
+    </section>
+  </div>
   <div id="equipmentScannerShell" class="equipmentScannerShell" aria-hidden="true">
     <div id="equipmentScannerOverlay" class="equipmentScannerOverlay"></div>
     <section class="equipmentScannerPanel" role="dialog" aria-modal="true" aria-labelledby="equipmentScannerTitle">

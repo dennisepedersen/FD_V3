@@ -40,7 +40,32 @@ async function listCctvForProject(client, { tenantId, projectId, query }) {
 
   const { rows } = await client.query(
     `
-      SELECT ${PROJECT_EQUIPMENT_CCTV_COLUMNS}
+      SELECT
+        ${PROJECT_EQUIPMENT_CCTV_COLUMNS},
+        COALESCE((
+          SELECT jsonb_object_agg(slot.slot_type, slot.image_summary)
+          FROM (
+            SELECT
+              image.slot_type,
+              jsonb_build_object(
+                'slot_type', image.slot_type,
+                'storage_object_id', image.storage_object_id,
+                'filename', storage.original_filename,
+                'content_type', storage.content_type,
+                'byte_size', storage.byte_size,
+                'uploaded_at', image.created_at
+              ) AS image_summary
+            FROM project_equipment_cctv_image image
+            JOIN storage_object storage
+              ON storage.tenant_id = image.tenant_id
+             AND storage.id = image.storage_object_id
+             AND storage.deleted_at IS NULL
+            WHERE image.tenant_id = project_equipment_cctv.tenant_id
+              AND image.project_id = project_equipment_cctv.project_id
+              AND image.camera_record_id = project_equipment_cctv.id
+              AND image.deleted_at IS NULL
+          ) slot
+        ), '{}'::jsonb) AS image_slots
       FROM project_equipment_cctv
       WHERE tenant_id = $1
         AND project_id = $2
@@ -325,13 +350,172 @@ async function searchCctv(client, {
   return rows;
 }
 
+async function listCctvImagesForCamera(client, { tenantId, projectId, cameraRecordId }) {
+  const { rows } = await client.query(
+    `
+      SELECT
+        image.id AS image_id,
+        image.tenant_id,
+        image.project_id,
+        image.camera_record_id,
+        image.storage_object_id,
+        image.slot_type,
+        image.created_by_user_id,
+        image.created_at,
+        image.updated_by_user_id,
+        image.updated_at,
+        storage.storage_provider,
+        storage.storage_key,
+        storage.original_filename,
+        storage.content_type,
+        storage.byte_size,
+        storage.checksum_sha256,
+        storage.metadata
+      FROM project_equipment_cctv_image image
+      JOIN storage_object storage
+        ON storage.tenant_id = image.tenant_id
+       AND storage.id = image.storage_object_id
+       AND storage.deleted_at IS NULL
+      WHERE image.tenant_id = $1
+        AND image.project_id = $2
+        AND image.camera_record_id = $3
+        AND image.deleted_at IS NULL
+      ORDER BY image.slot_type ASC
+    `,
+    [tenantId, projectId, cameraRecordId]
+  );
+
+  return rows;
+}
+
+async function findCctvImageSlot(client, { tenantId, projectId, cameraRecordId, slotType }) {
+  const { rows } = await client.query(
+    `
+      SELECT
+        image.id AS image_id,
+        image.tenant_id,
+        image.project_id,
+        image.camera_record_id,
+        image.storage_object_id,
+        image.slot_type,
+        image.created_by_user_id,
+        image.created_at,
+        image.updated_by_user_id,
+        image.updated_at,
+        storage.storage_provider,
+        storage.storage_key,
+        storage.original_filename,
+        storage.content_type,
+        storage.byte_size,
+        storage.checksum_sha256,
+        storage.metadata
+      FROM project_equipment_cctv_image image
+      JOIN storage_object storage
+        ON storage.tenant_id = image.tenant_id
+       AND storage.id = image.storage_object_id
+       AND storage.deleted_at IS NULL
+      WHERE image.tenant_id = $1
+        AND image.project_id = $2
+        AND image.camera_record_id = $3
+        AND image.slot_type = $4
+        AND image.deleted_at IS NULL
+      LIMIT 1
+    `,
+    [tenantId, projectId, cameraRecordId, slotType]
+  );
+
+  return rows[0] || null;
+}
+
+async function insertCctvImageSlot(client, {
+  tenantId,
+  projectId,
+  cameraRecordId,
+  storageObjectId,
+  slotType,
+  actorUserId,
+}) {
+  const { rows } = await client.query(
+    `
+      INSERT INTO project_equipment_cctv_image (
+        tenant_id,
+        project_id,
+        camera_record_id,
+        storage_object_id,
+        slot_type,
+        created_by_user_id,
+        updated_by_user_id
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $6)
+      RETURNING
+        id AS image_id,
+        tenant_id,
+        project_id,
+        camera_record_id,
+        storage_object_id,
+        slot_type,
+        created_by_user_id,
+        created_at,
+        updated_by_user_id,
+        updated_at
+    `,
+    [tenantId, projectId, cameraRecordId, storageObjectId, slotType, actorUserId]
+  );
+
+  return rows[0];
+}
+
+async function softDeleteCctvImageSlot(client, { tenantId, projectId, cameraRecordId, slotType, actorUserId }) {
+  const { rows } = await client.query(
+    `
+      WITH active_slot AS (
+        SELECT image.id, image.storage_object_id
+        FROM project_equipment_cctv_image image
+        WHERE image.tenant_id = $1
+          AND image.project_id = $2
+          AND image.camera_record_id = $3
+          AND image.slot_type = $4
+          AND image.deleted_at IS NULL
+        LIMIT 1
+      ), deleted_image AS (
+        UPDATE project_equipment_cctv_image image
+        SET deleted_at = now(),
+            deleted_by_user_id = $5,
+            updated_by_user_id = $5
+        FROM active_slot
+        WHERE image.id = active_slot.id
+          AND image.tenant_id = $1
+        RETURNING image.storage_object_id
+      ), deleted_storage AS (
+        UPDATE storage_object storage
+        SET deleted_at = now(),
+            deleted_by_user_id = $5
+        FROM deleted_image
+        WHERE storage.tenant_id = $1
+          AND storage.id = deleted_image.storage_object_id
+          AND storage.deleted_at IS NULL
+        RETURNING storage.id AS storage_object_id, storage.storage_key
+      )
+      SELECT storage_object_id, storage_key
+      FROM deleted_storage
+      LIMIT 1
+    `,
+    [tenantId, projectId, cameraRecordId, slotType, actorUserId || null]
+  );
+
+  return rows[0] || null;
+}
 module.exports = {
   archiveCctv,
   createCctv,
   findActiveConflict,
+  findCctvImageSlot,
   findCctvById,
+  insertCctvImageSlot,
   getCctvSummary,
+  listCctvImagesForCamera,
   listCctvForProject,
   searchCctv,
+  softDeleteCctvImageSlot,
   updateCctv,
 };

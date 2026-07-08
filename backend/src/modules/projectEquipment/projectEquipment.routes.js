@@ -1,9 +1,11 @@
+const Busboy = require("busboy");
 const express = require("express");
 const requireTenantHost = require("../../middleware/requireTenantHost");
 const requireAuth = require("../../middleware/requireAuth");
 const { createHttpError } = require("../../middleware/errorHandler");
 const moduleAccessService = require("../../services/moduleAccessService");
 const projectEquipmentService = require("./projectEquipment.service");
+const fileStorageService = require("../../services/fileStorageService");
 
 const router = express.Router();
 
@@ -76,6 +78,91 @@ function logRouteError(req, route, method, error) {
     error_message: error?.message || null,
     error_stack: error?.stack || null,
   });
+}
+
+
+function parseSingleImageUpload(req) {
+  return new Promise((resolve, reject) => {
+    if (!String(req.headers["content-type"] || "").toLowerCase().includes("multipart/form-data")) {
+      reject(createHttpError(400, "multipart_form_data_required"));
+      return;
+    }
+
+    let busboy;
+    try {
+      busboy = Busboy({
+        headers: req.headers,
+        limits: {
+          files: 1,
+          fileSize: fileStorageService.getMaxUploadBytes(),
+          fields: 4,
+          parts: 6,
+        },
+      });
+    } catch (_error) {
+      reject(createHttpError(400, "invalid_multipart_request"));
+      return;
+    }
+
+    let fileSeen = false;
+    let fileTooLarge = false;
+    let uploadError = null;
+    let fileInfo = null;
+    const chunks = [];
+
+    busboy.on("file", (fieldName, file, info) => {
+      if (fieldName !== "file") {
+        file.resume();
+        return;
+      }
+      if (fileSeen) {
+        uploadError = createHttpError(400, "single_file_required");
+        file.resume();
+        return;
+      }
+      fileSeen = true;
+      fileInfo = {
+        filename: info?.filename || null,
+        contentType: info?.mimeType || null,
+      };
+      file.on("data", (chunk) => chunks.push(chunk));
+      file.on("limit", () => {
+        fileTooLarge = true;
+        file.resume();
+      });
+    });
+
+    busboy.on("filesLimit", () => {
+      uploadError = createHttpError(400, "single_file_required");
+    });
+    busboy.on("error", () => reject(createHttpError(400, "invalid_multipart_request")));
+    busboy.on("finish", () => {
+      if (uploadError) {
+        reject(uploadError);
+        return;
+      }
+      if (!fileSeen) {
+        reject(createHttpError(400, "cctv_image_file_required"));
+        return;
+      }
+      if (fileTooLarge) {
+        reject(createHttpError(413, "cctv_image_too_large"));
+        return;
+      }
+      resolve({
+        filename: fileInfo?.filename || null,
+        contentType: fileInfo?.contentType || null,
+        buffer: Buffer.concat(chunks),
+      });
+    });
+
+    req.pipe(busboy);
+  });
+}
+
+function safeInlineFilename(filename) {
+  const normalized = String(filename || "cctv-image").trim().replace(/[^a-zA-Z0-9._-]/g, "_");
+  return normalized || "cctv-image";
 }
 
 function csvEscape(value) {
@@ -216,6 +303,115 @@ router.post("/api/projects/:projectId/equipment/cctv", requireTenantHost, requir
   }
 });
 
+router.get("/api/projects/:projectId/equipment/cctv/:cameraRecordId/images", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  try {
+    const { tenantId, userId } = getTenantContext(req);
+    requireProjectEquipmentAccess(req, "read");
+    requireProjectEquipmentBetaScope(req);
+
+    const result = await projectEquipmentService.listCctvImages({
+      tenantId,
+      userId,
+      projectId: req.params.projectId,
+      cameraRecordId: req.params.cameraRecordId,
+    });
+
+    res.status(200).json({
+      success: true,
+      project: result.project,
+      camera: result.camera,
+      slots: result.slots,
+    });
+  } catch (error) {
+    logRouteError(req, "/api/projects/:projectId/equipment/cctv/:cameraRecordId/images", "GET", error);
+    next(error);
+  }
+});
+
+router.post("/api/projects/:projectId/equipment/cctv/:cameraRecordId/images/:slotType", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  try {
+    const { tenantId, userId } = getTenantContext(req);
+    requireProjectEquipmentAccess(req, "update");
+    requireProjectEquipmentBetaScope(req);
+    const file = await parseSingleImageUpload(req);
+
+    const result = await projectEquipmentService.uploadCctvImage({
+      tenantId,
+      userId,
+      projectId: req.params.projectId,
+      cameraRecordId: req.params.cameraRecordId,
+      slotType: req.params.slotType,
+      file,
+    });
+
+    res.status(result.replaced ? 200 : 201).json({
+      success: true,
+      project: result.project,
+      camera: result.camera,
+      slot: result.slot,
+      replaced: result.replaced,
+    });
+  } catch (error) {
+    logRouteError(req, "/api/projects/:projectId/equipment/cctv/:cameraRecordId/images/:slotType", "POST", error);
+    next(error);
+  }
+});
+
+router.get("/api/projects/:projectId/equipment/cctv/:cameraRecordId/images/:slotType/content", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  try {
+    const { tenantId, userId } = getTenantContext(req);
+    requireProjectEquipmentAccess(req, "read");
+    requireProjectEquipmentBetaScope(req);
+
+    const result = await projectEquipmentService.getCctvImageContent({
+      tenantId,
+      userId,
+      projectId: req.params.projectId,
+      cameraRecordId: req.params.cameraRecordId,
+      slotType: req.params.slotType,
+    });
+
+    res.setHeader("Content-Type", result.contentType || "application/octet-stream");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Cache-Control", "private, no-store");
+    res.setHeader("Content-Disposition", `inline; filename="${safeInlineFilename(result.image?.filename)}"`);
+    if (result.contentLength != null) {
+      res.setHeader("Content-Length", String(result.contentLength));
+    }
+    result.stream.on("error", next);
+    result.stream.pipe(res);
+  } catch (error) {
+    logRouteError(req, "/api/projects/:projectId/equipment/cctv/:cameraRecordId/images/:slotType/content", "GET", error);
+    next(error);
+  }
+});
+
+router.delete("/api/projects/:projectId/equipment/cctv/:cameraRecordId/images/:slotType", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  try {
+    const { tenantId, userId } = getTenantContext(req);
+    requireProjectEquipmentAccess(req, "delete");
+    requireProjectEquipmentBetaScope(req);
+
+    const result = await projectEquipmentService.deleteCctvImage({
+      tenantId,
+      userId,
+      projectId: req.params.projectId,
+      cameraRecordId: req.params.cameraRecordId,
+      slotType: req.params.slotType,
+    });
+
+    res.status(200).json({
+      success: true,
+      project: result.project,
+      camera: result.camera,
+      slot_type: result.slot_type,
+      deleted: result.deleted,
+    });
+  } catch (error) {
+    logRouteError(req, "/api/projects/:projectId/equipment/cctv/:cameraRecordId/images/:slotType", "DELETE", error);
+    next(error);
+  }
+});
 router.patch("/api/projects/:projectId/equipment/cctv/:cameraRecordId", requireTenantHost, requireAuth("access"), async (req, res, next) => {
   try {
     const { tenantId, userId } = getTenantContext(req);
