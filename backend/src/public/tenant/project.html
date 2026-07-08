@@ -55,6 +55,7 @@
     body.drawer-open,
     body.qa-modal-open,
     body.equipment-modal-open,
+    body.equipment-drawing-open,
     body.equipment-scanner-open {
       overflow: hidden;
     }
@@ -1974,6 +1975,132 @@
       object-fit: contain;
       display: block;
     }
+
+    .equipmentDrawingShell {
+      position: fixed;
+      inset: 0;
+      z-index: 96;
+      display: none;
+    }
+
+    .equipmentDrawingShell.open {
+      display: block;
+    }
+
+    .equipmentDrawingOverlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.64);
+    }
+
+    .equipmentDrawingPanel {
+      position: absolute;
+      inset: 14px;
+      display: grid;
+      grid-template-rows: auto auto auto minmax(0, 1fr);
+      gap: 10px;
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 14px;
+      border-radius: 14px;
+      background: #fff;
+      box-shadow: 0 22px 70px rgba(15, 23, 42, 0.32);
+    }
+
+    .equipmentDrawingHeader,
+    .equipmentDrawingControls,
+    .equipmentDrawingActions,
+    .equipmentDrawingPinPanelActions {
+      display: flex;
+      gap: 8px;
+      align-items: flex-end;
+      justify-content: space-between;
+      flex-wrap: wrap;
+    }
+
+    .equipmentDrawingControls {
+      justify-content: flex-start;
+      padding: 10px;
+      border: 1px solid #cbd5e1;
+      border-radius: 10px;
+      background: #f8fafc;
+    }
+
+    .equipmentDrawingControls .qaLabel {
+      min-width: min(100%, 190px);
+    }
+
+    .equipmentDrawingBody {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 10px;
+      min-height: 0;
+      overflow: auto;
+    }
+
+    .equipmentDrawingCanvas {
+      position: relative;
+      display: grid;
+      place-items: center;
+      min-height: 280px;
+      border: 1px solid #cbd5e1;
+      border-radius: 10px;
+      background: #0f172a;
+      color: #cbd5e1;
+      overflow: auto;
+      font-weight: 850;
+      text-align: center;
+    }
+
+    .equipmentDrawingStage {
+      position: relative;
+      max-width: 100%;
+      line-height: 0;
+    }
+
+    .equipmentDrawingImage {
+      display: block;
+      max-width: 100%;
+      max-height: 68vh;
+      object-fit: contain;
+    }
+
+    .equipmentDrawingPin {
+      position: absolute;
+      transform: translate(-50%, -100%);
+      display: grid;
+      place-items: center;
+      min-width: 30px;
+      min-height: 30px;
+      border: 2px solid #fff;
+      border-radius: 999px 999px 999px 3px;
+      background: #0284c7;
+      color: #fff;
+      box-shadow: 0 8px 18px rgba(15, 23, 42, 0.34);
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 900;
+      line-height: 1;
+    }
+
+    .equipmentDrawingPin.active {
+      background: #16a34a;
+    }
+
+    .equipmentDrawingCanvas.isPlacing {
+      cursor: crosshair;
+      outline: 3px solid rgba(94, 200, 229, 0.35);
+      outline-offset: -3px;
+    }
+
+    .equipmentDrawingPinPanel {
+      display: grid;
+      gap: 8px;
+      padding: 10px;
+      border: 1px solid #cbd5e1;
+      border-radius: 10px;
+      background: #fff;
+    }
     .equipmentDangerBtn {
       border-color: #fecdd3;
       background: #fff1f2;
@@ -2324,9 +2451,10 @@
         </div>
         <div class="equipmentActions">
           <button id="equipmentCheckBtn" class="btn btnCompact" type="button">Kontroller kamera</button>
+          <button id="equipmentDrawingBtn" class="btn btnCompact" type="button">Tegning</button>
           <button id="equipmentAddBtn" class="btn btnPrimary btnCompact" type="button">Tilføj kamera</button>
           <a id="equipmentExportLink" class="btn btnCompact" href="#">CSV</a>
-          <a id="equipmentPdfExportLink" class="btn btnCompact" href="#">Eksport�r PDF</a>
+          <a id="equipmentPdfExportLink" class="btn btnCompact" href="#">Eksport�r PDF</a>
         </div>
       </div>
       <div class="equipmentToolbar">
@@ -2605,6 +2733,34 @@
       </div>
       <div id="equipmentImageViewerTabs" class="equipmentImageViewerTabs" role="tablist" aria-label="Billedvisning"></div>
       <div id="equipmentImageViewerBody" class="equipmentImageViewerBody"></div>
+    </section>
+  </div>
+  <div id="equipmentDrawingShell" class="equipmentDrawingShell" aria-hidden="true">
+    <div id="equipmentDrawingOverlay" class="equipmentDrawingOverlay"></div>
+    <section class="equipmentDrawingPanel" role="dialog" aria-modal="true" aria-labelledby="equipmentDrawingTitle">
+      <div class="equipmentDrawingHeader">
+        <div>
+          <h2 id="equipmentDrawingTitle" class="qaDrawerTitle">Tegning &amp; placering</h2>
+          <p id="equipmentDrawingMeta" class="qaDrawerMeta">Projektudstyr Beta · CCTV</p>
+        </div>
+        <button id="equipmentDrawingCloseBtn" class="iconBtn" type="button" aria-label="Luk">&times;</button>
+      </div>
+      <div class="equipmentDrawingControls">
+        <label class="qaLabel">Tegning<select id="equipmentDrawingSelect" class="qaSelect"></select></label>
+        <label class="qaLabel">Upload tegning<input id="equipmentDrawingFileInput" class="qaInput" type="file" accept="image/jpeg,image/png,image/webp" /></label>
+        <label class="qaLabel">Titel<input id="equipmentDrawingTitleInput" class="qaInput" type="text" maxlength="160" placeholder="Fx Stueplan" /></label>
+        <label class="qaLabel">Kamera<select id="equipmentDrawingCameraSelect" class="qaSelect"></select></label>
+        <div class="equipmentDrawingActions">
+          <button id="equipmentDrawingUploadBtn" class="btn btnCompact" type="button">Upload</button>
+          <button id="equipmentDrawingPlaceBtn" class="btn btnPrimary btnCompact" type="button">Placer kamera</button>
+          <button id="equipmentDrawingDeleteBtn" class="btn equipmentDangerBtn btnCompact" type="button">Slet tegning</button>
+        </div>
+      </div>
+      <p id="equipmentDrawingStatus" class="equipmentFormStatus"></p>
+      <div class="equipmentDrawingBody">
+        <div id="equipmentDrawingCanvas" class="equipmentDrawingCanvas">Upload eller vælg en tegning.</div>
+        <aside id="equipmentDrawingPinPanel" class="equipmentDrawingPinPanel" hidden></aside>
+      </div>
     </section>
   </div>
   <div id="equipmentScannerShell" class="equipmentScannerShell" aria-hidden="true">

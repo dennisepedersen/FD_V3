@@ -227,6 +227,92 @@ function buildCctvImageStorageKey({ tenantId, projectId, cameraRecordId, slotTyp
   ].join("/");
 }
 
+function validateCctvDrawingFile(file) {
+  if (!file || !Buffer.isBuffer(file.buffer) || file.buffer.length === 0) {
+    throw createHttpError(400, "cctv_drawing_file_required");
+  }
+  const contentType = normalizeImageContentType(file.contentType);
+  const maxBytes = fileStorageService.getMaxUploadBytes();
+  if (file.buffer.length > maxBytes) {
+    throw createHttpError(413, "cctv_drawing_too_large");
+  }
+  const extension = getStorageExtension({
+    contentType,
+    originalFilename: file.filename,
+  });
+  return {
+    buffer: file.buffer,
+    byteSize: file.buffer.length,
+    contentType,
+    extension,
+    originalFilename: normalizeOptionalText(file.filename),
+    checksumSha256: crypto.createHash("sha256").update(file.buffer).digest("hex"),
+  };
+}
+
+function normalizeCctvDrawingTitle(value, fallbackFilename) {
+  const title = normalizeOptionalText(value) || normalizeOptionalText(fallbackFilename) || "CCTV tegning";
+  return title.slice(0, 160);
+}
+
+function buildCctvDrawingStorageKey({ tenantId, projectId, extension }) {
+  return [
+    "tenants",
+    tenantId,
+    "projects",
+    projectId,
+    "project-equipment",
+    "cctv",
+    "drawings",
+    `${crypto.randomUUID()}${extension}`,
+  ].join("/");
+}
+
+function normalizePercentCoordinate(value, fieldName) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0 || number > 100) {
+    throw createHttpError(400, `${fieldName}_invalid`);
+  }
+  return Number(number.toFixed(3));
+}
+
+function mapCctvDrawing(row) {
+  if (!row) return null;
+  return {
+    id: row.drawing_id,
+    title: row.title,
+    storage_object_id: row.storage_object_id,
+    filename: row.original_filename,
+    content_type: row.content_type,
+    byte_size: Number(row.byte_size || 0),
+    pin_count: Number(row.pin_count || 0),
+    uploaded_at: row.created_at,
+    updated_at: row.updated_at,
+    content_url: `/api/projects/${encodeURIComponent(row.project_id)}/equipment/cctv/drawings/${encodeURIComponent(row.drawing_id)}/content`,
+  };
+}
+
+function mapCctvPin(row) {
+  if (!row) return null;
+  return {
+    id: row.pin_id,
+    drawing_id: row.drawing_id,
+    camera_record_id: row.camera_record_id,
+    x_percent: Number(row.x_percent),
+    y_percent: Number(row.y_percent),
+    label: row.label || row.camera_id || "Kamera",
+    updated_at: row.updated_at,
+    camera: {
+      id: row.camera_record_id,
+      camera_id: row.camera_id,
+      mac_address: row.mac_address,
+      serial_number: row.serial_number,
+      model: row.model,
+      location_text: row.location_text,
+      status: row.status,
+    },
+  };
+}
 function mapCctvImage(row) {
   if (!row) return null;
   return {
@@ -925,17 +1011,423 @@ async function deleteCctvImage({ tenantId, userId, projectId, cameraRecordId, sl
   await deleteBlobBestEffort(deletedStorageKey);
   return result;
 }
+
+async function listCctvDrawings({ tenantId, userId, projectId }) {
+  const client = await pool.connect();
+  try {
+    const projectContext = await requireProject(client, { tenantId, userId, projectId });
+    const drawings = await projectEquipmentRepository.listCctvDrawingsForProject(client, {
+      tenantId,
+      projectId: projectContext.projectId,
+    });
+    return {
+      project: projectContext.project,
+      drawings: drawings.map(mapCctvDrawing),
+    };
+  } finally {
+    client.release();
+  }
+}
+
+async function uploadCctvDrawing({ tenantId, userId, projectId, file, title }) {
+  const drawingFile = validateCctvDrawingFile(file);
+  const drawingTitle = normalizeCctvDrawingTitle(title, drawingFile.originalFilename);
+  let uploadedObject = null;
+
+  try {
+    const result = await withTransaction(async (client) => {
+      const projectContext = await requireProject(client, { tenantId, userId, projectId });
+      const storageKey = buildCctvDrawingStorageKey({
+        tenantId,
+        projectId: projectContext.projectId,
+        extension: drawingFile.extension,
+      });
+
+      uploadedObject = await fileStorageService.putObject({
+        tenantId,
+        projectId: projectContext.projectId,
+        key: storageKey,
+        buffer: drawingFile.buffer,
+        contentType: drawingFile.contentType,
+        metadata: {
+          module_key: "project_equipment_beta",
+          resource_type: "project_equipment_cctv_drawing",
+          title: drawingTitle,
+        },
+      });
+
+      const storageObject = await storageObjectQueries.insertStorageObject(client, {
+        tenantId,
+        projectId: projectContext.projectId,
+        moduleKey: "project_equipment_beta",
+        resourceType: "project_equipment_cctv_drawing",
+        resourceId: projectContext.projectId,
+        storageProvider: uploadedObject.provider,
+        storageKey: uploadedObject.key,
+        originalFilename: drawingFile.originalFilename,
+        contentType: drawingFile.contentType,
+        byteSize: drawingFile.byteSize,
+        checksumSha256: drawingFile.checksumSha256,
+        metadata: { title: drawingTitle },
+        actorUserId: userId,
+      });
+
+      const drawing = await projectEquipmentRepository.insertCctvDrawing(client, {
+        tenantId,
+        projectId: projectContext.projectId,
+        storageObjectId: storageObject.id,
+        title: drawingTitle,
+        actorUserId: userId,
+      });
+
+      await logEquipmentAuditEvent(client, {
+        tenantId,
+        userId,
+        eventType: "project_equipment_cctv_drawing_uploaded",
+        resourceId: drawing.drawing_id,
+        projectId: projectContext.projectId,
+        reason: "project_equipment_cctv_drawing_uploaded",
+        metadata: {
+          resource_type: "project_equipment_cctv_drawing",
+          drawing_id: drawing.drawing_id,
+          storage_object_id: storageObject.id,
+          content_type: storageObject.content_type,
+          byte_size: Number(storageObject.byte_size || 0),
+        },
+      });
+
+      return {
+        project: projectContext.project,
+        drawing: mapCctvDrawing({
+          ...drawing,
+          storage_provider: storageObject.storage_provider,
+          storage_key: storageObject.storage_key,
+          original_filename: storageObject.original_filename,
+          content_type: storageObject.content_type,
+          byte_size: storageObject.byte_size,
+          checksum_sha256: storageObject.checksum_sha256,
+          metadata: storageObject.metadata,
+          pin_count: 0,
+        }),
+      };
+    });
+
+    return result;
+  } catch (error) {
+    if (uploadedObject?.key) {
+      await deleteBlobBestEffort(uploadedObject.key);
+    }
+    throw error;
+  }
+}
+
+async function getCctvDrawingContent({ tenantId, userId, projectId, drawingId }) {
+  const client = await pool.connect();
+  try {
+    const projectContext = await requireProject(client, { tenantId, userId, projectId });
+    const drawing = await projectEquipmentRepository.findCctvDrawingById(client, {
+      tenantId,
+      projectId: projectContext.projectId,
+      drawingId,
+    });
+    if (!drawing) {
+      throw createHttpError(404, "project_equipment_cctv_drawing_not_found");
+    }
+    const object = await fileStorageService.getObjectStream({ key: drawing.storage_key });
+    return {
+      drawing: mapCctvDrawing(drawing),
+      contentType: drawing.content_type || object.contentType,
+      contentLength: drawing.byte_size || object.contentLength,
+      stream: object.stream,
+    };
+  } finally {
+    client.release();
+  }
+}
+
+async function deleteCctvDrawing({ tenantId, userId, projectId, drawingId }) {
+  let deletedStorageKey = null;
+  const result = await withTransaction(async (client) => {
+    const projectContext = await requireProject(client, { tenantId, userId, projectId });
+    const deleted = await projectEquipmentRepository.softDeleteCctvDrawing(client, {
+      tenantId,
+      projectId: projectContext.projectId,
+      drawingId,
+      actorUserId: userId,
+    });
+    if (!deleted) {
+      throw createHttpError(404, "project_equipment_cctv_drawing_not_found");
+    }
+    deletedStorageKey = deleted.storage_key;
+
+    await logEquipmentAuditEvent(client, {
+      tenantId,
+      userId,
+      eventType: "project_equipment_cctv_drawing_deleted",
+      resourceId: deleted.drawing_id,
+      projectId: projectContext.projectId,
+      reason: "project_equipment_cctv_drawing_deleted",
+      metadata: {
+        resource_type: "project_equipment_cctv_drawing",
+        drawing_id: deleted.drawing_id,
+        storage_object_id: deleted.storage_object_id,
+      },
+    });
+
+    return {
+      project: projectContext.project,
+      drawing_id: deleted.drawing_id,
+      deleted: true,
+    };
+  });
+
+  await deleteBlobBestEffort(deletedStorageKey);
+  return result;
+}
+
+async function listCctvPins({ tenantId, userId, projectId, drawingId }) {
+  const client = await pool.connect();
+  try {
+    const projectContext = await requireProject(client, { tenantId, userId, projectId });
+    const drawing = await projectEquipmentRepository.findCctvDrawingById(client, {
+      tenantId,
+      projectId: projectContext.projectId,
+      drawingId,
+    });
+    if (!drawing) {
+      throw createHttpError(404, "project_equipment_cctv_drawing_not_found");
+    }
+    const pins = await projectEquipmentRepository.listCctvPinsForDrawing(client, {
+      tenantId,
+      projectId: projectContext.projectId,
+      drawingId: drawing.drawing_id,
+    });
+    return {
+      project: projectContext.project,
+      drawing: mapCctvDrawing(drawing),
+      pins: pins.map(mapCctvPin),
+    };
+  } finally {
+    client.release();
+  }
+}
+
+function normalizePinPayload(input, existing = null) {
+  const body = input || {};
+  const has = (key) => Object.prototype.hasOwnProperty.call(body, key);
+  const xPercent = has("x_percent") ? normalizePercentCoordinate(body.x_percent, "x_percent") : Number(existing?.x_percent);
+  const yPercent = has("y_percent") ? normalizePercentCoordinate(body.y_percent, "y_percent") : Number(existing?.y_percent);
+  if (!Number.isFinite(xPercent) || !Number.isFinite(yPercent)) {
+    throw createHttpError(400, "pin_coordinates_required");
+  }
+  return {
+    xPercent,
+    yPercent,
+    label: has("label") ? normalizeOptionalText(body.label) : existing?.label || null,
+  };
+}
+
+async function saveCctvPin({ tenantId, userId, projectId, drawingId, input }) {
+  return withTransaction(async (client) => {
+    const projectContext = await requireProject(client, { tenantId, userId, projectId });
+    const drawing = await projectEquipmentRepository.findCctvDrawingById(client, {
+      tenantId,
+      projectId: projectContext.projectId,
+      drawingId,
+    });
+    if (!drawing) {
+      throw createHttpError(404, "project_equipment_cctv_drawing_not_found");
+    }
+    const cameraRecordId = normalizeRequiredText(input?.camera_record_id || input?.cameraRecordId, "camera_record_id_required");
+    const camera = await requireCctvCamera(client, {
+      tenantId,
+      projectId: projectContext.projectId,
+      cameraRecordId,
+    });
+    const payload = normalizePinPayload(input);
+    const label = payload.label || camera.camera_id;
+    const existing = await projectEquipmentRepository.findActiveCctvPinForCameraDrawing(client, {
+      tenantId,
+      projectId: projectContext.projectId,
+      drawingId: drawing.drawing_id,
+      cameraRecordId: camera.id,
+    });
+    const saved = existing
+      ? await projectEquipmentRepository.updateCctvPin(client, {
+        tenantId,
+        projectId: projectContext.projectId,
+        drawingId: drawing.drawing_id,
+        pinId: existing.pin_id,
+        ...payload,
+        label,
+        actorUserId: userId,
+      })
+      : await projectEquipmentRepository.insertCctvPin(client, {
+        tenantId,
+        projectId: projectContext.projectId,
+        drawingId: drawing.drawing_id,
+        cameraRecordId: camera.id,
+        ...payload,
+        label,
+        actorUserId: userId,
+      });
+
+    const pin = await projectEquipmentRepository.findCctvPinById(client, {
+      tenantId,
+      projectId: projectContext.projectId,
+      drawingId: drawing.drawing_id,
+      pinId: saved.pin_id,
+    });
+
+    await logEquipmentAuditEvent(client, {
+      tenantId,
+      userId,
+      eventType: existing ? "project_equipment_cctv_pin_updated" : "project_equipment_cctv_pin_created",
+      resourceId: saved.pin_id,
+      projectId: projectContext.projectId,
+      reason: existing ? "project_equipment_cctv_pin_updated" : "project_equipment_cctv_pin_created",
+      metadata: {
+        resource_type: "project_equipment_cctv_pin",
+        drawing_id: drawing.drawing_id,
+        camera_record_id: camera.id,
+        camera_id: camera.camera_id,
+        x_percent: payload.xPercent,
+        y_percent: payload.yPercent,
+      },
+    });
+
+    return {
+      project: projectContext.project,
+      drawing: mapCctvDrawing(drawing),
+      pin: mapCctvPin(pin),
+      updated: Boolean(existing),
+    };
+  });
+}
+
+async function updateCctvPin({ tenantId, userId, projectId, drawingId, pinId, input }) {
+  return withTransaction(async (client) => {
+    const projectContext = await requireProject(client, { tenantId, userId, projectId });
+    const drawing = await projectEquipmentRepository.findCctvDrawingById(client, {
+      tenantId,
+      projectId: projectContext.projectId,
+      drawingId,
+    });
+    if (!drawing) {
+      throw createHttpError(404, "project_equipment_cctv_drawing_not_found");
+    }
+    const existing = await projectEquipmentRepository.findCctvPinById(client, {
+      tenantId,
+      projectId: projectContext.projectId,
+      drawingId: drawing.drawing_id,
+      pinId,
+    });
+    if (!existing) {
+      throw createHttpError(404, "project_equipment_cctv_pin_not_found");
+    }
+    const payload = normalizePinPayload(input, existing);
+    const saved = await projectEquipmentRepository.updateCctvPin(client, {
+      tenantId,
+      projectId: projectContext.projectId,
+      drawingId: drawing.drawing_id,
+      pinId,
+      ...payload,
+      actorUserId: userId,
+    });
+    const pin = await projectEquipmentRepository.findCctvPinById(client, {
+      tenantId,
+      projectId: projectContext.projectId,
+      drawingId: drawing.drawing_id,
+      pinId: saved.pin_id,
+    });
+
+    await logEquipmentAuditEvent(client, {
+      tenantId,
+      userId,
+      eventType: "project_equipment_cctv_pin_updated",
+      resourceId: saved.pin_id,
+      projectId: projectContext.projectId,
+      reason: "project_equipment_cctv_pin_updated",
+      metadata: {
+        resource_type: "project_equipment_cctv_pin",
+        drawing_id: drawing.drawing_id,
+        camera_record_id: pin.camera_record_id,
+        x_percent: payload.xPercent,
+        y_percent: payload.yPercent,
+      },
+    });
+
+    return {
+      project: projectContext.project,
+      drawing: mapCctvDrawing(drawing),
+      pin: mapCctvPin(pin),
+    };
+  });
+}
+
+async function deleteCctvPin({ tenantId, userId, projectId, drawingId, pinId }) {
+  return withTransaction(async (client) => {
+    const projectContext = await requireProject(client, { tenantId, userId, projectId });
+    const drawing = await projectEquipmentRepository.findCctvDrawingById(client, {
+      tenantId,
+      projectId: projectContext.projectId,
+      drawingId,
+    });
+    if (!drawing) {
+      throw createHttpError(404, "project_equipment_cctv_drawing_not_found");
+    }
+    const deleted = await projectEquipmentRepository.softDeleteCctvPin(client, {
+      tenantId,
+      projectId: projectContext.projectId,
+      drawingId: drawing.drawing_id,
+      pinId,
+      actorUserId: userId,
+    });
+    if (!deleted) {
+      throw createHttpError(404, "project_equipment_cctv_pin_not_found");
+    }
+
+    await logEquipmentAuditEvent(client, {
+      tenantId,
+      userId,
+      eventType: "project_equipment_cctv_pin_deleted",
+      resourceId: deleted.pin_id,
+      projectId: projectContext.projectId,
+      reason: "project_equipment_cctv_pin_deleted",
+      metadata: {
+        resource_type: "project_equipment_cctv_pin",
+        drawing_id: drawing.drawing_id,
+        camera_record_id: deleted.camera_record_id,
+      },
+    });
+
+    return {
+      project: projectContext.project,
+      drawing_id: drawing.drawing_id,
+      pin_id: deleted.pin_id,
+      deleted: true,
+    };
+  });
+}
 module.exports = {
   archiveCctv,
   checkCctv,
   createCctv,
+  deleteCctvDrawing,
   deleteCctvImage,
+  deleteCctvPin,
   exportCctvCsv,
   exportCctvPdf,
+  getCctvDrawingContent,
   getCctvImageContent,
+  listCctvDrawings,
   listCctvForProject,
   listCctvImages,
+  listCctvPins,
   normalizeMacAddress,
+  saveCctvPin,
   updateCctv,
+  updateCctvPin,
+  uploadCctvDrawing,
   uploadCctvImage,
 };
