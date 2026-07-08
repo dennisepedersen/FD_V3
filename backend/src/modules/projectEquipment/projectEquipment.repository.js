@@ -761,7 +761,32 @@ async function listCctvPinsForDrawing(client, { tenantId, projectId, drawingId }
         camera.serial_number,
         camera.model,
         camera.location_text,
-        camera.status
+        camera.status,
+        camera.note,
+        COALESCE((
+          SELECT jsonb_object_agg(slot.slot_type, slot.image_summary)
+          FROM (
+            SELECT
+              image.slot_type,
+              jsonb_build_object(
+                'slot_type', image.slot_type,
+                'storage_object_id', image.storage_object_id,
+                'filename', storage.original_filename,
+                'content_type', storage.content_type,
+                'byte_size', storage.byte_size,
+                'uploaded_at', image.created_at
+              ) AS image_summary
+            FROM project_equipment_cctv_image image
+            JOIN storage_object storage
+              ON storage.tenant_id = image.tenant_id
+             AND storage.id = image.storage_object_id
+             AND storage.deleted_at IS NULL
+            WHERE image.tenant_id = camera.tenant_id
+              AND image.project_id = camera.project_id
+              AND image.camera_record_id = camera.id
+              AND image.deleted_at IS NULL
+          ) slot
+        ), '{}'::jsonb) AS image_slots
       FROM project_equipment_cctv_pin pin
       JOIN project_equipment_cctv camera
         ON camera.tenant_id = pin.tenant_id
@@ -805,7 +830,32 @@ async function findCctvPinById(client, { tenantId, projectId, drawingId, pinId }
         camera.serial_number,
         camera.model,
         camera.location_text,
-        camera.status
+        camera.status,
+        camera.note,
+        COALESCE((
+          SELECT jsonb_object_agg(slot.slot_type, slot.image_summary)
+          FROM (
+            SELECT
+              image.slot_type,
+              jsonb_build_object(
+                'slot_type', image.slot_type,
+                'storage_object_id', image.storage_object_id,
+                'filename', storage.original_filename,
+                'content_type', storage.content_type,
+                'byte_size', storage.byte_size,
+                'uploaded_at', image.created_at
+              ) AS image_summary
+            FROM project_equipment_cctv_image image
+            JOIN storage_object storage
+              ON storage.tenant_id = image.tenant_id
+             AND storage.id = image.storage_object_id
+             AND storage.deleted_at IS NULL
+            WHERE image.tenant_id = camera.tenant_id
+              AND image.project_id = camera.project_id
+              AND image.camera_record_id = camera.id
+              AND image.deleted_at IS NULL
+          ) slot
+        ), '{}'::jsonb) AS image_slots
       FROM project_equipment_cctv_pin pin
       JOIN project_equipment_cctv camera
         ON camera.tenant_id = pin.tenant_id

@@ -310,6 +310,8 @@ function mapCctvPin(row) {
       model: row.model,
       location_text: row.location_text,
       status: row.status,
+      note: row.note,
+      image_slots: row.image_slots || {},
     },
   };
 }

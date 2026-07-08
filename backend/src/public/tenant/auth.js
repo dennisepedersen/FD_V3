@@ -6614,12 +6614,20 @@
       grid.className = "equipmentMetaGrid";
       const camera = pin.camera || getEquipmentCameraById(pin.camera_record_id) || {};
       const brandModel = getEquipmentCameraBrandModel(camera);
+      const statusView = getEquipmentStatusView(camera.status);
+      const imageSlots = camera.image_slots || {};
+      const imageStatus = equipmentImageSlotTypes
+        .map((slotType) => `${slotType.label}: ${hasEquipmentImageSlot(imageSlots[slotType.value]) ? "OK" : "Tom"}`)
+        .join(" · ");
       grid.appendChild(makeEquipmentMeta("Kamera-ID", camera.camera_id || pin.label));
       grid.appendChild(makeEquipmentMeta("MAC", formatEquipmentMac(camera.mac_address)));
       grid.appendChild(makeEquipmentMeta("S/N", camera.serial_number));
       grid.appendChild(makeEquipmentMeta("Mærke", brandModel.brand));
       grid.appendChild(makeEquipmentMeta("Model", brandModel.model));
       grid.appendChild(makeEquipmentMeta("Placering", camera.location_text));
+      grid.appendChild(makeEquipmentMeta("Status", statusView.label));
+      grid.appendChild(makeEquipmentMeta("Note", camera.note));
+      grid.appendChild(makeEquipmentMeta("Billedstatus", imageStatus));
       equipmentDrawingPinPanel.appendChild(grid);
       const actions = document.createElement("div");
       actions.className = "equipmentDrawingPinPanelActions";
