@@ -109,6 +109,7 @@ function parseSingleImageUpload(req) {
     let uploadError = null;
     let fileInfo = null;
     const chunks = [];
+    const fields = {};
 
     busboy.on("file", (fieldName, file, info) => {
       if (fieldName !== "file") {
@@ -132,6 +133,10 @@ function parseSingleImageUpload(req) {
       });
     });
 
+    busboy.on("field", (name, value) => {
+      fields[name] = value;
+    });
+
     busboy.on("filesLimit", () => {
       uploadError = createHttpError(400, "single_file_required");
     });
@@ -153,6 +158,7 @@ function parseSingleImageUpload(req) {
         filename: fileInfo?.filename || null,
         contentType: fileInfo?.contentType || null,
         buffer: Buffer.concat(chunks),
+        fields,
       });
     });
 
@@ -310,6 +316,213 @@ router.get("/api/projects/:projectId/equipment/cctv/export.pdf", requireTenantHo
     res.status(200).send(result.pdf);
   } catch (error) {
     logRouteError(req, "/api/projects/:projectId/equipment/cctv/export.pdf", "GET", error);
+    next(error);
+  }
+});
+router.get("/api/projects/:projectId/equipment/cctv/drawings", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  try {
+    const { tenantId, userId } = getTenantContext(req);
+    requireProjectEquipmentAccess(req, "read");
+    requireProjectEquipmentBetaScope(req);
+
+    const result = await projectEquipmentService.listCctvDrawings({
+      tenantId,
+      userId,
+      projectId: req.params.projectId,
+    });
+
+    res.status(200).json({
+      success: true,
+      project: result.project,
+      drawings: result.drawings,
+    });
+  } catch (error) {
+    logRouteError(req, "/api/projects/:projectId/equipment/cctv/drawings", "GET", error);
+    next(error);
+  }
+});
+
+router.post("/api/projects/:projectId/equipment/cctv/drawings", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  try {
+    const { tenantId, userId } = getTenantContext(req);
+    requireProjectEquipmentAccess(req, "create");
+    requireProjectEquipmentBetaScope(req);
+    const file = await parseSingleImageUpload(req);
+
+    const result = await projectEquipmentService.uploadCctvDrawing({
+      tenantId,
+      userId,
+      projectId: req.params.projectId,
+      file,
+      title: file.fields?.title,
+    });
+
+    res.status(201).json({
+      success: true,
+      project: result.project,
+      drawing: result.drawing,
+    });
+  } catch (error) {
+    logRouteError(req, "/api/projects/:projectId/equipment/cctv/drawings", "POST", error);
+    next(error);
+  }
+});
+
+router.get("/api/projects/:projectId/equipment/cctv/drawings/:drawingId/content", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  try {
+    const { tenantId, userId } = getTenantContext(req);
+    requireProjectEquipmentAccess(req, "read");
+    requireProjectEquipmentBetaScope(req);
+
+    const result = await projectEquipmentService.getCctvDrawingContent({
+      tenantId,
+      userId,
+      projectId: req.params.projectId,
+      drawingId: req.params.drawingId,
+    });
+
+    res.setHeader("Content-Type", result.contentType || "application/octet-stream");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Cache-Control", "private, no-store");
+    res.setHeader("Content-Disposition", `inline; filename="${safeInlineFilename(result.drawing?.filename || result.drawing?.title || "cctv-drawing")}"`);
+    if (result.contentLength != null) {
+      res.setHeader("Content-Length", String(result.contentLength));
+    }
+    result.stream.on("error", next);
+    result.stream.pipe(res);
+  } catch (error) {
+    logRouteError(req, "/api/projects/:projectId/equipment/cctv/drawings/:drawingId/content", "GET", error);
+    next(error);
+  }
+});
+
+router.delete("/api/projects/:projectId/equipment/cctv/drawings/:drawingId", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  try {
+    const { tenantId, userId } = getTenantContext(req);
+    requireProjectEquipmentAccess(req, "delete");
+    requireProjectEquipmentBetaScope(req);
+
+    const result = await projectEquipmentService.deleteCctvDrawing({
+      tenantId,
+      userId,
+      projectId: req.params.projectId,
+      drawingId: req.params.drawingId,
+    });
+
+    res.status(200).json({
+      success: true,
+      project: result.project,
+      drawing_id: result.drawing_id,
+      deleted: result.deleted,
+    });
+  } catch (error) {
+    logRouteError(req, "/api/projects/:projectId/equipment/cctv/drawings/:drawingId", "DELETE", error);
+    next(error);
+  }
+});
+
+router.get("/api/projects/:projectId/equipment/cctv/drawings/:drawingId/pins", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  try {
+    const { tenantId, userId } = getTenantContext(req);
+    requireProjectEquipmentAccess(req, "read");
+    requireProjectEquipmentBetaScope(req);
+
+    const result = await projectEquipmentService.listCctvPins({
+      tenantId,
+      userId,
+      projectId: req.params.projectId,
+      drawingId: req.params.drawingId,
+    });
+
+    res.status(200).json({
+      success: true,
+      project: result.project,
+      drawing: result.drawing,
+      pins: result.pins,
+    });
+  } catch (error) {
+    logRouteError(req, "/api/projects/:projectId/equipment/cctv/drawings/:drawingId/pins", "GET", error);
+    next(error);
+  }
+});
+
+router.post("/api/projects/:projectId/equipment/cctv/drawings/:drawingId/pins", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  try {
+    const { tenantId, userId } = getTenantContext(req);
+    requireProjectEquipmentAccess(req, "update");
+    requireProjectEquipmentBetaScope(req);
+
+    const result = await projectEquipmentService.saveCctvPin({
+      tenantId,
+      userId,
+      projectId: req.params.projectId,
+      drawingId: req.params.drawingId,
+      input: req.body,
+    });
+
+    res.status(result.updated ? 200 : 201).json({
+      success: true,
+      project: result.project,
+      drawing: result.drawing,
+      pin: result.pin,
+      updated: result.updated,
+    });
+  } catch (error) {
+    logRouteError(req, "/api/projects/:projectId/equipment/cctv/drawings/:drawingId/pins", "POST", error);
+    next(error);
+  }
+});
+
+router.patch("/api/projects/:projectId/equipment/cctv/drawings/:drawingId/pins/:pinId", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  try {
+    const { tenantId, userId } = getTenantContext(req);
+    requireProjectEquipmentAccess(req, "update");
+    requireProjectEquipmentBetaScope(req);
+
+    const result = await projectEquipmentService.updateCctvPin({
+      tenantId,
+      userId,
+      projectId: req.params.projectId,
+      drawingId: req.params.drawingId,
+      pinId: req.params.pinId,
+      input: req.body,
+    });
+
+    res.status(200).json({
+      success: true,
+      project: result.project,
+      drawing: result.drawing,
+      pin: result.pin,
+    });
+  } catch (error) {
+    logRouteError(req, "/api/projects/:projectId/equipment/cctv/drawings/:drawingId/pins/:pinId", "PATCH", error);
+    next(error);
+  }
+});
+
+router.delete("/api/projects/:projectId/equipment/cctv/drawings/:drawingId/pins/:pinId", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  try {
+    const { tenantId, userId } = getTenantContext(req);
+    requireProjectEquipmentAccess(req, "delete");
+    requireProjectEquipmentBetaScope(req);
+
+    const result = await projectEquipmentService.deleteCctvPin({
+      tenantId,
+      userId,
+      projectId: req.params.projectId,
+      drawingId: req.params.drawingId,
+      pinId: req.params.pinId,
+    });
+
+    res.status(200).json({
+      success: true,
+      project: result.project,
+      drawing_id: result.drawing_id,
+      pin_id: result.pin_id,
+      deleted: result.deleted,
+    });
+  } catch (error) {
+    logRouteError(req, "/api/projects/:projectId/equipment/cctv/drawings/:drawingId/pins/:pinId", "DELETE", error);
     next(error);
   }
 });

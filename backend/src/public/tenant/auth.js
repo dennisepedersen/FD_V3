@@ -4490,6 +4490,7 @@
     const equipmentCheckBtn = document.getElementById("equipmentCheckBtn");
     const equipmentExportLink = document.getElementById("equipmentExportLink");
     const equipmentPdfExportLink = document.getElementById("equipmentPdfExportLink");
+    const equipmentDrawingBtn = document.getElementById("equipmentDrawingBtn");
     const equipmentDrawerShell = document.getElementById("equipmentDrawerShell");
     const equipmentDrawerOverlay = document.getElementById("equipmentDrawerOverlay");
     const equipmentDrawerCloseBtn = document.getElementById("equipmentDrawerCloseBtn");
@@ -4543,6 +4544,19 @@
     const equipmentImageViewerMeta = document.getElementById("equipmentImageViewerMeta");
     const equipmentImageViewerTabs = document.getElementById("equipmentImageViewerTabs");
     const equipmentImageViewerBody = document.getElementById("equipmentImageViewerBody");
+    const equipmentDrawingShell = document.getElementById("equipmentDrawingShell");
+    const equipmentDrawingOverlay = document.getElementById("equipmentDrawingOverlay");
+    const equipmentDrawingCloseBtn = document.getElementById("equipmentDrawingCloseBtn");
+    const equipmentDrawingSelect = document.getElementById("equipmentDrawingSelect");
+    const equipmentDrawingFileInput = document.getElementById("equipmentDrawingFileInput");
+    const equipmentDrawingTitleInput = document.getElementById("equipmentDrawingTitleInput");
+    const equipmentDrawingCameraSelect = document.getElementById("equipmentDrawingCameraSelect");
+    const equipmentDrawingUploadBtn = document.getElementById("equipmentDrawingUploadBtn");
+    const equipmentDrawingPlaceBtn = document.getElementById("equipmentDrawingPlaceBtn");
+    const equipmentDrawingDeleteBtn = document.getElementById("equipmentDrawingDeleteBtn");
+    const equipmentDrawingStatus = document.getElementById("equipmentDrawingStatus");
+    const equipmentDrawingCanvas = document.getElementById("equipmentDrawingCanvas");
+    const equipmentDrawingPinPanel = document.getElementById("equipmentDrawingPinPanel");
 
     if (!projectId) {
       renderProjectDetailError("Ugyldig sagssti");
@@ -4590,6 +4604,12 @@
       imageViewerCamera: null,
       imageViewerSlots: null,
       imageViewerObjectUrls: [],
+      drawings: [],
+      activeDrawingId: null,
+      drawingPins: [],
+      drawingObjectUrl: null,
+      drawingPlacementCameraId: null,
+      selectedDrawingPinId: null,
     };
     const equipmentScannerState = {
       target: null,
@@ -6119,8 +6139,14 @@
       if (message.includes("invalid_cctv_image_type") || message.includes("invalid_cctv_image_extension")) {
         return "Billedet skal være JPG, PNG eller WebP.";
       }
-      if (message.includes("cctv_image_too_large")) {
+      if (message.includes("cctv_image_too_large") || message.includes("cctv_drawing_too_large")) {
         return "Billedet er for stort til den aktuelle uploadgrænse.";
+      }
+      if (message.includes("cctv_drawing_file_required")) {
+        return "Vælg en tegning først.";
+      }
+      if (message.includes("x_percent_invalid") || message.includes("y_percent_invalid") || message.includes("pin_coordinates_required")) {
+        return "Placeringen skal være inde på tegningen.";
       }
       return getErrorMessage(error, fallback);
     }
@@ -6319,6 +6345,24 @@
       return row;
     }
 
+    function makeEquipmentDrawingStatusRow(camera) {
+      const row = document.createElement("div");
+      row.className = "equipmentImageStatusRow";
+      const badge = document.createElement("span");
+      const hasPin = Boolean(camera && camera.drawing_pin && camera.drawing_pin.drawing_id);
+      badge.className = `equipmentImageBadge${hasPin ? " hasImage" : ""}`;
+      badge.textContent = hasPin
+        ? `Placeret på tegning${camera.drawing_pin.drawing_title ? ` · ${camera.drawing_pin.drawing_title}` : ""}`
+        : "Mangler tegningplacering";
+      row.appendChild(badge);
+      const viewBtn = document.createElement("button");
+      viewBtn.type = "button";
+      viewBtn.className = "btn btnCompact";
+      viewBtn.textContent = hasPin ? "Vis på tegning" : "Placer";
+      viewBtn.addEventListener("click", () => openEquipmentDrawing(camera, !hasPin));
+      row.appendChild(viewBtn);
+      return row;
+    }
     function chooseEquipmentImageFile(slotType) {
       if (!equipmentState.activeCameraId) {
         if (equipmentImageStatus) equipmentImageStatus.textContent = "Gem kameraet, før billeder kan tilføjes.";
@@ -6484,6 +6528,361 @@
       }
       renderEquipmentImageViewer();
     }
+    function revokeEquipmentDrawingObjectUrl() {
+      if (!equipmentState.drawingObjectUrl) return;
+      try {
+        window.URL.revokeObjectURL(equipmentState.drawingObjectUrl);
+      } catch (_error) {
+        // Object URL cleanup is best-effort only.
+      }
+      equipmentState.drawingObjectUrl = null;
+    }
+
+    function setEquipmentDrawingStatus(message, isError = false) {
+      if (!equipmentDrawingStatus) return;
+      equipmentDrawingStatus.textContent = message || "";
+      equipmentDrawingStatus.style.color = isError ? "#be123c" : "";
+      equipmentDrawingStatus.style.fontWeight = isError ? "800" : "";
+    }
+
+    function getActiveEquipmentDrawing() {
+      return equipmentState.drawings.find((drawing) => drawing.id === equipmentState.activeDrawingId) || null;
+    }
+
+    function getEquipmentCameraById(cameraId) {
+      return equipmentState.cameras.find((camera) => String(camera.id) === String(cameraId)) || null;
+    }
+
+    async function fetchEquipmentDrawingObjectUrl(drawing) {
+      if (!drawing || !drawing.content_url) return null;
+      const token = getToken();
+      const response = await window.fetch(drawing.content_url, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!response.ok) {
+        throw new Error(`cctv_drawing_content_failed_${response.status}`);
+      }
+      const blob = await response.blob();
+      return window.URL.createObjectURL(blob);
+    }
+
+    function renderEquipmentDrawingSelects() {
+      if (equipmentDrawingSelect) {
+        equipmentDrawingSelect.innerHTML = "";
+        if (!equipmentState.drawings.length) {
+          const option = document.createElement("option");
+          option.value = "";
+          option.textContent = "Ingen tegning endnu";
+          equipmentDrawingSelect.appendChild(option);
+        } else {
+          equipmentState.drawings.forEach((drawing) => {
+            const option = document.createElement("option");
+            option.value = drawing.id;
+            option.textContent = `${drawing.title || "Tegning"}${drawing.pin_count ? ` (${drawing.pin_count})` : ""}`;
+            equipmentDrawingSelect.appendChild(option);
+          });
+          equipmentDrawingSelect.value = equipmentState.activeDrawingId || equipmentState.drawings[0].id;
+        }
+      }
+      if (equipmentDrawingCameraSelect) {
+        equipmentDrawingCameraSelect.innerHTML = "";
+        equipmentState.cameras.forEach((camera) => {
+          const option = document.createElement("option");
+          option.value = camera.id;
+          option.textContent = getEquipmentCameraLabel(camera);
+          equipmentDrawingCameraSelect.appendChild(option);
+        });
+        if (equipmentState.drawingPlacementCameraId) {
+          equipmentDrawingCameraSelect.value = equipmentState.drawingPlacementCameraId;
+        }
+      }
+    }
+
+    function renderEquipmentDrawingPinPanel(pin) {
+      if (!equipmentDrawingPinPanel) return;
+      equipmentDrawingPinPanel.innerHTML = "";
+      if (!pin) {
+        equipmentDrawingPinPanel.hidden = true;
+        return;
+      }
+      equipmentDrawingPinPanel.hidden = false;
+      const title = document.createElement("strong");
+      title.className = "equipmentMetaValue";
+      title.textContent = pin.label || pin.camera?.camera_id || "Kamera";
+      equipmentDrawingPinPanel.appendChild(title);
+      const grid = document.createElement("div");
+      grid.className = "equipmentMetaGrid";
+      const camera = pin.camera || getEquipmentCameraById(pin.camera_record_id) || {};
+      const brandModel = getEquipmentCameraBrandModel(camera);
+      const statusView = getEquipmentStatusView(camera.status);
+      const imageSlots = camera.image_slots || {};
+      const imageStatus = equipmentImageSlotTypes
+        .map((slotType) => `${slotType.label}: ${hasEquipmentImageSlot(imageSlots[slotType.value]) ? "OK" : "Tom"}`)
+        .join(" · ");
+      grid.appendChild(makeEquipmentMeta("Kamera-ID", camera.camera_id || pin.label));
+      grid.appendChild(makeEquipmentMeta("MAC", formatEquipmentMac(camera.mac_address)));
+      grid.appendChild(makeEquipmentMeta("S/N", camera.serial_number));
+      grid.appendChild(makeEquipmentMeta("Mærke", brandModel.brand));
+      grid.appendChild(makeEquipmentMeta("Model", brandModel.model));
+      grid.appendChild(makeEquipmentMeta("Placering", camera.location_text));
+      grid.appendChild(makeEquipmentMeta("Status", statusView.label));
+      grid.appendChild(makeEquipmentMeta("Note", camera.note));
+      grid.appendChild(makeEquipmentMeta("Billedstatus", imageStatus));
+      equipmentDrawingPinPanel.appendChild(grid);
+      const actions = document.createElement("div");
+      actions.className = "equipmentDrawingPinPanelActions";
+      const openBtn = document.createElement("button");
+      openBtn.type = "button";
+      openBtn.className = "btn btnCompact";
+      openBtn.textContent = "Åbn kamera";
+      openBtn.addEventListener("click", () => {
+        closeEquipmentDrawing();
+        openEquipmentCameraForm(camera);
+      });
+      actions.appendChild(openBtn);
+      const imageBtn = document.createElement("button");
+      imageBtn.type = "button";
+      imageBtn.className = "btn btnCompact";
+      imageBtn.textContent = "Se billeder";
+      imageBtn.addEventListener("click", () => {
+        closeEquipmentDrawing();
+        openEquipmentImageViewer(camera);
+      });
+      actions.appendChild(imageBtn);
+      const moveBtn = document.createElement("button");
+      moveBtn.type = "button";
+      moveBtn.className = "btn btnPrimary btnCompact";
+      moveBtn.textContent = "Flyt placering";
+      moveBtn.addEventListener("click", () => {
+        equipmentState.drawingPlacementCameraId = camera.id || pin.camera_record_id;
+        if (equipmentDrawingCameraSelect) equipmentDrawingCameraSelect.value = equipmentState.drawingPlacementCameraId;
+        setEquipmentDrawingStatus("Klik på tegningen for at flytte kameraet.");
+        renderEquipmentDrawingCanvas();
+      });
+      actions.appendChild(moveBtn);
+      const deleteBtn = document.createElement("button");
+      deleteBtn.type = "button";
+      deleteBtn.className = "btn equipmentDangerBtn btnCompact";
+      deleteBtn.textContent = "Slet pin";
+      deleteBtn.addEventListener("click", () => deleteEquipmentDrawingPin(pin));
+      actions.appendChild(deleteBtn);
+      equipmentDrawingPinPanel.appendChild(actions);
+    }
+
+    function renderEquipmentDrawingCanvas() {
+      if (!equipmentDrawingCanvas) return;
+      equipmentDrawingCanvas.innerHTML = "";
+      equipmentDrawingCanvas.classList.toggle("isPlacing", Boolean(equipmentState.drawingPlacementCameraId));
+      const drawing = getActiveEquipmentDrawing();
+      if (!drawing) {
+        equipmentDrawingCanvas.textContent = "Upload eller vælg en tegning.";
+        renderEquipmentDrawingPinPanel(null);
+        return;
+      }
+      if (!equipmentState.drawingObjectUrl) {
+        equipmentDrawingCanvas.textContent = "Henter tegning...";
+        return;
+      }
+      const stage = document.createElement("div");
+      stage.className = "equipmentDrawingStage";
+      const image = document.createElement("img");
+      image.className = "equipmentDrawingImage";
+      image.src = equipmentState.drawingObjectUrl;
+      image.alt = drawing.title || "CCTV tegning";
+      stage.appendChild(image);
+      equipmentState.drawingPins.forEach((pin) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = `equipmentDrawingPin${pin.id === equipmentState.selectedDrawingPinId ? " active" : ""}`;
+        button.style.left = `${pin.x_percent}%`;
+        button.style.top = `${pin.y_percent}%`;
+        button.textContent = pin.label || pin.camera?.camera_id || "CAM";
+        button.title = pin.label || pin.camera?.camera_id || "Kamera";
+        button.addEventListener("click", (event) => {
+          event.stopPropagation();
+          equipmentState.selectedDrawingPinId = pin.id;
+          renderEquipmentDrawingCanvas();
+          renderEquipmentDrawingPinPanel(pin);
+        });
+        stage.appendChild(button);
+      });
+      stage.addEventListener("click", placeEquipmentDrawingPinFromEvent);
+      equipmentDrawingCanvas.appendChild(stage);
+      const selected = equipmentState.drawingPins.find((pin) => pin.id === equipmentState.selectedDrawingPinId) || null;
+      renderEquipmentDrawingPinPanel(selected);
+    }
+
+    async function loadEquipmentDrawingContentAndPins() {
+      const drawing = getActiveEquipmentDrawing();
+      revokeEquipmentDrawingObjectUrl();
+      equipmentState.drawingPins = [];
+      equipmentState.selectedDrawingPinId = null;
+      renderEquipmentDrawingCanvas();
+      if (!drawing) return;
+      try {
+        setEquipmentDrawingStatus("Henter tegning...");
+        equipmentState.drawingObjectUrl = await fetchEquipmentDrawingObjectUrl(drawing);
+        const pinResult = await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/equipment/cctv/drawings/${encodeURIComponent(drawing.id)}/pins`, { method: "GET" });
+        equipmentState.drawingPins = Array.isArray(pinResult.pins) ? pinResult.pins : [];
+        setEquipmentDrawingStatus(equipmentState.drawingPins.length ? "Tegning klar." : "Tegning klar. Ingen pins endnu.");
+      } catch (error) {
+        setEquipmentDrawingStatus(equipmentErrorMessage(error, "Kunne ikke hente tegning."), true);
+      }
+      renderEquipmentDrawingCanvas();
+      renderEquipmentDrawingSelects();
+    }
+
+    async function loadEquipmentDrawings(preferredDrawingId = null) {
+      const result = await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/equipment/cctv/drawings`, { method: "GET" });
+      equipmentState.drawings = Array.isArray(result.drawings) ? result.drawings : [];
+      equipmentState.activeDrawingId = preferredDrawingId || equipmentState.activeDrawingId || equipmentState.drawings[0]?.id || null;
+      if (!equipmentState.drawings.some((drawing) => drawing.id === equipmentState.activeDrawingId)) {
+        equipmentState.activeDrawingId = equipmentState.drawings[0]?.id || null;
+      }
+      renderEquipmentDrawingSelects();
+      await loadEquipmentDrawingContentAndPins();
+    }
+
+    async function openEquipmentDrawing(camera = null, placeCamera = false) {
+      if (!equipmentDrawingShell) return;
+      equipmentState.drawingPlacementCameraId = placeCamera && camera ? camera.id : null;
+      if (equipmentDrawingCameraSelect && camera) equipmentDrawingCameraSelect.value = camera.id;
+      equipmentDrawingShell.classList.add("open");
+      equipmentDrawingShell.setAttribute("aria-hidden", "false");
+      document.body.classList.add("equipment-drawing-open");
+      setEquipmentDrawingStatus("Henter tegninger...");
+      renderEquipmentDrawingSelects();
+      try {
+        await loadEquipmentDrawings(camera?.drawing_pin?.drawing_id || equipmentState.activeDrawingId);
+        if (!placeCamera && camera?.drawing_pin?.pin_id) {
+          equipmentState.selectedDrawingPinId = camera.drawing_pin.pin_id;
+          const selectedPin = equipmentState.drawingPins.find((pin) => pin.id === equipmentState.selectedDrawingPinId) || null;
+          renderEquipmentDrawingCanvas();
+          renderEquipmentDrawingPinPanel(selectedPin);
+        }
+        if (placeCamera && camera) {
+          equipmentState.drawingPlacementCameraId = camera.id;
+          if (equipmentDrawingCameraSelect) equipmentDrawingCameraSelect.value = camera.id;
+          setEquipmentDrawingStatus(equipmentState.activeDrawingId ? "Klik på tegningen for at placere kameraet." : "Upload en tegning før kameraet kan placeres.");
+          renderEquipmentDrawingCanvas();
+        }
+      } catch (error) {
+        setEquipmentDrawingStatus(equipmentErrorMessage(error, "Kunne ikke hente tegninger."), true);
+      }
+    }
+
+    function closeEquipmentDrawing() {
+      if (!equipmentDrawingShell) return;
+      equipmentDrawingShell.classList.remove("open");
+      equipmentDrawingShell.setAttribute("aria-hidden", "true");
+      document.body.classList.remove("equipment-drawing-open");
+      equipmentState.drawingPlacementCameraId = null;
+      equipmentState.selectedDrawingPinId = null;
+      revokeEquipmentDrawingObjectUrl();
+    }
+
+    async function uploadEquipmentDrawing() {
+      if (!equipmentDrawingFileInput || !equipmentDrawingFileInput.files || !equipmentDrawingFileInput.files[0]) {
+        setEquipmentDrawingStatus("Vælg en JPG, PNG eller WebP-tegning først.", true);
+        return;
+      }
+      const file = equipmentDrawingFileInput.files[0];
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("title", equipmentDrawingTitleInput && equipmentDrawingTitleInput.value.trim() ? equipmentDrawingTitleInput.value.trim() : file.name);
+      if (equipmentDrawingUploadBtn) equipmentDrawingUploadBtn.disabled = true;
+      setEquipmentDrawingStatus("Uploader tegning...");
+      try {
+        const token = getToken();
+        const response = await window.fetch(`/api/projects/${encodeURIComponent(projectId)}/equipment/cctv/drawings`, {
+          method: "POST",
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          body: formData,
+        });
+        if (!response.ok) {
+          let message = `cctv_drawing_upload_failed_${response.status}`;
+          try {
+            const payload = await response.json();
+            message = payload?.error?.message || message;
+          } catch (_error) {
+            // Keep status-based message.
+          }
+          throw new Error(message);
+        }
+        const payload = await response.json();
+        equipmentDrawingFileInput.value = "";
+        if (equipmentDrawingTitleInput) equipmentDrawingTitleInput.value = "";
+        await loadEquipmentDrawings(payload?.drawing?.id || null);
+        showEquipmentFeedback("Tegning uploadet.");
+      } catch (error) {
+        setEquipmentDrawingStatus(equipmentErrorMessage(error, "Kunne ikke uploade tegning."), true);
+      } finally {
+        if (equipmentDrawingUploadBtn) equipmentDrawingUploadBtn.disabled = false;
+      }
+    }
+
+    async function deleteEquipmentDrawing() {
+      const drawing = getActiveEquipmentDrawing();
+      if (!drawing) return;
+      if (!window.confirm("Slet tegningen og dens pins?")) return;
+      if (equipmentDrawingDeleteBtn) equipmentDrawingDeleteBtn.disabled = true;
+      setEquipmentDrawingStatus("Sletter tegning...");
+      try {
+        await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/equipment/cctv/drawings/${encodeURIComponent(drawing.id)}`, { method: "DELETE" });
+        equipmentState.activeDrawingId = null;
+        await loadEquipmentDrawings();
+        await loadEquipmentCctv();
+        showEquipmentFeedback("Tegning slettet.");
+      } catch (error) {
+        setEquipmentDrawingStatus(equipmentErrorMessage(error, "Kunne ikke slette tegning."), true);
+      } finally {
+        if (equipmentDrawingDeleteBtn) equipmentDrawingDeleteBtn.disabled = false;
+      }
+    }
+
+    async function placeEquipmentDrawingPinFromEvent(event) {
+      if (!equipmentState.drawingPlacementCameraId || !equipmentState.activeDrawingId) return;
+      const image = event.currentTarget.querySelector("img");
+      if (!image) return;
+      const rect = image.getBoundingClientRect();
+      const x = ((event.clientX - rect.left) / rect.width) * 100;
+      const y = ((event.clientY - rect.top) / rect.height) * 100;
+      const camera = getEquipmentCameraById(equipmentState.drawingPlacementCameraId);
+      try {
+        setEquipmentDrawingStatus("Gemmer placering...");
+        const result = await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/equipment/cctv/drawings/${encodeURIComponent(equipmentState.activeDrawingId)}/pins`, {
+          method: "POST",
+          body: JSON.stringify({
+            camera_record_id: equipmentState.drawingPlacementCameraId,
+            x_percent: Math.max(0, Math.min(100, x)),
+            y_percent: Math.max(0, Math.min(100, y)),
+            label: camera ? getEquipmentCameraLabel(camera) : null,
+          }),
+        });
+        equipmentState.drawingPlacementCameraId = null;
+        equipmentState.selectedDrawingPinId = result?.pin?.id || null;
+        await loadEquipmentDrawingContentAndPins();
+        await loadEquipmentCctv();
+        showEquipmentFeedback("Kamera placeret på tegning.");
+      } catch (error) {
+        setEquipmentDrawingStatus(equipmentErrorMessage(error, "Kunne ikke gemme placering."), true);
+      }
+    }
+
+    async function deleteEquipmentDrawingPin(pin) {
+      if (!pin || !pin.id || !equipmentState.activeDrawingId) return;
+      if (!window.confirm("Slet placeringen for dette kamera?")) return;
+      try {
+        setEquipmentDrawingStatus("Sletter pin...");
+        await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/equipment/cctv/drawings/${encodeURIComponent(equipmentState.activeDrawingId)}/pins/${encodeURIComponent(pin.id)}`, { method: "DELETE" });
+        equipmentState.selectedDrawingPinId = null;
+        await loadEquipmentDrawingContentAndPins();
+        await loadEquipmentCctv();
+        showEquipmentFeedback("Pin slettet.");
+      } catch (error) {
+        setEquipmentDrawingStatus(equipmentErrorMessage(error, "Kunne ikke slette pin."), true);
+      }
+    }
     function renderEquipmentList() {
       if (!equipmentUi || !equipmentList) {
         return;
@@ -6542,6 +6941,7 @@
         card.appendChild(top);
         card.appendChild(grid);
         card.appendChild(makeEquipmentImageStatusRow(camera));
+        card.appendChild(makeEquipmentDrawingStatusRow(camera));
         if (camera.note) {
           const note = document.createElement("p");
           note.className = "equipmentNote";
@@ -6927,7 +7327,7 @@
         setEquipmentStateMessage("Kunne ikke hente PDF eksport.", true);
         showEquipmentFeedback("Kunne ikke hente PDF export.", true);
       } finally {
-        equipmentPdfExportLink.textContent = "Eksport�r PDF";
+        equipmentPdfExportLink.textContent = "Eksport�r PDF";
       }
     }
     if (qaUi) {
@@ -7012,6 +7412,54 @@
 
     if (equipmentPdfExportLink) {
       equipmentPdfExportLink.addEventListener("click", exportEquipmentPdf);
+    }
+    if (equipmentDrawingBtn) {
+      equipmentDrawingBtn.addEventListener("click", () => openEquipmentDrawing(null, false));
+    }
+
+    if (equipmentDrawingSelect) {
+      equipmentDrawingSelect.addEventListener("change", async () => {
+        equipmentState.activeDrawingId = equipmentDrawingSelect.value || null;
+        await loadEquipmentDrawingContentAndPins();
+      });
+    }
+
+    if (equipmentDrawingCameraSelect) {
+      equipmentDrawingCameraSelect.addEventListener("change", () => {
+        equipmentState.drawingPlacementCameraId = equipmentDrawingCameraSelect.value || null;
+      });
+    }
+
+    if (equipmentDrawingUploadBtn) {
+      equipmentDrawingUploadBtn.addEventListener("click", uploadEquipmentDrawing);
+    }
+
+    if (equipmentDrawingPlaceBtn) {
+      equipmentDrawingPlaceBtn.addEventListener("click", () => {
+        if (!equipmentState.activeDrawingId) {
+          setEquipmentDrawingStatus("Vælg eller upload en tegning først.", true);
+          return;
+        }
+        equipmentState.drawingPlacementCameraId = equipmentDrawingCameraSelect ? equipmentDrawingCameraSelect.value : null;
+        if (!equipmentState.drawingPlacementCameraId) {
+          setEquipmentDrawingStatus("Vælg et kamera først.", true);
+          return;
+        }
+        setEquipmentDrawingStatus("Klik på tegningen for at placere kameraet.");
+        renderEquipmentDrawingCanvas();
+      });
+    }
+
+    if (equipmentDrawingDeleteBtn) {
+      equipmentDrawingDeleteBtn.addEventListener("click", deleteEquipmentDrawing);
+    }
+
+    if (equipmentDrawingOverlay) {
+      equipmentDrawingOverlay.addEventListener("click", closeEquipmentDrawing);
+    }
+
+    if (equipmentDrawingCloseBtn) {
+      equipmentDrawingCloseBtn.addEventListener("click", closeEquipmentDrawing);
     }
 
     if (equipmentSearchInput) {
@@ -7118,6 +7566,10 @@
       });
     }
     document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && equipmentDrawingShell && equipmentDrawingShell.classList.contains("open")) {
+        closeEquipmentDrawing();
+        return;
+      }
       if (event.key === "Escape" && equipmentImageViewerShell && equipmentImageViewerShell.classList.contains("open")) {
         closeEquipmentImageViewer();
         return;
@@ -7139,7 +7591,10 @@
       }
     });
 
-    window.addEventListener("pagehide", closeEquipmentScanner);
+    window.addEventListener("pagehide", () => {
+      closeEquipmentScanner();
+      closeEquipmentDrawing();
+    });
     document.addEventListener("visibilitychange", () => {
       if (document.hidden) {
         closeEquipmentScanner();

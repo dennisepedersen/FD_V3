@@ -65,7 +65,29 @@ async function listCctvForProject(client, { tenantId, projectId, query }) {
               AND image.camera_record_id = project_equipment_cctv.id
               AND image.deleted_at IS NULL
           ) slot
-        ), '{}'::jsonb) AS image_slots
+        ), '{}'::jsonb) AS image_slots,
+        (
+          SELECT jsonb_build_object(
+            'pin_id', pin.id,
+            'drawing_id', pin.drawing_id,
+            'drawing_title', drawing.title,
+            'x_percent', pin.x_percent,
+            'y_percent', pin.y_percent,
+            'label', pin.label,
+            'updated_at', pin.updated_at
+          )
+          FROM project_equipment_cctv_pin pin
+          JOIN project_equipment_drawing drawing
+            ON drawing.tenant_id = pin.tenant_id
+           AND drawing.id = pin.drawing_id
+           AND drawing.deleted_at IS NULL
+          WHERE pin.tenant_id = project_equipment_cctv.tenant_id
+            AND pin.project_id = project_equipment_cctv.project_id
+            AND pin.camera_record_id = project_equipment_cctv.id
+            AND pin.deleted_at IS NULL
+          ORDER BY pin.updated_at DESC
+          LIMIT 1
+        ) AS drawing_pin
       FROM project_equipment_cctv
       WHERE tenant_id = $1
         AND project_id = $2
@@ -541,18 +563,484 @@ async function softDeleteCctvImageSlot(client, { tenantId, projectId, cameraReco
 
   return rows[0] || null;
 }
+
+async function listCctvDrawingsForProject(client, { tenantId, projectId }) {
+  const { rows } = await client.query(
+    `
+      SELECT
+        drawing.id AS drawing_id,
+        drawing.tenant_id,
+        drawing.project_id,
+        drawing.equipment_area,
+        drawing.storage_object_id,
+        drawing.title,
+        drawing.created_by_user_id,
+        drawing.created_at,
+        drawing.updated_by_user_id,
+        drawing.updated_at,
+        storage.storage_provider,
+        storage.storage_key,
+        storage.original_filename,
+        storage.content_type,
+        storage.byte_size,
+        storage.checksum_sha256,
+        storage.metadata,
+        COALESCE((
+          SELECT COUNT(*)::int
+          FROM project_equipment_cctv_pin pin
+          WHERE pin.tenant_id = drawing.tenant_id
+            AND pin.project_id = drawing.project_id
+            AND pin.drawing_id = drawing.id
+            AND pin.deleted_at IS NULL
+        ), 0) AS pin_count
+      FROM project_equipment_drawing drawing
+      JOIN storage_object storage
+        ON storage.tenant_id = drawing.tenant_id
+       AND storage.id = drawing.storage_object_id
+       AND storage.deleted_at IS NULL
+      WHERE drawing.tenant_id = $1
+        AND drawing.project_id = $2
+        AND drawing.equipment_area = 'cctv'
+        AND drawing.deleted_at IS NULL
+      ORDER BY drawing.updated_at DESC, drawing.created_at DESC
+    `,
+    [tenantId, projectId]
+  );
+
+  return rows;
+}
+
+async function findCctvDrawingById(client, { tenantId, projectId, drawingId }) {
+  const { rows } = await client.query(
+    `
+      SELECT
+        drawing.id AS drawing_id,
+        drawing.tenant_id,
+        drawing.project_id,
+        drawing.equipment_area,
+        drawing.storage_object_id,
+        drawing.title,
+        drawing.created_by_user_id,
+        drawing.created_at,
+        drawing.updated_by_user_id,
+        drawing.updated_at,
+        storage.storage_provider,
+        storage.storage_key,
+        storage.original_filename,
+        storage.content_type,
+        storage.byte_size,
+        storage.checksum_sha256,
+        storage.metadata
+      FROM project_equipment_drawing drawing
+      JOIN storage_object storage
+        ON storage.tenant_id = drawing.tenant_id
+       AND storage.id = drawing.storage_object_id
+       AND storage.deleted_at IS NULL
+      WHERE drawing.tenant_id = $1
+        AND drawing.project_id = $2
+        AND drawing.id = $3
+        AND drawing.equipment_area = 'cctv'
+        AND drawing.deleted_at IS NULL
+      LIMIT 1
+    `,
+    [tenantId, projectId, drawingId]
+  );
+
+  return rows[0] || null;
+}
+
+async function insertCctvDrawing(client, {
+  tenantId,
+  projectId,
+  storageObjectId,
+  title,
+  actorUserId,
+}) {
+  const { rows } = await client.query(
+    `
+      INSERT INTO project_equipment_drawing (
+        tenant_id,
+        project_id,
+        equipment_area,
+        storage_object_id,
+        title,
+        created_by_user_id,
+        updated_by_user_id
+      )
+      VALUES ($1, $2, 'cctv', $3, $4, $5, $5)
+      RETURNING
+        id AS drawing_id,
+        tenant_id,
+        project_id,
+        equipment_area,
+        storage_object_id,
+        title,
+        created_by_user_id,
+        created_at,
+        updated_by_user_id,
+        updated_at
+    `,
+    [tenantId, projectId, storageObjectId, title, actorUserId]
+  );
+
+  return rows[0];
+}
+
+async function softDeleteCctvDrawing(client, { tenantId, projectId, drawingId, actorUserId }) {
+  const { rows } = await client.query(
+    `
+      WITH active_drawing AS (
+        SELECT drawing.id, drawing.storage_object_id
+        FROM project_equipment_drawing drawing
+        WHERE drawing.tenant_id = $1
+          AND drawing.project_id = $2
+          AND drawing.id = $3
+          AND drawing.equipment_area = 'cctv'
+          AND drawing.deleted_at IS NULL
+        LIMIT 1
+      ), deleted_pins AS (
+        UPDATE project_equipment_cctv_pin pin
+        SET deleted_at = now(),
+            deleted_by_user_id = $4,
+            updated_by_user_id = $4
+        FROM active_drawing
+        WHERE pin.tenant_id = $1
+          AND pin.project_id = $2
+          AND pin.drawing_id = active_drawing.id
+          AND pin.deleted_at IS NULL
+        RETURNING pin.id
+      ), deleted_drawing AS (
+        UPDATE project_equipment_drawing drawing
+        SET deleted_at = now(),
+            deleted_by_user_id = $4,
+            updated_by_user_id = $4
+        FROM active_drawing
+        WHERE drawing.tenant_id = $1
+          AND drawing.id = active_drawing.id
+        RETURNING drawing.id AS drawing_id, drawing.storage_object_id
+      ), deleted_storage AS (
+        UPDATE storage_object storage
+        SET deleted_at = now(),
+            deleted_by_user_id = $4
+        FROM deleted_drawing
+        WHERE storage.tenant_id = $1
+          AND storage.id = deleted_drawing.storage_object_id
+          AND storage.deleted_at IS NULL
+        RETURNING storage.id AS storage_object_id, storage.storage_key
+      )
+      SELECT deleted_drawing.drawing_id, deleted_storage.storage_object_id, deleted_storage.storage_key
+      FROM deleted_drawing
+      LEFT JOIN deleted_storage ON TRUE
+      LIMIT 1
+    `,
+    [tenantId, projectId, drawingId, actorUserId || null]
+  );
+
+  return rows[0] || null;
+}
+
+async function listCctvPinsForDrawing(client, { tenantId, projectId, drawingId }) {
+  const { rows } = await client.query(
+    `
+      SELECT
+        pin.id AS pin_id,
+        pin.tenant_id,
+        pin.project_id,
+        pin.drawing_id,
+        pin.camera_record_id,
+        pin.coordinate_mode,
+        pin.x_percent,
+        pin.y_percent,
+        pin.label,
+        pin.created_by_user_id,
+        pin.created_at,
+        pin.updated_by_user_id,
+        pin.updated_at,
+        camera.camera_id,
+        camera.mac_address,
+        camera.serial_number,
+        camera.model,
+        camera.location_text,
+        camera.status,
+        camera.note,
+        COALESCE((
+          SELECT jsonb_object_agg(slot.slot_type, slot.image_summary)
+          FROM (
+            SELECT
+              image.slot_type,
+              jsonb_build_object(
+                'slot_type', image.slot_type,
+                'storage_object_id', image.storage_object_id,
+                'filename', storage.original_filename,
+                'content_type', storage.content_type,
+                'byte_size', storage.byte_size,
+                'uploaded_at', image.created_at
+              ) AS image_summary
+            FROM project_equipment_cctv_image image
+            JOIN storage_object storage
+              ON storage.tenant_id = image.tenant_id
+             AND storage.id = image.storage_object_id
+             AND storage.deleted_at IS NULL
+            WHERE image.tenant_id = camera.tenant_id
+              AND image.project_id = camera.project_id
+              AND image.camera_record_id = camera.id
+              AND image.deleted_at IS NULL
+          ) slot
+        ), '{}'::jsonb) AS image_slots
+      FROM project_equipment_cctv_pin pin
+      JOIN project_equipment_cctv camera
+        ON camera.tenant_id = pin.tenant_id
+       AND camera.id = pin.camera_record_id
+       AND camera.archived_at IS NULL
+      JOIN project_equipment_drawing drawing
+        ON drawing.tenant_id = pin.tenant_id
+       AND drawing.id = pin.drawing_id
+       AND drawing.deleted_at IS NULL
+      WHERE pin.tenant_id = $1
+        AND pin.project_id = $2
+        AND pin.drawing_id = $3
+        AND pin.deleted_at IS NULL
+      ORDER BY camera.camera_id ASC, pin.created_at ASC
+    `,
+    [tenantId, projectId, drawingId]
+  );
+
+  return rows;
+}
+
+async function findCctvPinById(client, { tenantId, projectId, drawingId, pinId }) {
+  const { rows } = await client.query(
+    `
+      SELECT
+        pin.id AS pin_id,
+        pin.tenant_id,
+        pin.project_id,
+        pin.drawing_id,
+        pin.camera_record_id,
+        pin.coordinate_mode,
+        pin.x_percent,
+        pin.y_percent,
+        pin.label,
+        pin.created_by_user_id,
+        pin.created_at,
+        pin.updated_by_user_id,
+        pin.updated_at,
+        camera.camera_id,
+        camera.mac_address,
+        camera.serial_number,
+        camera.model,
+        camera.location_text,
+        camera.status,
+        camera.note,
+        COALESCE((
+          SELECT jsonb_object_agg(slot.slot_type, slot.image_summary)
+          FROM (
+            SELECT
+              image.slot_type,
+              jsonb_build_object(
+                'slot_type', image.slot_type,
+                'storage_object_id', image.storage_object_id,
+                'filename', storage.original_filename,
+                'content_type', storage.content_type,
+                'byte_size', storage.byte_size,
+                'uploaded_at', image.created_at
+              ) AS image_summary
+            FROM project_equipment_cctv_image image
+            JOIN storage_object storage
+              ON storage.tenant_id = image.tenant_id
+             AND storage.id = image.storage_object_id
+             AND storage.deleted_at IS NULL
+            WHERE image.tenant_id = camera.tenant_id
+              AND image.project_id = camera.project_id
+              AND image.camera_record_id = camera.id
+              AND image.deleted_at IS NULL
+          ) slot
+        ), '{}'::jsonb) AS image_slots
+      FROM project_equipment_cctv_pin pin
+      JOIN project_equipment_cctv camera
+        ON camera.tenant_id = pin.tenant_id
+       AND camera.id = pin.camera_record_id
+       AND camera.archived_at IS NULL
+      WHERE pin.tenant_id = $1
+        AND pin.project_id = $2
+        AND pin.drawing_id = $3
+        AND pin.id = $4
+        AND pin.deleted_at IS NULL
+      LIMIT 1
+    `,
+    [tenantId, projectId, drawingId, pinId]
+  );
+
+  return rows[0] || null;
+}
+
+async function findActiveCctvPinForCameraDrawing(client, { tenantId, projectId, drawingId, cameraRecordId }) {
+  const { rows } = await client.query(
+    `
+      SELECT
+        pin.id AS pin_id,
+        pin.tenant_id,
+        pin.project_id,
+        pin.drawing_id,
+        pin.camera_record_id,
+        pin.coordinate_mode,
+        pin.x_percent,
+        pin.y_percent,
+        pin.label,
+        pin.created_by_user_id,
+        pin.created_at,
+        pin.updated_by_user_id,
+        pin.updated_at
+      FROM project_equipment_cctv_pin pin
+      WHERE pin.tenant_id = $1
+        AND pin.project_id = $2
+        AND pin.drawing_id = $3
+        AND pin.camera_record_id = $4
+        AND pin.deleted_at IS NULL
+      LIMIT 1
+    `,
+    [tenantId, projectId, drawingId, cameraRecordId]
+  );
+
+  return rows[0] || null;
+}
+
+async function insertCctvPin(client, {
+  tenantId,
+  projectId,
+  drawingId,
+  cameraRecordId,
+  xPercent,
+  yPercent,
+  label,
+  actorUserId,
+}) {
+  const { rows } = await client.query(
+    `
+      INSERT INTO project_equipment_cctv_pin (
+        tenant_id,
+        project_id,
+        drawing_id,
+        camera_record_id,
+        coordinate_mode,
+        x_percent,
+        y_percent,
+        label,
+        created_by_user_id,
+        updated_by_user_id
+      )
+      VALUES ($1, $2, $3, $4, 'percent', $5, $6, $7, $8, $8)
+      RETURNING
+        id AS pin_id,
+        tenant_id,
+        project_id,
+        drawing_id,
+        camera_record_id,
+        coordinate_mode,
+        x_percent,
+        y_percent,
+        label,
+        created_by_user_id,
+        created_at,
+        updated_by_user_id,
+        updated_at
+    `,
+    [tenantId, projectId, drawingId, cameraRecordId, xPercent, yPercent, label, actorUserId]
+  );
+
+  return rows[0];
+}
+
+async function updateCctvPin(client, {
+  tenantId,
+  projectId,
+  drawingId,
+  pinId,
+  xPercent,
+  yPercent,
+  label,
+  actorUserId,
+}) {
+  const { rows } = await client.query(
+    `
+      UPDATE project_equipment_cctv_pin
+      SET x_percent = $5,
+          y_percent = $6,
+          label = $7,
+          updated_by_user_id = $8
+      WHERE tenant_id = $1
+        AND project_id = $2
+        AND drawing_id = $3
+        AND id = $4
+        AND deleted_at IS NULL
+      RETURNING
+        id AS pin_id,
+        tenant_id,
+        project_id,
+        drawing_id,
+        camera_record_id,
+        coordinate_mode,
+        x_percent,
+        y_percent,
+        label,
+        created_by_user_id,
+        created_at,
+        updated_by_user_id,
+        updated_at
+    `,
+    [tenantId, projectId, drawingId, pinId, xPercent, yPercent, label, actorUserId]
+  );
+
+  return rows[0] || null;
+}
+
+async function softDeleteCctvPin(client, { tenantId, projectId, drawingId, pinId, actorUserId }) {
+  const { rows } = await client.query(
+    `
+      UPDATE project_equipment_cctv_pin
+      SET deleted_at = now(),
+          deleted_by_user_id = $5,
+          updated_by_user_id = $5
+      WHERE tenant_id = $1
+        AND project_id = $2
+        AND drawing_id = $3
+        AND id = $4
+        AND deleted_at IS NULL
+      RETURNING
+        id AS pin_id,
+        tenant_id,
+        project_id,
+        drawing_id,
+        camera_record_id,
+        label
+    `,
+    [tenantId, projectId, drawingId, pinId, actorUserId || null]
+  );
+
+  return rows[0] || null;
+}
 module.exports = {
   archiveCctv,
   createCctv,
+  findActiveCctvPinForCameraDrawing,
   findActiveConflict,
-  findCctvImageSlot,
   findCctvById,
-  insertCctvImageSlot,
+  findCctvDrawingById,
+  findCctvImageSlot,
+  findCctvPinById,
   getCctvSummary,
+  insertCctvDrawing,
+  insertCctvImageSlot,
+  insertCctvPin,
+  listCctvDrawingsForProject,
+  listCctvForProject,
   listCctvImagesForCamera,
   listCctvImagesForProject,
-  listCctvForProject,
+  listCctvPinsForDrawing,
   searchCctv,
+  softDeleteCctvDrawing,
   softDeleteCctvImageSlot,
+  softDeleteCctvPin,
   updateCctv,
+  updateCctvPin,
 };
