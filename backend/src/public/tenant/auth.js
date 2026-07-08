@@ -4510,6 +4510,9 @@
     const equipmentStatusSelect = document.getElementById("equipmentStatusSelect");
     const equipmentNoteInput = document.getElementById("equipmentNoteInput");
     const equipmentFormStatus = document.getElementById("equipmentFormStatus");
+    const equipmentImageSection = document.getElementById("equipmentImageSection");
+    const equipmentImageStatus = document.getElementById("equipmentImageStatus");
+    const equipmentImageSlots = document.getElementById("equipmentImageSlots");
     const equipmentArchiveBtn = document.getElementById("equipmentArchiveBtn");
     const equipmentCancelBtn = document.getElementById("equipmentCancelBtn");
     const equipmentSaveBtn = document.getElementById("equipmentSaveBtn");
@@ -4532,6 +4535,13 @@
     const equipmentScannerCancelBtn = document.getElementById("equipmentScannerCancelBtn");
     const equipmentScannerAgainBtn = document.getElementById("equipmentScannerAgainBtn");
     const equipmentScannerApproveBtn = document.getElementById("equipmentScannerApproveBtn");
+    const equipmentImageViewerShell = document.getElementById("equipmentImageViewerShell");
+    const equipmentImageViewerOverlay = document.getElementById("equipmentImageViewerOverlay");
+    const equipmentImageViewerCloseBtn = document.getElementById("equipmentImageViewerCloseBtn");
+    const equipmentImageViewerTitle = document.getElementById("equipmentImageViewerTitle");
+    const equipmentImageViewerMeta = document.getElementById("equipmentImageViewerMeta");
+    const equipmentImageViewerTabs = document.getElementById("equipmentImageViewerTabs");
+    const equipmentImageViewerBody = document.getElementById("equipmentImageViewerBody");
 
     if (!projectId) {
       renderProjectDetailError("Ugyldig sagssti");
@@ -4572,6 +4582,13 @@
       isLoading: false,
       feedbackTimer: null,
       suggestionCameras: [],
+      activeImageSlots: null,
+      activeImageCameraId: null,
+      imageObjectUrls: [],
+      imageViewerMode: "comparison",
+      imageViewerCamera: null,
+      imageViewerSlots: null,
+      imageViewerObjectUrls: [],
     };
     const equipmentScannerState = {
       target: null,
@@ -6094,8 +6111,15 @@
         }
         return "Kameraet matcher en eksisterende aktiv registrering.";
       }
-      if (error && error.code === "invalid_mac_address") {
+      const message = String(error?.code || error?.message || "");
+      if (message.includes("invalid_mac_address")) {
         return "MAC-adressen skal have 12 hex-tegn, fx 00:11:22:33:44:55.";
+      }
+      if (message.includes("invalid_cctv_image_type") || message.includes("invalid_cctv_image_extension")) {
+        return "Billedet skal være JPG, PNG eller WebP.";
+      }
+      if (message.includes("cctv_image_too_large")) {
+        return "Billedet er for stort til den aktuelle uploadgrænse.";
       }
       return getErrorMessage(error, fallback);
     }
@@ -6134,6 +6158,331 @@
       return item;
     }
 
+    const equipmentImageSlotTypes = [
+      { value: "projection", label: "Projektering" },
+      { value: "installation", label: "Installation" },
+    ];
+
+    function getEmptyEquipmentImageSlots() {
+      return {
+        projection: { slot_type: "projection", slot_label: "Projektering", has_image: false, content_url: null },
+        installation: { slot_type: "installation", slot_label: "Installation", has_image: false, content_url: null },
+      };
+    }
+
+    function hasEquipmentImageSlot(slot) {
+      return Boolean(slot && (slot.has_image || slot.storage_object_id || slot.content_url));
+    }
+
+    function revokeEquipmentImageUrls(urls) {
+      (urls || []).forEach((url) => {
+        try {
+          window.URL.revokeObjectURL(url);
+        } catch (_error) {
+          // Object URL cleanup is best-effort only.
+        }
+      });
+    }
+
+    function clearEquipmentActiveImageSlots() {
+      revokeEquipmentImageUrls(equipmentState.imageObjectUrls);
+      equipmentState.imageObjectUrls = [];
+      equipmentState.activeImageSlots = getEmptyEquipmentImageSlots();
+      equipmentState.activeImageCameraId = null;
+    }
+
+    async function fetchEquipmentImageObjectUrl(image) {
+      if (!image || !image.content_url) {
+        return null;
+      }
+      const token = getToken();
+      const response = await window.fetch(image.content_url, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!response.ok) {
+        throw new Error(`cctv_image_content_failed_${response.status}`);
+      }
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      return url;
+    }
+
+    async function hydrateEquipmentImageSlotPreviews(slots, urlBucket) {
+      const hydrated = { ...getEmptyEquipmentImageSlots(), ...(slots || {}) };
+      await Promise.all(equipmentImageSlotTypes.map(async (slotType) => {
+        const slot = hydrated[slotType.value];
+        if (!hasEquipmentImageSlot(slot)) {
+          return;
+        }
+        const previewUrl = await fetchEquipmentImageObjectUrl(slot);
+        if (previewUrl) {
+          slot.preview_url = previewUrl;
+          urlBucket.push(previewUrl);
+        }
+      }));
+      return hydrated;
+    }
+
+    async function fetchEquipmentImageSlots(cameraId, urlBucket) {
+      const response = await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/equipment/cctv/${encodeURIComponent(cameraId)}/images`, { method: "GET" });
+      return hydrateEquipmentImageSlotPreviews(response && response.slots ? response.slots : getEmptyEquipmentImageSlots(), urlBucket);
+    }
+
+    function renderEquipmentImagePreview(slot) {
+      const preview = document.createElement("div");
+      preview.className = "equipmentImagePreview";
+      if (slot && slot.preview_url) {
+        const image = document.createElement("img");
+        image.src = slot.preview_url;
+        image.alt = slot.slot_label || "CCTV billede";
+        preview.appendChild(image);
+      } else {
+        preview.textContent = "Tomt billedslot";
+      }
+      return preview;
+    }
+
+    function renderEquipmentImageSlots() {
+      if (!equipmentImageSection || !equipmentImageSlots) {
+        return;
+      }
+      equipmentImageSection.hidden = false;
+      equipmentImageSlots.innerHTML = "";
+      const canUpload = Boolean(equipmentState.activeCameraId);
+      if (equipmentImageStatus) {
+        equipmentImageStatus.textContent = canUpload
+          ? "Upload projekterings- og installationsbilleder for kameraet."
+          : "Gem kameraet, før billeder kan tilføjes.";
+      }
+      const slots = equipmentState.activeImageSlots || getEmptyEquipmentImageSlots();
+      equipmentImageSlotTypes.forEach((slotType) => {
+        const slot = slots[slotType.value] || getEmptyEquipmentImageSlots()[slotType.value];
+        const card = document.createElement("article");
+        card.className = "equipmentImageSlotCard";
+        const title = document.createElement("strong");
+        title.className = "equipmentMetaValue";
+        title.textContent = slotType.label;
+        card.appendChild(title);
+        card.appendChild(renderEquipmentImagePreview({ ...slot, slot_label: slotType.label }));
+        const meta = document.createElement("p");
+        meta.className = "equipmentFormStatus";
+        meta.textContent = hasEquipmentImageSlot(slot)
+          ? `${slot.filename || "Billede"}${slot.byte_size ? ` · ${Math.round(Number(slot.byte_size) / 1024)} KB` : ""}`
+          : "Intet billede endnu.";
+        card.appendChild(meta);
+        const actions = document.createElement("div");
+        actions.className = "equipmentImageSlotActions";
+        const uploadBtn = document.createElement("button");
+        uploadBtn.type = "button";
+        uploadBtn.className = "btn btnCompact";
+        uploadBtn.textContent = hasEquipmentImageSlot(slot) ? "Skift billede" : "Vælg billede";
+        uploadBtn.disabled = !canUpload;
+        uploadBtn.addEventListener("click", () => chooseEquipmentImageFile(slotType.value));
+        actions.appendChild(uploadBtn);
+        if (hasEquipmentImageSlot(slot)) {
+          const viewBtn = document.createElement("button");
+          viewBtn.type = "button";
+          viewBtn.className = "btn btnCompact";
+          viewBtn.textContent = "Vis";
+          viewBtn.addEventListener("click", () => openEquipmentImageViewer(equipmentState.cameras.find((camera) => camera.id === equipmentState.activeCameraId) || { id: equipmentState.activeCameraId, camera_id: equipmentCameraIdInput ? equipmentCameraIdInput.value : "Kamera" }, slotType.value));
+          actions.appendChild(viewBtn);
+          const deleteBtn = document.createElement("button");
+          deleteBtn.type = "button";
+          deleteBtn.className = "btn equipmentDangerBtn btnCompact";
+          deleteBtn.textContent = "Slet billede";
+          deleteBtn.addEventListener("click", () => deleteEquipmentImageSlot(slotType.value));
+          actions.appendChild(deleteBtn);
+        }
+        card.appendChild(actions);
+        equipmentImageSlots.appendChild(card);
+      });
+    }
+
+    function makeEquipmentImageStatusRow(camera) {
+      const row = document.createElement("div");
+      row.className = "equipmentImageStatusRow";
+      const slots = camera && camera.image_slots ? camera.image_slots : {};
+      equipmentImageSlotTypes.forEach((slotType) => {
+        const badge = document.createElement("span");
+        const hasImage = hasEquipmentImageSlot(slots[slotType.value]);
+        badge.className = `equipmentImageBadge${hasImage ? " hasImage" : ""}`;
+        badge.textContent = `${slotType.label}: ${hasImage ? "OK" : "Tom"}`;
+        row.appendChild(badge);
+      });
+      const viewBtn = document.createElement("button");
+      viewBtn.type = "button";
+      viewBtn.className = "btn btnCompact";
+      viewBtn.textContent = "Billeder";
+      viewBtn.addEventListener("click", () => openEquipmentImageViewer(camera));
+      row.appendChild(viewBtn);
+      return row;
+    }
+
+    function chooseEquipmentImageFile(slotType) {
+      if (!equipmentState.activeCameraId) {
+        if (equipmentImageStatus) equipmentImageStatus.textContent = "Gem kameraet, før billeder kan tilføjes.";
+        return;
+      }
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = "image/jpeg,image/png,image/webp";
+      input.addEventListener("change", () => {
+        const file = input.files && input.files[0] ? input.files[0] : null;
+        if (file) {
+          uploadEquipmentImageSlot(slotType, file);
+        }
+      }, { once: true });
+      input.click();
+    }
+
+    async function uploadEquipmentImageSlot(slotType, file) {
+      if (!equipmentState.activeCameraId || !file) return;
+      if (equipmentImageStatus) equipmentImageStatus.textContent = "Uploader billede...";
+      const formData = new FormData();
+      formData.append("file", file);
+      try {
+        const token = getToken();
+        const response = await window.fetch(`/api/projects/${encodeURIComponent(projectId)}/equipment/cctv/${encodeURIComponent(equipmentState.activeCameraId)}/images/${encodeURIComponent(slotType)}`, {
+          method: "POST",
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          body: formData,
+        });
+        if (!response.ok) {
+          let message = `cctv_image_upload_failed_${response.status}`;
+          try {
+            const payload = await response.json();
+            message = payload?.error?.message || message;
+          } catch (_error) {
+            // Keep status-based message.
+          }
+          throw new Error(message);
+        }
+        await loadEquipmentImagesForActiveCamera(equipmentState.activeCameraId);
+        await loadEquipmentCctv();
+        if (equipmentImageStatus) equipmentImageStatus.textContent = "Billede gemt.";
+        showEquipmentFeedback("Billede gemt.");
+      } catch (error) {
+        const message = equipmentErrorMessage(error, "Kunne ikke gemme billede.");
+        if (equipmentImageStatus) equipmentImageStatus.textContent = message;
+      }
+    }
+
+    async function deleteEquipmentImageSlot(slotType) {
+      if (!equipmentState.activeCameraId) return;
+      if (!window.confirm("Slet billedet fra dette slot?")) return;
+      if (equipmentImageStatus) equipmentImageStatus.textContent = "Sletter billede...";
+      try {
+        await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/equipment/cctv/${encodeURIComponent(equipmentState.activeCameraId)}/images/${encodeURIComponent(slotType)}`, { method: "DELETE" });
+        await loadEquipmentImagesForActiveCamera(equipmentState.activeCameraId);
+        await loadEquipmentCctv();
+        if (equipmentImageStatus) equipmentImageStatus.textContent = "Billede slettet.";
+        showEquipmentFeedback("Billede slettet.");
+      } catch (error) {
+        const message = equipmentErrorMessage(error, "Kunne ikke slette billede.");
+        if (equipmentImageStatus) equipmentImageStatus.textContent = message;
+      }
+    }
+
+    async function loadEquipmentImagesForActiveCamera(cameraId) {
+      clearEquipmentActiveImageSlots();
+      equipmentState.activeImageCameraId = cameraId;
+      renderEquipmentImageSlots();
+      if (!cameraId) return;
+      if (equipmentImageStatus) equipmentImageStatus.textContent = "Henter billeder...";
+      try {
+        equipmentState.activeImageSlots = await fetchEquipmentImageSlots(cameraId, equipmentState.imageObjectUrls);
+        if (equipmentImageStatus) equipmentImageStatus.textContent = "Billeder klar.";
+      } catch (error) {
+        const message = equipmentErrorMessage(error, "Kunne ikke hente billeder.");
+        if (equipmentImageStatus) equipmentImageStatus.textContent = message;
+      }
+      renderEquipmentImageSlots();
+    }
+
+    function closeEquipmentImageViewer() {
+      if (!equipmentImageViewerShell) return;
+      equipmentImageViewerShell.classList.remove("open");
+      equipmentImageViewerShell.setAttribute("aria-hidden", "true");
+      revokeEquipmentImageUrls(equipmentState.imageViewerObjectUrls);
+      equipmentState.imageViewerObjectUrls = [];
+      equipmentState.imageViewerCamera = null;
+      equipmentState.imageViewerSlots = null;
+    }
+
+    function renderEquipmentImageViewerPane(slotType) {
+      const slot = equipmentState.imageViewerSlots && equipmentState.imageViewerSlots[slotType.value]
+        ? equipmentState.imageViewerSlots[slotType.value]
+        : getEmptyEquipmentImageSlots()[slotType.value];
+      const pane = document.createElement("section");
+      pane.className = "equipmentImageViewerPane";
+      const label = document.createElement("strong");
+      label.className = "equipmentMetaValue";
+      label.textContent = slotType.label;
+      pane.appendChild(label);
+      const frame = document.createElement("div");
+      frame.className = "equipmentImageViewerFrame";
+      if (slot && slot.preview_url) {
+        const img = document.createElement("img");
+        img.src = slot.preview_url;
+        img.alt = slotType.label;
+        frame.appendChild(img);
+      } else {
+        frame.textContent = "Intet billede";
+      }
+      pane.appendChild(frame);
+      return pane;
+    }
+
+    function renderEquipmentImageViewer() {
+      if (!equipmentImageViewerBody || !equipmentImageViewerTabs) return;
+      equipmentImageViewerTabs.innerHTML = "";
+      equipmentImageViewerBody.innerHTML = "";
+      [
+        { value: "projection", label: "Projektering" },
+        { value: "comparison", label: "Sammenligning" },
+        { value: "installation", label: "Installation" },
+      ].forEach((mode) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = mode.value === equipmentState.imageViewerMode ? "btn btnPrimary btnCompact" : "btn btnCompact";
+        button.textContent = mode.label;
+        button.addEventListener("click", () => {
+          equipmentState.imageViewerMode = mode.value;
+          renderEquipmentImageViewer();
+        });
+        equipmentImageViewerTabs.appendChild(button);
+      });
+      const grid = document.createElement("div");
+      grid.className = "equipmentImageCompareGrid";
+      if (equipmentState.imageViewerMode === "projection") {
+        grid.appendChild(renderEquipmentImageViewerPane(equipmentImageSlotTypes[0]));
+      } else if (equipmentState.imageViewerMode === "installation") {
+        grid.appendChild(renderEquipmentImageViewerPane(equipmentImageSlotTypes[1]));
+      } else {
+        equipmentImageSlotTypes.forEach((slotType) => grid.appendChild(renderEquipmentImageViewerPane(slotType)));
+      }
+      equipmentImageViewerBody.appendChild(grid);
+    }
+
+    async function openEquipmentImageViewer(camera, mode = "comparison") {
+      if (!equipmentImageViewerShell || !camera || !camera.id) return;
+      equipmentState.imageViewerMode = mode;
+      equipmentState.imageViewerCamera = camera;
+      if (equipmentImageViewerTitle) equipmentImageViewerTitle.textContent = `Billeder · ${getEquipmentCameraLabel(camera)}`;
+      if (equipmentImageViewerMeta) equipmentImageViewerMeta.textContent = "Projektering og Installation";
+      equipmentImageViewerShell.classList.add("open");
+      equipmentImageViewerShell.setAttribute("aria-hidden", "false");
+      equipmentImageViewerBody.innerHTML = "Henter billeder...";
+      revokeEquipmentImageUrls(equipmentState.imageViewerObjectUrls);
+      equipmentState.imageViewerObjectUrls = [];
+      try {
+        equipmentState.imageViewerSlots = await fetchEquipmentImageSlots(camera.id, equipmentState.imageViewerObjectUrls);
+      } catch (error) {
+        equipmentImageViewerBody.textContent = equipmentErrorMessage(error, "Kunne ikke hente billeder.");
+        return;
+      }
+      renderEquipmentImageViewer();
+    }
     function renderEquipmentList() {
       if (!equipmentUi || !equipmentList) {
         return;
@@ -6191,6 +6540,7 @@
         actions.appendChild(checkBtn);
         card.appendChild(top);
         card.appendChild(grid);
+        card.appendChild(makeEquipmentImageStatusRow(camera));
         if (camera.note) {
           const note = document.createElement("p");
           note.className = "equipmentNote";
@@ -6233,6 +6583,7 @@
       equipmentDrawerShell.setAttribute("aria-hidden", "true");
       document.body.classList.remove("equipment-modal-open");
       closeEquipmentScanner();
+      clearEquipmentActiveImageSlots();
       equipmentState.activeCameraId = null;
       equipmentState.mode = null;
       equipmentState.checkCamera = null;
@@ -6253,7 +6604,12 @@
       fillEquipmentForm(camera || prefill);
       if (equipmentDrawerTitle) equipmentDrawerTitle.textContent = camera ? "Rediger kamera" : "Tilføj kamera";
       if (equipmentDrawerMeta) equipmentDrawerMeta.textContent = "Projektudstyr Beta · CCTV";
-      if (equipmentArchiveBtn) equipmentArchiveBtn.hidden = !camera;
+      if (camera && camera.id) {
+        loadEquipmentImagesForActiveCamera(camera.id);
+      } else {
+        clearEquipmentActiveImageSlots();
+        renderEquipmentImageSlots();
+      }      if (equipmentArchiveBtn) equipmentArchiveBtn.hidden = !camera;
       openEquipmentDrawer();
       if (equipmentCameraIdInput) equipmentCameraIdInput.focus();
     }
@@ -6684,6 +7040,13 @@
       equipmentCheckScanBtn.addEventListener("click", () => openEquipmentScanner("check"));
     }
 
+    if (equipmentImageViewerOverlay) {
+      equipmentImageViewerOverlay.addEventListener("click", closeEquipmentImageViewer);
+    }
+
+    if (equipmentImageViewerCloseBtn) {
+      equipmentImageViewerCloseBtn.addEventListener("click", closeEquipmentImageViewer);
+    }
     if (equipmentScannerOverlay) {
       equipmentScannerOverlay.addEventListener("click", closeEquipmentScanner);
     }
@@ -6713,7 +7076,10 @@
       });
     }
     document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape" && equipmentScannerShell && equipmentScannerShell.classList.contains("open")) {
+      if (event.key === "Escape" && equipmentImageViewerShell && equipmentImageViewerShell.classList.contains("open")) {
+        closeEquipmentImageViewer();
+        return;
+      }      if (event.key === "Escape" && equipmentScannerShell && equipmentScannerShell.classList.contains("open")) {
         closeEquipmentScanner();
         return;
       }
