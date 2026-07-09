@@ -22,6 +22,9 @@ const ALLOWED_IMAGE_TYPES = Object.freeze({
   "image/png": Object.freeze([".png"]),
   "image/webp": Object.freeze([".webp"]),
 });
+const PDF_CONTENT_TYPE = "application/pdf";
+const DEFAULT_DRAWING_PDF_MAX_UPLOAD_MB = 50;
+let pdfJsModulePromise = null;
 
 function normalizeOptionalText(value) {
   if (value === null || value === undefined) {
@@ -250,6 +253,98 @@ function validateCctvDrawingFile(file) {
   };
 }
 
+function getCctvDrawingPdfMaxUploadBytes() {
+  const configured = Number(process.env.FD_DRAWING_PDF_MAX_UPLOAD_MB || DEFAULT_DRAWING_PDF_MAX_UPLOAD_MB);
+  const mb = Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_DRAWING_PDF_MAX_UPLOAD_MB;
+  return Math.floor(mb * 1024 * 1024);
+}
+
+function validateCctvDrawingPdfFile(file) {
+  if (!file || !Buffer.isBuffer(file.buffer) || file.buffer.length === 0) {
+    throw createHttpError(400, "cctv_drawing_pdf_file_required");
+  }
+  const contentType = String(file.contentType || "").trim().toLowerCase();
+  if (contentType !== PDF_CONTENT_TYPE) {
+    throw createHttpError(400, "invalid_cctv_drawing_pdf_type");
+  }
+  const originalFilename = normalizeOptionalText(file.filename);
+  if (path.extname(String(originalFilename || "")).toLowerCase() !== ".pdf") {
+    throw createHttpError(400, "invalid_cctv_drawing_pdf_extension");
+  }
+  if (file.buffer.length > getCctvDrawingPdfMaxUploadBytes()) {
+    throw createHttpError(413, "cctv_drawing_pdf_too_large");
+  }
+  return {
+    buffer: file.buffer,
+    byteSize: file.buffer.length,
+    contentType,
+    extension: ".pdf",
+    originalFilename,
+    checksumSha256: crypto.createHash("sha256").update(file.buffer).digest("hex"),
+  };
+}
+
+async function getPdfJsModule() {
+  if (!pdfJsModulePromise) {
+    pdfJsModulePromise = import("pdfjs-dist/legacy/build/pdf.mjs");
+  }
+  return pdfJsModulePromise;
+}
+
+async function getPdfPageCount(buffer) {
+  const pdfjs = await getPdfJsModule();
+  const loadingTask = pdfjs.getDocument({
+    data: new Uint8Array(buffer),
+    disableWorker: true,
+    isEvalSupported: false,
+  });
+  const document = await loadingTask.promise;
+  try {
+    return Number(document.numPages || 0);
+  } finally {
+    await document.destroy();
+  }
+}
+
+function normalizePdfPageSelections(rawPages, files) {
+  let parsed = rawPages;
+  if (typeof rawPages === "string") {
+    try {
+      parsed = JSON.parse(rawPages);
+    } catch (_error) {
+      throw createHttpError(400, "invalid_cctv_drawing_pdf_pages");
+    }
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    throw createHttpError(400, "cctv_drawing_pdf_pages_required");
+  }
+  const selected = [];
+  const seen = new Set();
+  parsed.forEach((item, index) => {
+    if (!item || item.include === false) return;
+    const fileIndex = Number(item.file_index ?? item.fileIndex);
+    const pageNumber = Number(item.page_number ?? item.pageNumber);
+    if (!Number.isInteger(fileIndex) || fileIndex < 0 || fileIndex >= files.length) {
+      throw createHttpError(400, "invalid_cctv_drawing_pdf_file_index");
+    }
+    if (!Number.isInteger(pageNumber) || pageNumber < 1) {
+      throw createHttpError(400, "invalid_cctv_drawing_pdf_page_number");
+    }
+    const key = `${fileIndex}:${pageNumber}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    selected.push({
+      fileIndex,
+      pageNumber,
+      title: normalizeCctvDrawingTitle(item.title, `${files[fileIndex].originalFilename || "PDF"} side ${pageNumber}`),
+      pageOrder: Number.isInteger(Number(item.page_order ?? item.pageOrder)) ? Number(item.page_order ?? item.pageOrder) : index + 1,
+    });
+  });
+  if (!selected.length) {
+    throw createHttpError(400, "cctv_drawing_pdf_pages_required");
+  }
+  return selected.sort((a, b) => a.pageOrder - b.pageOrder || a.fileIndex - b.fileIndex || a.pageNumber - b.pageNumber);
+}
 function normalizeCctvDrawingTitle(value, fallbackFilename) {
   const title = normalizeOptionalText(value) || normalizeOptionalText(fallbackFilename) || "CCTV tegning";
   return title.slice(0, 160);
@@ -288,6 +383,11 @@ function mapCctvDrawing(row) {
     pin_count: Number(row.pin_count || 0),
     uploaded_at: row.created_at,
     updated_at: row.updated_at,
+    source_type: row.source_type || "image",
+    source_storage_object_id: row.source_storage_object_id || row.storage_object_id,
+    pdf_page_number: row.pdf_page_number ? Number(row.pdf_page_number) : null,
+    page_order: Number(row.page_order || 0),
+    source_filename: row.source_filename || row.original_filename,
     content_url: `/api/projects/${encodeURIComponent(row.project_id)}/equipment/cctv/drawings/${encodeURIComponent(row.drawing_id)}/content`,
   };
 }
@@ -1123,6 +1223,142 @@ async function uploadCctvDrawing({ tenantId, userId, projectId, file, title }) {
   }
 }
 
+async function importCctvDrawingPdfPages({ tenantId, userId, projectId, files, pages }) {
+  const pdfFiles = (Array.isArray(files) ? files : []).map(validateCctvDrawingPdfFile);
+  if (!pdfFiles.length) {
+    throw createHttpError(400, "cctv_drawing_pdf_file_required");
+  }
+
+  const pageCounts = [];
+  for (const pdfFile of pdfFiles) {
+    const pageCount = await getPdfPageCount(pdfFile.buffer);
+    if (!Number.isInteger(pageCount) || pageCount < 1) {
+      throw createHttpError(400, "invalid_cctv_drawing_pdf");
+    }
+    pageCounts.push(pageCount);
+  }
+
+  const selections = normalizePdfPageSelections(pages, pdfFiles);
+  selections.forEach((selection) => {
+    if (selection.pageNumber > pageCounts[selection.fileIndex]) {
+      throw createHttpError(400, "cctv_drawing_pdf_page_out_of_range");
+    }
+  });
+
+  const uploadedObjects = [];
+  try {
+    return await withTransaction(async (client) => {
+      const projectContext = await requireProject(client, { tenantId, userId, projectId });
+      const storageObjectsByFile = new Map();
+      for (let fileIndex = 0; fileIndex < pdfFiles.length; fileIndex += 1) {
+        const selectedForFile = selections.filter((selection) => selection.fileIndex === fileIndex);
+        if (!selectedForFile.length) continue;
+        const pdfFile = pdfFiles[fileIndex];
+        const storageKey = buildCctvDrawingStorageKey({
+          tenantId,
+          projectId: projectContext.projectId,
+          extension: ".pdf",
+        });
+        const uploadedObject = await fileStorageService.putObject({
+          tenantId,
+          projectId: projectContext.projectId,
+          key: storageKey,
+          buffer: pdfFile.buffer,
+          contentType: pdfFile.contentType,
+          metadata: {
+            module_key: "project_equipment_beta",
+            resource_type: "project_equipment_cctv_drawing_pdf_source",
+            original_filename: pdfFile.originalFilename,
+            page_count: pageCounts[fileIndex],
+            selected_pages: selectedForFile.map((selection) => selection.pageNumber),
+          },
+        });
+        uploadedObjects.push(uploadedObject);
+        const storageObject = await storageObjectQueries.insertStorageObject(client, {
+          tenantId,
+          projectId: projectContext.projectId,
+          moduleKey: "project_equipment_beta",
+          resourceType: "project_equipment_cctv_drawing_pdf_source",
+          resourceId: projectContext.projectId,
+          storageProvider: uploadedObject.provider,
+          storageKey: uploadedObject.key,
+          originalFilename: pdfFile.originalFilename,
+          contentType: pdfFile.contentType,
+          byteSize: pdfFile.byteSize,
+          checksumSha256: pdfFile.checksumSha256,
+          metadata: {
+            page_count: pageCounts[fileIndex],
+            selected_pages: selectedForFile.map((selection) => selection.pageNumber),
+          },
+          actorUserId: userId,
+        });
+        storageObjectsByFile.set(fileIndex, storageObject);
+      }
+
+      const drawings = [];
+      for (let index = 0; index < selections.length; index += 1) {
+        const selection = selections[index];
+        const storageObject = storageObjectsByFile.get(selection.fileIndex);
+        const pdfFile = pdfFiles[selection.fileIndex];
+        const drawing = await projectEquipmentRepository.insertCctvDrawing(client, {
+          tenantId,
+          projectId: projectContext.projectId,
+          storageObjectId: storageObject.id,
+          sourceType: "pdf_page",
+          sourceStorageObjectId: storageObject.id,
+          pdfPageNumber: selection.pageNumber,
+          pageOrder: index + 1,
+          sourceFilename: pdfFile.originalFilename,
+          title: selection.title,
+          actorUserId: userId,
+        });
+        drawings.push(mapCctvDrawing({
+          ...drawing,
+          storage_provider: storageObject.storage_provider,
+          storage_key: storageObject.storage_key,
+          original_filename: storageObject.original_filename,
+          content_type: storageObject.content_type,
+          byte_size: storageObject.byte_size,
+          checksum_sha256: storageObject.checksum_sha256,
+          metadata: storageObject.metadata,
+          pin_count: 0,
+        }));
+      }
+
+      await logEquipmentAuditEvent(client, {
+        tenantId,
+        userId,
+        eventType: "project_equipment_cctv_drawing_pdf_imported",
+        resourceId: projectContext.projectId,
+        projectId: projectContext.projectId,
+        reason: "project_equipment_cctv_drawing_pdf_imported",
+        metadata: {
+          resource_type: "project_equipment_cctv_drawing",
+          file_count: pdfFiles.length,
+          drawing_count: drawings.length,
+          pages: drawings.map((drawing) => ({
+            drawing_id: drawing.id,
+            source_filename: drawing.source_filename,
+            pdf_page_number: drawing.pdf_page_number,
+            title: drawing.title,
+          })),
+        },
+      });
+
+      return {
+        project: projectContext.project,
+        drawings,
+      };
+    });
+  } catch (error) {
+    for (const uploadedObject of uploadedObjects) {
+      if (uploadedObject?.key) {
+        await deleteBlobBestEffort(uploadedObject.key);
+      }
+    }
+    throw error;
+  }
+}
 async function getCctvDrawingContent({ tenantId, userId, projectId, drawingId }) {
   const client = await pool.connect();
   try {
@@ -1421,7 +1657,9 @@ module.exports = {
   exportCctvCsv,
   exportCctvPdf,
   getCctvDrawingContent,
+  getCctvDrawingPdfMaxUploadBytes,
   getCctvImageContent,
+  importCctvDrawingPdfPages,
   listCctvDrawings,
   listCctvForProject,
   listCctvImages,

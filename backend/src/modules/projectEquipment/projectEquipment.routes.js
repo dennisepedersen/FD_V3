@@ -166,6 +166,84 @@ function parseSingleImageUpload(req) {
   });
 }
 
+function parsePdfDrawingImportUpload(req) {
+  return new Promise((resolve, reject) => {
+    if (!String(req.headers["content-type"] || "").toLowerCase().includes("multipart/form-data")) {
+      reject(createHttpError(400, "multipart_form_data_required"));
+      return;
+    }
+
+    let busboy;
+    try {
+      busboy = Busboy({
+        headers: req.headers,
+        limits: {
+          files: 12,
+          fileSize: projectEquipmentService.getCctvDrawingPdfMaxUploadBytes(),
+          fields: 4,
+          parts: 20,
+        },
+      });
+    } catch (_error) {
+      reject(createHttpError(400, "invalid_multipart_request"));
+      return;
+    }
+
+    let fileTooLarge = false;
+    let uploadError = null;
+    const files = [];
+    const fields = {};
+
+    busboy.on("file", (fieldName, file, info) => {
+      if (fieldName !== "files" && fieldName !== "pdfs" && fieldName !== "file") {
+        file.resume();
+        return;
+      }
+      const chunks = [];
+      const fileInfo = {
+        filename: info?.filename || null,
+        contentType: info?.mimeType || null,
+      };
+      file.on("data", (chunk) => chunks.push(chunk));
+      file.on("limit", () => {
+        fileTooLarge = true;
+        file.resume();
+      });
+      file.on("end", () => {
+        files.push({
+          filename: fileInfo.filename,
+          contentType: fileInfo.contentType,
+          buffer: Buffer.concat(chunks),
+        });
+      });
+    });
+
+    busboy.on("field", (name, value) => {
+      fields[name] = value;
+    });
+    busboy.on("filesLimit", () => {
+      uploadError = createHttpError(400, "too_many_cctv_drawing_pdf_files");
+    });
+    busboy.on("error", () => reject(createHttpError(400, "invalid_multipart_request")));
+    busboy.on("finish", () => {
+      if (uploadError) {
+        reject(uploadError);
+        return;
+      }
+      if (!files.length) {
+        reject(createHttpError(400, "cctv_drawing_pdf_file_required"));
+        return;
+      }
+      if (fileTooLarge) {
+        reject(createHttpError(413, "cctv_drawing_pdf_too_large"));
+        return;
+      }
+      resolve({ files, fields });
+    });
+
+    req.pipe(busboy);
+  });
+}
 function safeInlineFilename(filename) {
   const normalized = String(filename || "cctv-image").trim().replace(/[^a-zA-Z0-9._-]/g, "_");
   return normalized || "cctv-image";
@@ -368,6 +446,31 @@ router.post("/api/projects/:projectId/equipment/cctv/drawings", requireTenantHos
   }
 });
 
+router.post("/api/projects/:projectId/equipment/cctv/drawings/pdf/import", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  try {
+    const { tenantId, userId } = getTenantContext(req);
+    requireProjectEquipmentAccess(req, "create");
+    requireProjectEquipmentBetaScope(req);
+    const upload = await parsePdfDrawingImportUpload(req);
+
+    const result = await projectEquipmentService.importCctvDrawingPdfPages({
+      tenantId,
+      userId,
+      projectId: req.params.projectId,
+      files: upload.files,
+      pages: upload.fields?.pages,
+    });
+
+    res.status(201).json({
+      success: true,
+      project: result.project,
+      drawings: result.drawings,
+    });
+  } catch (error) {
+    logRouteError(req, "/api/projects/:projectId/equipment/cctv/drawings/pdf/import", "POST", error);
+    next(error);
+  }
+});
 router.get("/api/projects/:projectId/equipment/cctv/drawings/:drawingId/content", requireTenantHost, requireAuth("access"), async (req, res, next) => {
   try {
     const { tenantId, userId } = getTenantContext(req);

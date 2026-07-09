@@ -417,6 +417,7 @@ CREATE TABLE audit_event (
       'project_equipment_cctv_image_deleted',
       'project_equipment_cctv_drawing_uploaded',
       'project_equipment_cctv_drawing_deleted',
+      'project_equipment_cctv_drawing_pdf_imported',
       'project_equipment_cctv_pin_created',
       'project_equipment_cctv_pin_updated',
       'project_equipment_cctv_pin_deleted',
@@ -1721,6 +1722,11 @@ CREATE TABLE project_equipment_drawing (
   project_id uuid NOT NULL,
   equipment_area text NOT NULL DEFAULT 'cctv',
   storage_object_id uuid NOT NULL,
+  source_type text NOT NULL DEFAULT 'image',
+  source_storage_object_id uuid NULL,
+  pdf_page_number integer NULL,
+  page_order integer NOT NULL DEFAULT 0,
+  source_filename text NULL,
   title text NOT NULL,
   created_by_user_id uuid NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -1731,12 +1737,18 @@ CREATE TABLE project_equipment_drawing (
   CONSTRAINT fk_project_equipment_drawing_tenant FOREIGN KEY (tenant_id) REFERENCES tenant(id) ON DELETE CASCADE,
   CONSTRAINT fk_project_equipment_drawing_project FOREIGN KEY (project_id, tenant_id) REFERENCES project_core(project_id, tenant_id) ON DELETE RESTRICT,
   CONSTRAINT fk_project_equipment_drawing_storage_object FOREIGN KEY (storage_object_id, tenant_id) REFERENCES storage_object(id, tenant_id) ON DELETE RESTRICT,
+  CONSTRAINT fk_project_equipment_drawing_source_storage_object FOREIGN KEY (source_storage_object_id, tenant_id) REFERENCES storage_object(id, tenant_id) ON DELETE RESTRICT,
   CONSTRAINT fk_project_equipment_drawing_created_by_user FOREIGN KEY (created_by_user_id, tenant_id) REFERENCES tenant_user(id, tenant_id) ON DELETE SET NULL,
   CONSTRAINT fk_project_equipment_drawing_updated_by_user FOREIGN KEY (updated_by_user_id, tenant_id) REFERENCES tenant_user(id, tenant_id) ON DELETE SET NULL,
   CONSTRAINT fk_project_equipment_drawing_deleted_by_user FOREIGN KEY (deleted_by_user_id, tenant_id) REFERENCES tenant_user(id, tenant_id) ON DELETE SET NULL,
   CONSTRAINT uq_project_equipment_drawing_id_tenant UNIQUE (id, tenant_id),
   CONSTRAINT ck_project_equipment_drawing_area CHECK (equipment_area = 'cctv'),
   CONSTRAINT ck_project_equipment_drawing_title_not_blank CHECK (btrim(title) <> ''),
+  CONSTRAINT ck_project_equipment_drawing_source_type CHECK (source_type IN ('image', 'pdf_page')),
+  CONSTRAINT ck_project_equipment_drawing_pdf_page_state CHECK (
+    (source_type = 'image' AND pdf_page_number IS NULL)
+    OR (source_type = 'pdf_page' AND source_storage_object_id IS NOT NULL AND pdf_page_number IS NOT NULL AND pdf_page_number > 0)
+  ),
   CONSTRAINT ck_project_equipment_drawing_deleted_state CHECK (
     (deleted_at IS NULL AND deleted_by_user_id IS NULL)
     OR deleted_at IS NOT NULL
@@ -1749,6 +1761,14 @@ CREATE INDEX ix_project_equipment_drawing_project_active
 
 CREATE INDEX ix_project_equipment_drawing_storage_object
   ON project_equipment_drawing (tenant_id, storage_object_id);
+
+CREATE INDEX ix_project_equipment_drawing_project_order_active
+  ON project_equipment_drawing (tenant_id, project_id, page_order ASC, created_at ASC)
+  WHERE deleted_at IS NULL;
+
+CREATE INDEX ix_project_equipment_drawing_source_storage_object
+  ON project_equipment_drawing (tenant_id, source_storage_object_id)
+  WHERE source_storage_object_id IS NOT NULL;
 
 CREATE TRIGGER trg_project_equipment_drawing_set_updated_at
 BEFORE UPDATE ON project_equipment_drawing
