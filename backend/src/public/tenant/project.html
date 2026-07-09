@@ -407,17 +407,44 @@
     }
 
 
-    .projectToolbox {
+    .projectHeaderInfoGrid {
       display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
       gap: 8px;
-      padding: 10px;
-      border-color: rgba(5, 150, 105, 0.12);
-      background: #ffffff;
+      margin-top: 4px;
+    }
+
+    .projectHeaderInfoItem {
+      display: grid;
+      gap: 3px;
+      padding: 8px 10px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .projectHeaderInfoItem .fieldLabel {
+      color: rgba(231, 240, 247, 0.66);
+    }
+
+    .projectHeaderInfoItem .fieldValue,
+    .projectHeaderInfoItem .fieldNote {
+      color: #f8fafc;
+    }
+
+    .projectToolbox {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px 10px;
+      margin-top: 2px;
+      padding-top: 8px;
+      border-top: 1px solid rgba(255, 255, 255, 0.12);
     }
 
     .projectToolboxLabel {
       margin: 0;
-      color: var(--fd-subtle, #4f9f78);
+      color: rgba(231, 240, 247, 0.68);
       font-size: 11px;
       font-weight: 850;
       text-transform: uppercase;
@@ -426,7 +453,7 @@
 
     .projectToolboxTabs {
       display: flex;
-      gap: 8px;
+      gap: 6px;
       overflow-x: auto;
       padding-bottom: 2px;
       scrollbar-width: thin;
@@ -434,12 +461,12 @@
 
     .projectToolboxTab {
       flex: 0 0 auto;
-      min-height: 38px;
-      border: 1px solid rgba(5, 150, 105, 0.14);
+      min-height: 34px;
+      border: 1px solid rgba(255, 255, 255, 0.14);
       border-radius: 999px;
-      padding: 8px 12px;
-      background: #f8fefb;
-      color: #475569;
+      padding: 7px 12px;
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(248, 250, 252, 0.78);
       font: inherit;
       font-size: 13px;
       font-weight: 850;
@@ -450,7 +477,7 @@
     .projectToolboxTab:hover,
     .projectToolboxTab.active {
       border-color: var(--fd-brand-border, #d1fae5);
-      background: var(--fd-brand-soft, #ecfdf5);
+      background: rgba(236, 253, 245, 0.96);
       color: var(--fd-brand, #059669);
     }
 
@@ -2409,7 +2436,6 @@
       }
 
       .headerPanel,
-      .projectToolbox,
       [data-project-module-panel] {
         grid-column: 1;
       }
@@ -2527,20 +2553,29 @@
       <main class="page">
     <section class="panel headerPanel">
       <a class="projectBackLink" href="/sager">Tilbage til sagsoversigt</a>
-      <p id="projectHeaderRef" class="projectRef">Ref: -</p>
-      <h1 id="projectHeaderName" class="projectName">Indlæser sag...</h1>
-      <span id="projectStatusBadge" class="badge badgeNeutral">Indlæser</span>
-    </section>
-
-    <nav id="projectToolbox" class="panel projectToolbox" aria-label="Projektmoduler">
-      <p class="projectToolboxLabel">Projektmoduler</p>
-      <div class="projectToolboxTabs" role="tablist" aria-label="Vælg projektmodul">
-        <button class="projectToolboxTab active" type="button" data-project-module-tab="qa" aria-selected="true">QA</button>
-        <button class="projectToolboxTab" type="button" data-project-module-tab="equipment" hidden aria-selected="false">Udstyr</button>
-        <button class="projectToolboxTab" type="button" data-project-module-tab="responsibility" aria-selected="false">Ansvar</button>
-        <button class="projectToolboxTab" type="button" data-project-module-tab="activity" aria-selected="false">Aktivitet</button>
+      <p id="projectHeaderRef" class="projectRef">REF: -</p>
+      <h1 id="projectHeaderName" class="projectName">Indl&aelig;ser sag...</h1>
+      <span id="projectStatusBadge" class="badge badgeNeutral" hidden></span>
+      <div class="projectHeaderInfoGrid" aria-label="Projektansvar">
+        <div class="projectHeaderInfoItem">
+          <span class="fieldLabel">Ansvarlig</span>
+          <span id="detailResponsible" class="fieldValue">-</span>
+          <span id="detailResponsibleNote" class="fieldNote" hidden></span>
+        </div>
+        <div class="projectHeaderInfoItem">
+          <span class="fieldLabel">Teamleder</span>
+          <span id="detailTeamLeader" class="fieldValue">-</span>
+        </div>
       </div>
-    </nav>
+      <nav id="projectToolbox" class="projectToolbox" aria-label="Projektmoduler">
+        <p class="projectToolboxLabel">Projektmoduler</p>
+        <div class="projectToolboxTabs" role="tablist" aria-label="V&aelig;lg projektmodul">
+          <button class="projectToolboxTab active" type="button" data-project-module-tab="qa" aria-selected="true">QA</button>
+          <button class="projectToolboxTab" type="button" data-project-module-tab="equipment" hidden aria-selected="false">Udstyr</button>
+          <button class="projectToolboxTab" type="button" data-project-module-tab="activity" aria-selected="false">Aktivitet</button>
+        </div>
+      </nav>
+    </section>
 
     <section id="qaSection" class="panel sectionPanel qaPanel" data-project-module-panel="qa">
       <div class="qaHeaderRow">
@@ -2586,22 +2621,6 @@
       <div id="equipmentState" class="sectionState">Indlæser CCTV...</div>
       <div id="equipmentList" class="equipmentList" aria-live="polite"></div>
     </section>
-    <div id="responsibilityModule" class="projectModuleGroup" data-project-module-panel="responsibility" hidden>
-    <section class="panel sectionPanel">
-      <h2 class="sectionTitle">Ansvar</h2>
-      <div class="fieldGrid">
-        <div class="field">
-          <span class="fieldLabel">Ansvarlig</span>
-          <span id="detailResponsible" class="fieldValue">-</span>
-          <span id="detailResponsibleNote" class="fieldNote" hidden></span>
-        </div>
-        <div class="field">
-          <span class="fieldLabel">Teamleder</span>
-          <span id="detailTeamLeader" class="fieldValue">-</span>
-        </div>
-      </div>
-    </section>
-
     <section id="relationSection" class="panel sectionPanel" hidden>
       <h2 class="sectionTitle">Relation</h2>
       <div class="fieldGrid">
@@ -2611,8 +2630,6 @@
         </div>
       </div>
     </section>
-
-    </div>
 
     <div id="activityModule" class="projectModuleGroup" data-project-module-panel="activity" hidden>
     <section class="panel sectionPanel">

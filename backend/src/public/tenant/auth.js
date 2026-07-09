@@ -4000,6 +4000,30 @@
     }
   }
 
+  function formatProjectHeaderStatus(status) {
+    const raw = String(status && (status.raw || status.label) ? (status.raw || status.label) : "")
+      .trim()
+      .toLowerCase();
+    if (!raw) {
+      return "Igangværende";
+    }
+    const labels = {
+      open: "Igangværende",
+      active: "Igangværende",
+      igangværende: "Igangværende",
+      igangvaerende: "Igangværende",
+      closed: "Lukket",
+      lukket: "Lukket",
+      archived: "Arkiveret",
+      arkiveret: "Arkiveret",
+    };
+    if (labels[raw]) {
+      return labels[raw];
+    }
+    const fallback = status && status.label ? String(status.label).trim() : String(status && status.raw ? status.raw : "").trim();
+    return fallback ? fallback.charAt(0).toUpperCase() + fallback.slice(1) : "Igangværende";
+  }
+
   function renderProjectDetail(vm, options) {
     const currentUser = options && options.currentUser ? options.currentUser : null;
 
@@ -4121,8 +4145,10 @@
     const relationSection = el("relationSection");
     const detailResponsible = el("detailResponsible");
 
+    const headerStatusText = formatProjectHeaderStatus(vm && vm.status ? vm.status : null);
+
     if (headerRef) {
-      headerRef.textContent = `Ref: ${vm && vm.reference ? vm.reference : "-"}`;
+      headerRef.textContent = `REF: ${vm && vm.reference ? vm.reference : "-"} - ${headerStatusText}`;
     }
 
     if (headerName) {
@@ -4130,13 +4156,8 @@
     }
 
     if (statusBadge) {
-      const toneClass = vm && vm.status && vm.status.tone === "critical"
-        ? "badgeCritical"
-        : vm && vm.status && vm.status.tone === "warning"
-          ? "badgeWarning"
-          : "badgeNeutral";
-      statusBadge.className = `badge ${toneClass}`;
-      statusBadge.textContent = vm && vm.status && vm.status.label ? vm.status.label : "Aktiv";
+      statusBadge.hidden = true;
+      statusBadge.textContent = headerStatusText;
     }
 
     const responsibleText = vm
@@ -4435,7 +4456,7 @@
       headerName.textContent = message;
     }
     if (statusBadge) {
-      statusBadge.className = "badge badgeCritical";
+      statusBadge.hidden = true;
       statusBadge.textContent = "Fejl";
     }
   }
@@ -4454,7 +4475,7 @@
     const projectModulePanels = Array.from(document.querySelectorAll("[data-project-module-panel]"));
     const projectModuleState = {
       active: "qa",
-      available: new Set(["qa", "responsibility", "activity"]),
+      available: new Set(["qa", "activity"]),
     };
     const qaSection = document.getElementById("qaSection");
     const qaSummaryGrid = document.getElementById("qaSummaryGrid");
