@@ -4557,6 +4557,10 @@
     const equipmentDrawingStatus = document.getElementById("equipmentDrawingStatus");
     const equipmentDrawingCanvas = document.getElementById("equipmentDrawingCanvas");
     const equipmentDrawingPinPanel = document.getElementById("equipmentDrawingPinPanel");
+    const equipmentDrawingPdfInput = document.getElementById("equipmentDrawingPdfInput");
+    const equipmentDrawingPdfAnalyzeBtn = document.getElementById("equipmentDrawingPdfAnalyzeBtn");
+    const equipmentDrawingPdfImportBtn = document.getElementById("equipmentDrawingPdfImportBtn");
+    const equipmentDrawingPdfList = document.getElementById("equipmentDrawingPdfList");
 
     if (!projectId) {
       renderProjectDetailError("Ugyldig sagssti");
@@ -4610,6 +4614,10 @@
       drawingObjectUrl: null,
       drawingPlacementCameraId: null,
       selectedDrawingPinId: null,
+      drawingRenderToken: null,
+      pdfImportItems: [],
+      pdfImportFiles: [],
+      pdfJsPromise: null,
     };
     const equipmentScannerState = {
       target: null,
@@ -6553,6 +6561,173 @@
       return equipmentState.cameras.find((camera) => String(camera.id) === String(cameraId)) || null;
     }
 
+    function isEquipmentPdfDrawing(drawing) {
+      return String(drawing && drawing.source_type || "").toLowerCase() === "pdf_page";
+    }
+
+    async function loadEquipmentPdfJs() {
+      if (!equipmentState.pdfJsPromise) {
+        equipmentState.pdfJsPromise = import("/tenant/vendor/pdf.mjs").then((pdfjs) => {
+          if (pdfjs && pdfjs.GlobalWorkerOptions) {
+            pdfjs.GlobalWorkerOptions.workerSrc = "/tenant/vendor/pdf.worker.mjs";
+          }
+          return pdfjs;
+        });
+      }
+      return equipmentState.pdfJsPromise;
+    }
+
+    function renderEquipmentDrawingPdfImportList() {
+      if (!equipmentDrawingPdfList) return;
+      equipmentDrawingPdfList.innerHTML = "";
+      const items = equipmentState.pdfImportItems || [];
+      equipmentDrawingPdfList.hidden = !items.length;
+      if (equipmentDrawingPdfImportBtn) {
+        equipmentDrawingPdfImportBtn.disabled = !items.some((item) => item.include);
+      }
+      items.forEach((item, index) => {
+        const row = document.createElement("div");
+        row.className = "equipmentDrawingPdfRow";
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.checked = Boolean(item.include);
+        checkbox.addEventListener("change", () => {
+          item.include = checkbox.checked;
+          renderEquipmentDrawingPdfImportList();
+        });
+        row.appendChild(checkbox);
+        const label = document.createElement("span");
+        label.textContent = `${item.filename} · side ${item.page_number}`;
+        row.appendChild(label);
+        const title = document.createElement("input");
+        title.className = "qaInput";
+        title.type = "text";
+        title.maxLength = 160;
+        title.value = item.title || "";
+        title.addEventListener("input", () => { item.title = title.value; });
+        row.appendChild(title);
+        const actions = document.createElement("span");
+        actions.className = "equipmentDrawingPdfRowActions";
+        const up = document.createElement("button");
+        up.type = "button";
+        up.className = "btn btnCompact";
+        up.textContent = "Op";
+        up.disabled = index === 0;
+        up.addEventListener("click", () => {
+          const previous = equipmentState.pdfImportItems[index - 1];
+          equipmentState.pdfImportItems[index - 1] = item;
+          equipmentState.pdfImportItems[index] = previous;
+          renderEquipmentDrawingPdfImportList();
+        });
+        actions.appendChild(up);
+        const down = document.createElement("button");
+        down.type = "button";
+        down.className = "btn btnCompact";
+        down.textContent = "Ned";
+        down.disabled = index === items.length - 1;
+        down.addEventListener("click", () => {
+          const next = equipmentState.pdfImportItems[index + 1];
+          equipmentState.pdfImportItems[index + 1] = item;
+          equipmentState.pdfImportItems[index] = next;
+          renderEquipmentDrawingPdfImportList();
+        });
+        actions.appendChild(down);
+        row.appendChild(actions);
+        equipmentDrawingPdfList.appendChild(row);
+      });
+    }
+
+    async function prepareEquipmentDrawingPdfImport() {
+      if (!equipmentDrawingPdfInput || !equipmentDrawingPdfInput.files || !equipmentDrawingPdfInput.files.length) {
+        setEquipmentDrawingStatus("Vælg en eller flere PDF-tegninger først.", true);
+        return;
+      }
+      const files = Array.from(equipmentDrawingPdfInput.files);
+      if (equipmentDrawingPdfAnalyzeBtn) equipmentDrawingPdfAnalyzeBtn.disabled = true;
+      setEquipmentDrawingStatus("Forbereder PDF-sider...");
+      try {
+        const pdfjs = await loadEquipmentPdfJs();
+        const items = [];
+        for (let fileIndex = 0; fileIndex < files.length; fileIndex += 1) {
+          const file = files[fileIndex];
+          if (file.type && file.type !== "application/pdf") {
+            throw new Error("invalid_cctv_drawing_pdf_type");
+          }
+          const data = await file.arrayBuffer();
+          const task = pdfjs.getDocument({ data: new Uint8Array(data), isEvalSupported: false });
+          const pdf = await task.promise;
+          try {
+            for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+              const baseName = file.name ? file.name.replace(/\.pdf$/i, "") : "PDF";
+              items.push({
+                file_index: fileIndex,
+                page_number: pageNumber,
+                filename: file.name || "PDF",
+                title: `${baseName} · side ${pageNumber}`,
+                include: true,
+              });
+            }
+          } finally {
+            await pdf.destroy();
+          }
+        }
+        equipmentState.pdfImportFiles = files;
+        equipmentState.pdfImportItems = items;
+        renderEquipmentDrawingPdfImportList();
+        setEquipmentDrawingStatus(`${items.length} PDF-side${items.length === 1 ? "" : "r"} klar til valg.`);
+      } catch (error) {
+        setEquipmentDrawingStatus(equipmentErrorMessage(error, "Kunne ikke forberede PDF."), true);
+      } finally {
+        if (equipmentDrawingPdfAnalyzeBtn) equipmentDrawingPdfAnalyzeBtn.disabled = false;
+      }
+    }
+
+    async function importEquipmentDrawingPdfPages() {
+      const selected = (equipmentState.pdfImportItems || []).filter((item) => item.include);
+      if (!selected.length) {
+        setEquipmentDrawingStatus("Vælg mindst én PDF-side.", true);
+        return;
+      }
+      const formData = new FormData();
+      (equipmentState.pdfImportFiles || []).forEach((file) => formData.append("files", file));
+      formData.append("pages", JSON.stringify(selected.map((item, index) => ({
+        file_index: item.file_index,
+        page_number: item.page_number,
+        title: item.title,
+        page_order: index + 1,
+      }))));
+      if (equipmentDrawingPdfImportBtn) equipmentDrawingPdfImportBtn.disabled = true;
+      setEquipmentDrawingStatus("Importerer PDF-sider...");
+      try {
+        const token = getToken();
+        const response = await window.fetch(`/api/projects/${encodeURIComponent(projectId)}/equipment/cctv/drawings/pdf/import`, {
+          method: "POST",
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          body: formData,
+        });
+        if (!response.ok) {
+          let message = `cctv_drawing_pdf_import_failed_${response.status}`;
+          try {
+            const payload = await response.json();
+            message = payload?.error?.message || message;
+          } catch (_error) {
+            // Keep status-based message.
+          }
+          throw new Error(message);
+        }
+        const payload = await response.json();
+        equipmentState.pdfImportItems = [];
+        equipmentState.pdfImportFiles = [];
+        if (equipmentDrawingPdfInput) equipmentDrawingPdfInput.value = "";
+        renderEquipmentDrawingPdfImportList();
+        await loadEquipmentDrawings(payload?.drawings?.[0]?.id || null);
+        showEquipmentFeedback("PDF-sider importeret.");
+      } catch (error) {
+        setEquipmentDrawingStatus(equipmentErrorMessage(error, "Kunne ikke importere PDF-sider."), true);
+      } finally {
+        if (equipmentDrawingPdfImportBtn) equipmentDrawingPdfImportBtn.disabled = !((equipmentState.pdfImportItems || []).some((item) => item.include));
+      }
+    }
     async function fetchEquipmentDrawingObjectUrl(drawing) {
       if (!drawing || !drawing.content_url) return null;
       const token = getToken();
@@ -6669,27 +6844,7 @@
       equipmentDrawingPinPanel.appendChild(actions);
     }
 
-    function renderEquipmentDrawingCanvas() {
-      if (!equipmentDrawingCanvas) return;
-      equipmentDrawingCanvas.innerHTML = "";
-      equipmentDrawingCanvas.classList.toggle("isPlacing", Boolean(equipmentState.drawingPlacementCameraId));
-      const drawing = getActiveEquipmentDrawing();
-      if (!drawing) {
-        equipmentDrawingCanvas.textContent = "Upload eller vÃ¦lg en tegning.";
-        renderEquipmentDrawingPinPanel(null);
-        return;
-      }
-      if (!equipmentState.drawingObjectUrl) {
-        equipmentDrawingCanvas.textContent = "Henter tegning...";
-        return;
-      }
-      const stage = document.createElement("div");
-      stage.className = "equipmentDrawingStage";
-      const image = document.createElement("img");
-      image.className = "equipmentDrawingImage";
-      image.src = equipmentState.drawingObjectUrl;
-      image.alt = drawing.title || "CCTV tegning";
-      stage.appendChild(image);
+    function appendEquipmentDrawingPins(stage) {
       equipmentState.drawingPins.forEach((pin) => {
         const button = document.createElement("button");
         button.type = "button";
@@ -6706,12 +6861,79 @@
         });
         stage.appendChild(button);
       });
+    }
+
+    async function renderEquipmentPdfDrawingSurface(canvas, drawing, renderToken) {
+      const pdfjs = await loadEquipmentPdfJs();
+      const task = pdfjs.getDocument({ url: equipmentState.drawingObjectUrl, isEvalSupported: false });
+      const pdf = await task.promise;
+      try {
+        const page = await pdf.getPage(Number(drawing.pdf_page_number || 1));
+        const viewport = page.getViewport({ scale: 1.6 });
+        canvas.width = Math.floor(viewport.width);
+        canvas.height = Math.floor(viewport.height);
+        const context = canvas.getContext("2d");
+        await page.render({ canvasContext: context, viewport }).promise;
+        if (equipmentState.drawingRenderToken === renderToken) {
+          setEquipmentDrawingStatus(equipmentState.drawingPins.length ? "PDF-side klar." : "PDF-side klar. Ingen pins endnu.");
+        }
+      } finally {
+        await pdf.destroy();
+      }
+    }
+
+    function renderEquipmentDrawingCanvas() {
+      if (!equipmentDrawingCanvas) return;
+      equipmentDrawingCanvas.innerHTML = "";
+      equipmentDrawingCanvas.classList.toggle("isPlacing", Boolean(equipmentState.drawingPlacementCameraId));
+      const drawing = getActiveEquipmentDrawing();
+      if (!drawing) {
+        equipmentDrawingCanvas.textContent = "Upload eller vælg en tegning.";
+        renderEquipmentDrawingPinPanel(null);
+        return;
+      }
+      if (!equipmentState.drawingObjectUrl) {
+        equipmentDrawingCanvas.textContent = "Henter tegning...";
+        return;
+      }
+      const renderToken = `${drawing.id}:${Date.now()}`;
+      equipmentState.drawingRenderToken = renderToken;
+      const stage = document.createElement("div");
+      stage.className = "equipmentDrawingStage";
+      if (isEquipmentPdfDrawing(drawing)) {
+        const canvas = document.createElement("canvas");
+        canvas.className = "equipmentDrawingImage";
+        canvas.dataset.drawingSurface = "true";
+        canvas.setAttribute("aria-label", drawing.title || "CCTV PDF-side");
+        stage.appendChild(canvas);
+        stage.addEventListener("click", placeEquipmentDrawingPinFromEvent);
+        equipmentDrawingCanvas.appendChild(stage);
+        renderEquipmentPdfDrawingSurface(canvas, drawing, renderToken)
+          .then(() => {
+            if (equipmentState.drawingRenderToken !== renderToken) return;
+            appendEquipmentDrawingPins(stage);
+            const selected = equipmentState.drawingPins.find((pin) => pin.id === equipmentState.selectedDrawingPinId) || null;
+            renderEquipmentDrawingPinPanel(selected);
+          })
+          .catch((error) => {
+            if (equipmentState.drawingRenderToken === renderToken) {
+              setEquipmentDrawingStatus(equipmentErrorMessage(error, "Kunne ikke vise PDF-side."), true);
+            }
+          });
+        return;
+      }
+      const image = document.createElement("img");
+      image.className = "equipmentDrawingImage";
+      image.dataset.drawingSurface = "true";
+      image.src = equipmentState.drawingObjectUrl;
+      image.alt = drawing.title || "CCTV tegning";
+      stage.appendChild(image);
+      appendEquipmentDrawingPins(stage);
       stage.addEventListener("click", placeEquipmentDrawingPinFromEvent);
       equipmentDrawingCanvas.appendChild(stage);
       const selected = equipmentState.drawingPins.find((pin) => pin.id === equipmentState.selectedDrawingPinId) || null;
       renderEquipmentDrawingPinPanel(selected);
     }
-
     async function loadEquipmentDrawingContentAndPins() {
       const drawing = getActiveEquipmentDrawing();
       revokeEquipmentDrawingObjectUrl();
@@ -7432,6 +7654,13 @@
 
     if (equipmentDrawingUploadBtn) {
       equipmentDrawingUploadBtn.addEventListener("click", uploadEquipmentDrawing);
+    }
+    if (equipmentDrawingPdfAnalyzeBtn) {
+      equipmentDrawingPdfAnalyzeBtn.addEventListener("click", prepareEquipmentDrawingPdfImport);
+    }
+
+    if (equipmentDrawingPdfImportBtn) {
+      equipmentDrawingPdfImportBtn.addEventListener("click", importEquipmentDrawingPdfPages);
     }
 
     if (equipmentDrawingPlaceBtn) {

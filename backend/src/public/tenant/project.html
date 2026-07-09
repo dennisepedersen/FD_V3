@@ -2093,6 +2093,57 @@
       outline-offset: -3px;
     }
 
+
+    .equipmentDrawingPdfImport {
+      display: grid;
+      gap: 8px;
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #dbeafe;
+      border-radius: 10px;
+      background: #eff6ff;
+    }
+
+    .equipmentDrawingPdfImportHeader,
+    .equipmentDrawingPdfRow {
+      display: grid;
+      gap: 8px;
+    }
+
+    .equipmentDrawingPdfImportHeader {
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      align-items: end;
+    }
+
+    .equipmentDrawingPdfList {
+      display: grid;
+      gap: 6px;
+      max-height: 220px;
+      overflow: auto;
+    }
+
+    .equipmentDrawingPdfRow {
+      grid-template-columns: auto minmax(120px, 1fr) minmax(140px, 1.4fr) auto;
+      align-items: center;
+      padding: 8px;
+      border: 1px solid #bfdbfe;
+      border-radius: 8px;
+      background: #fff;
+      color: #1e293b;
+      font-size: 12px;
+      font-weight: 750;
+    }
+
+    .equipmentDrawingPdfRowActions {
+      display: inline-flex;
+      gap: 4px;
+      justify-content: flex-end;
+    }
+
+    .equipmentDrawingPdfRowActions .btn {
+      min-height: 30px;
+      padding: 5px 8px;
+    }
     .equipmentDrawingPinPanel {
       display: grid;
       gap: 8px;
@@ -2747,13 +2798,23 @@
       </div>
       <div class="equipmentDrawingControls">
         <label class="qaLabel">Tegning<select id="equipmentDrawingSelect" class="qaSelect"></select></label>
-        <label class="qaLabel">Upload tegning<input id="equipmentDrawingFileInput" class="qaInput" type="file" accept="image/jpeg,image/png,image/webp" /></label>
+        <label class="qaLabel">Upload billedtegning<input id="equipmentDrawingFileInput" class="qaInput" type="file" accept="image/jpeg,image/png,image/webp" /></label>
         <label class="qaLabel">Titel<input id="equipmentDrawingTitleInput" class="qaInput" type="text" maxlength="160" placeholder="Fx Stueplan" /></label>
         <label class="qaLabel">Kamera<select id="equipmentDrawingCameraSelect" class="qaSelect"></select></label>
         <div class="equipmentDrawingActions">
-          <button id="equipmentDrawingUploadBtn" class="btn btnCompact" type="button">Upload</button>
+          <button id="equipmentDrawingUploadBtn" class="btn btnCompact" type="button">Upload billede</button>
           <button id="equipmentDrawingPlaceBtn" class="btn btnPrimary btnCompact" type="button">Placer kamera</button>
           <button id="equipmentDrawingDeleteBtn" class="btn equipmentDangerBtn btnCompact" type="button">Slet tegning</button>
+        </div>
+        <div class="equipmentDrawingPdfImport">
+          <div class="equipmentDrawingPdfImportHeader">
+            <label class="qaLabel">Upload PDF-tegning<input id="equipmentDrawingPdfInput" class="qaInput" type="file" accept="application/pdf,.pdf" multiple /></label>
+            <div class="equipmentDrawingActions">
+              <button id="equipmentDrawingPdfAnalyzeBtn" class="btn btnCompact" type="button">Forbered PDF</button>
+              <button id="equipmentDrawingPdfImportBtn" class="btn btnPrimary btnCompact" type="button" disabled>Importer valgte sider</button>
+            </div>
+          </div>
+          <div id="equipmentDrawingPdfList" class="equipmentDrawingPdfList" hidden></div>
         </div>
       </div>
       <p id="equipmentDrawingStatus" class="equipmentFormStatus"></p>

@@ -33,6 +33,7 @@ const ALLOWED_EVENT_TYPES = Object.freeze([
   "project_equipment_cctv_image_deleted",
   "project_equipment_cctv_drawing_uploaded",
   "project_equipment_cctv_drawing_deleted",
+  "project_equipment_cctv_drawing_pdf_imported",
   "project_equipment_cctv_pin_created",
   "project_equipment_cctv_pin_updated",
   "project_equipment_cctv_pin_deleted",

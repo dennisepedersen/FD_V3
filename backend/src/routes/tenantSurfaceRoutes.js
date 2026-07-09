@@ -96,6 +96,15 @@ router.get("/tenant/vendor/zxing-browser.min.js", requireTenantHost, (req, res) 
   res.sendFile(path.join(tenantPublicDir, "vendor", "zxing-browser.min.js"));
 });
 
+router.get("/tenant/vendor/pdf.mjs", requireTenantHost, (req, res) => {
+  res.type("application/javascript");
+  res.sendFile(path.join(__dirname, "../../node_modules/pdfjs-dist/legacy/build/pdf.min.mjs"));
+});
+
+router.get("/tenant/vendor/pdf.worker.mjs", requireTenantHost, (req, res) => {
+  res.type("application/javascript");
+  res.sendFile(path.join(__dirname, "../../node_modules/pdfjs-dist/legacy/build/pdf.worker.min.mjs"));
+});
 router.use(qaRoutes);
 router.use(calendarRoutes);
 router.use(resourceGroupRoutes);

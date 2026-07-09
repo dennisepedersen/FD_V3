@@ -573,6 +573,11 @@ async function listCctvDrawingsForProject(client, { tenantId, projectId }) {
         drawing.project_id,
         drawing.equipment_area,
         drawing.storage_object_id,
+        drawing.source_type,
+        drawing.source_storage_object_id,
+        drawing.pdf_page_number,
+        drawing.page_order,
+        drawing.source_filename,
         drawing.title,
         drawing.created_by_user_id,
         drawing.created_at,
@@ -602,7 +607,7 @@ async function listCctvDrawingsForProject(client, { tenantId, projectId }) {
         AND drawing.project_id = $2
         AND drawing.equipment_area = 'cctv'
         AND drawing.deleted_at IS NULL
-      ORDER BY drawing.updated_at DESC, drawing.created_at DESC
+      ORDER BY drawing.page_order ASC, drawing.created_at ASC, drawing.updated_at DESC
     `,
     [tenantId, projectId]
   );
@@ -619,6 +624,11 @@ async function findCctvDrawingById(client, { tenantId, projectId, drawingId }) {
         drawing.project_id,
         drawing.equipment_area,
         drawing.storage_object_id,
+        drawing.source_type,
+        drawing.source_storage_object_id,
+        drawing.pdf_page_number,
+        drawing.page_order,
+        drawing.source_filename,
         drawing.title,
         drawing.created_by_user_id,
         drawing.created_at,
@@ -653,6 +663,11 @@ async function insertCctvDrawing(client, {
   tenantId,
   projectId,
   storageObjectId,
+  sourceType = "image",
+  sourceStorageObjectId = storageObjectId,
+  pdfPageNumber = null,
+  pageOrder = 0,
+  sourceFilename = null,
   title,
   actorUserId,
 }) {
@@ -663,24 +678,34 @@ async function insertCctvDrawing(client, {
         project_id,
         equipment_area,
         storage_object_id,
+        source_type,
+        source_storage_object_id,
+        pdf_page_number,
+        page_order,
+        source_filename,
         title,
         created_by_user_id,
         updated_by_user_id
       )
-      VALUES ($1, $2, 'cctv', $3, $4, $5, $5)
+      VALUES ($1, $2, 'cctv', $3, $4, $5, $6, $7, $8, $9, $10, $10)
       RETURNING
         id AS drawing_id,
         tenant_id,
         project_id,
         equipment_area,
         storage_object_id,
+        source_type,
+        source_storage_object_id,
+        pdf_page_number,
+        page_order,
+        source_filename,
         title,
         created_by_user_id,
         created_at,
         updated_by_user_id,
         updated_at
     `,
-    [tenantId, projectId, storageObjectId, title, actorUserId]
+    [tenantId, projectId, storageObjectId, sourceType, sourceStorageObjectId, pdfPageNumber, pageOrder, sourceFilename, title, actorUserId]
   );
 
   return rows[0];
@@ -726,6 +751,14 @@ async function softDeleteCctvDrawing(client, { tenantId, projectId, drawingId, a
         WHERE storage.tenant_id = $1
           AND storage.id = deleted_drawing.storage_object_id
           AND storage.deleted_at IS NULL
+          AND NOT EXISTS (
+            SELECT 1
+            FROM project_equipment_drawing other_drawing
+            WHERE other_drawing.tenant_id = $1
+              AND other_drawing.storage_object_id = deleted_drawing.storage_object_id
+              AND other_drawing.deleted_at IS NULL
+              AND other_drawing.id <> deleted_drawing.drawing_id
+          )
         RETURNING storage.id AS storage_object_id, storage.storage_key
       )
       SELECT deleted_drawing.drawing_id, deleted_storage.storage_object_id, deleted_storage.storage_key
