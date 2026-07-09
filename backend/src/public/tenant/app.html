@@ -107,6 +107,14 @@
       align-items: center;
       gap: 10px;
       min-width: 0;
+      color: inherit;
+      text-decoration: none;
+      border-radius: 14px;
+    }
+
+    .brand:focus-visible {
+      outline: 3px solid rgba(16, 185, 129, 0.26);
+      outline-offset: 4px;
     }
 
     .brandHeader {
@@ -129,6 +137,14 @@
       font-weight: 800;
       box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24), 0 12px 26px rgba(0, 0, 0, 0.32);
       flex: 0 0 auto;
+    }
+
+    .brandMark.brandLogo {
+      display: block;
+      background: transparent;
+      color: transparent;
+      object-fit: contain;
+      box-shadow: none;
     }
 
     .brandText {
@@ -1453,7 +1469,7 @@
       }
 
     }
-  
+
     /* Fielddesk UI foundation: shared visual language for tenant app chrome and low-risk overview surfaces. */
     body {
       background: var(--fd-page-bg);
@@ -1521,6 +1537,11 @@
     .brandMark {
       background: linear-gradient(135deg, var(--fd-brand), var(--fd-brand-light));
       box-shadow: 0 6px 18px rgba(5, 150, 105, 0.26);
+    }
+
+    .brandMark.brandLogo {
+      background: transparent;
+      box-shadow: none;
     }
     .logoutIconBtn,
     .iconBtn {
@@ -2594,6 +2615,15 @@
     }
 
     @media (max-width: 767px) {
+      .appShell .sidebar {
+        display: none;
+      }
+
+      .appShell .page {
+        padding-bottom: calc(88px + env(safe-area-inset-bottom));
+      }
+    }
+    @media (max-width: 767px) {
       body:has(.caseOverviewActive) {
         background: #f0faf5;
       }
@@ -2700,6 +2730,10 @@
         border-radius: 999px;
         background: #059669;
         box-shadow: none;
+      }
+
+      .appShell.caseOverviewActive .brandMark.brandLogo {
+        background: transparent;
       }
 
       .appShell.caseOverviewActive .brandName {
@@ -2881,13 +2915,13 @@
     <aside class="sidebar" aria-label="Fielddesk navigation">
       <div class="sideInner">
         <div class="brandHeader">
-          <div class="brand">
-            <div id="brandInitials" class="brandMark">FD</div>
+          <a class="brand" href="/app#dashboard" data-view-link="dashboard" aria-label="Gå til dashboard">
+            <img class="brandMark brandLogo" src="/tenant/assets/fd-cube.png" alt="Fielddesk" width="38" height="38">
             <div class="brandText">
               <p class="brandName">Fielddesk</p>
               <p id="brandUserName" class="brandSub">Indlæser bruger...</p>
             </div>
-          </div>
+          </a>
         </div>
 
         <nav class="sideNav" aria-label="Moduler">
@@ -3345,9 +3379,9 @@
                 </div>
               </header>
 
-              <label class="fdMobileSearch" for="caseMobileSearchInput" aria-label="Sog i sager">
+              <label class="fdMobileSearch" for="caseMobileSearchInput" aria-label="Søg i sager">
                 <span data-icon="search"></span>
-                <input id="caseMobileSearchInput" type="search" placeholder="Sog i sager...">
+                <input id="caseMobileSearchInput" type="search" placeholder="Søg i sager...">
               </label>
 
               <header class="fdCaseDesktopHeader">
@@ -3391,16 +3425,18 @@
             </div>
 
             <button id="caseFab" class="fdCaseFab" type="button" aria-label="Opret sag" aria-disabled="true"><span data-icon="plus"></span></button>
-            <nav class="fdBottomNav" aria-label="Mobil navigation">
-              <a class="fdBottomLink" href="/" data-view-link="dashboard"><span class="fdBottomIcon" data-icon="dashboard"></span><span>Hjem</span></a>
-              <a class="fdBottomLink active" href="/sager" data-view-link="projects"><span class="fdBottomIcon" data-icon="folder"></span><span>Sager</span></a>
-              <a class="fdBottomLink" href="/kalender" data-view-link="calendar"><span class="fdBottomIcon" data-icon="calendar"></span><span>Kalender</span></a>
-              <a class="fdBottomLink" href="/indstillinger" data-view-link="resource-groups"><span class="fdBottomIcon" data-icon="settings"></span><span>Indstillinger</span></a>
-            </nav>
+
           </div>
         </section>
       </main>
     </div>
+
+    <nav class="fdBottomNav" aria-label="Mobil navigation">
+      <a class="fdBottomLink" href="/" data-view-link="dashboard"><span class="fdBottomIcon" data-icon="dashboard"></span><span>Hjem</span></a>
+      <a class="fdBottomLink" href="/sager" data-view-link="projects"><span class="fdBottomIcon" data-icon="folder"></span><span>Sager</span></a>
+      <a class="fdBottomLink" href="/kalender" data-view-link="calendar"><span class="fdBottomIcon" data-icon="calendar"></span><span>Kalender</span></a>
+      <a class="fdBottomLink" href="/indstillinger" data-view-link="resource-groups"><span class="fdBottomIcon" data-icon="settings"></span><span>Indstillinger</span></a>
+    </nav>
   </div>
 
   <div id="drawerShell" class="drawerShell" aria-hidden="true">

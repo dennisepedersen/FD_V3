@@ -111,6 +111,14 @@
       gap: 10px;
       font-weight: 800;
       min-width: 0;
+      color: inherit;
+      text-decoration: none;
+      border-radius: 14px;
+    }
+
+    .brand:focus-visible {
+      outline: 3px solid rgba(16, 185, 129, 0.26);
+      outline-offset: 4px;
     }
 
     .brandMark {
@@ -125,6 +133,14 @@
       font-size: 13px;
       font-weight: 800;
       flex: 0 0 auto;
+    }
+
+    .brandMark.brandLogo {
+      display: block;
+      background: transparent;
+      color: transparent;
+      object-fit: contain;
+      box-shadow: none;
     }
 
     .brandText {
@@ -1218,6 +1234,46 @@
       min-height: 76px;
     }
 
+    .fdBottomNav {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 35;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      padding: 12px 20px max(22px, env(safe-area-inset-bottom));
+      border-top: 1px solid rgba(5, 150, 105, 0.1);
+      background: rgba(240, 250, 245, 0.96);
+      backdrop-filter: blur(20px);
+    }
+
+    .fdBottomLink {
+      min-width: 0;
+      display: grid;
+      justify-items: center;
+      gap: 4px;
+      color: #7a8c88;
+      text-decoration: none;
+      font-size: 9px;
+      font-weight: 800;
+    }
+
+    .fdBottomIcon {
+      width: 40px;
+      height: 32px;
+      border-radius: 16px;
+      display: grid;
+      place-items: center;
+    }
+
+    .fdBottomLink.active {
+      color: var(--fd-brand);
+    }
+
+    .fdBottomLink.active .fdBottomIcon {
+      background: var(--fd-brand-soft);
+    }
     @media (max-width: 520px) {
       .topbar {
         padding: 10px 12px;
@@ -1319,6 +1375,11 @@
     .brandMark {
       background: linear-gradient(135deg, var(--fd-brand), var(--fd-brand-light));
       box-shadow: 0 6px 18px rgba(5, 150, 105, 0.26);
+    }
+
+    .brandMark.brandLogo {
+      background: transparent;
+      box-shadow: none;
     }
 
     .brandName {
@@ -2393,6 +2454,21 @@
       }
     }
 
+    @media (max-width: 767px) {
+      .sidebar {
+        display: none;
+      }
+
+      .page {
+        padding-bottom: calc(92px + env(safe-area-inset-bottom));
+      }
+    }
+
+    @media (min-width: 768px) {
+      .fdBottomNav {
+        display: none;
+      }
+    }
     @media (min-width: 1120px) {
       .appShell {
         grid-template-columns: 280px minmax(0, 1fr);
@@ -2481,13 +2557,13 @@
     <aside class="sidebar" aria-label="Fielddesk navigation">
       <div class="sideInner">
         <div class="brandHeader">
-          <div class="brand">
-            <div id="brandInitials" class="brandMark">FD</div>
+          <a class="brand" href="/app#dashboard" aria-label="Gå til dashboard">
+            <img class="brandMark brandLogo" src="/tenant/assets/fd-cube.png" alt="Fielddesk" width="38" height="38">
             <div class="brandText">
               <p class="brandName">Fielddesk</p>
-              <p id="brandUserName" class="brandSub">Indlaeser bruger...</p>
+              <p id="brandUserName" class="brandSub">Indlæser bruger...</p>
             </div>
-          </div>
+          </a>
         </div>
 
         <nav class="sideNav" aria-label="Moduler">
@@ -2716,6 +2792,13 @@
     </div>
       </main>
     </div>
+
+    <nav class="fdBottomNav" aria-label="Mobil navigation">
+      <a class="fdBottomLink" href="/app#dashboard"><span class="fdBottomIcon" data-icon="dashboard"></span><span>Hjem</span></a>
+      <a class="fdBottomLink active" href="/sager" aria-current="page"><span class="fdBottomIcon" data-icon="folder"></span><span>Sager</span></a>
+      <a class="fdBottomLink" href="/kalender"><span class="fdBottomIcon" data-icon="calendar"></span><span>Kalender</span></a>
+      <a class="fdBottomLink" href="/indstillinger"><span class="fdBottomIcon" data-icon="settings"></span><span>Indstillinger</span></a>
+    </nav>
   </div>
 
   <div id="qaDrawerShell" class="qaDrawerShell" aria-hidden="true">
