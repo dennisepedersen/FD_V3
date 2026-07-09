@@ -331,15 +331,13 @@
     }
 
     .headerPanel {
-      border-color: rgba(188, 207, 229, 0.2);
-      background:
-        linear-gradient(135deg, rgba(94, 200, 229, 0.16), rgba(255, 255, 255, 0.04)),
-        linear-gradient(135deg, rgba(28, 47, 76, 0.86), rgba(9, 17, 33, 0.9));
-      box-shadow: var(--shadow-soft);
-      color: #f7fbff;
-      padding: 16px;
+      border-color: rgba(15, 23, 42, 0.1);
+      background: linear-gradient(180deg, #f8fcfb, #eef7f3);
+      box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
+      color: #102033;
+      padding: 12px 14px;
       display: grid;
-      gap: 10px;
+      gap: 7px;
     }
 
     .projectBackLink {
@@ -347,29 +345,30 @@
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      color: #b8efff;
+      color: #047857;
       text-decoration: none;
       font-size: 13px;
       font-weight: 750;
     }
 
     .projectBackLink:hover {
-      color: var(--brand-strong);
+      color: #065f46;
     }
 
     .projectRef {
       margin: 0;
-      color: rgba(231, 240, 247, 0.76);
+      color: #475569;
       font-size: 12px;
-      font-weight: 700;
+      font-weight: 800;
       text-transform: uppercase;
       letter-spacing: 0.08em;
     }
 
     .projectName {
       margin: 0;
-      font-size: 25px;
-      line-height: 1.2;
+      color: #0f172a;
+      font-size: 23px;
+      line-height: 1.16;
       font-weight: 800;
       overflow-wrap: anywhere;
     }
@@ -410,41 +409,47 @@
     .projectHeaderInfoGrid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-      gap: 8px;
-      margin-top: 4px;
+      gap: 6px;
+      margin-top: 2px;
     }
 
     .projectHeaderInfoItem {
       display: grid;
-      gap: 3px;
-      padding: 8px 10px;
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      border-radius: 10px;
-      background: rgba(255, 255, 255, 0.06);
+      gap: 2px;
+      padding: 7px 9px;
+      border: 1px solid rgba(4, 120, 87, 0.16);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.72);
     }
 
     .projectHeaderInfoItem .fieldLabel {
-      color: rgba(231, 240, 247, 0.66);
+      color: #047857;
+      font-size: 11px;
+      font-weight: 850;
     }
 
     .projectHeaderInfoItem .fieldValue,
     .projectHeaderInfoItem .fieldNote {
-      color: #f8fafc;
+      color: #0f172a;
+    }
+
+    .projectHeaderInfoItem .fieldNote {
+      color: #475569;
     }
 
     .projectToolbox {
       display: flex;
       align-items: center;
       flex-wrap: wrap;
-      gap: 8px 10px;
-      margin-top: 2px;
-      padding-top: 8px;
-      border-top: 1px solid rgba(255, 255, 255, 0.12);
+      gap: 6px 8px;
+      margin-top: 0;
+      padding-top: 7px;
+      border-top: 1px solid rgba(15, 23, 42, 0.1);
     }
 
     .projectToolboxLabel {
       margin: 0;
-      color: rgba(231, 240, 247, 0.68);
+      color: #047857;
       font-size: 11px;
       font-weight: 850;
       text-transform: uppercase;
@@ -453,7 +458,7 @@
 
     .projectToolboxTabs {
       display: flex;
-      gap: 6px;
+      gap: 5px;
       overflow-x: auto;
       padding-bottom: 2px;
       scrollbar-width: thin;
@@ -461,12 +466,12 @@
 
     .projectToolboxTab {
       flex: 0 0 auto;
-      min-height: 34px;
-      border: 1px solid rgba(255, 255, 255, 0.14);
+      min-height: 32px;
+      border: 1px solid rgba(4, 120, 87, 0.2);
       border-radius: 999px;
-      padding: 7px 12px;
-      background: rgba(255, 255, 255, 0.08);
-      color: rgba(248, 250, 252, 0.78);
+      padding: 6px 11px;
+      background: #ffffff;
+      color: #334155;
       font: inherit;
       font-size: 13px;
       font-weight: 850;
@@ -476,9 +481,9 @@
 
     .projectToolboxTab:hover,
     .projectToolboxTab.active {
-      border-color: var(--fd-brand-border, #d1fae5);
-      background: rgba(236, 253, 245, 0.96);
-      color: var(--fd-brand, #059669);
+      border-color: rgba(4, 120, 87, 0.34);
+      background: #ecfdf5;
+      color: #047857;
     }
 
     .projectToolboxTab:focus-visible {
@@ -1577,7 +1582,7 @@
     }
 
     .qaPanel {
-      gap: 14px;
+      gap: 12px;
       background: #fff;
     }
 
@@ -2441,7 +2446,7 @@
       }
 
       .qaPanel {
-        padding: 14px;
+        padding: 12px;
       }
 
       .qaSummaryGrid {
