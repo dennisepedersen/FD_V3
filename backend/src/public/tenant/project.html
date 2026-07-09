@@ -406,6 +406,69 @@
       border-color: rgba(248, 113, 113, 0.42);
     }
 
+
+    .projectToolbox {
+      display: grid;
+      gap: 8px;
+      padding: 10px;
+      border-color: rgba(5, 150, 105, 0.12);
+      background: #ffffff;
+    }
+
+    .projectToolboxLabel {
+      margin: 0;
+      color: var(--fd-subtle, #4f9f78);
+      font-size: 11px;
+      font-weight: 850;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    .projectToolboxTabs {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding-bottom: 2px;
+      scrollbar-width: thin;
+    }
+
+    .projectToolboxTab {
+      flex: 0 0 auto;
+      min-height: 38px;
+      border: 1px solid rgba(5, 150, 105, 0.14);
+      border-radius: 999px;
+      padding: 8px 12px;
+      background: #f8fefb;
+      color: #475569;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 850;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .projectToolboxTab:hover,
+    .projectToolboxTab.active {
+      border-color: var(--fd-brand-border, #d1fae5);
+      background: var(--fd-brand-soft, #ecfdf5);
+      color: var(--fd-brand, #059669);
+    }
+
+    .projectToolboxTab:focus-visible {
+      outline: 3px solid rgba(16, 185, 129, 0.22);
+      outline-offset: 2px;
+    }
+
+    .projectModuleGroup {
+      display: grid;
+      gap: 16px;
+    }
+
+    [data-project-module-panel][hidden],
+    .projectModuleGroup[hidden] {
+      display: none !important;
+    }
+
     .sectionPanel {
       padding: 12px;
       display: grid;
@@ -1157,8 +1220,7 @@
       .projectName {
         font-size: 22px;
       }
-
-      .sectionPanel {
+    .sectionPanel {
         padding: 11px;
       }
 
@@ -2030,6 +2092,13 @@
       min-width: min(100%, 190px);
     }
 
+
+    .equipmentDrawingHeader .iconBtn {
+      border-color: #cbd5e1;
+      background: #ffffff;
+      color: #0f172a;
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+    }
     .equipmentDrawingBody {
       display: grid;
       grid-template-columns: minmax(0, 1fr);
@@ -2257,8 +2326,7 @@
       .headerPanel {
         padding: 18px;
       }
-
-      .sectionPanel {
+    .sectionPanel {
         padding: 14px;
       }
 
@@ -2335,30 +2403,19 @@
 
       .page {
         width: min(1320px, 100%);
-        grid-template-columns: minmax(0, 1fr) minmax(360px, 420px);
+        grid-template-columns: minmax(0, 1fr);
         align-items: start;
         gap: 18px;
       }
 
-      .headerPanel {
-        grid-column: 1 / -1;
-      }
-
-      .page > .sectionPanel:not(.qaPanel) {
+      .headerPanel,
+      .projectToolbox,
+      [data-project-module-panel] {
         grid-column: 1;
       }
 
       .qaPanel {
-        grid-column: 2;
-        grid-row: 2 / span 20;
-        position: sticky;
-        top: 78px;
-        max-height: calc(100dvh - 96px);
-        min-height: 0;
-        overflow: auto;
-        padding: 13px;
-        align-content: start;
-        scrollbar-gutter: stable;
+        padding: 14px;
       }
 
       .qaSummaryGrid {
@@ -2475,7 +2532,17 @@
       <span id="projectStatusBadge" class="badge badgeNeutral">Indlæser</span>
     </section>
 
-    <section id="qaSection" class="panel sectionPanel qaPanel">
+    <nav id="projectToolbox" class="panel projectToolbox" aria-label="Projektmoduler">
+      <p class="projectToolboxLabel">Projektmoduler</p>
+      <div class="projectToolboxTabs" role="tablist" aria-label="Vælg projektmodul">
+        <button class="projectToolboxTab active" type="button" data-project-module-tab="qa" aria-selected="true">QA</button>
+        <button class="projectToolboxTab" type="button" data-project-module-tab="equipment" hidden aria-selected="false">Udstyr</button>
+        <button class="projectToolboxTab" type="button" data-project-module-tab="responsibility" aria-selected="false">Ansvar</button>
+        <button class="projectToolboxTab" type="button" data-project-module-tab="activity" aria-selected="false">Aktivitet</button>
+      </div>
+    </nav>
+
+    <section id="qaSection" class="panel sectionPanel qaPanel" data-project-module-panel="qa">
       <div class="qaHeaderRow">
         <div class="qaHeaderCopy">
           <h2 class="sectionTitle">QA</h2>
@@ -2494,7 +2561,7 @@
     </section>
 
 
-    <section id="equipmentSection" class="panel sectionPanel equipmentPanel" hidden>
+    <section id="equipmentSection" class="panel sectionPanel equipmentPanel" data-project-module-panel="equipment" data-project-module-available="false" hidden>
       <div class="equipmentHeaderRow">
         <div class="equipmentHeaderCopy">
           <h2 class="sectionTitle">Projektudstyr Beta &middot; CCTV</h2>
@@ -2505,7 +2572,7 @@
           <button id="equipmentDrawingBtn" class="btn btnCompact" type="button">Tegning</button>
           <button id="equipmentAddBtn" class="btn btnPrimary btnCompact" type="button">Tilføj kamera</button>
           <a id="equipmentExportLink" class="btn btnCompact" href="#">CSV</a>
-          <a id="equipmentPdfExportLink" class="btn btnCompact" href="#">Eksport�r PDF</a>
+          <a id="equipmentPdfExportLink" class="btn btnCompact" href="#">Eksportér PDF</a>
         </div>
       </div>
       <div class="equipmentToolbar">
@@ -2519,6 +2586,7 @@
       <div id="equipmentState" class="sectionState">Indlæser CCTV...</div>
       <div id="equipmentList" class="equipmentList" aria-live="polite"></div>
     </section>
+    <div id="responsibilityModule" class="projectModuleGroup" data-project-module-panel="responsibility" hidden>
     <section class="panel sectionPanel">
       <h2 class="sectionTitle">Ansvar</h2>
       <div class="fieldGrid">
@@ -2544,6 +2612,9 @@
       </div>
     </section>
 
+    </div>
+
+    <div id="activityModule" class="projectModuleGroup" data-project-module-panel="activity" hidden>
     <section class="panel sectionPanel">
       <h2 class="sectionTitle">Aktivitet</h2>
       <div class="fieldGrid">
@@ -2619,6 +2690,7 @@
       <p class="sectionState">Baseret p&aring; timeposter, der allerede findes i Fielddesk.</p>
       <div id="hoursList" class="itemList"></div>
     </section>
+    </div>
       </main>
     </div>
   </div>
@@ -2631,7 +2703,7 @@
           <h2 id="qaDrawerTitle" class="qaDrawerTitle">QA thread</h2>
           <p id="qaDrawerMeta" class="qaDrawerMeta">-</p>
         </div>
-        <button id="qaDrawerCloseBtn" class="iconBtn" type="button" aria-label="Luk">×</button>
+        <button id="qaDrawerCloseBtn" class="iconBtn" type="button" aria-label="Luk">&times;</button>
       </div>
       <form id="qaNewThreadForm" class="qaComposer qaNewThreadForm" hidden>
         <div class="qaFormGrid">
@@ -2798,23 +2870,18 @@
       </div>
       <div class="equipmentDrawingControls">
         <label class="qaLabel">Tegning<select id="equipmentDrawingSelect" class="qaSelect"></select></label>
-        <label class="qaLabel">Upload billedtegning<input id="equipmentDrawingFileInput" class="qaInput" type="file" accept="image/jpeg,image/png,image/webp" /></label>
+        <label class="qaLabel">Vælg fil<input id="equipmentDrawingFileInput" class="qaInput" type="file" accept="image/jpeg,image/png,image/webp,application/pdf,.pdf" multiple /></label>
         <label class="qaLabel">Titel<input id="equipmentDrawingTitleInput" class="qaInput" type="text" maxlength="160" placeholder="Fx Stueplan" /></label>
         <label class="qaLabel">Kamera<select id="equipmentDrawingCameraSelect" class="qaSelect"></select></label>
         <div class="equipmentDrawingActions">
-          <button id="equipmentDrawingUploadBtn" class="btn btnCompact" type="button">Upload billede</button>
           <button id="equipmentDrawingPlaceBtn" class="btn btnPrimary btnCompact" type="button">Placer kamera</button>
           <button id="equipmentDrawingDeleteBtn" class="btn equipmentDangerBtn btnCompact" type="button">Slet tegning</button>
         </div>
-        <div class="equipmentDrawingPdfImport">
-          <div class="equipmentDrawingPdfImportHeader">
-            <label class="qaLabel">Upload PDF-tegning<input id="equipmentDrawingPdfInput" class="qaInput" type="file" accept="application/pdf,.pdf" multiple /></label>
-            <div class="equipmentDrawingActions">
-              <button id="equipmentDrawingPdfAnalyzeBtn" class="btn btnCompact" type="button">Forbered PDF</button>
-              <button id="equipmentDrawingPdfImportBtn" class="btn btnPrimary btnCompact" type="button" disabled>Importer valgte sider</button>
-            </div>
-          </div>
+        <div id="equipmentDrawingPdfImport" class="equipmentDrawingPdfImport" hidden>
           <div id="equipmentDrawingPdfList" class="equipmentDrawingPdfList" hidden></div>
+          <div class="equipmentDrawingActions">
+            <button id="equipmentDrawingPdfImportBtn" class="btn btnPrimary btnCompact" type="button" disabled>Importer valgte sider</button>
+          </div>
         </div>
       </div>
       <p id="equipmentDrawingStatus" class="equipmentFormStatus"></p>

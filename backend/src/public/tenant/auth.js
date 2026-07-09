@@ -4450,6 +4450,12 @@
     const brandUserName = document.getElementById("brandUserName");
     const logoutBtn = document.getElementById("logoutBtn");
     const projectId = getProjectIdFromPath();
+    const projectModuleTabs = Array.from(document.querySelectorAll("[data-project-module-tab]"));
+    const projectModulePanels = Array.from(document.querySelectorAll("[data-project-module-panel]"));
+    const projectModuleState = {
+      active: "qa",
+      available: new Set(["qa", "responsibility", "activity"]),
+    };
     const qaSection = document.getElementById("qaSection");
     const qaSummaryGrid = document.getElementById("qaSummaryGrid");
     const qaMetaText = document.getElementById("qaMetaText");
@@ -4551,14 +4557,12 @@
     const equipmentDrawingFileInput = document.getElementById("equipmentDrawingFileInput");
     const equipmentDrawingTitleInput = document.getElementById("equipmentDrawingTitleInput");
     const equipmentDrawingCameraSelect = document.getElementById("equipmentDrawingCameraSelect");
-    const equipmentDrawingUploadBtn = document.getElementById("equipmentDrawingUploadBtn");
     const equipmentDrawingPlaceBtn = document.getElementById("equipmentDrawingPlaceBtn");
     const equipmentDrawingDeleteBtn = document.getElementById("equipmentDrawingDeleteBtn");
     const equipmentDrawingStatus = document.getElementById("equipmentDrawingStatus");
     const equipmentDrawingCanvas = document.getElementById("equipmentDrawingCanvas");
     const equipmentDrawingPinPanel = document.getElementById("equipmentDrawingPinPanel");
-    const equipmentDrawingPdfInput = document.getElementById("equipmentDrawingPdfInput");
-    const equipmentDrawingPdfAnalyzeBtn = document.getElementById("equipmentDrawingPdfAnalyzeBtn");
+    const equipmentDrawingPdfImport = document.getElementById("equipmentDrawingPdfImport");
     const equipmentDrawingPdfImportBtn = document.getElementById("equipmentDrawingPdfImportBtn");
     const equipmentDrawingPdfList = document.getElementById("equipmentDrawingPdfList");
 
@@ -4618,6 +4622,7 @@
       pdfImportItems: [],
       pdfImportFiles: [],
       pdfJsPromise: null,
+      isDrawingFileProcessing: false,
     };
     const equipmentScannerState = {
       target: null,
@@ -4661,6 +4666,40 @@
       return initials || "FD";
     }
 
+
+    function renderProjectModules() {
+      let active = projectModuleState.available.has(projectModuleState.active) ? projectModuleState.active : "qa";
+      if (!projectModuleState.available.has(active)) {
+        active = Array.from(projectModuleState.available)[0] || "qa";
+      }
+      projectModuleState.active = active;
+      projectModuleTabs.forEach((tab) => {
+        const key = tab.dataset.projectModuleTab;
+        const available = projectModuleState.available.has(key);
+        tab.hidden = !available;
+        tab.classList.toggle("active", key === active);
+        tab.setAttribute("aria-selected", key === active ? "true" : "false");
+      });
+      projectModulePanels.forEach((panel) => {
+        const key = panel.dataset.projectModulePanel;
+        panel.hidden = key !== active || !projectModuleState.available.has(key);
+      });
+    }
+
+    function setActiveProjectModule(moduleKey) {
+      if (!projectModuleState.available.has(moduleKey)) return;
+      projectModuleState.active = moduleKey;
+      renderProjectModules();
+    }
+
+    function setProjectModuleAvailable(moduleKey, available) {
+      if (available) {
+        projectModuleState.available.add(moduleKey);
+      } else {
+        projectModuleState.available.delete(moduleKey);
+      }
+      renderProjectModules();
+    }
     function renderProjectUserChrome(user) {
       if (brandInitials) {
         brandInitials.textContent = getProjectLoginInitials(user || {});
@@ -4914,7 +4953,7 @@
 
       if (error && error.status === 403) {
         if (error.code === "module_access_denied") {
-          return "QA er ikke tilgaengelig for din rolle.";
+          return "QA er ikke tilgængelig for din rolle.";
         }
         return "Du har ikke adgang til denne QA handling.";
       }
@@ -6148,10 +6187,22 @@
         return "Billedet skal være JPG, PNG eller WebP.";
       }
       if (message.includes("cctv_image_too_large") || message.includes("cctv_drawing_too_large")) {
-        return "Billedet er for stort til den aktuelle uploadgrænse.";
+        return "Filen er for stor til den aktuelle uploadgrænse.";
       }
       if (message.includes("cctv_drawing_file_required")) {
-        return "Vælg en tegning først.";
+        return "Vælg en fil først.";
+      }
+      if (message.includes("invalid_cctv_drawing_pdf_type") || message.includes("invalid_cctv_drawing_pdf_extension")) {
+        return "PDF'en kunne ikke behandles.";
+      }
+      if (message.includes("cctv_drawing_pdf_too_large")) {
+        return "PDF'en er for stor.";
+      }
+      if (message.includes("cctv_drawing_pdf_pages_required")) {
+        return "Vælg mindst én side.";
+      }
+      if (message.includes("invalid_cctv_drawing_pdf") || message.includes("cctv_drawing_pdf_page_out_of_range")) {
+        return "PDF'en kunne ikke behandles.";
       }
       if (message.includes("x_percent_invalid") || message.includes("y_percent_invalid") || message.includes("pin_coordinates_required")) {
         return "Placeringen skal være inde på tegningen.";
@@ -6578,9 +6629,10 @@
     }
 
     function renderEquipmentDrawingPdfImportList() {
+      const items = equipmentState.pdfImportItems || [];
+      if (equipmentDrawingPdfImport) equipmentDrawingPdfImport.hidden = !items.length;
       if (!equipmentDrawingPdfList) return;
       equipmentDrawingPdfList.innerHTML = "";
-      const items = equipmentState.pdfImportItems || [];
       equipmentDrawingPdfList.hidden = !items.length;
       if (equipmentDrawingPdfImportBtn) {
         equipmentDrawingPdfImportBtn.disabled = !items.some((item) => item.include);
@@ -6597,7 +6649,7 @@
         });
         row.appendChild(checkbox);
         const label = document.createElement("span");
-        label.textContent = `${item.filename} � side ${item.page_number}`;
+        label.textContent = `${item.filename} · side ${item.page_number}`;
         row.appendChild(label);
         const title = document.createElement("input");
         title.className = "qaInput";
@@ -6637,20 +6689,69 @@
       });
     }
 
-    async function prepareEquipmentDrawingPdfImport() {
-      if (!equipmentDrawingPdfInput || !equipmentDrawingPdfInput.files || !equipmentDrawingPdfInput.files.length) {
-        setEquipmentDrawingStatus("V�lg en eller flere PDF-tegninger f�rst.", true);
+    function isEquipmentDrawingPdfFile(file) {
+      const type = String(file && file.type ? file.type : "").toLowerCase();
+      const name = String(file && file.name ? file.name : "").toLowerCase();
+      return type === "application/pdf" || name.endsWith(".pdf");
+    }
+
+    function isEquipmentDrawingImageFile(file) {
+      const type = String(file && file.type ? file.type : "").toLowerCase();
+      const name = String(file && file.name ? file.name : "").toLowerCase();
+      return type.startsWith("image/") || /\.(jpe?g|png|webp)$/.test(name);
+    }
+
+    function setEquipmentDrawingFileProcessing(isProcessing) {
+      equipmentState.isDrawingFileProcessing = Boolean(isProcessing);
+      if (equipmentDrawingFileInput) equipmentDrawingFileInput.disabled = Boolean(isProcessing);
+      if (equipmentDrawingPdfImportBtn) equipmentDrawingPdfImportBtn.disabled = Boolean(isProcessing) || !((equipmentState.pdfImportItems || []).some((item) => item.include));
+      if (equipmentDrawingPlaceBtn) equipmentDrawingPlaceBtn.disabled = Boolean(isProcessing);
+      if (equipmentDrawingDeleteBtn) equipmentDrawingDeleteBtn.disabled = Boolean(isProcessing);
+    }
+
+    async function handleEquipmentDrawingFileSelection() {
+      if (equipmentState.isDrawingFileProcessing) return;
+      const files = equipmentDrawingFileInput && equipmentDrawingFileInput.files ? Array.from(equipmentDrawingFileInput.files) : [];
+      equipmentState.pdfImportItems = [];
+      equipmentState.pdfImportFiles = [];
+      renderEquipmentDrawingPdfImportList();
+      if (!files.length) {
+        setEquipmentDrawingStatus("Vælg en PDF eller billedfil først.", true);
         return;
       }
-      const files = Array.from(equipmentDrawingPdfInput.files);
-      if (equipmentDrawingPdfAnalyzeBtn) equipmentDrawingPdfAnalyzeBtn.disabled = true;
-      setEquipmentDrawingStatus("Forbereder PDF-sider...");
+      const pdfFiles = files.filter(isEquipmentDrawingPdfFile);
+      const imageFiles = files.filter(isEquipmentDrawingImageFile);
+      if (pdfFiles.length && imageFiles.length) {
+        if (equipmentDrawingFileInput) equipmentDrawingFileInput.value = "";
+        setEquipmentDrawingStatus("Vælg enten PDF eller billedfil - ikke begge dele samtidig.", true);
+        return;
+      }
+      if (pdfFiles.length) {
+        await prepareEquipmentDrawingPdfImport(pdfFiles);
+        return;
+      }
+      if (imageFiles.length !== 1) {
+        if (equipmentDrawingFileInput) equipmentDrawingFileInput.value = "";
+        setEquipmentDrawingStatus("Vælg én billedfil ad gangen.", true);
+        return;
+      }
+      await uploadEquipmentDrawing(imageFiles[0]);
+    }
+
+    async function prepareEquipmentDrawingPdfImport(files) {
+      const selectedFiles = Array.isArray(files) ? files : [];
+      if (!selectedFiles.length) {
+        setEquipmentDrawingStatus("Vælg en PDF eller billedfil først.", true);
+        return;
+      }
+      setEquipmentDrawingFileProcessing(true);
+      setEquipmentDrawingStatus("Behandler fil...");
       try {
         const pdfjs = await loadEquipmentPdfJs();
         const items = [];
-        for (let fileIndex = 0; fileIndex < files.length; fileIndex += 1) {
-          const file = files[fileIndex];
-          if (file.type && file.type !== "application/pdf") {
+        for (let fileIndex = 0; fileIndex < selectedFiles.length; fileIndex += 1) {
+          const file = selectedFiles[fileIndex];
+          if (!isEquipmentDrawingPdfFile(file)) {
             throw new Error("invalid_cctv_drawing_pdf_type");
           }
           const data = await file.arrayBuffer();
@@ -6663,7 +6764,7 @@
                 file_index: fileIndex,
                 page_number: pageNumber,
                 filename: file.name || "PDF",
-                title: `${baseName} � side ${pageNumber}`,
+                title: `${baseName} - side ${pageNumber}`,
                 include: true,
               });
             }
@@ -6671,21 +6772,30 @@
             await pdf.destroy();
           }
         }
-        equipmentState.pdfImportFiles = files;
+        equipmentState.pdfImportFiles = selectedFiles;
         equipmentState.pdfImportItems = items;
         renderEquipmentDrawingPdfImportList();
-        setEquipmentDrawingStatus(`${items.length} PDF-side${items.length === 1 ? "" : "r"} klar til valg.`);
+        if (items.length === 1) {
+          setEquipmentDrawingStatus("Importerer PDF-side...");
+          await importEquipmentDrawingPdfPages(items);
+          return;
+        }
+        setEquipmentDrawingStatus(`${items.length} PDF-sider klar til valg.`);
       } catch (error) {
-        setEquipmentDrawingStatus(equipmentErrorMessage(error, "Kunne ikke forberede PDF."), true);
+        if (equipmentDrawingFileInput) equipmentDrawingFileInput.value = "";
+        equipmentState.pdfImportItems = [];
+        equipmentState.pdfImportFiles = [];
+        renderEquipmentDrawingPdfImportList();
+        setEquipmentDrawingStatus(equipmentErrorMessage(error, "PDF'en kunne ikke behandles."), true);
       } finally {
-        if (equipmentDrawingPdfAnalyzeBtn) equipmentDrawingPdfAnalyzeBtn.disabled = false;
+        setEquipmentDrawingFileProcessing(false);
       }
     }
 
-    async function importEquipmentDrawingPdfPages() {
-      const selected = (equipmentState.pdfImportItems || []).filter((item) => item.include);
+    async function importEquipmentDrawingPdfPages(selectedOverride = null) {
+      const selected = Array.isArray(selectedOverride) ? selectedOverride : (equipmentState.pdfImportItems || []).filter((item) => item.include);
       if (!selected.length) {
-        setEquipmentDrawingStatus("V�lg mindst �n PDF-side.", true);
+        setEquipmentDrawingStatus("Vælg mindst én side.", true);
         return;
       }
       const formData = new FormData();
@@ -6696,8 +6806,8 @@
         title: item.title,
         page_order: index + 1,
       }))));
-      if (equipmentDrawingPdfImportBtn) equipmentDrawingPdfImportBtn.disabled = true;
-      setEquipmentDrawingStatus("Importerer PDF-sider...");
+      setEquipmentDrawingFileProcessing(true);
+      setEquipmentDrawingStatus(selected.length === 1 ? "Importerer PDF-side..." : "Importerer PDF-sider...");
       try {
         const token = getToken();
         const response = await window.fetch(`/api/projects/${encodeURIComponent(projectId)}/equipment/cctv/drawings/pdf/import`, {
@@ -6718,14 +6828,15 @@
         const payload = await response.json();
         equipmentState.pdfImportItems = [];
         equipmentState.pdfImportFiles = [];
-        if (equipmentDrawingPdfInput) equipmentDrawingPdfInput.value = "";
+        if (equipmentDrawingFileInput) equipmentDrawingFileInput.value = "";
         renderEquipmentDrawingPdfImportList();
         await loadEquipmentDrawings(payload?.drawings?.[0]?.id || null);
-        showEquipmentFeedback("PDF-sider importeret.");
+        showEquipmentFeedback(selected.length === 1 ? "PDF-side importeret." : "PDF-sider importeret.");
+        setEquipmentDrawingStatus("Tegningen er klar.");
       } catch (error) {
         setEquipmentDrawingStatus(equipmentErrorMessage(error, "Kunne ikke importere PDF-sider."), true);
       } finally {
-        if (equipmentDrawingPdfImportBtn) equipmentDrawingPdfImportBtn.disabled = !((equipmentState.pdfImportItems || []).some((item) => item.include));
+        setEquipmentDrawingFileProcessing(false);
       }
     }
     async function fetchEquipmentDrawingObjectUrl(drawing) {
@@ -6888,7 +6999,7 @@
       equipmentDrawingCanvas.classList.toggle("isPlacing", Boolean(equipmentState.drawingPlacementCameraId));
       const drawing = getActiveEquipmentDrawing();
       if (!drawing) {
-        equipmentDrawingCanvas.textContent = "Upload eller v�lg en tegning.";
+        equipmentDrawingCanvas.textContent = "Upload eller vælg en tegning.";
         renderEquipmentDrawingPinPanel(null);
         return;
       }
@@ -6985,7 +7096,7 @@
         if (placeCamera && camera) {
           equipmentState.drawingPlacementCameraId = camera.id;
           if (equipmentDrawingCameraSelect) equipmentDrawingCameraSelect.value = camera.id;
-          setEquipmentDrawingStatus(equipmentState.activeDrawingId ? "Klik på tegningen for at placere kameraet." : "Upload en tegning før kameraet kan placeres.");
+          setEquipmentDrawingStatus(equipmentState.activeDrawingId ? "Klik på tegningen for at placere kameraet." : "Vælg en tegning før kameraet kan placeres.");
           renderEquipmentDrawingCanvas();
         }
       } catch (error) {
@@ -7003,16 +7114,16 @@
       revokeEquipmentDrawingObjectUrl();
     }
 
-    async function uploadEquipmentDrawing() {
-      if (!equipmentDrawingFileInput || !equipmentDrawingFileInput.files || !equipmentDrawingFileInput.files[0]) {
+    async function uploadEquipmentDrawing(fileOverride = null) {
+      const file = fileOverride || (equipmentDrawingFileInput && equipmentDrawingFileInput.files ? equipmentDrawingFileInput.files[0] : null);
+      if (!file) {
         setEquipmentDrawingStatus("Vælg en JPG, PNG eller WebP-tegning først.", true);
         return;
       }
-      const file = equipmentDrawingFileInput.files[0];
       const formData = new FormData();
       formData.append("file", file);
       formData.append("title", equipmentDrawingTitleInput && equipmentDrawingTitleInput.value.trim() ? equipmentDrawingTitleInput.value.trim() : file.name);
-      if (equipmentDrawingUploadBtn) equipmentDrawingUploadBtn.disabled = true;
+      setEquipmentDrawingFileProcessing(true);
       setEquipmentDrawingStatus("Uploader tegning...");
       try {
         const token = getToken();
@@ -7032,17 +7143,17 @@
           throw new Error(message);
         }
         const payload = await response.json();
-        equipmentDrawingFileInput.value = "";
+        if (equipmentDrawingFileInput) equipmentDrawingFileInput.value = "";
         if (equipmentDrawingTitleInput) equipmentDrawingTitleInput.value = "";
         await loadEquipmentDrawings(payload?.drawing?.id || null);
-        showEquipmentFeedback("Tegning uploadet.");
+        showEquipmentFeedback("Tegningen er klar.");
+        setEquipmentDrawingStatus("Tegningen er klar.");
       } catch (error) {
         setEquipmentDrawingStatus(equipmentErrorMessage(error, "Kunne ikke uploade tegning."), true);
       } finally {
-        if (equipmentDrawingUploadBtn) equipmentDrawingUploadBtn.disabled = false;
+        setEquipmentDrawingFileProcessing(false);
       }
     }
-
     async function deleteEquipmentDrawing() {
       const drawing = getActiveEquipmentDrawing();
       if (!drawing) return;
@@ -7064,9 +7175,9 @@
 
     async function placeEquipmentDrawingPinFromEvent(event) {
       if (!equipmentState.drawingPlacementCameraId || !equipmentState.activeDrawingId) return;
-      const image = event.currentTarget.querySelector("img");
-      if (!image) return;
-      const rect = image.getBoundingClientRect();
+      const surface = event.currentTarget.querySelector("[data-drawing-surface]");
+      if (!surface) return;
+      const rect = surface.getBoundingClientRect();
       const x = ((event.clientX - rect.left) / rect.width) * 100;
       const y = ((event.clientY - rect.top) / rect.height) * 100;
       const camera = getEquipmentCameraById(equipmentState.drawingPlacementCameraId);
@@ -7271,7 +7382,7 @@
       try {
         const query = equipmentState.search ? `?q=${encodeURIComponent(equipmentState.search)}` : "";
         const response = await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/equipment/cctv${query}`, { method: "GET" });
-        if (equipmentSection) equipmentSection.hidden = false;
+        setProjectModuleAvailable("equipment", true);
         equipmentState.summary = response && response.summary ? response.summary : equipmentState.summary;
         equipmentState.cameras = response && Array.isArray(response.cameras) ? response.cameras : [];
         if (!equipmentState.search || !equipmentState.suggestionCameras.length) {
@@ -7285,7 +7396,7 @@
           equipmentPdfExportLink.href = `/api/projects/${encodeURIComponent(projectId)}/equipment/cctv/export.pdf`;
         }
       } catch (error) {
-        if (equipmentSection) equipmentSection.hidden = true;
+        setProjectModuleAvailable("equipment", false);
         const message = equipmentErrorMessage(error, "Kunne ikke hente CCTV-udstyr.");
         if (!message) {
           return;
@@ -7549,9 +7660,14 @@
         setEquipmentStateMessage("Kunne ikke hente PDF eksport.", true);
         showEquipmentFeedback("Kunne ikke hente PDF export.", true);
       } finally {
-        equipmentPdfExportLink.textContent = "Eksport�r PDF";
+        equipmentPdfExportLink.textContent = "Eksportér PDF";
       }
     }
+    projectModuleTabs.forEach((tab) => {
+      tab.addEventListener("click", () => setActiveProjectModule(tab.dataset.projectModuleTab));
+    });
+    renderProjectModules();
+
     if (qaUi) {
       renderQaSummary();
       renderQaThreadList();
@@ -7652,11 +7768,8 @@
       });
     }
 
-    if (equipmentDrawingUploadBtn) {
-      equipmentDrawingUploadBtn.addEventListener("click", uploadEquipmentDrawing);
-    }
-    if (equipmentDrawingPdfAnalyzeBtn) {
-      equipmentDrawingPdfAnalyzeBtn.addEventListener("click", prepareEquipmentDrawingPdfImport);
+    if (equipmentDrawingFileInput) {
+      equipmentDrawingFileInput.addEventListener("change", handleEquipmentDrawingFileSelection);
     }
 
     if (equipmentDrawingPdfImportBtn) {
@@ -7860,12 +7973,12 @@
       renderFittersSectionFromBreakdown(breakdown);
       renderHoursSectionFromBreakdown(breakdown);
       if (equipmentResult && equipmentResult.status === "fulfilled" && equipmentResult.value) {
-        if (equipmentSection) equipmentSection.hidden = false;
+        setProjectModuleAvailable("equipment", true);
         equipmentState.summary = equipmentResult.value.summary || equipmentState.summary;
         equipmentState.cameras = Array.isArray(equipmentResult.value.cameras) ? equipmentResult.value.cameras : [];
         renderEquipmentList();
       } else {
-        if (equipmentSection) equipmentSection.hidden = true;
+        setProjectModuleAvailable("equipment", false);
         await loadEquipmentCctv();
       }
       await loadQaThreads();
