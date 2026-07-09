@@ -571,7 +571,6 @@
 
     const userPill = document.getElementById("userPill");
     const appShell = document.querySelector(".appShell");
-    const brandInitials = document.getElementById("brandInitials");
     const brandUserName = document.getElementById("brandUserName");
     const logoutBtn = document.getElementById("logoutBtn");
     const dashboardView = document.getElementById("dashboardView");
@@ -785,7 +784,6 @@
     function renderUserChrome() {
       const user = state.me || {};
       const displayName = compactUserName(user.name || "Fielddesk");
-      setText(brandInitials, getLoginInitials(user));
       setText(brandUserName, displayName);
     }
 
@@ -4467,7 +4465,6 @@
     }
 
     const appShell = document.querySelector(".appShell");
-    const brandInitials = document.getElementById("brandInitials");
     const brandUserName = document.getElementById("brandUserName");
     const logoutBtn = document.getElementById("logoutBtn");
     const projectId = getProjectIdFromPath();
@@ -4722,9 +4719,6 @@
       renderProjectModules();
     }
     function renderProjectUserChrome(user) {
-      if (brandInitials) {
-        brandInitials.textContent = getProjectLoginInitials(user || {});
-      }
       if (brandUserName) {
         brandUserName.textContent = compactProjectUserName(user && user.name ? user.name : "Fielddesk");
       }

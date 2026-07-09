@@ -88,6 +88,10 @@ router.get("/project/:projectId", requireTenantHost, (req, res) => {
   res.sendFile(path.join(tenantPublicDir, "project.html"));
 });
 
+router.get("/tenant/assets/fd-cube.png", requireTenantHost, (req, res) => {
+  res.sendFile(path.join(tenantPublicDir, "assets", "fd-cube.png"));
+});
+
 router.get("/tenant/auth.js", requireTenantHost, (req, res) => {
   res.sendFile(path.join(tenantPublicDir, "auth.js"));
 });
