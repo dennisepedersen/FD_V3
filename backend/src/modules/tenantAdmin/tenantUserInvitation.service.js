@@ -333,10 +333,10 @@ function buildInviteEmail({ user, acceptUrl, expiresAt }) {
   const text = [
     `Hej ${name}`,
     "",
-    "Du er inviteret til at oprette adgang til Fielddesk.",
-    `Aabn linket og vaelg din adgangskode: ${acceptUrl}`,
+    "Du er inviteret til at oprette din Fielddesk-adgang.",
+    `Åbn linket, og vælg din adgangskode: ${acceptUrl}`,
     "",
-    `Linket udlober ${new Date(expiresAt).toLocaleString("da-DK")}.`,
+    `Linket udløber ${new Date(expiresAt).toLocaleString("da-DK")}.`,
     "Hvis du ikke forventede denne invitation, kan du ignorere mailen.",
   ].join("\n");
 
@@ -344,14 +344,14 @@ function buildInviteEmail({ user, acceptUrl, expiresAt }) {
   const safeUrl = htmlEscape(acceptUrl);
   const html = `
     <p>Hej ${safeName}</p>
-    <p>Du er inviteret til at oprette adgang til Fielddesk.</p>
+    <p>Du er inviteret til at oprette din Fielddesk-adgang.</p>
     <p><a href="${safeUrl}">Opret adgangskode</a></p>
-    <p>Linket udlober ${htmlEscape(new Date(expiresAt).toLocaleString("da-DK"))}.</p>
+    <p>Linket udløber ${htmlEscape(new Date(expiresAt).toLocaleString("da-DK"))}.</p>
     <p>Hvis du ikke forventede denne invitation, kan du ignorere mailen.</p>
   `;
 
   return {
-    subject: "Opret din Fielddesk adgang",
+    subject: "Opret din Fielddesk-adgang",
     text,
     html,
   };
