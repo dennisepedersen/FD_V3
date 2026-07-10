@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="da">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Opret Fielddesk adgang</title>
+  <style>
+    :root {
+      --bg: #f4f7f6;
+      --surface: #ffffff;
+      --text: #17221f;
+      --muted: #60706b;
+      --line: #dce5e2;
+      --brand: #1f6f5b;
+      --brand-dark: #185847;
+      --danger: #a73535;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main {
+      width: min(92vw, 440px);
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 28px;
+      box-shadow: 0 18px 48px rgba(18, 37, 32, 0.12);
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 22px;
+      font-weight: 700;
+    }
+    .brand img {
+      width: 36px;
+      height: 36px;
+      object-fit: contain;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 1.55rem;
+      line-height: 1.18;
+    }
+    p {
+      margin: 0 0 18px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    label {
+      display: grid;
+      gap: 7px;
+      margin: 14px 0;
+      font-size: 0.92rem;
+      font-weight: 650;
+    }
+    input {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 12px 13px;
+      font: inherit;
+      color: var(--text);
+      background: #fff;
+    }
+    input:focus {
+      outline: 2px solid rgba(31, 111, 91, 0.2);
+      border-color: var(--brand);
+    }
+    button {
+      width: 100%;
+      border: 0;
+      border-radius: 6px;
+      padding: 12px 14px;
+      margin-top: 8px;
+      background: var(--brand);
+      color: #fff;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    button:disabled {
+      opacity: 0.6;
+      cursor: wait;
+    }
+    a {
+      color: var(--brand-dark);
+      font-weight: 650;
+    }
+    .status {
+      min-height: 22px;
+      margin-top: 14px;
+      font-size: 0.92rem;
+    }
+    .status.error { color: var(--danger); }
+    .status.success { color: var(--brand-dark); }
+    .hidden { display: none; }
+  </style>
+</head>
+<body data-page="accept-invite">
+  <main>
+    <div class="brand">
+      <img src="/tenant/assets/FD_logo.png" alt="">
+      <span>Fielddesk</span>
+    </div>
+    <section id="acceptInviteLoading">
+      <h1>Kontrollerer link</h1>
+      <p>Et oejeblik, vi tjekker om oprettelseslinket stadig er gyldigt.</p>
+    </section>
+    <section id="acceptInviteFormSection" class="hidden">
+      <h1>Opret din adgang</h1>
+      <p id="acceptInviteIntro">Vaelg en adgangskode til din Fielddesk-konto.</p>
+      <form id="acceptInviteForm">
+        <label>
+          Adgangskode
+          <input id="acceptInvitePassword" type="password" autocomplete="new-password" minlength="10" required>
+        </label>
+        <label>
+          Gentag adgangskode
+          <input id="acceptInvitePasswordConfirm" type="password" autocomplete="new-password" minlength="10" required>
+        </label>
+        <button id="acceptInviteSubmit" type="submit">Opret adgang</button>
+      </form>
+      <p id="acceptInviteStatus" class="status" aria-live="polite"></p>
+    </section>
+    <section id="acceptInviteError" class="hidden">
+      <h1>Linket virker ikke</h1>
+      <p>Linket kan vaere udlobet eller allerede brugt. Kontakt din Fielddesk administrator for et nyt oprettelseslink.</p>
+      <p><a href="/login">Gaa til login</a></p>
+    </section>
+  </main>
+  <script src="/tenant/auth.js"></script>
+</body>
+</html>

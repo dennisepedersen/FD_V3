@@ -17,7 +17,7 @@ const FITTER_CATEGORY_429_RETRY_DELAYS_MS = [5_000, 10_000, 15_000, 20_000, 25_0
 const FITTERHOURS_429_RETRY_DELAYS_MS = [5_000, 10_000, 15_000, 20_000, 25_000];
 const MAX_BACKLOG_ATTEMPTS = 8;
 const BACKLOG_RETRY_BATCH_SIZE = 40;
-const DELTA_INTERVAL_MS = 10 * 60 * 1000;
+const DELTA_INTERVAL_MS = 12 * 60 * 60 * 1000;
 const DELTA_MAX_PAGES = 25;
 const FITTERHOURS_DEFAULT_MONTHS_LOOKBACK = 12;
 const PROJECT_START_DATE_COLUMN_CANDIDATES = [
@@ -935,6 +935,8 @@ function mapFitterRow(raw) {
     attachFitterHourHistoryInSalaryEmail: asNullableBoolean(pickAny(raw, ["AttachFitterHourHistoryInSalaryEmail", "attachFitterHourHistoryInSalaryEmail"])),
     ressourceGroupString: asNullableText(pickAny(raw, ["RessourceGroupString", "ResourceGroupString", "ressourceGroupString", "resourceGroupString"])),
     resourceGroupsJson: asNullableJsonArray(pickAny(raw, ["ResourceGroups", "resourceGroups"])),
+    resourceGroupId: asNullableText(pickAny(raw, ["ResourceGroupID", "ResourceGroupId", "resourceGroupID", "resourceGroupId", "resource_group_id"])),
+    resourceGroupName: asNullableText(pickAny(raw, ["ResourceGroupName", "resourceGroupName", "RessourceGroupName", "ressourceGroupName"])),
     locationNameString: asNullableText(pickAny(raw, ["LocationNameString", "locationNameString"])),
     locationNamesJson: asNullableJsonArray(pickAny(raw, ["LocationNames", "locationNames"])),
     locationIdsJson: asNullableJsonArray(pickAny(raw, ["LocationIDs", "LocationIds", "locationIDs", "locationIds"])),
@@ -1106,6 +1108,168 @@ async function upsertFitterBatch(client, { tenantId, mappedRows }) {
   return rows.length;
 }
 
+function parseEkResourceGroupName(name, fallbackExternalId) {
+  const normalizedName = asNullableText(name) || asNullableText(fallbackExternalId);
+  const parsed = {
+    name: normalizedName,
+    externalGroupId: asNullableText(fallbackExternalId),
+    area: null,
+    discipline: null,
+    category: null,
+    shortCode: null,
+  };
+  if (!normalizedName) {
+    return parsed;
+  }
+
+  const parts = normalizedName.split(" - ").map((part) => part.trim()).filter(Boolean);
+  if (parts.length >= 1 && /^\d+$/.test(parts[0])) {
+    parsed.externalGroupId = parsed.externalGroupId || parts[0];
+    parsed.area = parts[1] || null;
+    parsed.discipline = parts[2] || null;
+    parsed.category = parts[3] ? parts[3].replace(/^\((.*)\)$/, "$1").trim() || null : null;
+    parsed.shortCode = parts[4] || null;
+  }
+
+  return parsed;
+}
+
+function getEkResourceGroupRefs(row) {
+  if (!row) {
+    return [];
+  }
+
+  const refs = [];
+  const directId = asNullableText(row.resourceGroupId);
+  const directName = asNullableText(row.resourceGroupName) || asNullableText(row.ressourceGroupString);
+  if (directId) {
+    refs.push({ externalId: directId, name: directName });
+  }
+
+  const groups = Array.isArray(row.resourceGroupsJson) ? row.resourceGroupsJson : [];
+  for (const group of groups) {
+    if (!group || typeof group !== "object") {
+      continue;
+    }
+    const externalId = asNullableText(pickAny(group, [
+      "ResourceGroupID",
+      "ResourceGroupId",
+      "resourceGroupID",
+      "resourceGroupId",
+      "id",
+      "ID",
+    ]));
+    if (!externalId) {
+      continue;
+    }
+    refs.push({
+      externalId,
+      name: asNullableText(pickAny(group, ["Name", "name", "ResourceGroupName", "resourceGroupName"])),
+    });
+  }
+
+  const seen = new Set();
+  return refs.filter((ref) => {
+    const key = String(ref.externalId || "").trim();
+    if (!key || seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+async function upsertResourceGroupsFromFitterBatch(client, { tenantId, mappedRows }) {
+  const rows = Array.isArray(mappedRows) ? mappedRows.filter(Boolean) : [];
+  let membershipsTouched = 0;
+
+  for (const row of rows) {
+    const refs = getEkResourceGroupRefs(row);
+    for (const ref of refs) {
+      const parsed = parseEkResourceGroupName(ref.name, ref.externalId);
+      const groupName = parsed.name || ref.externalId;
+      const { rows: groupRows } = await client.query(
+        `
+          INSERT INTO resource_groups (
+            tenant_id,
+            name,
+            status,
+            source,
+            external_source,
+            external_id,
+            short_code,
+            area,
+            discipline,
+            category,
+            external_metadata
+          )
+          VALUES ($1, $2, 'active', 'ekomplet', 'ekomplet', $3, $4, $5, $6, $7, $8::jsonb)
+          ON CONFLICT (tenant_id, external_source, external_id)
+          WHERE external_source IS NOT NULL AND external_id IS NOT NULL
+          DO UPDATE SET
+            name = COALESCE(EXCLUDED.name, resource_groups.name),
+            status = CASE WHEN resource_groups.status = 'archived' THEN resource_groups.status ELSE 'active' END,
+            source = 'ekomplet',
+            short_code = COALESCE(EXCLUDED.short_code, resource_groups.short_code),
+            area = COALESCE(EXCLUDED.area, resource_groups.area),
+            discipline = COALESCE(EXCLUDED.discipline, resource_groups.discipline),
+            category = COALESCE(EXCLUDED.category, resource_groups.category),
+            external_metadata = resource_groups.external_metadata || EXCLUDED.external_metadata,
+            updated_at = now()
+          RETURNING id
+        `,
+        [
+          tenantId,
+          groupName,
+          ref.externalId,
+          parsed.shortCode,
+          parsed.area,
+          parsed.discipline,
+          parsed.category,
+          JSON.stringify({ imported_from: "fitters", parsed_group_name: parsed.name }),
+        ]
+      );
+
+      const groupId = groupRows[0] && groupRows[0].id;
+      if (!groupId) {
+        continue;
+      }
+
+      await client.query(
+        `
+          INSERT INTO resource_group_members (
+            tenant_id,
+            group_id,
+            fitter_id,
+            is_primary,
+            source,
+            external_source,
+            external_id,
+            external_metadata
+          )
+          VALUES ($1, $2, $3, true, 'ekomplet', 'ekomplet', $4, $5::jsonb)
+          ON CONFLICT (tenant_id, group_id, fitter_id)
+          DO UPDATE SET
+            source = 'ekomplet',
+            external_source = 'ekomplet',
+            external_id = EXCLUDED.external_id,
+            external_metadata = resource_group_members.external_metadata || EXCLUDED.external_metadata,
+            updated_at = now()
+        `,
+        [
+          tenantId,
+          groupId,
+          row.fitterId,
+          `${ref.externalId}:${row.fitterId}`,
+          JSON.stringify({ imported_from: "fitters", resource_group_id: ref.externalId }),
+        ]
+      );
+      membershipsTouched += 1;
+    }
+  }
+
+  return membershipsTouched;
+}
 function mapFitterCategoryRow(raw) {
   if (!raw || typeof raw !== "object") {
     return null;
@@ -4321,7 +4485,7 @@ async function processSyncJob(job) {
   let pagesProcessed = 0;
 
   try {
-    const endpoints = await listEnabledEndpoints(tenantClient, job.tenant_id);
+    const endpoints = job.endpoint_key ? [String(job.endpoint_key).trim().toLowerCase()] : await listEnabledEndpoints(tenantClient, job.tenant_id);
     const executionEndpoints = orderEndpointExecution(endpoints);
     if (executionEndpoints.length === 0) {
       tenantClient.release();

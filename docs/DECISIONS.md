@@ -1,4 +1,4 @@
-﻿# FD V3 Decisions Index
+# FD V3 Decisions Index
 
 Status: current decision index  
 Scope: links to decisions; does not duplicate full decisions
@@ -36,6 +36,7 @@ Scope: links to decisions; does not duplicate full decisions
 | EK project status matrix and control cases are verified | `backend/docs/integrations/ek/project_status_model.md` |
 | projects_v3 WIP contract is verified as fallback/enrichment | `backend/docs/integrations/ek/projects_v3_wip.md` |
 | EK `/api/v4/fitters` is the verified unpaginated fitter master import source; active status is derived from `endDate` | `backend/docs/integrations/ek/fitters.md` |
+| EK tenant admin fitter import may seed resource groups only when group identifiers are present; `resourceGroupID` fields remain defensive until verified in fixtures/docs | `backend/docs/integrations/ek/tenant_admin_fitters_resource_groups.md` |
 | Project-level `isIntern` is verified in EK v4 and persisted as nullable FD project metadata | `backend/docs/integrations/ek/fitterhours_retention_model.md`, `backend/docs/integrations/ek/projects_v4_masterdata.md` |
 | Bootstrap/enrichment separation is implemented for project sync | `ARCHITECTURE_BOOTSTRAP_ENRICHMENT.md` |
 | EK v4 project detail by EK ProjectID is the verified project-scoped source for project-detail `fitterHours`; project ref detail did not return `fitterHours` in the probe | `backend/docs/integrations/ek/projects_v4_masterdata.md`, `backend/docs/integrations/ek/fitterhours.md` |

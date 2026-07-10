@@ -19,7 +19,7 @@ Date: 2026-04-11
 
 ## Bootstrap vs Delta
 - Bootstrap: full run from page 1.
-- Delta: scheduled every ~10 minutes, backlog first.
+- Delta/reconcile: scheduled every 12 hours, backlog first.
 - projects_v4 still full-scanned to maintain closure truth.
 
 ## Risk / Follow-up

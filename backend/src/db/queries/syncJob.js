@@ -1,6 +1,6 @@
 async function claimNextSyncJob(client) {
   const selectSql = `
-    SELECT id, tenant_id, type, status, retry_count
+    SELECT id, tenant_id, type, status, retry_count, endpoint_key
     FROM sync_job
     WHERE type IN ('bootstrap', 'bootstrap_initial', 'delta', 'retry_backlog', 'manual_full_resync', 'slow_reconciliation')
       AND status = 'queued'
@@ -38,7 +38,7 @@ async function claimNextSyncJob(client) {
       retry_count = COALESCE(retry_count, 0),
       updated_at = now()
     WHERE id = $1
-    RETURNING id, tenant_id, type, status, retry_count
+    RETURNING id, tenant_id, type, status, retry_count, endpoint_key
   `;
 
   const updated = await client.query(updateSql, [job.id]);

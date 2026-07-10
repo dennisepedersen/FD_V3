@@ -44,6 +44,7 @@ Scope: points to docs; does not replace them
 | `backend/docs/decisions/data_retention_and_filtering_decision.md` | Project and fitterhour retention/filtering | Verified + observed |
 | `backend/docs/decisions/database_indexing_decision.md` | Index decisions based on real query predicates | Verified decision |
 | `backend/docs/operations/render_service.md` | Verified Render web service identity and deploy settings | Verified ops fact |
+| `backend/docs/auth/tenant_user_account_setup_invitations.md` | Tenant user account setup invitations, token security, and mail infrastructure | Implemented |
 
 ## Integration Docs
 
@@ -53,6 +54,7 @@ Scope: points to docs; does not replace them
 | `backend/docs/integrations/ek/projects_v4_masterdata.md` | E-Komplet v4 project masterdata contract | Verified |
 | `backend/docs/integrations/ek/projects_v3_wip.md` | E-Komplet v3 WIP enrichment contract | Verified |
 | `backend/docs/integrations/ek/fitters.md` | E-Komplet v4 fitter master import contract | Verified |
+| `backend/docs/integrations/ek/tenant_admin_fitters_resource_groups.md` | Tenant admin fitter/resource group sync slice and defensive EK mapping | Implemented |
 | `backend/docs/integrations/ek/fitterhours.md` | Fitterhours integration contract | Current |
 | `backend/docs/integrations/ek/fitterhours_retention_model.md` | Verified fitterhours retention/scope model and pending implementation plan | Verified decision / implementation pending |
 | `backend/docs/integrations/ek/project_materials_finance_v4.md` | Verified v4 project-scoped materials, purchasing, finance, worksheets, and write-side candidates | Verified discovery / no write implementation |

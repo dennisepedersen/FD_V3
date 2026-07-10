@@ -20,6 +20,11 @@ const MODULE_REGISTRY = Object.freeze({
     enabled: true,
     actions: Object.freeze(["read", "create", "update", "delete"]),
   }),
+  tenant_admin: Object.freeze({
+    key: "tenant_admin",
+    enabled: true,
+    actions: Object.freeze(["read", "create", "update", "invite", "sync"]),
+  }),
   project_equipment_beta: Object.freeze({
     key: "project_equipment_beta",
     enabled: isEnabledFlag(process.env.PROJECT_EQUIPMENT_BETA_ENABLED),
@@ -38,6 +43,11 @@ const ROLE_PERMISSIONS = Object.freeze({
     "resource_groups:create",
     "resource_groups:update",
     "resource_groups:delete",
+    "tenant_admin:read",
+    "tenant_admin:create",
+    "tenant_admin:update",
+    "tenant_admin:invite",
+    "tenant_admin:sync",
     "project_equipment_beta:read",
     "project_equipment_beta:create",
     "project_equipment_beta:update",

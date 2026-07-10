@@ -30,6 +30,12 @@ const ENV = {
   ROOT_DOMAIN: process.env.ROOT_DOMAIN.toLowerCase(),
   PORTAL_DOMAIN: (process.env.PORTAL_DOMAIN || `portal.${process.env.ROOT_DOMAIN}`).toLowerCase(),
   PORT: port,
+  MAIL_PROVIDER: process.env.MAIL_PROVIDER || "disabled",
+  MAIL_FROM: process.env.MAIL_FROM || null,
+  MAIL_REPLY_TO: process.env.MAIL_REPLY_TO || null,
+  MAIL_API_KEY: process.env.MAIL_API_KEY || null,
+  MAIL_STREAM: process.env.MAIL_STREAM || null,
+  TENANT_INVITE_BASE_URL: process.env.TENANT_INVITE_BASE_URL || null,
 };
 
 module.exports = ENV;
