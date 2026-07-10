@@ -7,7 +7,7 @@ const auditService = require("../../services/auditService");
 const { sendEmail } = require("../../services/mailService");
 const { hashPassword } = require("../../services/passwordService");
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const OPEN_INVITATION_STATUSES = new Set(["pending", "sent", "send_failed"]);
 const INVITE_TTL_HOURS = 72;
 const MIN_PASSWORD_LENGTH = 10;

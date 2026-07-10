@@ -6,7 +6,7 @@ const { hashPassword } = require("../../services/passwordService");
 const auditService = require("../../services/auditService");
 const repository = require("./tenantAdmin.repository");
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ALLOWED_ROLES = new Set(["tenant_admin", "project_leader", "technician"]);
 const ALLOWED_USER_STATUSES = new Set(["active", "suspended", "invited", "deleted"]);
 const SUPPORTED_SYNC_ENTITIES = new Map([
