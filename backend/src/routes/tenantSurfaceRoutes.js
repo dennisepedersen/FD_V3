@@ -92,6 +92,10 @@ router.get("/tenant/assets/fd-cube.png", requireTenantHost, (req, res) => {
   res.sendFile(path.join(tenantPublicDir, "assets", "fd-cube.png"));
 });
 
+router.get("/tenant/assets/FD_logo.png", requireTenantHost, (req, res) => {
+  res.sendFile(path.join(tenantPublicDir, "assets", "FD_logo.png"));
+});
+
 router.get("/tenant/auth.js", requireTenantHost, (req, res) => {
   res.sendFile(path.join(tenantPublicDir, "auth.js"));
 });
