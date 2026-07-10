@@ -56,3 +56,7 @@ Fielddesk persists supported fields in `fitter` and keeps the full EK row in `ra
 ## Known Limitation
 
 `fitter` is still an EK-specific person/resource identity. A later neutral `resource_person` / `tenant_employee` model is still recommended before Fielddesk supports non-EK-native employees, multiple external identity sources, or richer person lifecycle governance.
+
+## Tenant admin resource group seeding
+
+The tenant admin sync slice can read optional `resourceGroupID` / `resourceGroups` fields if EK returns them, but these fields are not part of the verified field list above in this repo snapshot. When absent, fitter import still succeeds without group membership changes. See `tenant_admin_fitters_resource_groups.md`.

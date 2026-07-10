@@ -319,3 +319,6 @@ Modules:
 Historical/reference:
 - `docs/RESET_DECISION.md`
 - `audit (read only)/*.md`
+
+## Tenant admin employees/resource groups
+Tenant admin now has a first-slice employees/resource-group admin surface. Manual users are Fielddesk-owned. EK fitters still import through the verified full-list fitter endpoint and can defensively seed resource groups/members when EK payloads include resource group ids. Automatic reconcile cadence is 12 hours; fitter delta parameters are not verified, so sync is idempotent full-list upsert for this endpoint.

@@ -1,4 +1,4 @@
-﻿# FD V3 Security Model
+# FD V3 Security Model
 
 Status: current security overview  
 Scope: canonical overview only; implementation details stay in linked docs and code
@@ -280,3 +280,9 @@ Integrations and mappings:
 
 Modules:
 - `docs/modules/restarbejde/MODULE_DEFINITION.md`
+
+## Tenant admin employees/resource groups
+The tenant admin people/resource-group APIs use the `tenant_admin` module permission and require tenant host, access token auth, and tenant-context match. Manual sync requests are tenant-scoped and endpoint-scoped; double-submit protection reuses an existing queued/running tenant+endpoint job. Create/update/sync admin actions emit audit events where implemented in the tenant admin module.
+
+## Tenant user account setup invitations
+Tenant user account setup links are tenant-host scoped and require `tenant_admin:invite` to issue. The raw token is never stored; only a SHA-256 hash is persisted in `tenant_user_invitation_token`. Resend revokes existing open account setup tokens for that tenant user, tokens expire after 72 hours, and accept marks the token used before activating the user. Public validation/accept routes do not require login but resolve tenant from the request host and return generic invalid/expired responses for unusable tokens.

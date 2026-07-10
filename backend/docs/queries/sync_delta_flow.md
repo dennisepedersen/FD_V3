@@ -8,7 +8,7 @@ Primary implementation: backend/src/services/syncWorker.js
 - endpoints enabled
 - bootstrap success exists
 - no active delta job exists
-- last delta older than DELTA_INTERVAL_MS (10 min)
+- last delta older than DELTA_INTERVAL_MS (12 hours)
 
 ## Delta State Inputs
 - sync_endpoint_state.updated_after_watermark

@@ -44,7 +44,7 @@ Status: verified from code + schema
 - Verified code truth now: count-based pagination drives progression.
 
 ## 5) Bootstrap vs delta
-- Delta jobs auto-scheduled every DELTA_INTERVAL_MS (~10m) post bootstrap success.
+- Delta jobs auto-scheduled every DELTA_INTERVAL_MS (12h) post bootstrap success.
 - projects_v4 effectively full scanned to preserve closure truth.
 - read-only non-delta endpoints run as slow_reconciliation.
 

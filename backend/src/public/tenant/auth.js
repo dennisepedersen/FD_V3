@@ -559,6 +559,83 @@
     });
   }
 
+  async function initAcceptInvitePage() {
+    const params = new URLSearchParams(window.location.search || "");
+    const token = params.get("token") || "";
+    const loading = document.getElementById("acceptInviteLoading");
+    const formSection = document.getElementById("acceptInviteFormSection");
+    const errorSection = document.getElementById("acceptInviteError");
+    const intro = document.getElementById("acceptInviteIntro");
+    const form = document.getElementById("acceptInviteForm");
+    const password = document.getElementById("acceptInvitePassword");
+    const passwordConfirm = document.getElementById("acceptInvitePasswordConfirm");
+    const submit = document.getElementById("acceptInviteSubmit");
+    const status = document.getElementById("acceptInviteStatus");
+
+    function showSection(section) {
+      [loading, formSection, errorSection].forEach((item) => {
+        if (item) item.classList.add("hidden");
+      });
+      if (section) section.classList.remove("hidden");
+    }
+
+    function setStatus(message, className) {
+      if (!status) return;
+      status.textContent = message || "";
+      status.className = `status${className ? ` ${className}` : ""}`;
+    }
+
+    if (!token) {
+      showSection(errorSection);
+      return;
+    }
+
+    try {
+      const result = await apiFetch(`/api/tenant/invitations/account-setup?token=${encodeURIComponent(token)}`, { method: "GET" });
+      if (!result || result.valid !== true) {
+        showSection(errorSection);
+        return;
+      }
+      const invitation = result.invitation || {};
+      const emailHint = invitation.email_hint ? ` Konto: ${invitation.email_hint}.` : "";
+      const expiry = invitation.expires_at ? ` Linket udløber ${new Date(invitation.expires_at).toLocaleString("da-DK")}.` : "";
+      if (intro) intro.textContent = `Vælg en adgangskode til din Fielddesk-konto.${emailHint}${expiry}`;
+      showSection(formSection);
+    } catch (_error) {
+      showSection(errorSection);
+      return;
+    }
+
+    if (!form) return;
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const nextPassword = password ? password.value : "";
+      const repeatedPassword = passwordConfirm ? passwordConfirm.value : "";
+      if (nextPassword.length < 10) {
+        setStatus("Adgangskoden skal være mindst 10 tegn.", "error");
+        return;
+      }
+      if (nextPassword !== repeatedPassword) {
+        setStatus("Adgangskoderne er ikke ens.", "error");
+        return;
+      }
+      if (submit) submit.disabled = true;
+      setStatus("Opretter adgang...", "");
+      try {
+        await apiFetch("/api/tenant/invitations/account-setup/accept", {
+          method: "POST",
+          body: JSON.stringify({ token, password: nextPassword }),
+        });
+        setStatus("Adgang oprettet. Du sendes til login...", "success");
+        window.setTimeout(() => {
+          window.location.href = "/login";
+        }, 900);
+      } catch (_error) {
+        setStatus("Linket kan ikke bruges. Kontakt din Fielddesk administrator for et nyt link.", "error");
+        if (submit) submit.disabled = false;
+      }
+    });
+  }
   async function initAppPage() {
     const projectsContainer = document.getElementById("projectsContainer");
     if (!projectsContainer) {
@@ -642,6 +719,22 @@
     const resourceGroupMembersList = document.getElementById("resourceGroupMembersList");
     const resourceGroupManagersMeta = document.getElementById("resourceGroupManagersMeta");
     const resourceGroupManagersList = document.getElementById("resourceGroupManagersList");
+    const tenantAdminSyncSection = document.getElementById("tenantAdminSyncSection");
+    const tenantAdminSyncFittersBtn = document.getElementById("tenantAdminSyncFittersBtn");
+    const tenantAdminRefreshBtn = document.getElementById("tenantAdminRefreshBtn");
+    const tenantAdminSyncStatus = document.getElementById("tenantAdminSyncStatus");
+    const tenantAdminUsersSection = document.getElementById("tenantAdminUsersSection");
+    const tenantAdminUsersMeta = document.getElementById("tenantAdminUsersMeta");
+    const tenantAdminUserSearchInput = document.getElementById("tenantAdminUserSearchInput");
+    const tenantAdminUsersList = document.getElementById("tenantAdminUsersList");
+    const tenantAdminUserCreateSection = document.getElementById("tenantAdminUserCreateSection");
+    const tenantAdminUserCreateForm = document.getElementById("tenantAdminUserCreateForm");
+    const tenantAdminUserNameInput = document.getElementById("tenantAdminUserNameInput");
+    const tenantAdminUserEmailInput = document.getElementById("tenantAdminUserEmailInput");
+    const tenantAdminUserShortCodeInput = document.getElementById("tenantAdminUserShortCodeInput");
+    const tenantAdminUserRoleSelect = document.getElementById("tenantAdminUserRoleSelect");
+    const tenantAdminUserCreateBtn = document.getElementById("tenantAdminUserCreateBtn");
+    const tenantAdminUserCreateStatus = document.getElementById("tenantAdminUserCreateStatus");
     const dashboardWelcomeName = document.getElementById("dashboardWelcomeName");
     const dashboardDateText = document.getElementById("dashboardDateText");
     const dashboardProjectCount = document.getElementById("dashboardProjectCount");
@@ -697,6 +790,16 @@
         resourcesLoaded: false,
         resourcesLoadedScope: "",
         resourcesLoading: false,
+      },
+      tenantAdmin: {
+        users: [],
+        syncStatus: null,
+        usersLoaded: false,
+        usersLoading: false,
+        syncLoading: false,
+        inviteSending: new Set(),
+        search: "",
+        searchTimer: null,
       },
       resourceGroups: {
         groups: [],
@@ -1066,6 +1169,9 @@
         resourceGroupAccessNotice.hidden = !accessDenied;
       }
       [
+        tenantAdminSyncSection,
+        tenantAdminUsersSection,
+        tenantAdminUserCreateSection,
         resourceGroupToolbarSection,
         resourceGroupCreateSection,
         resourceGroupListSection,
@@ -1162,7 +1268,7 @@
 
         const description = document.createElement("p");
         description.className = "resourceGroupNote";
-        description.textContent = group && group.description ? String(group.description) : "Ingen beskrivelse.";
+        description.textContent = group && group.description ? String(group.description) : `${getTenantAdminSourceLabel(group && group.source)} · ${group && group.member_count != null ? group.member_count : 0} medlemmer${group && group.external_id ? ` · EK ${group.external_id}` : ""}${group && group.short_code ? ` · ${group.short_code}` : ""}`;
 
         const actions = document.createElement("div");
         actions.className = "resourceGroupActions";
@@ -1350,6 +1456,255 @@
       });
     }
 
+    function getTenantAdminSourceLabel(source) {
+      const normalized = String(source || "").toLowerCase();
+      if (normalized === "ekomplet") return "E-Komplet";
+      if (normalized === "manual") return "Manuel";
+      return source || "Ukendt";
+    }
+
+    function renderTenantAdminSyncStatus() {
+      const sync = state.tenantAdmin.syncStatus;
+      const endpoint = sync && Array.isArray(sync.endpoints) ? sync.endpoints.find((item) => item.endpoint_key === "fitters") : null;
+      const configured = sync && sync.integration && sync.integration.configured;
+      if (tenantAdminSyncFittersBtn) {
+        tenantAdminSyncFittersBtn.disabled = state.tenantAdmin.syncLoading || configured === false;
+      }
+      if (!tenantAdminSyncStatus) return;
+      if (!sync) {
+        tenantAdminSyncStatus.textContent = "Indlæser sync-status...";
+        return;
+      }
+      if (!configured) {
+        tenantAdminSyncStatus.textContent = "EK integration er ikke konfigureret. Manuel oprettelse er aktiv.";
+        return;
+      }
+      const status = endpoint && endpoint.status ? endpoint.status : "idle";
+      const persisted = endpoint && endpoint.rows_persisted != null ? Number(endpoint.rows_persisted || 0) : 0;
+      const last = endpoint && (endpoint.last_successful_sync_at || endpoint.last_attempt_at)
+        ? new Date(endpoint.last_successful_sync_at || endpoint.last_attempt_at).toLocaleString("da-DK")
+        : "aldrig";
+      tenantAdminSyncStatus.textContent = `Fitters: ${status}. Sidste sync: ${last}. Persisted: ${persisted}.`;
+    }
+
+    function getTenantAdminUserLabel(user) {
+      const name = user && user.name ? String(user.name) : "Ukendt medarbejder";
+      const code = user && user.short_code ? String(user.short_code).toUpperCase() : "-";
+      const groups = Array.isArray(user && user.resource_groups) ? user.resource_groups : [];
+      const groupLabel = groups.map((group) => group.external_id || group.short_code || group.name).filter(Boolean).slice(0, 2).join(", ");
+      return groupLabel ? `${name} · ${code} · ${groupLabel}` : `${name} · ${code}`;
+    }
+
+    function formatTenantAdminDate(value) {
+      if (!value) return "-";
+      const parsed = new Date(value);
+      return Number.isNaN(parsed.getTime()) ? "-" : parsed.toLocaleString("da-DK");
+    }
+
+    function getTenantAdminLoginStatusLabel(user) {
+      const status = String(user && user.login_status ? user.login_status : "imported_no_login").toLowerCase();
+      if (status === "pending_invite") return "Afventer mail";
+      if (status === "invited") return "Inviteret";
+      if (status === "active") return "Aktiv login";
+      if (status === "disabled") return "Deaktiveret";
+      return "Importeret uden login";
+    }
+
+    function canSendTenantAdminInvite(user) {
+      if (!user || !(user.tenant_user_id || user.fitter_row_id) || !user.email) return false;
+      if (String(user.login_status || "").toLowerCase() === "active") return false;
+      const status = String(user.status || "").toLowerCase();
+      return status !== "suspended" && status !== "deleted";
+    }
+
+    function getTenantAdminInviteDisabledReason(user) {
+      if (!user || !(user.tenant_user_id || user.fitter_row_id)) return "Kræver en tenant user- eller fitter-række";
+      if (!user.email) return "Email mangler";
+      if (String(user.login_status || "").toLowerCase() === "active") return "Kontoen er allerede aktiv";
+      const status = String(user.status || "").toLowerCase();
+      if (status === "suspended" || status === "deleted") return "Brugeren er deaktiveret";
+      return "";
+    }
+
+    function getTenantAdminInviteButtonLabel(user) {
+      const status = String(user && user.invitation_status ? user.invitation_status : "").toLowerCase();
+      return status === "sent" || status === "pending" || status === "send_failed"
+        ? "Gensend oprettelseslink"
+        : "Send oprettelseslink";
+    }
+
+    function renderTenantAdminUsers() {
+      if (!tenantAdminUsersList) return;
+      tenantAdminUsersList.replaceChildren();
+      const users = Array.isArray(state.tenantAdmin.users) ? state.tenantAdmin.users : [];
+      setText(tenantAdminUsersMeta, state.tenantAdmin.usersLoading ? "Indlæser medarbejdere..." : (users.length === 1 ? "1 medarbejder." : `${users.length} medarbejdere.`));
+      if (!users.length && !state.tenantAdmin.usersLoading) {
+        const empty = document.createElement("p");
+        empty.className = "calendarMessage";
+        empty.textContent = "Ingen medarbejdere fundet.";
+        tenantAdminUsersList.appendChild(empty);
+        return;
+      }
+      users.forEach((user) => {
+        const card = document.createElement("article");
+        card.className = "resourceGroupDetailCard";
+        const header = document.createElement("div");
+        header.className = "resourceGroupDetailHeader";
+        const title = document.createElement("p");
+        title.className = "resourceGroupDetailName";
+        title.textContent = getTenantAdminUserLabel(user);
+        const tag = document.createElement("span");
+        tag.className = user && user.status === "active" ? "tag tagLive" : "tag tagPreview";
+        tag.textContent = `${getTenantAdminSourceLabel(user && user.source)} · ${user && user.status ? user.status : "active"}`;
+        header.append(title, tag);
+        const meta = document.createElement("p");
+        meta.className = "resourceGroupMeta";
+        const external = user && user.external_id ? ` · EK ${user.external_id}` : "";
+        const groups = Array.isArray(user && user.resource_groups) ? user.resource_groups : [];
+        const groupNames = groups.map((group) => group.name).filter(Boolean).join(", ") || "Ingen gruppe";
+        meta.textContent = `${user && user.email ? user.email : "Ingen email"}${external} · ${groupNames}`;
+        const loginMeta = document.createElement("p");
+        loginMeta.className = "resourceGroupMeta";
+        const inviteStatus = user && user.invitation_status ? ` · Invitation: ${user.invitation_status}` : "";
+        const lastSent = user && (user.invitation_sent_at || user.last_invited_at)
+          ? ` · Sendt: ${formatTenantAdminDate(user.invitation_sent_at || user.last_invited_at)}`
+          : "";
+        const expires = user && user.invitation_expires_at ? ` · Udløber: ${formatTenantAdminDate(user.invitation_expires_at)}` : "";
+        loginMeta.textContent = `Login: ${getTenantAdminLoginStatusLabel(user)}${inviteStatus}${lastSent}${expires}`;
+        card.append(header, meta, loginMeta);
+        if (user && user.invitation_send_error) {
+          const mailError = document.createElement("p");
+          mailError.className = "resourceGroupMeta";
+          mailError.textContent = `Mailfejl: ${user.invitation_send_error}`;
+          card.appendChild(mailError);
+        }
+        const actions = document.createElement("div");
+        actions.className = "resourceGroupActions";
+        const inviteButton = document.createElement("button");
+        inviteButton.type = "button";
+        inviteButton.className = "btn btnCompact";
+        const inviteTargetId = user && (user.tenant_user_id || user.fitter_row_id);
+        inviteButton.textContent = state.tenantAdmin.inviteSending.has(inviteTargetId)
+          ? "Sender..."
+          : getTenantAdminInviteButtonLabel(user);
+        const disabledReason = getTenantAdminInviteDisabledReason(user);
+        inviteButton.disabled = state.tenantAdmin.inviteSending.has(inviteTargetId) || !canSendTenantAdminInvite(user);
+        if (disabledReason) inviteButton.title = disabledReason;
+        inviteButton.addEventListener("click", () => sendTenantAdminUserInvite(user));
+        actions.appendChild(inviteButton);
+        card.appendChild(actions);
+        tenantAdminUsersList.appendChild(card);
+      });
+    }
+
+    async function loadTenantAdminUsers(options) {
+      if (!isTenantAdmin(state.me)) return;
+      state.tenantAdmin.usersLoading = true;
+      renderTenantAdminUsers();
+      try {
+        const q = tenantAdminUserSearchInput ? tenantAdminUserSearchInput.value.trim() : "";
+        const query = q ? `?q=${encodeURIComponent(q)}` : "";
+        const response = await apiFetch(`/api/tenant/admin/users${query}`, { method: "GET" });
+        state.tenantAdmin.users = response && Array.isArray(response.users) ? response.users : [];
+        state.tenantAdmin.usersLoaded = true;
+      } catch (error) {
+        if (handleResourceGroupForbidden(error, tenantAdminUsersMeta)) return;
+        if (handleAuthFailure(error)) return;
+        setText(tenantAdminUsersMeta, `Kunne ikke hente medarbejdere: ${getErrorMessage(error, "request_failed")}`);
+      } finally {
+        state.tenantAdmin.usersLoading = false;
+        renderTenantAdminUsers();
+      }
+    }
+
+    async function loadTenantAdminSyncStatus() {
+      if (!isTenantAdmin(state.me)) return;
+      try {
+        const response = await apiFetch("/api/tenant/admin/integrations/sync-status", { method: "GET" });
+        state.tenantAdmin.syncStatus = response || null;
+      } catch (error) {
+        if (handleResourceGroupForbidden(error, tenantAdminSyncStatus)) return;
+        if (handleAuthFailure(error)) return;
+        setText(tenantAdminSyncStatus, `Kunne ikke hente sync-status: ${getErrorMessage(error, "request_failed")}`);
+      } finally {
+        renderTenantAdminSyncStatus();
+      }
+    }
+
+    async function loadTenantAdmin(options) {
+      if (!isTenantAdmin(state.me)) return;
+      await Promise.all([loadTenantAdminUsers(options), loadTenantAdminSyncStatus()]);
+    }
+
+    async function sendTenantAdminUserInvite(user) {
+      if (!canSendTenantAdminInvite(user)) {
+        setText(tenantAdminUsersMeta, getTenantAdminInviteDisabledReason(user) || "Invitation kan ikke sendes.");
+        return;
+      }
+      const userId = user.tenant_user_id || user.fitter_row_id;
+      state.tenantAdmin.inviteSending.add(userId);
+      renderTenantAdminUsers();
+      setText(tenantAdminUsersMeta, `Sender oprettelseslink til ${user.email}...`);
+      try {
+        await apiFetch(`/api/tenant/admin/users/${encodeURIComponent(userId)}/invitations`, { method: "POST" });
+        setText(tenantAdminUsersMeta, `Oprettelseslink sendt til ${user.email}.`);
+      } catch (error) {
+        if (handleResourceGroupForbidden(error, tenantAdminUsersMeta)) return;
+        if (handleAuthFailure(error)) return;
+        setText(tenantAdminUsersMeta, `Kunne ikke sende oprettelseslink: ${getErrorMessage(error, "mail_send_failed")}`);
+      } finally {
+        state.tenantAdmin.inviteSending.delete(userId);
+        await loadTenantAdminUsers({ force: true });
+      }
+    }
+    async function submitTenantAdminUserCreate(event) {
+      event.preventDefault();
+      const name = tenantAdminUserNameInput ? tenantAdminUserNameInput.value.trim() : "";
+      const email = tenantAdminUserEmailInput ? tenantAdminUserEmailInput.value.trim() : "";
+      const shortCode = tenantAdminUserShortCodeInput ? tenantAdminUserShortCodeInput.value.trim() : "";
+      const role = tenantAdminUserRoleSelect ? tenantAdminUserRoleSelect.value : "technician";
+      if (!name || !email) {
+        setText(tenantAdminUserCreateStatus, "Navn og email er påkrævet.");
+        return;
+      }
+      if (tenantAdminUserCreateBtn) tenantAdminUserCreateBtn.disabled = true;
+      setText(tenantAdminUserCreateStatus, "Opretter bruger...");
+      try {
+        await apiFetch("/api/tenant/admin/users", {
+          method: "POST",
+          body: JSON.stringify({ name, email, short_code: shortCode || null, role, status: "invited" }),
+        });
+        if (tenantAdminUserCreateForm) tenantAdminUserCreateForm.reset();
+        setText(tenantAdminUserCreateStatus, "Bruger oprettet. Send oprettelseslink fra listen.");
+        state.tenantAdmin.usersLoaded = false;
+        await loadTenantAdminUsers({ force: true });
+        await loadResourceGroupResources({ force: true });
+      } catch (error) {
+        if (handleResourceGroupForbidden(error, tenantAdminUserCreateStatus)) return;
+        if (handleAuthFailure(error)) return;
+        setText(tenantAdminUserCreateStatus, `Kunne ikke oprette bruger: ${getErrorMessage(error, "request_failed")}`);
+      } finally {
+        if (tenantAdminUserCreateBtn) tenantAdminUserCreateBtn.disabled = false;
+      }
+    }
+
+    async function syncTenantAdminFitters() {
+      if (tenantAdminSyncFittersBtn) tenantAdminSyncFittersBtn.disabled = true;
+      state.tenantAdmin.syncLoading = true;
+      setText(tenantAdminSyncStatus, "Sync køes...");
+      try {
+        const response = await apiFetch("/api/tenant/admin/integrations/ekomplet/fitters/sync", { method: "POST" });
+        setText(tenantAdminSyncStatus, response && response.reused ? "Sync kører allerede." : "Sync er sat i kø.");
+        await loadTenantAdminSyncStatus();
+      } catch (error) {
+        if (handleResourceGroupForbidden(error, tenantAdminSyncStatus)) return;
+        if (handleAuthFailure(error)) return;
+        setText(tenantAdminSyncStatus, `Kunne ikke starte sync: ${getErrorMessage(error, "request_failed")}`);
+      } finally {
+        state.tenantAdmin.syncLoading = false;
+        renderTenantAdminSyncStatus();
+      }
+    }
     function renderResourceGroupAdmin() {
       renderResourceGroupAccessState();
       renderResourceGroupList();
@@ -1407,7 +1762,7 @@
       setText(resourceGroupListMeta, "IndlÃ¦ser grupper...");
       try {
         const query = state.resourceGroups.includeArchived ? "?include_archived=true" : "";
-        const response = await apiFetch(`/api/resource-groups${query}`, { method: "GET" });
+        const response = await apiFetch(`/api/tenant/admin/resource-groups${query}`, { method: "GET" });
         state.resourceGroups.groups = response && Array.isArray(response.groups) ? response.groups : [];
         state.resourceGroups.groupsLoaded = true;
         state.resourceGroups.accessDenied = false;
@@ -2149,6 +2504,7 @@
       }
       if (activeView === "resource-groups") {
         renderResourceGroupAccessState();
+        loadTenantAdmin();
         loadResourceGroups();
       }
     }
@@ -3698,6 +4054,7 @@
       }
       if (activeView === "resource-groups") {
         renderResourceGroupAccessState();
+        loadTenantAdmin();
         loadResourceGroups();
       }
     }
@@ -3900,6 +4257,28 @@
       });
     }
 
+    if (tenantAdminRefreshBtn) {
+      tenantAdminRefreshBtn.addEventListener("click", () => {
+        loadTenantAdmin({ force: true });
+        state.resourceGroups.groupsLoaded = false;
+        loadResourceGroups({ force: true });
+      });
+    }
+
+    if (tenantAdminSyncFittersBtn) {
+      tenantAdminSyncFittersBtn.addEventListener("click", syncTenantAdminFitters);
+    }
+
+    if (tenantAdminUserCreateForm) {
+      tenantAdminUserCreateForm.addEventListener("submit", submitTenantAdminUserCreate);
+    }
+
+    if (tenantAdminUserSearchInput) {
+      tenantAdminUserSearchInput.addEventListener("input", () => {
+        window.clearTimeout(state.tenantAdmin.searchTimer);
+        state.tenantAdmin.searchTimer = window.setTimeout(() => loadTenantAdminUsers({ force: true }), 180);
+      });
+    }
     if (resourceGroupCreateForm) {
       resourceGroupCreateForm.addEventListener("submit", submitResourceGroupCreate);
     }
@@ -8019,6 +8398,10 @@
 
   if (document.body && document.body.dataset.page === "app") {
     initAppPage();
+  }
+
+  if (document.body && document.body.dataset.page === "accept-invite") {
+    initAcceptInvitePage();
   }
 
   if (document.body && document.body.dataset.page === "project") {

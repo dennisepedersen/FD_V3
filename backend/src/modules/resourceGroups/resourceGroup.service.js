@@ -2,6 +2,7 @@ const pool = require("../../db/pool");
 const { withTransaction } = require("../../db/tx");
 const { createHttpError } = require("../../middleware/errorHandler");
 const resourceGroupRepository = require("./resourceGroup.repository");
+const auditService = require("../../services/auditService");
 
 const ALLOWED_GROUP_STATUSES = new Set(["active", "archived"]);
 const ALLOWED_MANAGER_ROLES = new Set(["owner", "manager", "viewer"]);
@@ -91,6 +92,29 @@ function normalizePatchGroupInput(input) {
   return output;
 }
 
+
+async function logResourceGroupAudit(client, {
+  tenantId,
+  actorId,
+  eventType,
+  resourceType,
+  resourceId,
+  metadata,
+}) {
+  await auditService.logAuditEvent({
+    client,
+    tenantId,
+    actorId,
+    actorType: "tenant_user",
+    actorScope: "tenant",
+    moduleKey: "resource_groups",
+    eventType,
+    resourceType,
+    resourceId,
+    outcome: "success",
+    metadata: metadata || {},
+  });
+}
 function mapDuplicateError(error, fallbackMessage) {
   if (error && error.code === "23505") {
     throw createHttpError(400, fallbackMessage);
@@ -172,6 +196,14 @@ async function createGroupForTenant(input) {
         createdByUserId,
         updatedByUserId,
       });
+      await logResourceGroupAudit(client, {
+        tenantId,
+        actorId: createdByUserId,
+        eventType: "resource_group_created",
+        resourceType: "resource_group",
+        resourceId: group.id,
+        metadata: { source: "manual" },
+      });
 
       return { group };
     } catch (error) {
@@ -203,6 +235,14 @@ async function updateGroupForTenant(input) {
       if (!group) {
         throw createHttpError(404, "resource_group_not_found");
       }
+      await logResourceGroupAudit(client, {
+        tenantId,
+        actorId: updatedByUserId,
+        eventType: "resource_group_updated",
+        resourceType: "resource_group",
+        resourceId: group.id,
+        metadata: { fields: Object.keys(patch) },
+      });
 
       return { group };
     } catch (error) {
@@ -249,6 +289,14 @@ async function addMemberToGroup(input) {
         isPrimary,
         createdByUserId,
         updatedByUserId,
+      });
+      await logResourceGroupAudit(client, {
+        tenantId,
+        actorId: createdByUserId,
+        eventType: "resource_group_member_changed",
+        resourceType: "resource_group_member",
+        resourceId: member.id,
+        metadata: { action: "add", group_id: groupId, fitter_id: fitterId },
       });
 
       return { member };
