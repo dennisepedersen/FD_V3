@@ -2550,6 +2550,50 @@
         min-height: 68px;
       }
     }
+
+    .scrollTopBtn {
+      position: fixed;
+      right: max(18px, env(safe-area-inset-right));
+      bottom: calc(22px + env(safe-area-inset-bottom));
+      z-index: 70;
+      width: 46px;
+      height: 46px;
+      border: 1px solid rgba(94, 200, 229, 0.34);
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      background: rgba(11, 23, 37, 0.94);
+      color: var(--brand-strong);
+      box-shadow: var(--shadow-card);
+      cursor: pointer;
+      opacity: 1;
+      transform: translateY(0);
+      transition: opacity 160ms ease, transform 160ms ease;
+    }
+
+    .scrollTopBtn[hidden] {
+      display: grid !important;
+      pointer-events: none;
+      opacity: 0;
+      transform: translateY(12px);
+    }
+
+    .scrollTopBtn svg {
+      width: 20px;
+      height: 20px;
+      stroke: currentColor;
+      stroke-width: 2.2;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    @media (max-width: 767px) {
+      .scrollTopBtn {
+        right: max(14px, env(safe-area-inset-right));
+        bottom: calc(86px + env(safe-area-inset-bottom));
+      }
+    }
   </style>
 </head>
 <body data-page="project">
@@ -3025,6 +3069,10 @@
       </div>
     </section>
   </div>
+
+  <button id="scrollTopBtn" class="scrollTopBtn" type="button" aria-label="G&aring; til toppen" title="G&aring; til toppen" hidden>
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5"></path><path d="m5 12 7-7 7 7"></path></svg>
+  </button>
 
   <script src="/tenant/vendor/zxing-browser.min.js"></script>
   <script src="/tenant/auth.js"></script>

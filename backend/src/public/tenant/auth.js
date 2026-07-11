@@ -40,6 +40,28 @@
     return String(user && user.role ? user.role : "").trim().toLowerCase() === "tenant_admin";
   }
 
+  function initScrollTopButton(button) {
+    const scrollButton = button || document.getElementById("scrollTopBtn");
+    if (!scrollButton) return;
+    let ticking = false;
+    const update = () => {
+      const offset = window.scrollY || document.documentElement.scrollTop || 0;
+      scrollButton.hidden = offset < Math.max(window.innerHeight || 0, 480);
+      ticking = false;
+    };
+    const requestUpdate = () => {
+      if (ticking) return;
+      ticking = true;
+      window.requestAnimationFrame(update);
+    };
+    window.addEventListener("scroll", requestUpdate, { passive: true });
+    window.addEventListener("resize", requestUpdate);
+    scrollButton.addEventListener("click", () => {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+    update();
+  }
+
   function setAdminNavigationVisibility(user) {
     const showAdmin = isTenantAdmin(user);
     document.querySelectorAll("[data-admin-nav]").forEach((item) => {
@@ -729,11 +751,12 @@
     const resourceGroupManagersList = document.getElementById("resourceGroupManagersList");
     const tenantAdminSyncSection = document.getElementById("tenantAdminSyncSection");
     const tenantAdminSyncFittersBtn = document.getElementById("tenantAdminSyncFittersBtn");
-    const tenantAdminRefreshBtn = document.getElementById("tenantAdminRefreshBtn");
     const tenantAdminSyncStatus = document.getElementById("tenantAdminSyncStatus");
     const tenantAdminUsersSection = document.getElementById("tenantAdminUsersSection");
     const tenantAdminUsersMeta = document.getElementById("tenantAdminUsersMeta");
     const tenantAdminUserSearchInput = document.getElementById("tenantAdminUserSearchInput");
+    const tenantAdminEkStatusFilter = document.getElementById("tenantAdminEkStatusFilter");
+    const tenantAdminLoginStatusFilter = document.getElementById("tenantAdminLoginStatusFilter");
     const tenantAdminUsersList = document.getElementById("tenantAdminUsersList");
     const tenantAdminUserCreateSection = document.getElementById("tenantAdminUserCreateSection");
     const tenantAdminUserCreateForm = document.getElementById("tenantAdminUserCreateForm");
@@ -743,6 +766,15 @@
     const tenantAdminUserRoleSelect = document.getElementById("tenantAdminUserRoleSelect");
     const tenantAdminUserCreateBtn = document.getElementById("tenantAdminUserCreateBtn");
     const tenantAdminUserCreateStatus = document.getElementById("tenantAdminUserCreateStatus");
+    const tenantAdminOpenUserCreateBtn = document.getElementById("tenantAdminOpenUserCreateBtn");
+    const tenantAdminUserCreateModal = document.getElementById("tenantAdminUserCreateModal");
+    const tenantAdminUserCreateCloseBtn = document.getElementById("tenantAdminUserCreateCloseBtn");
+    const tenantAdminUserCreateCancelBtn = document.getElementById("tenantAdminUserCreateCancelBtn");
+    const tenantAdminOpenGroupCreateBtn = document.getElementById("tenantAdminOpenGroupCreateBtn");
+    const resourceGroupCreateModal = document.getElementById("resourceGroupCreateModal");
+    const resourceGroupCreateCloseBtn = document.getElementById("resourceGroupCreateCloseBtn");
+    const resourceGroupCreateCancelBtn = document.getElementById("resourceGroupCreateCancelBtn");
+    const scrollTopBtn = document.getElementById("scrollTopBtn");
     const dashboardWelcomeName = document.getElementById("dashboardWelcomeName");
     const dashboardDateText = document.getElementById("dashboardDateText");
     const dashboardProjectCount = document.getElementById("dashboardProjectCount");
@@ -807,6 +839,9 @@
         syncLoading: false,
         inviteSending: new Set(),
         search: "",
+        ekStatusFilter: "all",
+        loginStatusFilter: "all",
+        syncMessage: "",
         searchTimer: null,
       },
       resourceGroups: {
@@ -894,8 +929,7 @@
 
     function renderUserChrome() {
       const user = state.me || {};
-      const displayName = compactUserName(user.name || "Fielddesk");
-      setText(brandUserName, displayName);
+      setText(brandUserName, getLoginInitials(user));
     }
 
     function formatDateInput(date) {
@@ -1471,9 +1505,24 @@
       return source || "Ukendt";
     }
 
+    function getTenantAdminFittersEndpoint() {
+      const sync = state.tenantAdmin.syncStatus;
+      return sync && Array.isArray(sync.endpoints) ? sync.endpoints.find((item) => item.endpoint_key === "fitters") : null;
+    }
+
+    function getTenantAdminEndpointStatusLabel(status) {
+      const normalized = String(status || "idle").toLowerCase();
+      if (normalized === "running") return "kører";
+      if (normalized === "queued") return "venter";
+      if (normalized === "success") return "gennemført";
+      if (normalized === "partial") return "delvist gennemført";
+      if (normalized === "failed") return "fejlet";
+      return "klar";
+    }
+
     function renderTenantAdminSyncStatus() {
       const sync = state.tenantAdmin.syncStatus;
-      const endpoint = sync && Array.isArray(sync.endpoints) ? sync.endpoints.find((item) => item.endpoint_key === "fitters") : null;
+      const endpoint = getTenantAdminFittersEndpoint();
       const configured = sync && sync.integration && sync.integration.configured;
       if (tenantAdminSyncFittersBtn) {
         tenantAdminSyncFittersBtn.disabled = state.tenantAdmin.syncLoading || configured === false;
@@ -1487,12 +1536,19 @@
         tenantAdminSyncStatus.textContent = "EK integration er ikke konfigureret. Manuel oprettelse er aktiv.";
         return;
       }
+      if (state.tenantAdmin.syncMessage) {
+        tenantAdminSyncStatus.textContent = state.tenantAdmin.syncMessage;
+        return;
+      }
       const status = endpoint && endpoint.status ? endpoint.status : "idle";
       const persisted = endpoint && endpoint.rows_persisted != null ? Number(endpoint.rows_persisted || 0) : 0;
+      const fetched = endpoint && endpoint.rows_fetched != null ? Number(endpoint.rows_fetched || 0) : 0;
       const last = endpoint && (endpoint.last_successful_sync_at || endpoint.last_attempt_at)
         ? new Date(endpoint.last_successful_sync_at || endpoint.last_attempt_at).toLocaleString("da-DK")
         : "aldrig";
-      tenantAdminSyncStatus.textContent = `Fitters: ${status}. Sidste sync: ${last}. Persisted: ${persisted}.`;
+      const errors = endpoint && endpoint.failed_page_count != null ? Number(endpoint.failed_page_count || 0) : 0;
+      const errorText = errors ? ` Fejlede sider: ${errors}.` : "";
+      tenantAdminSyncStatus.textContent = `Medarbejdersynk: ${getTenantAdminEndpointStatusLabel(status)}. Sidste sync: ${last}. Hentet: ${fetched}. Gemt/opdateret: ${persisted}.${errorText}`;
     }
 
     function getTenantAdminUserLabel(user) {
@@ -1509,13 +1565,77 @@
       return Number.isNaN(parsed.getTime()) ? "-" : parsed.toLocaleString("da-DK");
     }
 
+    function isTenantAdminManualUser(user) {
+      return String(user && user.source ? user.source : "").toLowerCase() === "manual";
+    }
+
+    function isTenantAdminImportedUser(user) {
+      return String(user && user.source ? user.source : "").toLowerCase() === "ekomplet";
+    }
+
+    function isTenantAdminInvitationExpired(user) {
+      const status = String(user && user.invitation_status ? user.invitation_status : "").toLowerCase();
+      if (!status || status === "used" || status === "revoked") return false;
+      if (!user || !user.invitation_expires_at) return false;
+      const expiresAt = new Date(user.invitation_expires_at).getTime();
+      return Number.isFinite(expiresAt) && expiresAt <= Date.now();
+    }
+
+    function getTenantAdminLoginFilterKey(user) {
+      const loginStatus = String(user && user.login_status ? user.login_status : "imported_no_login").toLowerCase();
+      const inviteStatus = String(user && user.invitation_status ? user.invitation_status : "").toLowerCase();
+      if (loginStatus === "active") return "active";
+      if (isTenantAdminInvitationExpired(user)) return "expired";
+      if (["pending", "sent", "send_failed"].includes(inviteStatus)) return "invited";
+      if (isTenantAdminManualUser(user)) return "not_invited";
+      return "without_login";
+    }
+
+    function getTenantAdminPersonStatusLabel(user) {
+      const loginKey = getTenantAdminLoginFilterKey(user);
+      if (loginKey === "active") return "aktiv";
+      if (loginKey === "expired") return "invitation udløbet";
+      if (loginKey === "invited") return "inviteret";
+      if (loginKey === "not_invited") return "ikke inviteret";
+      const ekStatus = String(user && user.status ? user.status : "active").toLowerCase();
+      if (isTenantAdminImportedUser(user) && ekStatus === "inactive") return "inaktiv";
+      if (isTenantAdminImportedUser(user)) return "aktiv";
+      return "uden login";
+    }
+
     function getTenantAdminLoginStatusLabel(user) {
-      const status = String(user && user.login_status ? user.login_status : "imported_no_login").toLowerCase();
-      if (status === "pending_invite") return "Afventer mail";
-      if (status === "invited") return "Inviteret";
-      if (status === "active") return "Aktiv login";
-      if (status === "disabled") return "Deaktiveret";
-      return "Importeret uden login";
+      const loginKey = getTenantAdminLoginFilterKey(user);
+      if (loginKey === "active") return "Aktiv";
+      if (loginKey === "expired") return "Invitation udløbet";
+      if (loginKey === "invited") return "Invitation sendt";
+      if (loginKey === "not_invited") return "Ingen invitation sendt";
+      if (String(user && user.login_status ? user.login_status : "").toLowerCase() === "disabled") return "Deaktiveret";
+      return isTenantAdminImportedUser(user) ? "Importeret uden login" : "Uden login";
+    }
+
+    function getTenantAdminLoginLine(user) {
+      const loginKey = getTenantAdminLoginFilterKey(user);
+      if (loginKey === "active") return "Login: Aktiv";
+      if (loginKey === "expired") return `Login: Invitation udløbet | Udløb: ${formatTenantAdminDate(user && user.invitation_expires_at)}`;
+      if (loginKey === "invited") return `Login: Invitation sendt | Udløber: ${formatTenantAdminDate(user && user.invitation_expires_at)}`;
+      if (loginKey === "not_invited") return "Login: Ingen invitation sendt";
+      if (String(user && user.login_status ? user.login_status : "").toLowerCase() === "disabled") return "Login: Deaktiveret";
+      return isTenantAdminImportedUser(user) ? "Login: Importeret uden login" : "Login: Uden login";
+    }
+
+    function getFilteredTenantAdminUsers(users) {
+      const ekFilter = state.tenantAdmin.ekStatusFilter || "all";
+      const loginFilter = state.tenantAdmin.loginStatusFilter || "all";
+      return users.filter((user) => {
+        if (ekFilter !== "all") {
+          if (!isTenantAdminImportedUser(user)) return false;
+          const ekStatus = String(user && user.status ? user.status : "active").toLowerCase();
+          if (ekFilter === "active" && ekStatus !== "active") return false;
+          if (ekFilter === "inactive" && ekStatus !== "inactive") return false;
+        }
+        if (loginFilter !== "all" && getTenantAdminLoginFilterKey(user) !== loginFilter) return false;
+        return true;
+      });
     }
 
     function canSendTenantAdminInvite(user) {
@@ -1544,8 +1664,10 @@
     function renderTenantAdminUsers() {
       if (!tenantAdminUsersList) return;
       tenantAdminUsersList.replaceChildren();
-      const users = Array.isArray(state.tenantAdmin.users) ? state.tenantAdmin.users : [];
-      setText(tenantAdminUsersMeta, state.tenantAdmin.usersLoading ? "Indlæser medarbejdere..." : (users.length === 1 ? "1 medarbejder." : `${users.length} medarbejdere.`));
+      const allUsers = Array.isArray(state.tenantAdmin.users) ? state.tenantAdmin.users : [];
+      const users = getFilteredTenantAdminUsers(allUsers);
+      const totalText = users.length === allUsers.length ? "" : ` af ${allUsers.length}`;
+      setText(tenantAdminUsersMeta, state.tenantAdmin.usersLoading ? "Indlæser medarbejdere..." : (users.length === 1 ? `1 medarbejder${totalText}.` : `${users.length}${totalText} medarbejdere.`));
       if (!users.length && !state.tenantAdmin.usersLoading) {
         const empty = document.createElement("p");
         empty.className = "calendarMessage";
@@ -1562,8 +1684,8 @@
         title.className = "resourceGroupDetailName";
         title.textContent = getTenantAdminUserLabel(user);
         const tag = document.createElement("span");
-        tag.className = user && user.status === "active" ? "tag tagLive" : "tag tagPreview";
-        tag.textContent = `${getTenantAdminSourceLabel(user && user.source)} | ${user && user.status ? user.status : "active"}`;
+        tag.className = getTenantAdminLoginFilterKey(user) === "active" || (isTenantAdminImportedUser(user) && String(user && user.status ? user.status : "active").toLowerCase() === "active") ? "tag tagLive" : "tag tagPreview";
+        tag.textContent = `${getTenantAdminSourceLabel(user && user.source)} | ${getTenantAdminPersonStatusLabel(user)}`;
         header.append(title, tag);
         const meta = document.createElement("p");
         meta.className = "resourceGroupMeta";
@@ -1573,12 +1695,7 @@
         meta.textContent = `${user && user.email ? user.email : "Ingen email"}${external} | ${groupNames}`;
         const loginMeta = document.createElement("p");
         loginMeta.className = "resourceGroupMeta";
-        const inviteStatus = user && user.invitation_status ? ` | Invitation: ${user.invitation_status}` : "";
-        const lastSent = user && (user.invitation_sent_at || user.last_invited_at)
-          ? ` | Sendt: ${formatTenantAdminDate(user.invitation_sent_at || user.last_invited_at)}`
-          : "";
-        const expires = user && user.invitation_expires_at ? ` | Udløber: ${formatTenantAdminDate(user.invitation_expires_at)}` : "";
-        loginMeta.textContent = `Login: ${getTenantAdminLoginStatusLabel(user)}${inviteStatus}${lastSent}${expires}`;
+        loginMeta.textContent = getTenantAdminLoginLine(user);
         card.append(header, meta, loginMeta);
         if (user && user.invitation_send_error) {
           const mailError = document.createElement("p");
@@ -1597,8 +1714,11 @@
           : getTenantAdminInviteButtonLabel(user);
         const disabledReason = getTenantAdminInviteDisabledReason(user);
         inviteButton.disabled = state.tenantAdmin.inviteSending.has(inviteTargetId) || !canSendTenantAdminInvite(user);
+        inviteButton.setAttribute("aria-disabled", inviteButton.disabled ? "true" : "false");
         if (disabledReason) inviteButton.title = disabledReason;
-        inviteButton.addEventListener("click", () => sendTenantAdminUserInvite(user));
+        if (!inviteButton.disabled) {
+          inviteButton.addEventListener("click", () => sendTenantAdminUserInvite(user));
+        }
         actions.appendChild(inviteButton);
         card.appendChild(actions);
         tenantAdminUsersList.appendChild(card);
@@ -1683,7 +1803,9 @@
           body: JSON.stringify({ name, email, short_code: shortCode || null, role, status: "invited" }),
         });
         if (tenantAdminUserCreateForm) tenantAdminUserCreateForm.reset();
-        setText(tenantAdminUserCreateStatus, "Bruger oprettet. Send oprettelseslink fra listen.");
+        closeTenantAdminModal(tenantAdminUserCreateModal);
+        setText(tenantAdminUsersMeta, "Bruger oprettet. Send oprettelseslink fra listen.");
+        setText(tenantAdminUserCreateStatus, "");
         state.tenantAdmin.usersLoaded = false;
         await loadTenantAdminUsers({ force: true });
         await loadResourceGroupResources({ force: true });
@@ -1697,22 +1819,99 @@
     }
 
     async function syncTenantAdminFitters() {
+      if (state.tenantAdmin.syncLoading) return;
       if (tenantAdminSyncFittersBtn) tenantAdminSyncFittersBtn.disabled = true;
       state.tenantAdmin.syncLoading = true;
-      setText(tenantAdminSyncStatus, "Sync køes...");
+      state.tenantAdmin.syncMessage = "Synkronisering i gang...";
+      renderTenantAdminSyncStatus();
       try {
         const response = await apiFetch("/api/tenant/admin/integrations/ekomplet/fitters/sync", { method: "POST" });
-        setText(tenantAdminSyncStatus, response && response.reused ? "Sync kører allerede." : "Sync er sat i kø.");
-        await loadTenantAdminSyncStatus();
+        state.tenantAdmin.syncMessage = response && response.reused ? "Synkronisering kører allerede." : "Synkronisering er sat i kø.";
+        renderTenantAdminSyncStatus();
+        await waitForTenantAdminFittersSync(response && response.syncRunId);
+        state.tenantAdmin.syncMessage = formatTenantAdminSyncResult();
+        await Promise.all([
+          loadTenantAdminUsers({ force: true }),
+          loadResourceGroupResources({ force: true }),
+          loadResourceGroups({ force: true }),
+        ]);
       } catch (error) {
         if (handleResourceGroupForbidden(error, tenantAdminSyncStatus)) return;
         if (handleAuthFailure(error)) return;
-        setText(tenantAdminSyncStatus, `Kunne ikke starte sync: ${getErrorMessage(error, "request_failed")}`);
+        state.tenantAdmin.syncMessage = `Kunne ikke starte synkronisering: ${getErrorMessage(error, "request_failed")}`;
       } finally {
         state.tenantAdmin.syncLoading = false;
         renderTenantAdminSyncStatus();
       }
     }
+
+    function sleep(ms) {
+      return new Promise((resolve) => window.setTimeout(resolve, ms));
+    }
+
+    async function waitForTenantAdminFittersSync(syncRunId) {
+      for (let index = 0; index < 20; index += 1) {
+        await sleep(index === 0 ? 1200 : 3000);
+        await loadTenantAdminSyncStatus();
+        const endpoint = getTenantAdminFittersEndpoint();
+        const status = String(endpoint && endpoint.status ? endpoint.status : "").toLowerCase();
+        const currentJob = endpoint && (endpoint.current_job_id || endpoint.last_job_id);
+        if (["success", "partial", "failed"].includes(status) && (!syncRunId || String(currentJob || "") === String(syncRunId))) {
+          return endpoint;
+        }
+        if (!syncRunId && status && status !== "running") {
+          return endpoint;
+        }
+      }
+      return getTenantAdminFittersEndpoint();
+    }
+
+    function formatTenantAdminSyncResult() {
+      const endpoint = getTenantAdminFittersEndpoint();
+      const status = String(endpoint && endpoint.status ? endpoint.status : "").toLowerCase();
+      if (status === "failed") return "Synkronisering fejlede. Eksisterende data er bevaret.";
+      if (status === "partial") return "Synkronisering delvist gennemført. Tjek fejlstatus før næste kørsel.";
+      const persisted = endpoint && endpoint.rows_persisted != null ? Number(endpoint.rows_persisted || 0) : null;
+      const fetched = endpoint && endpoint.rows_fetched != null ? Number(endpoint.rows_fetched || 0) : null;
+      if (persisted === 0 && fetched === 0) return "Synkronisering udført. Ingen ændringer fundet.";
+      if (persisted != null || fetched != null) return `Synkronisering udført. Hentet: ${fetched == null ? "-" : fetched}. Gemt/opdateret: ${persisted == null ? "-" : persisted}.`;
+      return "Synkronisering udført.";
+    }
+
+    let tenantAdminActiveModal = null;
+
+    function getFocusableModalNodes(modal) {
+      return Array.from(modal ? modal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])') : [])
+        .filter((node) => !node.disabled && !node.hidden && node.offsetParent !== null);
+    }
+
+    function openTenantAdminModal(modal, trigger) {
+      if (!modal) return;
+      tenantAdminActiveModal = { modal, trigger };
+      modal.hidden = false;
+      modal.setAttribute("aria-hidden", "false");
+      document.body.classList.add("fd-modal-open");
+      const focusable = getFocusableModalNodes(modal);
+      window.setTimeout(() => {
+        const firstInput = modal.querySelector("input, textarea, select");
+        (firstInput || focusable[0] || modal).focus();
+      }, 0);
+    }
+
+    function closeTenantAdminModal(modal) {
+      if (!modal || modal.hidden) return;
+      const trigger = tenantAdminActiveModal && tenantAdminActiveModal.modal === modal ? tenantAdminActiveModal.trigger : null;
+      modal.hidden = true;
+      modal.setAttribute("aria-hidden", "true");
+      tenantAdminActiveModal = null;
+      if (!document.querySelector(".fdModalShell:not([hidden])")) {
+        document.body.classList.remove("fd-modal-open");
+      }
+      if (trigger && typeof trigger.focus === "function") {
+        trigger.focus();
+      }
+    }
+
     function renderResourceGroupAdmin() {
       renderResourceGroupAccessState();
       renderResourceGroupList();
@@ -1889,7 +2088,9 @@
         if (resourceGroupCreateForm) {
           resourceGroupCreateForm.reset();
         }
-        setText(resourceGroupCreateStatus, "Gruppe oprettet.");
+        closeTenantAdminModal(resourceGroupCreateModal);
+        setText(resourceGroupCreateStatus, "");
+        setText(resourceGroupListStatus, "Gruppe oprettet.");
         state.resourceGroups.groupsLoaded = false;
         await loadResourceGroups({ force: true });
         if (groupId) {
@@ -4265,17 +4466,36 @@
       });
     }
 
-    if (tenantAdminRefreshBtn) {
-      tenantAdminRefreshBtn.addEventListener("click", () => {
-        loadTenantAdmin({ force: true });
-        state.resourceGroups.groupsLoaded = false;
-        loadResourceGroups({ force: true });
-      });
-    }
-
     if (tenantAdminSyncFittersBtn) {
       tenantAdminSyncFittersBtn.addEventListener("click", syncTenantAdminFitters);
     }
+
+    if (tenantAdminOpenUserCreateBtn) {
+      tenantAdminOpenUserCreateBtn.addEventListener("click", () => openTenantAdminModal(tenantAdminUserCreateModal, tenantAdminOpenUserCreateBtn));
+    }
+    if (tenantAdminUserCreateCloseBtn) {
+      tenantAdminUserCreateCloseBtn.addEventListener("click", () => closeTenantAdminModal(tenantAdminUserCreateModal));
+    }
+    if (tenantAdminUserCreateCancelBtn) {
+      tenantAdminUserCreateCancelBtn.addEventListener("click", () => closeTenantAdminModal(tenantAdminUserCreateModal));
+    }
+    if (tenantAdminOpenGroupCreateBtn) {
+      tenantAdminOpenGroupCreateBtn.addEventListener("click", () => openTenantAdminModal(resourceGroupCreateModal, tenantAdminOpenGroupCreateBtn));
+    }
+    if (resourceGroupCreateCloseBtn) {
+      resourceGroupCreateCloseBtn.addEventListener("click", () => closeTenantAdminModal(resourceGroupCreateModal));
+    }
+    if (resourceGroupCreateCancelBtn) {
+      resourceGroupCreateCancelBtn.addEventListener("click", () => closeTenantAdminModal(resourceGroupCreateModal));
+    }
+    Array.from(document.querySelectorAll("[data-modal-close]")).forEach((node) => {
+      node.addEventListener("click", () => closeTenantAdminModal(document.getElementById(node.dataset.modalClose)));
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && tenantAdminActiveModal) {
+        closeTenantAdminModal(tenantAdminActiveModal.modal);
+      }
+    });
 
     if (tenantAdminUserCreateForm) {
       tenantAdminUserCreateForm.addEventListener("submit", submitTenantAdminUserCreate);
@@ -4285,6 +4505,18 @@
       tenantAdminUserSearchInput.addEventListener("input", () => {
         window.clearTimeout(state.tenantAdmin.searchTimer);
         state.tenantAdmin.searchTimer = window.setTimeout(() => loadTenantAdminUsers({ force: true }), 180);
+      });
+    }
+    if (tenantAdminEkStatusFilter) {
+      tenantAdminEkStatusFilter.addEventListener("change", () => {
+        state.tenantAdmin.ekStatusFilter = tenantAdminEkStatusFilter.value || "all";
+        renderTenantAdminUsers();
+      });
+    }
+    if (tenantAdminLoginStatusFilter) {
+      tenantAdminLoginStatusFilter.addEventListener("change", () => {
+        state.tenantAdmin.loginStatusFilter = tenantAdminLoginStatusFilter.value || "all";
+        renderTenantAdminUsers();
       });
     }
     if (resourceGroupCreateForm) {
@@ -4369,6 +4601,8 @@
         closeDrawer();
       }
     });
+
+    initScrollTopButton();
 
     await loadProjects();
 
@@ -5107,7 +5341,7 @@
     }
     function renderProjectUserChrome(user) {
       if (brandUserName) {
-        brandUserName.textContent = compactProjectUserName(user && user.name ? user.name : "Fielddesk");
+        brandUserName.textContent = getProjectLoginInitials(user || {});
       }
     }
 
@@ -8344,6 +8578,8 @@
         closeEquipmentScanner();
       }
     });
+
+    initScrollTopButton(document.getElementById("scrollTopBtn"));
 
     try {
       const permissionsLoaded = await loadQaPermissions();
