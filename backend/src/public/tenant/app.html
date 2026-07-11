@@ -956,6 +956,19 @@
       font-size: 12px;
     }
 
+    .resourceGroupCheckField {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 10px 11px;
+      border: 1px solid rgba(191, 212, 234, 0.14);
+      border-radius: 12px;
+      background: rgba(4, 10, 22, 0.22);
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
     .calendarField input,
     .calendarField select,
     .calendarField textarea,
@@ -976,6 +989,15 @@
     .resourceGroupField textarea {
       min-height: 88px;
       resize: vertical;
+    }
+
+    .resourceGroupCheckField input {
+      width: 18px;
+      height: 18px;
+      min-height: 0;
+      margin: 0;
+      flex: 0 0 auto;
+      accent-color: var(--accent);
     }
 
     .calendarField select,
@@ -3708,6 +3730,10 @@
             <option value="project_leader">Projektleder</option>
             <option value="tenant_admin">Tenant admin</option>
           </select>
+        </label>
+        <label class="resourceGroupCheckField resourceGroupFieldWide" for="tenantAdminUserSendInviteInput">
+          <input id="tenantAdminUserSendInviteInput" type="checkbox">
+          <span>Send oprettelseslink efter oprettelse</span>
         </label>
         <p id="tenantAdminUserCreateStatus" class="resourceGroupFormStatus resourceGroupFieldWide"></p>
         <div class="fdModalActions resourceGroupFieldWide">

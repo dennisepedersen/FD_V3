@@ -764,6 +764,7 @@
     const tenantAdminUserEmailInput = document.getElementById("tenantAdminUserEmailInput");
     const tenantAdminUserShortCodeInput = document.getElementById("tenantAdminUserShortCodeInput");
     const tenantAdminUserRoleSelect = document.getElementById("tenantAdminUserRoleSelect");
+    const tenantAdminUserSendInviteInput = document.getElementById("tenantAdminUserSendInviteInput");
     const tenantAdminUserCreateBtn = document.getElementById("tenantAdminUserCreateBtn");
     const tenantAdminUserCreateStatus = document.getElementById("tenantAdminUserCreateStatus");
     const tenantAdminOpenUserCreateBtn = document.getElementById("tenantAdminOpenUserCreateBtn");
@@ -838,6 +839,7 @@
         usersLoading: false,
         syncLoading: false,
         inviteSending: new Set(),
+        userCreateSubmitting: false,
         search: "",
         ekStatusFilter: "all",
         loginStatusFilter: "all",
@@ -1764,48 +1766,101 @@
       await Promise.all([loadTenantAdminUsers(options), loadTenantAdminSyncStatus()]);
     }
 
-    async function sendTenantAdminUserInvite(user) {
+    function getCreatedTenantAdminInviteUser(response, fallback) {
+      const user = response && response.user ? response.user : {};
+      const fitter = response && response.fitter ? response.fitter : {};
+      return {
+        tenant_user_id: user.id || user.tenant_user_id || fitter.tenant_user_id || null,
+        fitter_row_id: fitter.id || null,
+        email: user.email || fitter.email || (fallback && fallback.email) || "",
+        name: user.name || fitter.name || (fallback && fallback.name) || "",
+        short_code: user.username || fitter.username || (fallback && fallback.shortCode) || "",
+        source: "manual",
+        status: user.status || "invited",
+        login_status: user.login_status || "imported_no_login",
+        invitation_status: user.invitation_status || "",
+        invitation_expires_at: user.invitation_expires_at || null,
+      };
+    }
+
+    async function sendTenantAdminUserInvite(user, options) {
+      const opts = options || {};
+      const statusTarget = opts.statusTarget || tenantAdminUsersMeta;
+      const shouldReload = opts.reload !== false;
+      const shouldRender = opts.render !== false;
       if (!canSendTenantAdminInvite(user)) {
-        setText(tenantAdminUsersMeta, getTenantAdminInviteDisabledReason(user) || "Invitation kan ikke sendes.");
-        return;
+        const message = getTenantAdminInviteDisabledReason(user) || "Invitation kan ikke sendes.";
+        setText(statusTarget, message);
+        return { success: false, message };
       }
       const userId = user.tenant_user_id || user.fitter_row_id;
       state.tenantAdmin.inviteSending.add(userId);
-      renderTenantAdminUsers();
-      setText(tenantAdminUsersMeta, `Sender oprettelseslink til ${user.email}...`);
+      if (shouldRender) renderTenantAdminUsers();
+      setText(statusTarget, opts.pendingMessage || `Sender oprettelseslink til ${user.email}...`);
       try {
         await apiFetch(`/api/tenant/admin/users/${encodeURIComponent(userId)}/invitations`, { method: "POST" });
-        setText(tenantAdminUsersMeta, `Oprettelseslink sendt til ${user.email}.`);
+        const message = opts.successMessage || `Oprettelseslink sendt til ${user.email}.`;
+        setText(statusTarget, message);
+        return { success: true, message };
       } catch (error) {
-        if (handleResourceGroupForbidden(error, tenantAdminUsersMeta)) return;
-        if (handleAuthFailure(error)) return;
-        setText(tenantAdminUsersMeta, `Kunne ikke sende oprettelseslink: ${getErrorMessage(error, "mail_send_failed")}`);
+        if (handleResourceGroupForbidden(error, statusTarget)) return { success: false, error };
+        if (handleAuthFailure(error)) return { success: false, error };
+        const message = opts.failureMessage || `Kunne ikke sende oprettelseslink: ${getErrorMessage(error, "mail_send_failed")}`;
+        setText(statusTarget, message);
+        return { success: false, error, message };
       } finally {
         state.tenantAdmin.inviteSending.delete(userId);
-        await loadTenantAdminUsers({ force: true });
+        if (shouldReload) await loadTenantAdminUsers({ force: true });
       }
     }
+
     async function submitTenantAdminUserCreate(event) {
       event.preventDefault();
+      if (state.tenantAdmin.userCreateSubmitting) return;
       const name = tenantAdminUserNameInput ? tenantAdminUserNameInput.value.trim() : "";
       const email = tenantAdminUserEmailInput ? tenantAdminUserEmailInput.value.trim() : "";
       const shortCode = tenantAdminUserShortCodeInput ? tenantAdminUserShortCodeInput.value.trim() : "";
       const role = tenantAdminUserRoleSelect ? tenantAdminUserRoleSelect.value : "technician";
+      const shouldSendInvite = Boolean(tenantAdminUserSendInviteInput && tenantAdminUserSendInviteInput.checked);
       if (!name || !email) {
         setText(tenantAdminUserCreateStatus, "Navn og email er påkrævet.");
         return;
       }
+      state.tenantAdmin.userCreateSubmitting = true;
       if (tenantAdminUserCreateBtn) tenantAdminUserCreateBtn.disabled = true;
       setText(tenantAdminUserCreateStatus, "Opretter bruger...");
       try {
-        await apiFetch("/api/tenant/admin/users", {
+        const response = await apiFetch("/api/tenant/admin/users", {
           method: "POST",
           body: JSON.stringify({ name, email, short_code: shortCode || null, role, status: "invited" }),
         });
-        if (tenantAdminUserCreateForm) tenantAdminUserCreateForm.reset();
+        const createdUser = getCreatedTenantAdminInviteUser(response, { name, email, shortCode });
+        if (shouldSendInvite) {
+          const inviteResult = await sendTenantAdminUserInvite(createdUser, {
+            statusTarget: tenantAdminUserCreateStatus,
+            reload: false,
+            render: false,
+            pendingMessage: "Bruger oprettet. Sender oprettelseslink...",
+            successMessage: `Bruger oprettet, og oprettelseslink sendt til ${email}.`,
+            failureMessage: "Brugeren blev oprettet, men oprettelseslinket kunne ikke sendes.",
+          });
+          state.tenantAdmin.usersLoaded = false;
+          await loadTenantAdminUsers({ force: true });
+          await loadResourceGroupResources({ force: true });
+          if (!inviteResult.success) {
+            resetTenantAdminUserCreateForm();
+            closeTenantAdminModal(tenantAdminUserCreateModal);
+            setText(tenantAdminUsersMeta, "Brugeren blev oprettet, men oprettelseslinket kunne ikke sendes. Brug Send oprettelseslink fra listen.");
+            return;
+          }
+          resetTenantAdminUserCreateForm();
+          closeTenantAdminModal(tenantAdminUserCreateModal);
+          setText(tenantAdminUsersMeta, `Bruger oprettet, og oprettelseslink sendt til ${email}.`);
+          return;
+        }
+        resetTenantAdminUserCreateForm();
         closeTenantAdminModal(tenantAdminUserCreateModal);
         setText(tenantAdminUsersMeta, "Bruger oprettet. Send oprettelseslink fra listen.");
-        setText(tenantAdminUserCreateStatus, "");
         state.tenantAdmin.usersLoaded = false;
         await loadTenantAdminUsers({ force: true });
         await loadResourceGroupResources({ force: true });
@@ -1814,6 +1869,7 @@
         if (handleAuthFailure(error)) return;
         setText(tenantAdminUserCreateStatus, `Kunne ikke oprette bruger: ${getErrorMessage(error, "request_failed")}`);
       } finally {
+        state.tenantAdmin.userCreateSubmitting = false;
         if (tenantAdminUserCreateBtn) tenantAdminUserCreateBtn.disabled = false;
       }
     }
@@ -1880,6 +1936,12 @@
 
     let tenantAdminActiveModal = null;
 
+    function resetTenantAdminUserCreateForm() {
+      if (tenantAdminUserCreateForm) tenantAdminUserCreateForm.reset();
+      if (tenantAdminUserSendInviteInput) tenantAdminUserSendInviteInput.checked = false;
+      setText(tenantAdminUserCreateStatus, "");
+    }
+
     function getFocusableModalNodes(modal) {
       return Array.from(modal ? modal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])') : [])
         .filter((node) => !node.disabled && !node.hidden && node.offsetParent !== null);
@@ -1906,6 +1968,9 @@
       tenantAdminActiveModal = null;
       if (!document.querySelector(".fdModalShell:not([hidden])")) {
         document.body.classList.remove("fd-modal-open");
+      }
+      if (modal === tenantAdminUserCreateModal && !state.tenantAdmin.userCreateSubmitting) {
+        resetTenantAdminUserCreateForm();
       }
       if (trigger && typeof trigger.focus === "function") {
         trigger.focus();
