@@ -1,0 +1,22 @@
+{
+  "name": "fielddesk-v3",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Fielddesk V3 developer check and test orchestration",
+  "scripts": {
+    "test": "node --test test",
+    "test:unit": "node --test test",
+    "test:static": "node scripts/check-static.js",
+    "test:smoke": "node scripts/check-static.js",
+    "check": "node scripts/check.js",
+    "check:syntax": "node scripts/check-syntax.js",
+    "check:secrets": "node scripts/check-secrets.js --all",
+    "check:whitespace": "node scripts/check-whitespace.js",
+    "check:encoding": "node scripts/check-encoding.js",
+    "check:migrations": "node scripts/check-migrations.js",
+    "check:static": "node scripts/check-static.js"
+  },
+  "engines": {
+    "node": "20.x"
+  }
+}

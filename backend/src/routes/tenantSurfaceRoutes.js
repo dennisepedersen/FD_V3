@@ -15,6 +15,7 @@ const resourceGroupRoutes = require("../modules/resourceGroups/resourceGroup.rou
 const tenantAdminRoutes = require("../modules/tenantAdmin/tenantAdmin.routes");
 const projectEquipmentRoutes = require("../modules/projectEquipment/projectEquipment.routes");
 const { createHttpError } = require("../middleware/errorHandler");
+const { versionTenantHtml } = require("../utils/tenantAssetVersion");
 
 const router = express.Router();
 const tenantPublicDir = path.join(__dirname, "../public/tenant");
@@ -57,20 +58,6 @@ function safeSyncStatusResponse(tenantId) {
       next_retry_at: null,
     },
   };
-}
-function getTenantAssetVersion() {
-  const raw = process.env.RENDER_GIT_COMMIT
-    || process.env.SOURCE_VERSION
-    || process.env.COMMIT_SHA
-    || process.env.RENDER_DEPLOY_ID
-    || process.env.npm_package_version
-    || "dev";
-  return String(raw).trim().replace(/[^a-zA-Z0-9._-]/g, "").slice(0, 64) || "dev";
-}
-
-function versionTenantHtml(html) {
-  const version = encodeURIComponent(getTenantAssetVersion());
-  return String(html).replace(/\/tenant\/auth\.js(?:\?v=[^"']*)?/g, `/tenant/auth.js?v=${version}`);
 }
 
 function sendTenantHtml(filename) {
