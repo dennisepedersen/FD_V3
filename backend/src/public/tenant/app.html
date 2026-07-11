@@ -628,6 +628,82 @@
       justify-content: flex-start;
     }
 
+    .tenantAdminHeaderPanel {
+      margin-bottom: 0;
+    }
+
+    .tenantAdminStickyToolbar {
+      position: sticky;
+      top: 72px;
+      z-index: 18;
+      display: grid;
+      gap: 10px;
+      padding: 12px;
+      border: 1px solid rgba(5, 150, 105, 0.16);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.96);
+      box-shadow: 0 14px 34px rgba(14, 16, 24, 0.08);
+      backdrop-filter: blur(18px);
+    }
+
+    .tenantAdminSyncBar,
+    .tenantAdminActionBar,
+    .tenantAdminPeopleHeader,
+    .tenantAdminFilterBar {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .tenantAdminPeopleHeader {
+      justify-content: space-between;
+      padding-top: 10px;
+      border-top: 1px solid rgba(5, 150, 105, 0.10);
+    }
+
+    .tenantAdminPeopleTitle {
+      min-width: 0;
+      display: grid;
+      gap: 3px;
+    }
+
+    .tenantAdminPeopleTitle h2 {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.2;
+    }
+
+    .tenantAdminFilterBar {
+      align-items: end;
+    }
+
+    .tenantAdminFilterBar .toolbarControl {
+      display: grid;
+      gap: 5px;
+      align-items: start;
+    }
+
+    .tenantAdminFilterBar .sortSelect {
+      min-width: 180px;
+    }
+
+    .btn:disabled,
+    .btn[aria-disabled="true"] {
+      opacity: 0.46;
+      cursor: not-allowed;
+      box-shadow: none;
+      transform: none;
+    }
+
+    .btn:disabled:hover,
+    .btn[aria-disabled="true"]:hover {
+      border-color: rgba(191, 212, 234, 0.18);
+      background: rgba(255, 255, 255, 0.05);
+      color: inherit;
+    }
+
     .sortSelect {
       width: auto;
       min-width: 220px;
@@ -639,6 +715,106 @@
       font-size: 16px;
       background: rgba(4, 10, 22, 0.38);
       color: var(--text);
+    }
+
+    .fdModalShell {
+      position: fixed;
+      inset: 0;
+      z-index: 80;
+      display: grid;
+      place-items: center;
+      padding: 20px;
+    }
+
+    .fdModalOverlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(4, 10, 22, 0.54);
+      backdrop-filter: blur(8px);
+    }
+
+    .fdModalPanel {
+      position: relative;
+      z-index: 1;
+      width: min(560px, 100%);
+      max-height: min(720px, calc(100vh - 40px));
+      overflow: auto;
+      display: grid;
+      gap: 16px;
+      padding: 18px;
+      border: 1px solid rgba(5, 150, 105, 0.16);
+      border-radius: 18px;
+      background: #ffffff;
+      color: #0e1018;
+      box-shadow: 0 24px 70px rgba(14, 16, 24, 0.22);
+    }
+
+    .fdModalHeader,
+    .fdModalActions {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .fdModalHeader h2 {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.2;
+    }
+
+    .fdModalHeader p {
+      margin: 4px 0 0;
+      color: #64736f;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .fdModalActions {
+      align-items: center;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+    }
+
+    body.fd-modal-open {
+      overflow: hidden;
+    }
+
+    .scrollTopBtn {
+      position: fixed;
+      right: max(18px, env(safe-area-inset-right));
+      bottom: calc(22px + env(safe-area-inset-bottom));
+      z-index: 70;
+      width: 46px;
+      height: 46px;
+      border: 1px solid rgba(5, 150, 105, 0.24);
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      background: #ffffff;
+      color: var(--fd-brand);
+      box-shadow: 0 14px 34px rgba(14, 16, 24, 0.16);
+      cursor: pointer;
+      opacity: 1;
+      transform: translateY(0);
+      transition: opacity 160ms ease, transform 160ms ease;
+    }
+
+    .scrollTopBtn[hidden] {
+      display: grid !important;
+      pointer-events: none;
+      opacity: 0;
+      transform: translateY(12px);
+    }
+
+    .scrollTopBtn svg {
+      width: 20px;
+      height: 20px;
+      stroke: currentColor;
+      stroke-width: 2.2;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
     }
 
     .calendarTabs {
@@ -1378,6 +1554,43 @@
 
       .page {
         padding: 18px;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .tenantAdminStickyToolbar {
+        top: 58px;
+        padding: 10px;
+        border-radius: 14px;
+      }
+
+      .tenantAdminSyncBar,
+      .tenantAdminActionBar,
+      .tenantAdminPeopleHeader,
+      .tenantAdminFilterBar {
+        align-items: stretch;
+      }
+
+      .tenantAdminSyncBar .btn,
+      .tenantAdminActionBar .btn,
+      .tenantAdminFilterBar .toolbarControl,
+      .tenantAdminFilterBar .sortSelect {
+        width: 100%;
+      }
+
+      .fdModalShell {
+        padding: 12px;
+        align-items: end;
+      }
+
+      .fdModalPanel {
+        max-height: calc(100vh - 24px - env(safe-area-inset-bottom));
+        border-radius: 18px 18px 12px 12px;
+      }
+
+      .scrollTopBtn {
+        right: max(14px, env(safe-area-inset-right));
+        bottom: calc(86px + env(safe-area-inset-bottom));
       }
     }
 
@@ -3109,7 +3322,7 @@
         </section>
 
         <section id="resourceGroupsView" class="view" data-view="resource-groups" hidden>
-          <section class="panel headerPanel">
+          <section class="panel headerPanel tenantAdminHeaderPanel">
             <div class="titleRow">
               <div>
                 <h1>Tenant admin</h1>
@@ -3118,62 +3331,52 @@
               <a class="btn btnCompact" href="#dashboard" data-view-link="dashboard">Dashboard</a>
             </div>
             <p id="resourceGroupAccessNotice" class="resourceGroupAdminNotice" hidden>Du har ikke adgang til ressourcegrupper.</p>
-          <section id="tenantAdminSyncSection" class="panel toolbar">
-            <button id="tenantAdminSyncFittersBtn" class="btn btnPrimary btnCompact" type="button">Sync fitters now</button>
-            <button id="tenantAdminRefreshBtn" class="btn btnCompact" type="button">Opdater admin</button>
-            <div id="tenantAdminSyncStatus" class="metaRow">Indlæser sync-status...</div>
           </section>
 
-          <section id="tenantAdminUsersSection" class="panel calendarPanel">
-            <div class="sectionHeader">
-              <div>
+          <section id="tenantAdminStickyToolbar" class="tenantAdminStickyToolbar" aria-label="Tenant admin værktøjer">
+            <div id="tenantAdminSyncSection" class="tenantAdminSyncBar">
+              <button id="tenantAdminSyncFittersBtn" class="btn btnPrimary btnCompact" type="button">Synkroniser medarbejdere nu</button>
+              <div id="tenantAdminSyncStatus" class="metaRow">Indlæser sync-status...</div>
+            </div>
+            <div class="tenantAdminActionBar" aria-label="Tenant admin handlinger">
+              <button id="tenantAdminOpenUserCreateBtn" class="btn btnCompact" type="button">Opret bruger</button>
+              <button id="tenantAdminOpenGroupCreateBtn" class="btn btnCompact" type="button">Opret gruppe</button>
+            </div>
+            <div class="tenantAdminPeopleHeader">
+              <div class="tenantAdminPeopleTitle">
                 <h2>Medarbejdere</h2>
                 <p id="tenantAdminUsersMeta" class="subtitle">Indlæser medarbejdere...</p>
               </div>
+              <div class="tenantAdminFilterBar">
+                <label class="toolbarControl">
+                  <span>Søg</span>
+                  <input id="tenantAdminUserSearchInput" class="sortSelect" type="search" placeholder="Navn, email, initialer, gruppe eller ekstern ID">
+                </label>
+                <label class="toolbarControl">
+                  <span>E-Komplet status</span>
+                  <select id="tenantAdminEkStatusFilter" class="sortSelect">
+                    <option value="all">Alle</option>
+                    <option value="active">Aktive</option>
+                    <option value="inactive">Inaktive</option>
+                  </select>
+                </label>
+                <label class="toolbarControl">
+                  <span>Fielddesk-login</span>
+                  <select id="tenantAdminLoginStatusFilter" class="sortSelect">
+                    <option value="all">Alle</option>
+                    <option value="without_login">Uden login</option>
+                    <option value="not_invited">Ikke inviteret</option>
+                    <option value="invited">Inviteret</option>
+                    <option value="expired">Invitation udløbet</option>
+                    <option value="active">Aktiv</option>
+                  </select>
+                </label>
+              </div>
             </div>
-            <div class="toolbar">
-              <label class="toolbarControl">
-                <span>Søg</span>
-                <input id="tenantAdminUserSearchInput" class="sortSelect" type="search" placeholder="Navn, email, initialer, gruppe eller ekstern ID">
-              </label>
-            </div>
-            <div id="tenantAdminUsersList" class="resourceGroupDetailList" aria-live="polite"></div>
           </section>
 
-          <section id="tenantAdminUserCreateSection" class="panel calendarPanel">
-            <div class="sectionHeader">
-              <div>
-                <h2>Opret manuel bruger</h2>
-                <p class="subtitle">Bruges når tenant ikke henter medarbejderen fra EK.</p>
-              </div>
-            </div>
-            <form id="tenantAdminUserCreateForm" class="resourceGroupFormGrid">
-              <label class="resourceGroupField">
-                Navn
-                <input id="tenantAdminUserNameInput" maxlength="160" required>
-              </label>
-              <label class="resourceGroupField">
-                Email
-                <input id="tenantAdminUserEmailInput" type="email" maxlength="260" required>
-              </label>
-              <label class="resourceGroupField">
-                Initialer
-                <input id="tenantAdminUserShortCodeInput" maxlength="12">
-              </label>
-              <label class="resourceGroupField">
-                Rolle
-                <select id="tenantAdminUserRoleSelect">
-                  <option value="technician">Tekniker</option>
-                  <option value="project_leader">Projektleder</option>
-                  <option value="tenant_admin">Tenant admin</option>
-                </select>
-              </label>
-              <div class="resourceGroupFormActions resourceGroupFieldWide">
-                <button id="tenantAdminUserCreateBtn" class="btn btnPrimary" type="submit">Opret bruger</button>
-                <p id="tenantAdminUserCreateStatus" class="resourceGroupFormStatus"></p>
-              </div>
-            </form>
-          </section>
+          <section id="tenantAdminUsersSection" class="panel calendarPanel">
+            <div id="tenantAdminUsersList" class="resourceGroupDetailList" aria-live="polite"></div>
           </section>
 
           <section id="resourceGroupToolbarSection" class="panel toolbar">
@@ -3185,28 +3388,6 @@
             <div id="resourceGroupListStatus" class="metaRow">Indlæser grupper...</div>
           </section>
 
-          <section id="resourceGroupCreateSection" class="panel calendarPanel">
-            <div class="sectionHeader">
-              <div>
-                <h2>Opret gruppe</h2>
-                <p class="subtitle">Fielddesk-ejet gruppe. E-Komplet kan senere bruges som forslag, ikke sandhed.</p>
-              </div>
-            </div>
-            <form id="resourceGroupCreateForm" class="resourceGroupFormGrid">
-              <label class="resourceGroupField">
-                Navn
-                <input id="resourceGroupCreateNameInput" maxlength="160" required>
-              </label>
-              <label class="resourceGroupField resourceGroupFieldWide">
-                Beskrivelse
-                <textarea id="resourceGroupCreateDescriptionInput" maxlength="1000"></textarea>
-              </label>
-              <div class="resourceGroupFormActions resourceGroupFieldWide">
-                <button id="resourceGroupCreateBtn" class="btn btnPrimary" type="submit">Opret gruppe</button>
-                <p id="resourceGroupCreateStatus" class="resourceGroupFormStatus"></p>
-              </div>
-            </form>
-          </section>
 
           <section id="resourceGroupListSection" class="panel calendarPanel">
             <div class="sectionHeader">
@@ -3492,6 +3673,77 @@
       <a class="fdBottomLink" href="/kalender" data-view-link="calendar"><span class="fdBottomIcon" data-icon="calendar"></span><span>Kalender</span></a>
       <a class="fdBottomLink" href="/indstillinger" data-view-link="resource-groups"><span class="fdBottomIcon" data-icon="settings"></span><span>Indstillinger</span></a>
     </nav>
+    <button id="scrollTopBtn" class="scrollTopBtn" type="button" aria-label="Gå til toppen" title="Gå til toppen" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5"></path><path d="M6 11l6-6 6 6"></path></svg>
+    </button>
+  </div>
+
+  <div id="tenantAdminUserCreateModal" class="fdModalShell" role="presentation" hidden>
+    <div class="fdModalOverlay" data-modal-close="tenantAdminUserCreateModal"></div>
+    <section class="fdModalPanel" role="dialog" aria-modal="true" aria-labelledby="tenantAdminUserCreateTitle">
+      <div class="fdModalHeader">
+        <div>
+          <h2 id="tenantAdminUserCreateTitle">Opret manuel bruger</h2>
+          <p>Bruges når tenant ikke henter medarbejderen fra EK.</p>
+        </div>
+        <button id="tenantAdminUserCreateCloseBtn" class="iconBtn" type="button" aria-label="Luk">×</button>
+      </div>
+      <form id="tenantAdminUserCreateForm" class="resourceGroupFormGrid">
+        <label class="resourceGroupField">
+          Navn
+          <input id="tenantAdminUserNameInput" maxlength="160" required>
+        </label>
+        <label class="resourceGroupField">
+          Email
+          <input id="tenantAdminUserEmailInput" type="email" maxlength="260" required>
+        </label>
+        <label class="resourceGroupField">
+          Initialer
+          <input id="tenantAdminUserShortCodeInput" maxlength="12">
+        </label>
+        <label class="resourceGroupField">
+          Rolle
+          <select id="tenantAdminUserRoleSelect">
+            <option value="technician">Tekniker</option>
+            <option value="project_leader">Projektleder</option>
+            <option value="tenant_admin">Tenant admin</option>
+          </select>
+        </label>
+        <p id="tenantAdminUserCreateStatus" class="resourceGroupFormStatus resourceGroupFieldWide"></p>
+        <div class="fdModalActions resourceGroupFieldWide">
+          <button id="tenantAdminUserCreateCancelBtn" class="btn btnCompact" type="button">Annuller</button>
+          <button id="tenantAdminUserCreateBtn" class="btn btnPrimary" type="submit">Opret bruger</button>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <div id="resourceGroupCreateModal" class="fdModalShell" role="presentation" hidden>
+    <div class="fdModalOverlay" data-modal-close="resourceGroupCreateModal"></div>
+    <section class="fdModalPanel" role="dialog" aria-modal="true" aria-labelledby="resourceGroupCreateTitle">
+      <div class="fdModalHeader">
+        <div>
+          <h2 id="resourceGroupCreateTitle">Opret gruppe</h2>
+          <p>Fielddesk-ejet gruppe. E-Komplet kan senere bruges som forslag, ikke sandhed.</p>
+        </div>
+        <button id="resourceGroupCreateCloseBtn" class="iconBtn" type="button" aria-label="Luk">×</button>
+      </div>
+      <form id="resourceGroupCreateForm" class="resourceGroupFormGrid">
+        <label class="resourceGroupField">
+          Navn
+          <input id="resourceGroupCreateNameInput" maxlength="160" required>
+        </label>
+        <label class="resourceGroupField resourceGroupFieldWide">
+          Beskrivelse
+          <textarea id="resourceGroupCreateDescriptionInput" maxlength="1000"></textarea>
+        </label>
+        <p id="resourceGroupCreateStatus" class="resourceGroupFormStatus resourceGroupFieldWide"></p>
+        <div class="fdModalActions resourceGroupFieldWide">
+          <button id="resourceGroupCreateCancelBtn" class="btn btnCompact" type="button">Annuller</button>
+          <button id="resourceGroupCreateBtn" class="btn btnPrimary" type="submit">Opret gruppe</button>
+        </div>
+      </form>
+    </section>
   </div>
 
   <div id="drawerShell" class="drawerShell" aria-hidden="true">
