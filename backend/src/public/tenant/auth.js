@@ -598,8 +598,8 @@
       }
       const invitation = result.invitation || {};
       const emailHint = invitation.email_hint ? ` Konto: ${invitation.email_hint}.` : "";
-      const expiry = invitation.expires_at ? ` Linket udløber ${new Date(invitation.expires_at).toLocaleString("da-DK")}.` : "";
-      if (intro) intro.textContent = `Vælg en adgangskode til din Fielddesk-konto.${emailHint}${expiry}`;
+      const expiry = invitation.expires_at ? ` Linket udlÃ¸ber ${new Date(invitation.expires_at).toLocaleString("da-DK")}.` : "";
+      if (intro) intro.textContent = `VÃ¦lg en adgangskode til din Fielddesk-konto.${emailHint}${expiry}`;
       showSection(formSection);
     } catch (_error) {
       showSection(errorSection);
@@ -611,8 +611,16 @@
       event.preventDefault();
       const nextPassword = password ? password.value : "";
       const repeatedPassword = passwordConfirm ? passwordConfirm.value : "";
+      if (!nextPassword) {
+        setStatus("Indtast en adgangskode pÃ¥ mindst 10 tegn.", "error");
+        return;
+      }
       if (nextPassword.length < 10) {
-        setStatus("Adgangskoden skal være mindst 10 tegn.", "error");
+        setStatus("Adgangskoden skal vÃ¦re mindst 10 tegn.", "error");
+        return;
+      }
+      if (!repeatedPassword) {
+        setStatus("Gentag adgangskoden.", "error");
         return;
       }
       if (nextPassword !== repeatedPassword) {
@@ -1268,7 +1276,7 @@
 
         const description = document.createElement("p");
         description.className = "resourceGroupNote";
-        description.textContent = group && group.description ? String(group.description) : `${getTenantAdminSourceLabel(group && group.source)} · ${group && group.member_count != null ? group.member_count : 0} medlemmer${group && group.external_id ? ` · EK ${group.external_id}` : ""}${group && group.short_code ? ` · ${group.short_code}` : ""}`;
+        description.textContent = group && group.description ? String(group.description) : `${getTenantAdminSourceLabel(group && group.source)} | ${group && group.member_count != null ? group.member_count : 0} medlemmer${group && group.external_id ? ` | EK ${group.external_id}` : ""}${group && group.short_code ? ` | ${group.short_code}` : ""}`;
 
         const actions = document.createElement("div");
         actions.className = "resourceGroupActions";
@@ -1472,7 +1480,7 @@
       }
       if (!tenantAdminSyncStatus) return;
       if (!sync) {
-        tenantAdminSyncStatus.textContent = "Indlæser sync-status...";
+        tenantAdminSyncStatus.textContent = "IndlÃ¦ser sync-status...";
         return;
       }
       if (!configured) {
@@ -1492,7 +1500,7 @@
       const code = user && user.short_code ? String(user.short_code).toUpperCase() : "-";
       const groups = Array.isArray(user && user.resource_groups) ? user.resource_groups : [];
       const groupLabel = groups.map((group) => group.external_id || group.short_code || group.name).filter(Boolean).slice(0, 2).join(", ");
-      return groupLabel ? `${name} · ${code} · ${groupLabel}` : `${name} · ${code}`;
+      return groupLabel ? `${name} | ${code} | ${groupLabel}` : `${name} | ${code}`;
     }
 
     function formatTenantAdminDate(value) {
@@ -1518,7 +1526,7 @@
     }
 
     function getTenantAdminInviteDisabledReason(user) {
-      if (!user || !(user.tenant_user_id || user.fitter_row_id)) return "Kræver en tenant user- eller fitter-række";
+      if (!user || !(user.tenant_user_id || user.fitter_row_id)) return "KrÃ¦ver en tenant user- eller fitter-rÃ¦kke";
       if (!user.email) return "Email mangler";
       if (String(user.login_status || "").toLowerCase() === "active") return "Kontoen er allerede aktiv";
       const status = String(user.status || "").toLowerCase();
@@ -1537,7 +1545,7 @@
       if (!tenantAdminUsersList) return;
       tenantAdminUsersList.replaceChildren();
       const users = Array.isArray(state.tenantAdmin.users) ? state.tenantAdmin.users : [];
-      setText(tenantAdminUsersMeta, state.tenantAdmin.usersLoading ? "Indlæser medarbejdere..." : (users.length === 1 ? "1 medarbejder." : `${users.length} medarbejdere.`));
+      setText(tenantAdminUsersMeta, state.tenantAdmin.usersLoading ? "IndlÃ¦ser medarbejdere..." : (users.length === 1 ? "1 medarbejder." : `${users.length} medarbejdere.`));
       if (!users.length && !state.tenantAdmin.usersLoading) {
         const empty = document.createElement("p");
         empty.className = "calendarMessage";
@@ -1555,21 +1563,21 @@
         title.textContent = getTenantAdminUserLabel(user);
         const tag = document.createElement("span");
         tag.className = user && user.status === "active" ? "tag tagLive" : "tag tagPreview";
-        tag.textContent = `${getTenantAdminSourceLabel(user && user.source)} · ${user && user.status ? user.status : "active"}`;
+        tag.textContent = `${getTenantAdminSourceLabel(user && user.source)} | ${user && user.status ? user.status : "active"}`;
         header.append(title, tag);
         const meta = document.createElement("p");
         meta.className = "resourceGroupMeta";
-        const external = user && user.external_id ? ` · EK ${user.external_id}` : "";
+        const external = user && user.external_id ? ` | EK ${user.external_id}` : "";
         const groups = Array.isArray(user && user.resource_groups) ? user.resource_groups : [];
         const groupNames = groups.map((group) => group.name).filter(Boolean).join(", ") || "Ingen gruppe";
-        meta.textContent = `${user && user.email ? user.email : "Ingen email"}${external} · ${groupNames}`;
+        meta.textContent = `${user && user.email ? user.email : "Ingen email"}${external} | ${groupNames}`;
         const loginMeta = document.createElement("p");
         loginMeta.className = "resourceGroupMeta";
-        const inviteStatus = user && user.invitation_status ? ` · Invitation: ${user.invitation_status}` : "";
+        const inviteStatus = user && user.invitation_status ? ` | Invitation: ${user.invitation_status}` : "";
         const lastSent = user && (user.invitation_sent_at || user.last_invited_at)
-          ? ` · Sendt: ${formatTenantAdminDate(user.invitation_sent_at || user.last_invited_at)}`
+          ? ` | Sendt: ${formatTenantAdminDate(user.invitation_sent_at || user.last_invited_at)}`
           : "";
-        const expires = user && user.invitation_expires_at ? ` · Udløber: ${formatTenantAdminDate(user.invitation_expires_at)}` : "";
+        const expires = user && user.invitation_expires_at ? ` | UdlÃ¸ber: ${formatTenantAdminDate(user.invitation_expires_at)}` : "";
         loginMeta.textContent = `Login: ${getTenantAdminLoginStatusLabel(user)}${inviteStatus}${lastSent}${expires}`;
         card.append(header, meta, loginMeta);
         if (user && user.invitation_send_error) {
@@ -1664,7 +1672,7 @@
       const shortCode = tenantAdminUserShortCodeInput ? tenantAdminUserShortCodeInput.value.trim() : "";
       const role = tenantAdminUserRoleSelect ? tenantAdminUserRoleSelect.value : "technician";
       if (!name || !email) {
-        setText(tenantAdminUserCreateStatus, "Navn og email er påkrævet.");
+        setText(tenantAdminUserCreateStatus, "Navn og email er pÃ¥krÃ¦vet.");
         return;
       }
       if (tenantAdminUserCreateBtn) tenantAdminUserCreateBtn.disabled = true;
@@ -1691,10 +1699,10 @@
     async function syncTenantAdminFitters() {
       if (tenantAdminSyncFittersBtn) tenantAdminSyncFittersBtn.disabled = true;
       state.tenantAdmin.syncLoading = true;
-      setText(tenantAdminSyncStatus, "Sync køes...");
+      setText(tenantAdminSyncStatus, "Sync kÃ¸es...");
       try {
         const response = await apiFetch("/api/tenant/admin/integrations/ekomplet/fitters/sync", { method: "POST" });
-        setText(tenantAdminSyncStatus, response && response.reused ? "Sync kører allerede." : "Sync er sat i kø.");
+        setText(tenantAdminSyncStatus, response && response.reused ? "Sync kÃ¸rer allerede." : "Sync er sat i kÃ¸.");
         await loadTenantAdminSyncStatus();
       } catch (error) {
         if (handleResourceGroupForbidden(error, tenantAdminSyncStatus)) return;

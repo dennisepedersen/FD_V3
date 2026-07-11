@@ -3,57 +3,79 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Opret Fielddesk adgang</title>
+  <title>Opret din Fielddesk-adgang</title>
   <style>
     :root {
-      --bg: #f4f7f6;
+      --bg: #f0faf5;
       --surface: #ffffff;
-      --text: #17221f;
-      --muted: #60706b;
-      --line: #dce5e2;
-      --brand: #1f6f5b;
-      --brand-dark: #185847;
-      --danger: #a73535;
+      --text: #0e1018;
+      --muted: #5f706b;
+      --line: rgba(5, 150, 105, 0.12);
+      --brand: #059669;
+      --brand-light: #10b981;
+      --brand-dark: #047857;
+      --danger: #b42318;
+      --danger-bg: #fff1f1;
+      --success-bg: #ecfdf5;
+      --shadow: 0 18px 58px rgba(5, 150, 105, 0.12);
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
       min-height: 100vh;
-      display: grid;
-      place-items: center;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 16px;
       background: var(--bg);
       color: var(--text);
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-family: "Plus Jakarta Sans", "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
     }
     main {
-      width: min(92vw, 440px);
+      width: min(100%, 520px);
       background: var(--surface);
       border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 28px;
-      box-shadow: 0 18px 48px rgba(18, 37, 32, 0.12);
+      border-radius: 24px;
+      padding: 30px;
+      box-shadow: var(--shadow);
     }
     .brand {
       display: flex;
       align-items: center;
-      gap: 12px;
-      margin-bottom: 22px;
-      font-weight: 700;
+      gap: 14px;
+      margin-bottom: 26px;
     }
     .brand img {
-      width: 36px;
-      height: 36px;
+      width: 168px;
+      height: auto;
       object-fit: contain;
     }
+    .brand span {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+    }
     h1 {
-      margin: 0 0 8px;
-      font-size: 1.55rem;
-      line-height: 1.18;
+      margin: 0 0 10px;
+      font-size: clamp(1.8rem, 5vw, 2.35rem);
+      line-height: 1.08;
+      letter-spacing: 0;
     }
     p {
       margin: 0 0 18px;
       color: var(--muted);
       line-height: 1.5;
+    }
+    .eyebrow {
+      margin-bottom: 8px;
+      color: var(--brand-dark);
+      font-size: 0.78rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
     }
     label {
       display: grid;
@@ -65,27 +87,38 @@
     input {
       width: 100%;
       border: 1px solid var(--line);
-      border-radius: 6px;
-      padding: 12px 13px;
+      border-radius: 13px;
+      min-height: 50px;
+      padding: 0 14px;
       font: inherit;
       color: var(--text);
       background: #fff;
     }
     input:focus {
-      outline: 2px solid rgba(31, 111, 91, 0.2);
-      border-color: var(--brand);
+      outline: none;
+      border-color: var(--brand-light);
+      box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.12);
+    }
+    .helpText {
+      margin-top: -6px;
+      margin-bottom: 4px;
+      color: var(--muted);
+      font-size: 0.84rem;
+      line-height: 1.45;
     }
     button {
       width: 100%;
       border: 0;
-      border-radius: 6px;
-      padding: 12px 14px;
-      margin-top: 8px;
-      background: var(--brand);
+      border-radius: 14px;
+      min-height: 52px;
+      padding: 0 16px;
+      margin-top: 10px;
+      background: linear-gradient(135deg, var(--brand), var(--brand-light));
       color: #fff;
       font: inherit;
-      font-weight: 700;
+      font-weight: 800;
       cursor: pointer;
+      box-shadow: 0 6px 20px rgba(5, 150, 105, 0.24);
     }
     button:disabled {
       opacity: 0.6;
@@ -100,29 +133,54 @@
       margin-top: 14px;
       font-size: 0.92rem;
     }
-    .status.error { color: var(--danger); }
-    .status.success { color: var(--brand-dark); }
+    .status.error,
+    .status.success {
+      border-radius: 12px;
+      padding: 12px;
+    }
+    .status.error {
+      border: 1px solid rgba(180, 35, 24, 0.18);
+      background: var(--danger-bg);
+      color: var(--danger);
+    }
+    .status.success {
+      border: 1px solid rgba(5, 150, 105, 0.18);
+      background: var(--success-bg);
+      color: var(--brand-dark);
+    }
     .hidden { display: none; }
+    @media (max-width: 520px) {
+      main {
+        padding: 24px 18px;
+        border-radius: 18px;
+      }
+      .brand img {
+        width: 144px;
+      }
+    }
   </style>
 </head>
 <body data-page="accept-invite">
   <main>
     <div class="brand">
-      <img src="/tenant/assets/FD_logo.png" alt="">
+      <img src="/tenant/assets/FD_logo.png" alt="Fielddesk">
       <span>Fielddesk</span>
     </div>
     <section id="acceptInviteLoading">
+      <p class="eyebrow">Account setup</p>
       <h1>Kontrollerer link</h1>
-      <p>Et oejeblik, vi tjekker om oprettelseslinket stadig er gyldigt.</p>
+      <p>Et &oslash;jeblik, vi tjekker om oprettelseslinket stadig er gyldigt.</p>
     </section>
     <section id="acceptInviteFormSection" class="hidden">
-      <h1>Opret din adgang</h1>
-      <p id="acceptInviteIntro">Vaelg en adgangskode til din Fielddesk-konto.</p>
-      <form id="acceptInviteForm">
+      <p class="eyebrow">Fielddesk</p>
+      <h1>Opret din Fielddesk-adgang</h1>
+      <p id="acceptInviteIntro">V&aelig;lg en adgangskode til din Fielddesk-konto.</p>
+      <form id="acceptInviteForm" novalidate>
         <label>
           Adgangskode
-          <input id="acceptInvitePassword" type="password" autocomplete="new-password" minlength="10" required>
+          <input id="acceptInvitePassword" type="password" autocomplete="new-password" minlength="10" aria-describedby="acceptInvitePasswordHelp" required>
         </label>
+        <p id="acceptInvitePasswordHelp" class="helpText">Adgangskoden skal v&aelig;re mindst 10 tegn.</p>
         <label>
           Gentag adgangskode
           <input id="acceptInvitePasswordConfirm" type="password" autocomplete="new-password" minlength="10" required>
@@ -132,9 +190,10 @@
       <p id="acceptInviteStatus" class="status" aria-live="polite"></p>
     </section>
     <section id="acceptInviteError" class="hidden">
-      <h1>Linket virker ikke</h1>
-      <p>Linket kan vaere udlobet eller allerede brugt. Kontakt din Fielddesk administrator for et nyt oprettelseslink.</p>
-      <p><a href="/login">Gaa til login</a></p>
+      <p class="eyebrow">Linket kan ikke bruges</p>
+      <h1>Oprettelseslinket er ikke gyldigt</h1>
+      <p id="acceptInviteErrorText">Linket kan v&aelig;re udl&oslash;bet eller allerede brugt. Kontakt din Fielddesk-administrator for et nyt oprettelseslink.</p>
+      <p><a href="/login">G&aring; til login</a></p>
     </section>
   </main>
   <script src="/tenant/auth.js"></script>
