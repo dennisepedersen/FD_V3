@@ -12,7 +12,7 @@ Root commands:
 - `npm test` - runs Node's built-in test runner.
 - `npm run check` - runs the full local/CI gate.
 - `npm run check:syntax` - runs `node --check` on tracked JS files outside dependencies and vendor bundles.
-- `npm run check:whitespace` - runs `git diff --check` and `git diff --cached --check`.
+- `npm run check:whitespace` - checks whitespace locally and across pull request diffs in CI.
 - `npm run check:encoding` - scans tracked text files for common mojibake markers.
 - `npm run check:secrets` - scans tracked text files with the shared Node secret rules.
 - `npm run check:migrations` - validates migration filenames, duplicate numbers, readability, and LF endings without applying anything.
@@ -41,6 +41,8 @@ If `node --check` fails under a restricted Windows sandbox with `EPERM` on the u
 ## Linux And CI Notes
 
 GitHub Actions installs root and backend lockfiles, then runs `npm run check`. No Render or database secrets are used.
+
+`check:whitespace` runs in local working-tree mode by default, using `git diff --check` and `git diff --cached --check` for tracked unstaged and staged changes; untracked files are checked after they are staged. In GitHub Actions pull requests, the workflow passes `CHECK_BASE_SHA` and `CHECK_HEAD_SHA`; the script then runs `git diff --check <base>...<head>` so committed whitespace changes in a clean checkout fail the build. If those refs are unavailable, the script falls back to clean working-tree checks and prints that mode explicitly. Newline-at-EOF is covered when Git reports it through `git diff --check` for the diffed files.
 
 ## Failure Fixture Checks
 

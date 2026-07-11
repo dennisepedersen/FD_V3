@@ -47,6 +47,35 @@ PR-head smoke should:
 
 Render one-off working directory is often `/opt/render/project/src/backend`, but PR-head tarball jobs should not assume `origin` exists in the live checkout.
 
+
+## One-Off Job Logs
+
+One-off job stdout/stderr can be separate from ordinary service logs. Service logs alone are not necessarily enough for PR-head smoke evidence.
+
+Concrete safe flow:
+
+1. Create the one-off job.
+2. Note the returned job id.
+3. Poll the job status until it reaches a terminal state.
+4. Fetch logs through the Render logs API using the job id as the resource/filter.
+5. Check the expected stdout markers:
+   - `SMOKE_START`
+   - `STATIC_ASSERTIONS_PASS`
+   - `ROUTE_SMOKE_PASS`
+   - `SMOKE_PASS`
+6. Treat missing markers, nonzero exit, or non-terminal/failed job status as verification failure.
+
+Safe PowerShell shape, without printing `RENDER_API_KEY`:
+
+```powershell
+$headers = @{ Authorization = "Bearer $env:RENDER_API_KEY"; Accept = 'application/json' }
+$jobId = '<job-id>'
+# Use the Render logs API with the job id as resource/filter. Keep the API key only in headers.
+# Then inspect the returned log lines for SMOKE_* markers and failures.
+```
+
+A job status of `succeeded` is only credible when the command is self-checking and the logs contain the expected markers.
+
 ## Worker Side Effects
 
 `backend/src/app.js` imports and calls `startSyncWorker()`. The worker returns early when `NODE_ENV=test`. Runtime smoke jobs should set `NODE_ENV=test` or monkeypatch worker startup before importing app code.
