@@ -1,4 +1,5 @@
 const express = require("express");
+const fs = require("fs/promises");
 const path = require("path");
 const pool = require("../db/pool");
 const requireTenantHost = require("../middleware/requireTenantHost");
@@ -57,41 +58,49 @@ function safeSyncStatusResponse(tenantId) {
     },
   };
 }
+function getTenantAssetVersion() {
+  const raw = process.env.RENDER_GIT_COMMIT
+    || process.env.SOURCE_VERSION
+    || process.env.COMMIT_SHA
+    || process.env.RENDER_DEPLOY_ID
+    || process.env.npm_package_version
+    || "dev";
+  return String(raw).trim().replace(/[^a-zA-Z0-9._-]/g, "").slice(0, 64) || "dev";
+}
 
-router.get("/login", requireTenantHost, (req, res) => {
-  res.sendFile(path.join(tenantPublicDir, "login.html"));
-});
+function versionTenantHtml(html) {
+  const version = encodeURIComponent(getTenantAssetVersion());
+  return String(html).replace(/\/tenant\/auth\.js(?:\?v=[^"']*)?/g, `/tenant/auth.js?v=${version}`);
+}
 
-router.get("/accept-invite", requireTenantHost, (req, res) => {
-  res.sendFile(path.join(tenantPublicDir, "accept-invite.html"));
-});
+function sendTenantHtml(filename) {
+  return async (req, res, next) => {
+    try {
+      const html = await fs.readFile(path.join(tenantPublicDir, filename), "utf8");
+      res.type("html");
+      res.set("Cache-Control", "no-cache, must-revalidate");
+      res.send(versionTenantHtml(html));
+    } catch (error) {
+      next(error);
+    }
+  };
+}
+router.get("/login", requireTenantHost, sendTenantHtml("login.html"));
 
-router.get("/app", requireTenantHost, (req, res) => {
-  res.sendFile(path.join(tenantPublicDir, "app.html"));
-});
+router.get("/accept-invite", requireTenantHost, sendTenantHtml("accept-invite.html"));
 
-router.get("/", requireTenantHost, (req, res) => {
-  res.sendFile(path.join(tenantPublicDir, "app.html"));
-});
+router.get("/app", requireTenantHost, sendTenantHtml("app.html"));
 
-router.get("/sager", requireTenantHost, (req, res) => {
-  res.sendFile(path.join(tenantPublicDir, "app.html"));
-});
+router.get("/", requireTenantHost, sendTenantHtml("app.html"));
 
-router.get("/kalender", requireTenantHost, (req, res) => {
-  res.sendFile(path.join(tenantPublicDir, "app.html"));
-});
+router.get("/sager", requireTenantHost, sendTenantHtml("app.html"));
 
-router.get("/indstillinger", requireTenantHost, (req, res) => {
-  res.sendFile(path.join(tenantPublicDir, "app.html"));
-});
+router.get("/kalender", requireTenantHost, sendTenantHtml("app.html"));
 
-router.get("/sager/:projectId", requireTenantHost, (req, res) => {
-  res.sendFile(path.join(tenantPublicDir, "project.html"));
-});
-router.get("/project/:projectId", requireTenantHost, (req, res) => {
-  res.sendFile(path.join(tenantPublicDir, "project.html"));
-});
+router.get("/indstillinger", requireTenantHost, sendTenantHtml("app.html"));
+
+router.get("/sager/:projectId", requireTenantHost, sendTenantHtml("project.html"));
+router.get("/project/:projectId", requireTenantHost, sendTenantHtml("project.html"));
 
 router.get("/tenant/assets/fd-cube.png", requireTenantHost, (req, res) => {
   res.sendFile(path.join(tenantPublicDir, "assets", "fd-cube.png"));
@@ -102,6 +111,12 @@ router.get("/tenant/assets/FD_logo.png", requireTenantHost, (req, res) => {
 });
 
 router.get("/tenant/auth.js", requireTenantHost, (req, res) => {
+  if (req.query && req.query.v) {
+    res.set("Cache-Control", "public, max-age=31536000, immutable");
+  } else {
+    res.set("Cache-Control", "no-cache, must-revalidate");
+  }
+  res.type("application/javascript");
   res.sendFile(path.join(tenantPublicDir, "auth.js"));
 });
 

@@ -1835,13 +1835,22 @@
           body: JSON.stringify({ name, email, short_code: shortCode || null, role, status: "invited" }),
         });
         const createdUser = getCreatedTenantAdminInviteUser(response, { name, email, shortCode });
+        if (shouldSendInvite && !(createdUser.tenant_user_id || createdUser.fitter_row_id)) {
+          state.tenantAdmin.usersLoaded = false;
+          await loadTenantAdminUsers({ force: true });
+          await loadResourceGroupResources({ force: true });
+          resetTenantAdminUserCreateForm();
+          closeTenantAdminModal(tenantAdminUserCreateModal);
+          setText(tenantAdminUsersMeta, "Brugeren blev oprettet, men oprettelseslinket kunne ikke sendes. Brug Send oprettelseslink fra listen.");
+          return;
+        }
         if (shouldSendInvite) {
           const inviteResult = await sendTenantAdminUserInvite(createdUser, {
             statusTarget: tenantAdminUserCreateStatus,
             reload: false,
             render: false,
             pendingMessage: "Bruger oprettet. Sender oprettelseslink...",
-            successMessage: `Bruger oprettet, og oprettelseslink sendt til ${email}.`,
+            successMessage: "Brugeren blev oprettet, og oprettelseslinket blev sendt.",
             failureMessage: "Brugeren blev oprettet, men oprettelseslinket kunne ikke sendes.",
           });
           state.tenantAdmin.usersLoaded = false;
@@ -1855,7 +1864,7 @@
           }
           resetTenantAdminUserCreateForm();
           closeTenantAdminModal(tenantAdminUserCreateModal);
-          setText(tenantAdminUsersMeta, `Bruger oprettet, og oprettelseslink sendt til ${email}.`);
+          setText(tenantAdminUsersMeta, "Brugeren blev oprettet, og oprettelseslinket blev sendt.");
           return;
         }
         resetTenantAdminUserCreateForm();
