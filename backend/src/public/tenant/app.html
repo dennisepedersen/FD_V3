@@ -3391,6 +3391,8 @@
                     <option value="invited">Inviteret</option>
                     <option value="expired">Invitation udløbet</option>
                     <option value="active">Aktiv</option>
+                    <option value="deactivated">Deaktiveret</option>
+                    <option value="pending_reactivation">Afventer genaktivering</option>
                   </select>
                 </label>
               </div>
@@ -3744,6 +3746,30 @@
     </section>
   </div>
 
+
+  <div id="tenantAdminUserDeactivateModal" class="fdModalShell" role="presentation" hidden>
+    <div class="fdModalOverlay" data-modal-close="tenantAdminUserDeactivateModal"></div>
+    <section class="fdModalPanel" role="dialog" aria-modal="true" aria-labelledby="tenantAdminUserDeactivateTitle">
+      <div class="fdModalHeader">
+        <div>
+          <h2 id="tenantAdminUserDeactivateTitle">Deaktiver bruger</h2>
+          <p id="tenantAdminUserDeactivateIntro">Brugerens eksisterende sessioner bliver ugyldige med det samme.</p>
+        </div>
+        <button id="tenantAdminUserDeactivateCloseBtn" class="iconBtn" type="button" aria-label="Luk">x</button>
+      </div>
+      <form id="tenantAdminUserDeactivateForm" class="resourceGroupFormGrid">
+        <label class="resourceGroupField resourceGroupFieldWide">
+          Begrundelse
+          <textarea id="tenantAdminUserDeactivateReasonInput" maxlength="1000" required></textarea>
+        </label>
+        <p id="tenantAdminUserDeactivateStatus" class="resourceGroupFormStatus resourceGroupFieldWide"></p>
+        <div class="fdModalActions resourceGroupFieldWide">
+          <button id="tenantAdminUserDeactivateCancelBtn" class="btn btnCompact" type="button">Annuller</button>
+          <button id="tenantAdminUserDeactivateBtn" class="btn btnPrimary" type="submit">Deaktiver bruger</button>
+        </div>
+      </form>
+    </section>
+  </div>
   <div id="resourceGroupCreateModal" class="fdModalShell" role="presentation" hidden>
     <div class="fdModalOverlay" data-modal-close="resourceGroupCreateModal"></div>
     <section class="fdModalPanel" role="dialog" aria-modal="true" aria-labelledby="resourceGroupCreateTitle">

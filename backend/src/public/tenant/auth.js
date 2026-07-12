@@ -8,6 +8,8 @@
     "invalid_token_type",
     "tenant_context_mismatch",
     "tenant_user_not_found",
+    "tenant_user_inactive",
+    "session_revoked",
   ]);
 
   function getToken() {
@@ -771,6 +773,14 @@
     const tenantAdminUserCreateModal = document.getElementById("tenantAdminUserCreateModal");
     const tenantAdminUserCreateCloseBtn = document.getElementById("tenantAdminUserCreateCloseBtn");
     const tenantAdminUserCreateCancelBtn = document.getElementById("tenantAdminUserCreateCancelBtn");
+    const tenantAdminUserDeactivateModal = document.getElementById("tenantAdminUserDeactivateModal");
+    const tenantAdminUserDeactivateForm = document.getElementById("tenantAdminUserDeactivateForm");
+    const tenantAdminUserDeactivateIntro = document.getElementById("tenantAdminUserDeactivateIntro");
+    const tenantAdminUserDeactivateReasonInput = document.getElementById("tenantAdminUserDeactivateReasonInput");
+    const tenantAdminUserDeactivateBtn = document.getElementById("tenantAdminUserDeactivateBtn");
+    const tenantAdminUserDeactivateStatus = document.getElementById("tenantAdminUserDeactivateStatus");
+    const tenantAdminUserDeactivateCloseBtn = document.getElementById("tenantAdminUserDeactivateCloseBtn");
+    const tenantAdminUserDeactivateCancelBtn = document.getElementById("tenantAdminUserDeactivateCancelBtn");
     const tenantAdminOpenGroupCreateBtn = document.getElementById("tenantAdminOpenGroupCreateBtn");
     const resourceGroupCreateModal = document.getElementById("resourceGroupCreateModal");
     const resourceGroupCreateCloseBtn = document.getElementById("resourceGroupCreateCloseBtn");
@@ -839,6 +849,9 @@
         usersLoading: false,
         syncLoading: false,
         inviteSending: new Set(),
+        reactivationSending: new Set(),
+        deactivationSubmitting: false,
+        deactivationTarget: null,
         userCreateSubmitting: false,
         search: "",
         ekStatusFilter: "all",
@@ -1584,6 +1597,9 @@
     }
 
     function getTenantAdminLoginFilterKey(user) {
+      const lifecycleStatus = String(user && user.status ? user.status : "").toLowerCase();
+      if (lifecycleStatus === "deactivated") return "deactivated";
+      if (lifecycleStatus === "pending_reactivation") return "pending_reactivation";
       const loginStatus = String(user && user.login_status ? user.login_status : "imported_no_login").toLowerCase();
       const inviteStatus = String(user && user.invitation_status ? user.invitation_status : "").toLowerCase();
       if (loginStatus === "active") return "active";
@@ -1596,6 +1612,8 @@
     function getTenantAdminPersonStatusLabel(user) {
       const loginKey = getTenantAdminLoginFilterKey(user);
       if (loginKey === "active") return "aktiv";
+      if (loginKey === "deactivated") return "deaktiveret";
+      if (loginKey === "pending_reactivation") return "afventer genaktivering";
       if (loginKey === "expired") return "invitation udløbet";
       if (loginKey === "invited") return "inviteret";
       if (loginKey === "not_invited") return "ikke inviteret";
@@ -1608,6 +1626,8 @@
     function getTenantAdminLoginStatusLabel(user) {
       const loginKey = getTenantAdminLoginFilterKey(user);
       if (loginKey === "active") return "Aktiv";
+      if (loginKey === "deactivated") return "Deaktiveret";
+      if (loginKey === "pending_reactivation") return "Afventer genaktivering";
       if (loginKey === "expired") return "Invitation udløbet";
       if (loginKey === "invited") return "Invitation sendt";
       if (loginKey === "not_invited") return "Ingen invitation sendt";
@@ -1618,6 +1638,8 @@
     function getTenantAdminLoginLine(user) {
       const loginKey = getTenantAdminLoginFilterKey(user);
       if (loginKey === "active") return "Login: Aktiv";
+      if (loginKey === "deactivated") return "Login: Deaktiveret";
+      if (loginKey === "pending_reactivation") return "Login: Afventer genaktivering";
       if (loginKey === "expired") return `Login: Invitation udløbet | Udløb: ${formatTenantAdminDate(user && user.invitation_expires_at)}`;
       if (loginKey === "invited") return `Login: Invitation sendt | Udløber: ${formatTenantAdminDate(user && user.invitation_expires_at)}`;
       if (loginKey === "not_invited") return "Login: Ingen invitation sendt";
@@ -1644,7 +1666,7 @@
       if (!user || !(user.tenant_user_id || user.fitter_row_id) || !user.email) return false;
       if (String(user.login_status || "").toLowerCase() === "active") return false;
       const status = String(user.status || "").toLowerCase();
-      return status !== "suspended" && status !== "deleted";
+      return !["suspended", "deleted", "deactivated", "pending_reactivation"].includes(status);
     }
 
     function getTenantAdminInviteDisabledReason(user) {
@@ -1652,7 +1674,7 @@
       if (!user.email) return "Email mangler";
       if (String(user.login_status || "").toLowerCase() === "active") return "Kontoen er allerede aktiv";
       const status = String(user.status || "").toLowerCase();
-      if (status === "suspended" || status === "deleted") return "Brugeren er deaktiveret";
+      if (["suspended", "deleted", "deactivated", "pending_reactivation"].includes(status)) return "Brug reactivation-flowet for deaktiverede brugere";
       return "";
     }
 
@@ -1663,6 +1685,20 @@
         : "Send oprettelseslink";
     }
 
+    function canDeactivateTenantAdminUser(user) {
+      return Boolean(user && user.tenant_user_id && String(user.status || "").toLowerCase() === "active");
+    }
+
+    function canReactivateTenantAdminUser(user) {
+      const status = String(user && user.status ? user.status : "").toLowerCase();
+      return Boolean(user && user.tenant_user_id && user.email && ["deactivated", "pending_reactivation"].includes(status));
+    }
+
+    function getTenantAdminReactivationButtonLabel(user) {
+      return String(user && user.status ? user.status : "").toLowerCase() === "pending_reactivation"
+        ? "Gensend genaktiveringslink"
+        : "Genaktiver med oprettelseslink";
+    }
     function renderTenantAdminUsers() {
       if (!tenantAdminUsersList) return;
       tenantAdminUsersList.replaceChildren();
@@ -1699,6 +1735,16 @@
         loginMeta.className = "resourceGroupMeta";
         loginMeta.textContent = getTenantAdminLoginLine(user);
         card.append(header, meta, loginMeta);
+        if (user && (user.deactivated_reason || user.deactivated_at || user.reactivation_requested_at)) {
+          const lifecycleMeta = document.createElement("p");
+          lifecycleMeta.className = "resourceGroupMeta";
+          const reason = user.deactivated_reason ? `Note: ${user.deactivated_reason}` : "Note: -";
+          const by = user.deactivated_by_name ? `Af: ${user.deactivated_by_name}` : "Af: -";
+          const at = user.deactivated_at ? `Deaktiveret: ${formatTenantAdminDate(user.deactivated_at)}` : "Deaktiveret: -";
+          const pending = user.reactivation_requested_at ? `Afventer siden: ${formatTenantAdminDate(user.reactivation_requested_at)}` : "";
+          lifecycleMeta.textContent = [reason, by, at, pending].filter(Boolean).join(" | ");
+          card.appendChild(lifecycleMeta);
+        }
         if (user && user.invitation_send_error) {
           const mailError = document.createElement("p");
           mailError.className = "resourceGroupMeta";
@@ -1722,6 +1768,29 @@
           inviteButton.addEventListener("click", () => sendTenantAdminUserInvite(user));
         }
         actions.appendChild(inviteButton);
+        if (canDeactivateTenantAdminUser(user)) {
+          const deactivateButton = document.createElement("button");
+          deactivateButton.type = "button";
+          deactivateButton.className = "btn btnCompact";
+          deactivateButton.textContent = "Deaktiver bruger";
+          deactivateButton.addEventListener("click", () => openTenantAdminUserDeactivateModal(user, deactivateButton));
+          actions.appendChild(deactivateButton);
+        }
+        if (canReactivateTenantAdminUser(user)) {
+          const reactivateButton = document.createElement("button");
+          reactivateButton.type = "button";
+          reactivateButton.className = "btn btnCompact";
+          const reactivateTargetId = user.tenant_user_id;
+          reactivateButton.textContent = state.tenantAdmin.reactivationSending.has(reactivateTargetId)
+            ? "Sender..."
+            : getTenantAdminReactivationButtonLabel(user);
+          reactivateButton.disabled = state.tenantAdmin.reactivationSending.has(reactivateTargetId);
+          reactivateButton.setAttribute("aria-disabled", reactivateButton.disabled ? "true" : "false");
+          if (!reactivateButton.disabled) {
+            reactivateButton.addEventListener("click", () => sendTenantAdminUserReactivationInvite(user));
+          }
+          actions.appendChild(reactivateButton);
+        }
         card.appendChild(actions);
         tenantAdminUsersList.appendChild(card);
       });
@@ -1814,6 +1883,79 @@
       }
     }
 
+    async function sendTenantAdminUserReactivationInvite(user) {
+      if (!canReactivateTenantAdminUser(user)) {
+        setText(tenantAdminUsersMeta, "Genaktivering kan kun startes for deaktiverede brugere.");
+        return;
+      }
+      const userId = user.tenant_user_id;
+      state.tenantAdmin.reactivationSending.add(userId);
+      renderTenantAdminUsers();
+      setText(tenantAdminUsersMeta, `Sender genaktiveringslink til ${user.email}...`);
+      try {
+        await apiFetch(`/api/tenant/admin/users/${encodeURIComponent(userId)}/reactivation-invitations`, { method: "POST" });
+        setText(tenantAdminUsersMeta, `Genaktiveringslink sendt til ${user.email}.`);
+      } catch (error) {
+        if (handleResourceGroupForbidden(error, tenantAdminUsersMeta)) return;
+        if (handleAuthFailure(error)) return;
+        setText(tenantAdminUsersMeta, `Kunne ikke sende genaktiveringslink: ${getErrorMessage(error, "mail_send_failed")}`);
+      } finally {
+        state.tenantAdmin.reactivationSending.delete(userId);
+        await loadTenantAdminUsers({ force: true });
+      }
+    }
+
+    function resetTenantAdminUserDeactivateForm() {
+      state.tenantAdmin.deactivationTarget = null;
+      if (tenantAdminUserDeactivateForm) tenantAdminUserDeactivateForm.reset();
+      if (tenantAdminUserDeactivateBtn) tenantAdminUserDeactivateBtn.disabled = false;
+      setText(tenantAdminUserDeactivateStatus, "");
+      setText(tenantAdminUserDeactivateIntro, "Brugerens eksisterende sessioner bliver ugyldige med det samme.");
+    }
+
+    function openTenantAdminUserDeactivateModal(user, trigger) {
+      if (!canDeactivateTenantAdminUser(user)) return;
+      state.tenantAdmin.deactivationTarget = user;
+      const label = user.name || user.email || "brugeren";
+      setText(tenantAdminUserDeactivateIntro, `${label} deaktiveres, og eksisterende sessioner bliver ugyldige med det samme.`);
+      setText(tenantAdminUserDeactivateStatus, "");
+      if (tenantAdminUserDeactivateReasonInput) tenantAdminUserDeactivateReasonInput.value = "";
+      openTenantAdminModal(tenantAdminUserDeactivateModal, trigger);
+    }
+
+    async function submitTenantAdminUserDeactivate(event) {
+      event.preventDefault();
+      if (state.tenantAdmin.deactivationSubmitting) return;
+      const target = state.tenantAdmin.deactivationTarget;
+      const reason = tenantAdminUserDeactivateReasonInput ? tenantAdminUserDeactivateReasonInput.value.trim() : "";
+      if (!target || !target.tenant_user_id) {
+        setText(tenantAdminUserDeactivateStatus, "Vaelg en bruger foerst.");
+        return;
+      }
+      if (!reason) {
+        setText(tenantAdminUserDeactivateStatus, "Begrundelse er paakraevet.");
+        return;
+      }
+      state.tenantAdmin.deactivationSubmitting = true;
+      if (tenantAdminUserDeactivateBtn) tenantAdminUserDeactivateBtn.disabled = true;
+      setText(tenantAdminUserDeactivateStatus, "Deaktiverer bruger...");
+      try {
+        await apiFetch(`/api/tenant/admin/users/${encodeURIComponent(target.tenant_user_id)}/deactivate`, {
+          method: "POST",
+          body: JSON.stringify({ reason }),
+        });
+        closeTenantAdminModal(tenantAdminUserDeactivateModal);
+        setText(tenantAdminUsersMeta, `${target.email || "Brugeren"} blev deaktiveret og eksisterende sessioner er tilbagekaldt.`);
+        await loadTenantAdminUsers({ force: true });
+      } catch (error) {
+        if (handleResourceGroupForbidden(error, tenantAdminUserDeactivateStatus)) return;
+        if (handleAuthFailure(error)) return;
+        setText(tenantAdminUserDeactivateStatus, `Kunne ikke deaktivere bruger: ${getErrorMessage(error, "request_failed")}`);
+      } finally {
+        state.tenantAdmin.deactivationSubmitting = false;
+        if (tenantAdminUserDeactivateBtn) tenantAdminUserDeactivateBtn.disabled = false;
+      }
+    }
     async function submitTenantAdminUserCreate(event) {
       event.preventDefault();
       if (state.tenantAdmin.userCreateSubmitting) return;
@@ -1980,6 +2122,9 @@
       }
       if (modal === tenantAdminUserCreateModal && !state.tenantAdmin.userCreateSubmitting) {
         resetTenantAdminUserCreateForm();
+      }
+      if (modal === tenantAdminUserDeactivateModal && !state.tenantAdmin.deactivationSubmitting) {
+        resetTenantAdminUserDeactivateForm();
       }
       if (trigger && typeof trigger.focus === "function") {
         trigger.focus();
@@ -4553,6 +4698,12 @@
     if (tenantAdminUserCreateCancelBtn) {
       tenantAdminUserCreateCancelBtn.addEventListener("click", () => closeTenantAdminModal(tenantAdminUserCreateModal));
     }
+    if (tenantAdminUserDeactivateCloseBtn) {
+      tenantAdminUserDeactivateCloseBtn.addEventListener("click", () => closeTenantAdminModal(tenantAdminUserDeactivateModal));
+    }
+    if (tenantAdminUserDeactivateCancelBtn) {
+      tenantAdminUserDeactivateCancelBtn.addEventListener("click", () => closeTenantAdminModal(tenantAdminUserDeactivateModal));
+    }
     if (tenantAdminOpenGroupCreateBtn) {
       tenantAdminOpenGroupCreateBtn.addEventListener("click", () => openTenantAdminModal(resourceGroupCreateModal, tenantAdminOpenGroupCreateBtn));
     }
@@ -4573,6 +4724,10 @@
 
     if (tenantAdminUserCreateForm) {
       tenantAdminUserCreateForm.addEventListener("submit", submitTenantAdminUserCreate);
+    }
+
+    if (tenantAdminUserDeactivateForm) {
+      tenantAdminUserDeactivateForm.addEventListener("submit", submitTenantAdminUserDeactivate);
     }
 
     if (tenantAdminUserSearchInput) {

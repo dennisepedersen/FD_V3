@@ -9,6 +9,7 @@ const repository = require("./tenantAdmin.repository");
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ALLOWED_ROLES = new Set(["tenant_admin", "project_leader", "technician"]);
 const ALLOWED_USER_STATUSES = new Set(["active", "suspended", "invited", "deleted"]);
+const LIFECYCLE_STATUSES = new Set(["deactivated", "pending_reactivation"]);
 const SUPPORTED_SYNC_ENTITIES = new Map([
   ["fitters", "fitters"],
   ["fitter", "fitters"],
@@ -57,12 +58,21 @@ function normalizeRole(value, fallback = "technician") {
 
 function normalizeStatus(value, fallback = "invited") {
   const status = optionalText(value) || fallback;
+  if (LIFECYCLE_STATUSES.has(status)) {
+    throw createHttpError(409, "tenant_user_lifecycle_transition_requires_dedicated_endpoint");
+  }
   if (!ALLOWED_USER_STATUSES.has(status)) {
     throw createHttpError(400, "invalid_user_status");
   }
   return status;
 }
 
+function assertManualStatusPatchAllowed({ currentStatus, requestedStatus }) {
+  if (!requestedStatus) return;
+  if (LIFECYCLE_STATUSES.has(requestedStatus) || LIFECYCLE_STATUSES.has(currentStatus)) {
+    throw createHttpError(409, "tenant_user_lifecycle_transition_requires_dedicated_endpoint");
+  }
+}
 function initialsFromEmail(email) {
   const prefix = String(email || "").split("@")[0] || "";
   const compact = prefix.replace(/[^a-zA-Z0-9]/g, "").slice(0, 12);
@@ -133,6 +143,14 @@ async function createManualUser(input) {
   const passwordHash = await hashPassword(crypto.randomBytes(24).toString("base64url"));
 
   return withTransaction(async (client) => {
+    const existingByEmail = await repository.findTenantUserByEmail(client, { tenantId, email });
+    if (existingByEmail) {
+      if (["deactivated", "pending_reactivation"].includes(existingByEmail.status)) {
+        throw createHttpError(409, "tenant_user_requires_reactivation");
+      }
+      throw createHttpError(400, "tenant_user_already_exists");
+    }
+
     let user;
     try {
       user = await repository.createManualTenantUser(client, {
@@ -215,6 +233,10 @@ async function updateManualUser(input) {
     if (!existing) {
       throw createHttpError(404, "tenant_user_not_found");
     }
+    assertManualStatusPatchAllowed({
+      currentStatus: existing.status,
+      requestedStatus: patch.status,
+    });
 
     const user = await repository.updateManualTenantUser(client, {
       tenantId,
@@ -242,6 +264,97 @@ async function updateManualUser(input) {
   });
 }
 
+async function deactivateUser(input) {
+  const tenantId = normalizeUuid(input?.tenantId, "tenant_id_required");
+  const actorId = normalizeUuid(input?.actorId, "actor_id_required");
+  const userId = normalizeUuid(input?.userId, "user_id_required");
+  const reason = requiredText(input?.reason, "deactivation_reason_required");
+
+  if (actorId === userId) {
+    throw createHttpError(409, "self_deactivation_not_allowed");
+  }
+
+  const passwordHash = await hashPassword(crypto.randomBytes(24).toString("base64url"));
+
+  return withTransaction(async (client) => {
+    await repository.acquireTenantLifecycleLock(client, { tenantId });
+
+    const existing = await repository.findTenantUserForUpdate(client, { tenantId, userId });
+    if (!existing) {
+      throw createHttpError(404, "tenant_user_not_found");
+    }
+
+    if (existing.status === "deactivated") {
+      return { user: existing, already_deactivated: true, revoked_invitations: 0 };
+    }
+
+    if (existing.status === "pending_reactivation") {
+      throw createHttpError(409, "tenant_user_pending_reactivation");
+    }
+
+    if (existing.status !== "active") {
+      throw createHttpError(409, "tenant_user_not_active");
+    }
+
+    if (existing.role === "tenant_admin") {
+      const activeAdminCount = await repository.countActiveTenantAdmins(client, { tenantId });
+      if (activeAdminCount <= 1) {
+        throw createHttpError(409, "last_active_tenant_admin");
+      }
+    }
+
+    const revokedCount = await repository.revokeOpenTenantUserInvitations(client, { tenantId, userId });
+    const user = await repository.deactivateTenantUser(client, {
+      tenantId,
+      userId,
+      actorId,
+      reason,
+      passwordHash,
+    });
+
+    if (!user) {
+      throw createHttpError(409, "tenant_user_deactivation_conflict");
+    }
+
+    await repository.insertTenantUserLifecycleEvent(client, {
+      tenantId,
+      userId,
+      eventType: "deactivated",
+      reason,
+      actorId,
+      metadata: { revoked_invitations: revokedCount },
+    });
+    await repository.insertTenantUserLifecycleEvent(client, {
+      tenantId,
+      userId,
+      eventType: "sessions_revoked",
+      reason: "session_version_bumped",
+      actorId,
+      metadata: { session_version: user.session_version },
+    });
+
+    await audit(client, {
+      tenantId,
+      actorId,
+      eventType: "tenant_user_deactivated",
+      resourceType: "tenant_user",
+      resourceId: userId,
+      reason,
+      metadata: { revoked_invitations: revokedCount },
+    });
+    await audit(client, {
+      tenantId,
+      actorId,
+      eventType: "tenant_user_sessions_revoked",
+      resourceType: "tenant_user",
+      resourceId: userId,
+      reason: "session_version_bumped",
+      metadata: { session_version: user.session_version },
+    });
+
+    return { user, already_deactivated: false, revoked_invitations: revokedCount };
+  });
+}
 async function listResourceGroups({ tenantId, includeArchived, search }) {
   const normalizedTenantId = normalizeUuid(tenantId, "tenant_id_required");
   const client = await pool.connect();
@@ -358,9 +471,14 @@ async function requestSync(input) {
 
 module.exports = {
   createManualUser,
+  deactivateUser,
   getSyncStatus,
   listResourceGroups,
   listUsers,
   requestSync,
   updateManualUser,
+  _test: {
+    assertManualStatusPatchAllowed,
+    normalizeStatus,
+  },
 };
