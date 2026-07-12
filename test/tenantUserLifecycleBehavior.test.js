@@ -40,6 +40,82 @@ function uuid(n) {
   return `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 }
 
+function cloneState(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function installStatefulCompletionPool(state) {
+  return installPool((sql, params) => {
+    if (sql.includes('FROM tenant_user_invitation_token') && sql.includes('FOR UPDATE')) {
+      const invitation = state.invitations[params[2]];
+      if (!invitation || invitation.tenant_user_id !== params[1] || invitation.tenant_id !== params[0]) return { rows: [] };
+      return {
+        rows: [{
+          id: params[2],
+          tenant_id: invitation.tenant_id,
+          tenant_user_id: invitation.tenant_user_id,
+          invitation_status: invitation.status,
+          expires_at: invitation.expires_at,
+          sent_at: invitation.sent_at,
+          used_at: invitation.used_at,
+          revoked_at: invitation.revoked_at,
+          send_error: invitation.send_error,
+          flow_type: invitation.flow_type,
+        }],
+      };
+    }
+    if (sql.includes('FROM tenant_user') && sql.includes('FOR UPDATE')) {
+      const user = state.users[params[1]];
+      return { rows: user && user.tenant_id === params[0] ? [{ id: params[1], tenant_id: user.tenant_id, ...user }] : [] };
+    }
+    if (sql.includes('UPDATE tenant_user_invitation_token')) {
+      const invitation = state.invitations[params[2]];
+      if (!invitation || invitation.status !== 'pending' || invitation.used_at || invitation.revoked_at) return { rows: [] };
+      if (sql.includes("= 'sent'")) {
+        invitation.status = 'sent';
+        invitation.sent_at = '2026-07-12T00:00:00.000Z';
+        invitation.send_error = null;
+        return { rows: [{ id: params[2], expires_at: invitation.expires_at, sent_at: invitation.sent_at }] };
+      }
+      if (sql.includes("= 'send_failed'")) {
+        invitation.status = 'send_failed';
+        invitation.send_error = params[3];
+        return { rows: [{ id: params[2] }] };
+      }
+    }
+    if (sql.includes('UPDATE tenant_user')) {
+      const user = state.users[params[1]];
+      if (!user) return { rows: [] };
+      if (sql.includes("login_status = 'invited'")) {
+        if (!['active', 'invited'].includes(user.status) || !['pending_invite', 'imported_no_login', 'invited'].includes(user.login_status)) {
+          return { rows: [] };
+        }
+        user.status = user.status === 'active' ? 'active' : 'invited';
+        user.login_status = 'invited';
+        user.last_invited_at = '2026-07-12T00:00:00.000Z';
+        return { rows: [{ id: params[1] }] };
+      }
+      if (sql.includes("login_status = 'pending_invite'")) {
+        if (!['active', 'invited'].includes(user.status) || !['pending_invite', 'imported_no_login', 'invited'].includes(user.login_status)) {
+          return { rows: [] };
+        }
+        user.login_status = 'pending_invite';
+        return { rows: [{ id: params[1] }] };
+      }
+      if (sql.includes("login_status = 'pending_reactivation'")) {
+        if (user.status !== 'pending_reactivation' || user.login_status !== 'pending_reactivation') {
+          return { rows: [] };
+        }
+        user.status = 'pending_reactivation';
+        user.login_status = 'pending_reactivation';
+        user.last_invited_at = '2026-07-12T00:00:00.000Z';
+        return { rows: [{ id: params[1] }] };
+      }
+    }
+    return { rows: [] };
+  });
+}
+
 test('manual PATCH lifecycle transitions require dedicated endpoints', () => {
   assert.throws(
     () => tenantAdminService._test.normalizeStatus('deactivated'),
@@ -54,74 +130,259 @@ test('manual PATCH lifecycle transitions require dedicated endpoints', () => {
   );
 });
 
-test('normal invitation completion treats revoked token as stale and does not update user', async () => {
+test('normal invitation stale completion leaves pending invitation and user state untouched', async () => {
+  const tenantId = uuid(1);
+  const userId = uuid(2);
+  const invitationId = uuid(3);
   const state = {
-    user: { status: 'deactivated', login_status: 'disabled', session_version: 4 },
-    invitation: { status: 'revoked', revoked_at: new Date().toISOString() },
+    users: {
+      [userId]: { tenant_id: tenantId, status: 'deactivated', login_status: 'disabled', session_version: 4 },
+    },
+    invitations: {
+      [invitationId]: {
+        tenant_id: tenantId,
+        tenant_user_id: userId,
+        status: 'pending',
+        flow_type: 'initial_setup',
+        expires_at: '2026-07-15T00:00:00.000Z',
+        sent_at: null,
+        send_error: null,
+        used_at: null,
+        revoked_at: null,
+      },
+    },
   };
-  const fake = installPool((sql) => {
-    if (sql.includes('UPDATE tenant_user_invitation_token i')) {
-      return { rows: state.invitation.status === 'pending' ? [{ id: 'invite-a', expires_at: '2026-07-15T00:00:00.000Z' }] : [] };
-    }
-    if (sql.includes('UPDATE tenant_user')) {
-      state.user.status = 'invited';
-      return { rows: [{ id: 'user-a' }] };
-    }
-    return { rows: [] };
-  });
+  const originalUser = cloneState(state.users[userId]);
+  const auditEvents = [];
+  const originalAudit = auditService.logAuditEvent;
+  const fake = installStatefulCompletionPool(state);
+  auditService.logAuditEvent = async (event) => auditEvents.push(event);
 
   try {
     const result = await invitationService._test.markInvitationSent({
-      tenantId: uuid(1),
-      userId: uuid(2),
-      invitationId: uuid(3),
+      tenantId,
+      userId,
+      invitationId,
       actorId: uuid(4),
       provider: 'test',
     });
     assert.equal(result.status, 'stale');
-    assert.equal(state.user.status, 'deactivated');
-    assert.equal(state.user.session_version, 4);
-    assert.equal(state.invitation.status, 'revoked');
-    assert.equal(fake.queries.some((q) => q.sql.includes('UPDATE tenant_user\n        SET login_status')), false);
+    assert.deepEqual(state.users[userId], originalUser);
+    assert.equal(state.invitations[invitationId].status, 'pending');
+    assert.equal(state.invitations[invitationId].sent_at, null);
+    assert.equal(state.invitations[invitationId].send_error, null);
+    assert.equal(fake.queries.some((q) => q.sql.includes('UPDATE tenant_user_invitation_token')), false);
+    assert.equal(fake.queries.some((q) => q.sql.includes('UPDATE tenant_user')), false);
+    assert.equal(auditEvents.some((event) => event.eventType === 'tenant_user_invite_sent'), false);
   } finally {
+    auditService.logAuditEvent = originalAudit;
     fake.restore();
   }
 });
 
-test('old reactivation resend completion cannot overwrite the current invitation', async () => {
+test('normal invitation send failure stale completion leaves revoked invitation untouched', async () => {
+  const tenantId = uuid(1);
+  const userId = uuid(2);
+  const invitationId = uuid(3);
   const state = {
-    user: { status: 'pending_reactivation', login_status: 'pending_reactivation' },
-    invitationA: { status: 'revoked' },
-    invitationB: { status: 'pending' },
+    users: {
+      [userId]: { tenant_id: tenantId, status: 'invited', login_status: 'pending_invite' },
+    },
+    invitations: {
+      [invitationId]: {
+        tenant_id: tenantId,
+        tenant_user_id: userId,
+        status: 'revoked',
+        flow_type: 'initial_setup',
+        expires_at: '2026-07-15T00:00:00.000Z',
+        sent_at: null,
+        send_error: null,
+        used_at: null,
+        revoked_at: '2026-07-12T00:00:00.000Z',
+      },
+    },
   };
-  const fake = installPool((sql) => {
-    if (sql.includes('UPDATE tenant_user_invitation_token i')) {
-      return { rows: state.invitationA.status === 'pending' ? [{ id: 'invite-a', expires_at: '2026-07-15T00:00:00.000Z' }] : [] };
-    }
-    if (sql.includes('UPDATE tenant_user')) {
-      state.user.status = 'active';
-      return { rows: [{ id: 'user-a' }] };
-    }
-    return { rows: [] };
-  });
+  const originalState = cloneState(state);
+  const auditEvents = [];
+  const originalAudit = auditService.logAuditEvent;
+  const fake = installStatefulCompletionPool(state);
+  auditService.logAuditEvent = async (event) => auditEvents.push(event);
+
+  try {
+    const result = await invitationService._test.markInvitationSendFailed({
+      tenantId,
+      userId,
+      invitationId,
+      actorId: uuid(4),
+      error: new Error('smtp down'),
+    });
+    assert.equal(result.status, 'stale');
+    assert.deepEqual(state, originalState);
+    assert.notEqual(state.invitations[invitationId].status, 'send_failed');
+    assert.equal(auditEvents.some((event) => event.eventType === 'tenant_user_invite_send_failed'), false);
+  } finally {
+    auditService.logAuditEvent = originalAudit;
+    fake.restore();
+  }
+});
+
+test('old reactivation resend completion leaves revoked A and current B untouched', async () => {
+  const tenantId = uuid(1);
+  const userId = uuid(2);
+  const invitationA = uuid(3);
+  const invitationB = uuid(4);
+  const state = {
+    users: {
+      [userId]: { tenant_id: tenantId, status: 'pending_reactivation', login_status: 'pending_reactivation' },
+    },
+    invitations: {
+      [invitationA]: {
+        tenant_id: tenantId,
+        tenant_user_id: userId,
+        status: 'revoked',
+        flow_type: 'reactivation',
+        expires_at: '2026-07-15T00:00:00.000Z',
+        sent_at: null,
+        send_error: null,
+        used_at: null,
+        revoked_at: '2026-07-12T00:00:00.000Z',
+      },
+      [invitationB]: {
+        tenant_id: tenantId,
+        tenant_user_id: userId,
+        status: 'pending',
+        flow_type: 'reactivation',
+        expires_at: '2026-07-15T00:05:00.000Z',
+        sent_at: null,
+        send_error: null,
+        used_at: null,
+        revoked_at: null,
+      },
+    },
+  };
+  const originalState = cloneState(state);
+  const auditEvents = [];
+  const lifecycleEvents = [];
+  const originalAudit = auditService.logAuditEvent;
+  const originalLifecycle = tenantAdminRepository.insertTenantUserLifecycleEvent;
+  const fake = installStatefulCompletionPool(state);
+  auditService.logAuditEvent = async (event) => auditEvents.push(event);
+  tenantAdminRepository.insertTenantUserLifecycleEvent = async (_client, event) => lifecycleEvents.push(event);
 
   try {
     const result = await invitationService._test.markReactivationInvitationSent({
-      tenantId: uuid(1),
-      userId: uuid(2),
-      invitationId: uuid(3),
-      actorId: uuid(4),
+      tenantId,
+      userId,
+      invitationId: invitationA,
+      actorId: uuid(5),
       provider: 'test',
     });
     assert.equal(result.status, 'stale');
-    assert.equal(state.invitationA.status, 'revoked');
-    assert.equal(state.invitationB.status, 'pending');
-    assert.equal(state.user.status, 'pending_reactivation');
+    assert.deepEqual(state, originalState);
+    assert.notEqual(state.invitations[invitationA].status, 'sent');
+    assert.notEqual(state.invitations[invitationA].status, 'send_failed');
+    assert.equal(state.invitations[invitationB].status, 'pending');
+    assert.equal(auditEvents.length, 0);
+    assert.equal(lifecycleEvents.length, 0);
   } finally {
+    auditService.logAuditEvent = originalAudit;
+    tenantAdminRepository.insertTenantUserLifecycleEvent = originalLifecycle;
     fake.restore();
   }
 });
 
+test('completion row-count conflict rolls back invitation update atomically', async () => {
+  const tenantId = uuid(1);
+  const userId = uuid(2);
+  const invitationId = uuid(3);
+  const state = {
+    users: {
+      [userId]: { tenant_id: tenantId, status: 'invited', login_status: 'pending_invite' },
+    },
+    invitations: {
+      [invitationId]: {
+        tenant_id: tenantId,
+        tenant_user_id: userId,
+        status: 'pending',
+        flow_type: 'initial_setup',
+        expires_at: '2026-07-15T00:00:00.000Z',
+        sent_at: null,
+        send_error: null,
+        used_at: null,
+        revoked_at: null,
+      },
+    },
+  };
+  let snapshot = null;
+  const originalConnect = pool.connect;
+  const originalAudit = auditService.logAuditEvent;
+  const auditEvents = [];
+  pool.connect = async () => ({
+    async query(sql, params = []) {
+      const text = String(sql);
+      if (/^\s*BEGIN\s*$/i.test(text)) {
+        snapshot = cloneState(state);
+        return { rows: [] };
+      }
+      if (/^\s*ROLLBACK\s*$/i.test(text)) {
+        state.users = snapshot.users;
+        state.invitations = snapshot.invitations;
+        return { rows: [] };
+      }
+      if (/^\s*COMMIT\s*$/i.test(text)) return { rows: [] };
+      if (text.includes('FROM tenant_user_invitation_token') && text.includes('FOR UPDATE')) {
+        const invitation = state.invitations[params[2]];
+        return { rows: [{
+          id: params[2],
+          tenant_id: invitation.tenant_id,
+          tenant_user_id: invitation.tenant_user_id,
+          invitation_status: invitation.status,
+          expires_at: invitation.expires_at,
+          sent_at: invitation.sent_at,
+          used_at: invitation.used_at,
+          revoked_at: invitation.revoked_at,
+          send_error: invitation.send_error,
+          flow_type: invitation.flow_type,
+        }] };
+      }
+      if (text.includes('FROM tenant_user') && text.includes('FOR UPDATE')) {
+        const user = state.users[params[1]];
+        return { rows: [{ id: params[1], tenant_id: user.tenant_id, ...user }] };
+      }
+      if (text.includes('UPDATE tenant_user_invitation_token')) {
+        state.invitations[params[2]].status = 'sent';
+        state.invitations[params[2]].sent_at = '2026-07-12T00:00:00.000Z';
+        return { rows: [{ id: params[2], expires_at: state.invitations[params[2]].expires_at, sent_at: state.invitations[params[2]].sent_at }] };
+      }
+      if (text.includes('UPDATE tenant_user')) {
+        return { rows: [] };
+      }
+      return { rows: [] };
+    },
+    release() {},
+  });
+  auditService.logAuditEvent = async (event) => auditEvents.push(event);
+
+  try {
+    await assert.rejects(
+      () => invitationService._test.markInvitationSent({
+        tenantId,
+        userId,
+        invitationId,
+        actorId: uuid(4),
+        provider: 'test',
+      }),
+      /invite_completion_state_conflict/
+    );
+    assert.equal(state.invitations[invitationId].status, 'pending');
+    assert.equal(state.invitations[invitationId].sent_at, null);
+    assert.equal(state.users[userId].login_status, 'pending_invite');
+    assert.equal(auditEvents.length, 0);
+  } finally {
+    pool.connect = originalConnect;
+    auditService.logAuditEvent = originalAudit;
+  }
+});
 test('invitation flow type must match tenant user lifecycle state', () => {
   assert.throws(
     () => invitationService._test.assertInvitationFlowMatchesUser({

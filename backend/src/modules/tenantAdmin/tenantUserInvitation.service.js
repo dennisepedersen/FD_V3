@@ -111,6 +111,81 @@ function assertInvitationFlowMatchesUser(invitation) {
   }
   return flowType;
 }
+
+function isInitialSetupCompletionUserState(user) {
+  const status = String(user?.status || "").toLowerCase();
+  const loginStatus = String(user?.login_status || "").toLowerCase();
+  return ["active", "invited"].includes(status)
+    && ["pending_invite", "imported_no_login", "invited"].includes(loginStatus);
+}
+
+function isReactivationCompletionUserState(user) {
+  return String(user?.status || "").toLowerCase() === "pending_reactivation"
+    && String(user?.login_status || "").toLowerCase() === "pending_reactivation";
+}
+
+function isPendingInvitationForFlow(invitation, { tenantId, userId, invitationId, flowType }) {
+  return invitation
+    && invitation.tenant_id === tenantId
+    && invitation.tenant_user_id === userId
+    && invitation.id === invitationId
+    && invitation.invitation_status === "pending"
+    && !invitation.used_at
+    && !invitation.revoked_at
+    && normalizeInvitationFlowType(invitation.flow_type) === flowType;
+}
+
+async function getInvitationForCompletionForUpdate(client, { tenantId, userId, invitationId }) {
+  const { rows } = await client.query(
+    `
+      SELECT
+        id,
+        tenant_id,
+        tenant_user_id,
+        status AS invitation_status,
+        expires_at,
+        sent_at,
+        used_at,
+        revoked_at,
+        send_error,
+        COALESCE(metadata->>'flow_type', 'initial_setup') AS flow_type
+      FROM tenant_user_invitation_token
+      WHERE tenant_id = $1
+        AND tenant_user_id = $2
+        AND id = $3
+        AND purpose = 'account_setup'
+      FOR UPDATE
+    `,
+    [tenantId, userId, invitationId]
+  );
+  return rows[0] || null;
+}
+
+async function lockInvitationCompletionState(client, { tenantId, userId, invitationId }) {
+  const invitation = await getInvitationForCompletionForUpdate(client, { tenantId, userId, invitationId });
+  if (!invitation) {
+    return { invitation: null, user: null };
+  }
+  const user = await getTenantUserForUpdate(client, { tenantId, userId });
+  return { invitation, user };
+}
+
+function isValidInvitationCompletionState({ invitation, user, tenantId, userId, invitationId, flowType }) {
+  if (!isPendingInvitationForFlow(invitation, { tenantId, userId, invitationId, flowType })) {
+    return false;
+  }
+  return flowType === FLOW_REACTIVATION
+    ? isReactivationCompletionUserState(user)
+    : isInitialSetupCompletionUserState(user);
+}
+
+function assertSingleCompletionRow(result) {
+  if (result.rows.length !== 1) {
+    throw createHttpError(409, "invite_completion_state_conflict");
+  }
+  return result.rows[0];
+}
+
 async function logAudit(client, input) {
   await auditService.logAuditEvent({
     client,
@@ -274,37 +349,36 @@ async function insertInvitation(client, { tenantId, userId, actorId, tokenHash, 
 
 async function markInvitationSent({ tenantId, userId, invitationId, actorId, provider }) {
   return withTransaction(async (client) => {
-    const { rows } = await client.query(
-      `
-        UPDATE tenant_user_invitation_token i
-        SET status = 'sent',
-            sent_at = now(),
-            send_error = NULL
-        WHERE i.tenant_id = $1
-          AND i.tenant_user_id = $2
-          AND i.id = $3
-          AND i.status = 'pending'
-          AND i.used_at IS NULL
-          AND i.revoked_at IS NULL
-          AND COALESCE(i.metadata->>'flow_type', 'initial_setup') = 'initial_setup'
-          AND EXISTS (
-            SELECT 1
-            FROM tenant_user tu
-            WHERE tu.tenant_id = i.tenant_id
-              AND tu.id = i.tenant_user_id
-              AND tu.status IN ('active','invited')
-              AND tu.login_status IN ('pending_invite','imported_no_login','invited')
-          )
-        RETURNING i.id, i.expires_at, i.sent_at
-      `,
-      [tenantId, userId, invitationId]
-    );
-
-    if (rows.length !== 1) {
+    const state = await lockInvitationCompletionState(client, { tenantId, userId, invitationId });
+    if (!isValidInvitationCompletionState({
+      ...state,
+      tenantId,
+      userId,
+      invitationId,
+      flowType: FLOW_INITIAL_SETUP,
+    })) {
       return { status: "stale", invitation: null };
     }
 
-    const userUpdate = await client.query(
+    const invitation = assertSingleCompletionRow(await client.query(
+      `
+        UPDATE tenant_user_invitation_token
+        SET status = 'sent',
+            sent_at = now(),
+            send_error = NULL
+        WHERE tenant_id = $1
+          AND tenant_user_id = $2
+          AND id = $3
+          AND status = 'pending'
+          AND used_at IS NULL
+          AND revoked_at IS NULL
+          AND COALESCE(metadata->>'flow_type', 'initial_setup') = 'initial_setup'
+        RETURNING id, expires_at, sent_at
+      `,
+      [tenantId, userId, invitationId]
+    ));
+
+    assertSingleCompletionRow(await client.query(
       `
         UPDATE tenant_user
         SET login_status = 'invited',
@@ -318,11 +392,7 @@ async function markInvitationSent({ tenantId, userId, invitationId, actorId, pro
         RETURNING id
       `,
       [tenantId, userId]
-    );
-
-    if (userUpdate.rows.length !== 1) {
-      return { status: "stale", invitation: rows[0] };
-    }
+    ));
 
     await logAudit(client, {
       tenantId,
@@ -331,46 +401,45 @@ async function markInvitationSent({ tenantId, userId, invitationId, actorId, pro
       resourceId: userId,
       metadata: {
         invitation_id: invitationId,
-        expires_at: rows[0].expires_at,
+        expires_at: invitation.expires_at,
         provider,
       },
     });
-    return { status: "sent", invitation: rows[0] };
+    return { status: "sent", invitation };
   });
 }
 
 async function markInvitationSendFailed({ tenantId, userId, invitationId, actorId, error }) {
   return withTransaction(async (client) => {
-    const { rows } = await client.query(
-      `
-        UPDATE tenant_user_invitation_token i
-        SET status = 'send_failed',
-            send_error = $4
-        WHERE i.tenant_id = $1
-          AND i.tenant_user_id = $2
-          AND i.id = $3
-          AND i.status = 'pending'
-          AND i.used_at IS NULL
-          AND i.revoked_at IS NULL
-          AND COALESCE(i.metadata->>'flow_type', 'initial_setup') = 'initial_setup'
-          AND EXISTS (
-            SELECT 1
-            FROM tenant_user tu
-            WHERE tu.tenant_id = i.tenant_id
-              AND tu.id = i.tenant_user_id
-              AND tu.status IN ('active','invited')
-              AND tu.login_status IN ('pending_invite','imported_no_login','invited')
-          )
-        RETURNING i.id
-      `,
-      [tenantId, userId, invitationId, String(error?.code || error?.message || "mail_send_failed").slice(0, 500)]
-    );
-
-    if (rows.length !== 1) {
+    const state = await lockInvitationCompletionState(client, { tenantId, userId, invitationId });
+    if (!isValidInvitationCompletionState({
+      ...state,
+      tenantId,
+      userId,
+      invitationId,
+      flowType: FLOW_INITIAL_SETUP,
+    })) {
       return { status: "stale", invitation: null };
     }
 
-    const userUpdate = await client.query(
+    const invitation = assertSingleCompletionRow(await client.query(
+      `
+        UPDATE tenant_user_invitation_token
+        SET status = 'send_failed',
+            send_error = $4
+        WHERE tenant_id = $1
+          AND tenant_user_id = $2
+          AND id = $3
+          AND status = 'pending'
+          AND used_at IS NULL
+          AND revoked_at IS NULL
+          AND COALESCE(metadata->>'flow_type', 'initial_setup') = 'initial_setup'
+        RETURNING id
+      `,
+      [tenantId, userId, invitationId, String(error?.code || error?.message || "mail_send_failed").slice(0, 500)]
+    ));
+
+    assertSingleCompletionRow(await client.query(
       `
         UPDATE tenant_user
         SET login_status = 'pending_invite',
@@ -382,11 +451,7 @@ async function markInvitationSendFailed({ tenantId, userId, invitationId, actorI
         RETURNING id
       `,
       [tenantId, userId]
-    );
-
-    if (userUpdate.rows.length !== 1) {
-      return { status: "stale", invitation: rows[0] };
-    }
+    ));
 
     await logAudit(client, {
       tenantId,
@@ -397,7 +462,7 @@ async function markInvitationSendFailed({ tenantId, userId, invitationId, actorI
       reason: error?.code || error?.message || "mail_send_failed",
       metadata: { invitation_id: invitationId },
     });
-    return { status: "send_failed", invitation: rows[0] };
+    return { status: "send_failed", invitation };
   });
 }
 async function sendTenantUserInvitation(input) {
@@ -514,37 +579,36 @@ async function sendTenantUserInvitation(input) {
 
 async function markReactivationInvitationSent({ tenantId, userId, invitationId, actorId, provider }) {
   return withTransaction(async (client) => {
-    const { rows } = await client.query(
-      `
-        UPDATE tenant_user_invitation_token i
-        SET status = 'sent',
-            sent_at = now(),
-            send_error = NULL
-        WHERE i.tenant_id = $1
-          AND i.tenant_user_id = $2
-          AND i.id = $3
-          AND i.status = 'pending'
-          AND i.used_at IS NULL
-          AND i.revoked_at IS NULL
-          AND COALESCE(i.metadata->>'flow_type', 'initial_setup') = 'reactivation'
-          AND EXISTS (
-            SELECT 1
-            FROM tenant_user tu
-            WHERE tu.tenant_id = i.tenant_id
-              AND tu.id = i.tenant_user_id
-              AND tu.status = 'pending_reactivation'
-              AND tu.login_status = 'pending_reactivation'
-          )
-        RETURNING i.id, i.expires_at, i.sent_at
-      `,
-      [tenantId, userId, invitationId]
-    );
-
-    if (rows.length !== 1) {
+    const state = await lockInvitationCompletionState(client, { tenantId, userId, invitationId });
+    if (!isValidInvitationCompletionState({
+      ...state,
+      tenantId,
+      userId,
+      invitationId,
+      flowType: FLOW_REACTIVATION,
+    })) {
       return { status: "stale", invitation: null };
     }
 
-    const userUpdate = await client.query(
+    const invitation = assertSingleCompletionRow(await client.query(
+      `
+        UPDATE tenant_user_invitation_token
+        SET status = 'sent',
+            sent_at = now(),
+            send_error = NULL
+        WHERE tenant_id = $1
+          AND tenant_user_id = $2
+          AND id = $3
+          AND status = 'pending'
+          AND used_at IS NULL
+          AND revoked_at IS NULL
+          AND COALESCE(metadata->>'flow_type', 'initial_setup') = 'reactivation'
+        RETURNING id, expires_at, sent_at
+      `,
+      [tenantId, userId, invitationId]
+    ));
+
+    assertSingleCompletionRow(await client.query(
       `
         UPDATE tenant_user
         SET login_status = 'pending_reactivation',
@@ -558,11 +622,7 @@ async function markReactivationInvitationSent({ tenantId, userId, invitationId, 
         RETURNING id
       `,
       [tenantId, userId]
-    );
-
-    if (userUpdate.rows.length !== 1) {
-      return { status: "stale", invitation: rows[0] };
-    }
+    ));
 
     await tenantAdminRepository.insertTenantUserLifecycleEvent(client, {
       tenantId,
@@ -570,7 +630,7 @@ async function markReactivationInvitationSent({ tenantId, userId, invitationId, 
       eventType: "reactivation_invite_sent",
       reason: "reactivation_invite_sent",
       actorId,
-      metadata: { invitation_id: invitationId, expires_at: rows[0].expires_at, provider },
+      metadata: { invitation_id: invitationId, expires_at: invitation.expires_at, provider },
     });
 
     await logAudit(client, {
@@ -578,42 +638,41 @@ async function markReactivationInvitationSent({ tenantId, userId, invitationId, 
       actorId,
       eventType: "tenant_user_reactivation_invite_sent",
       resourceId: userId,
-      metadata: { invitation_id: invitationId, expires_at: rows[0].expires_at, provider },
+      metadata: { invitation_id: invitationId, expires_at: invitation.expires_at, provider },
     });
-    return { status: "sent", invitation: rows[0] };
+    return { status: "sent", invitation };
   });
 }
 
 async function markReactivationInvitationSendFailed({ tenantId, userId, invitationId, actorId, error }) {
   return withTransaction(async (client) => {
-    const { rows } = await client.query(
-      `
-        UPDATE tenant_user_invitation_token i
-        SET status = 'send_failed',
-            send_error = $4
-        WHERE i.tenant_id = $1
-          AND i.tenant_user_id = $2
-          AND i.id = $3
-          AND i.status = 'pending'
-          AND i.used_at IS NULL
-          AND i.revoked_at IS NULL
-          AND COALESCE(i.metadata->>'flow_type', 'initial_setup') = 'reactivation'
-          AND EXISTS (
-            SELECT 1
-            FROM tenant_user tu
-            WHERE tu.tenant_id = i.tenant_id
-              AND tu.id = i.tenant_user_id
-              AND tu.status = 'pending_reactivation'
-              AND tu.login_status = 'pending_reactivation'
-          )
-        RETURNING i.id
-      `,
-      [tenantId, userId, invitationId, String(error?.code || error?.message || "mail_send_failed").slice(0, 500)]
-    );
-
-    if (rows.length !== 1) {
+    const state = await lockInvitationCompletionState(client, { tenantId, userId, invitationId });
+    if (!isValidInvitationCompletionState({
+      ...state,
+      tenantId,
+      userId,
+      invitationId,
+      flowType: FLOW_REACTIVATION,
+    })) {
       return { status: "stale", invitation: null };
     }
+
+    const invitation = assertSingleCompletionRow(await client.query(
+      `
+        UPDATE tenant_user_invitation_token
+        SET status = 'send_failed',
+            send_error = $4
+        WHERE tenant_id = $1
+          AND tenant_user_id = $2
+          AND id = $3
+          AND status = 'pending'
+          AND used_at IS NULL
+          AND revoked_at IS NULL
+          AND COALESCE(metadata->>'flow_type', 'initial_setup') = 'reactivation'
+        RETURNING id
+      `,
+      [tenantId, userId, invitationId, String(error?.code || error?.message || "mail_send_failed").slice(0, 500)]
+    ));
 
     await tenantAdminRepository.insertTenantUserLifecycleEvent(client, {
       tenantId,
@@ -633,7 +692,7 @@ async function markReactivationInvitationSendFailed({ tenantId, userId, invitati
       reason: error?.code || error?.message || "mail_send_failed",
       metadata: { invitation_id: invitationId },
     });
-    return { status: "send_failed", invitation: rows[0] };
+    return { status: "send_failed", invitation };
   });
 }
 async function sendTenantUserReactivationInvitation(input) {
