@@ -3,6 +3,14 @@
 Status: current working model
 Scope: defines collaboration between ChatGPT, Codex, and Dennis
 
+## Dokumenthierarki
+
+`docs/AI_GOVERNANCE.md` er autoritativ for overordnede AI-sikkerheds-, governance- og adfærdsregler.
+
+`docs/AI_DEVELOPMENT_WORKFLOW.md` er autoritativ for den praktiske arbejdsdeling og leveranceproces mellem ChatGPT, Codex og Dennis.
+
+Dokumenterne supplerer hinanden. Ved konflikt gælder den strengeste sikkerhedsregel. Produkt-, arkitektur- og sikkerhedsbeslutninger i relevante canonical docs og `docs/DECISIONS.md` tilsidesættes ikke af workflow-dokumentet.
+
 ## Formål
 
 Fastlæg den autoritative arbejdsdeling mellem:
@@ -120,8 +128,6 @@ Codex bør som udgangspunkt:
 
 ## Readiness For Nye Opgaver
 
-Gamle lokale branches er ikke automatisk en blocker.
-
 `READY FOR NEW TASKS` kræver:
 
 - aktiv branch er `main`
@@ -136,21 +142,6 @@ Gamle lokale branches er ikke automatisk en blocker.
 - health endpoints er grønne, når relevant
 - produktionsmigrationstatus verificeres i Render/Linux
 
-Lokale `backup/`, `archive/`, `safety/`, `hold/` eller historiske branches skal kun være blocker, hvis:
-
-- næste opgave bygger på dem
-- de indeholder aktuelt arbejde, der burde være pushet
-- de skaber konkret risiko for tab af arbejde
-- de er basis for en åben PR eller aktiv opgave
-
-Der må ikke gives `NOT READY FOR NEW TASKS` alene fordi historiske lokale branches eksisterer.
-
-## Readiness Og Platformsspecifikke Falske Positiver
-
-Readiness må ikke fejle på grund af kendte platformsspecifikke forskelle alene.
-
-### Lokale Branches
-
 Gamle lokale `backup/`, `archive/`, `safety/`, `hold/` eller historiske branches er ikke automatisk blockers, når:
 
 - aktiv branch er `main`
@@ -160,7 +151,19 @@ Gamle lokale `backup/`, `archive/`, `safety/`, `hold/` eller historiske branches
 - ingen åben PR bygger på de gamle branches
 - næste opgave starter fra frisk `main`
 
-De er kun blockers, hvis de indeholder aktuelt arbejde, der risikerer at gå tabt, eller hvis næste opgave ved en fejl bygger videre på dem.
+De skal kun være blockers, hvis:
+
+- næste opgave bygger på dem
+- de indeholder aktuelt arbejde, der burde være pushet
+- de skaber konkret risiko for tab af arbejde
+- de er basis for en åben PR eller aktiv opgave
+- næste opgave ved en fejl bygger videre på dem
+
+Der må ikke gives `NOT READY FOR NEW TASKS` alene fordi historiske lokale branches eksisterer.
+
+## Readiness Og Platformsspecifikke Falske Positiver
+
+Readiness må ikke fejle på grund af kendte platformsspecifikke forskelle alene.
 
 ### Migration Checksums
 

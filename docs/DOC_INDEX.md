@@ -9,8 +9,8 @@ Scope: points to docs; does not replace them
 | --- | --- | --- |
 | `docs/00_MASTER.md` | First entrypoint and read order | Current |
 | `docs/V3_FOUNDATION_DESIGN.md` | Tenant, auth, RBAC, project, scope, audit, sync foundation | Current source of truth |
-| `docs/AI_GOVERNANCE.md` | Canonical AI/Codex governance and working rules | Current |
-| `docs/AI_DEVELOPMENT_WORKFLOW.md` | Fixed ChatGPT, Codex, and Dennis collaboration workflow, readiness rules, and false-positive handling | Current |
+| `docs/AI_GOVERNANCE.md` | Overall AI governance, safety, and behavior rules | Current |
+| `docs/AI_DEVELOPMENT_WORKFLOW.md` | Practical role split, PR flow, readiness rules, and false-positive handling | Current |
 | `docs/AI_BOOTSTRAP_CONTEXT.md` | Bootstrap/historical transition context and known foundation risks | Context, not permanent canonical AI governance |
 | `docs/PROJECT_CONTEXT_CONTRACT.md` | Shared project context contract for modules | Draft/Proposed contract |
 | `docs/DATA_POLICY.md` | Structured data vs Azure Blob file storage direction | Current |
