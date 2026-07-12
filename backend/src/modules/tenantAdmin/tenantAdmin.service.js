@@ -8,7 +8,8 @@ const repository = require("./tenantAdmin.repository");
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ALLOWED_ROLES = new Set(["tenant_admin", "project_leader", "technician"]);
-const ALLOWED_USER_STATUSES = new Set(["active", "suspended", "invited", "deleted", "deactivated", "pending_reactivation"]);
+const ALLOWED_USER_STATUSES = new Set(["active", "suspended", "invited", "deleted"]);
+const LIFECYCLE_STATUSES = new Set(["deactivated", "pending_reactivation"]);
 const SUPPORTED_SYNC_ENTITIES = new Map([
   ["fitters", "fitters"],
   ["fitter", "fitters"],
@@ -57,12 +58,21 @@ function normalizeRole(value, fallback = "technician") {
 
 function normalizeStatus(value, fallback = "invited") {
   const status = optionalText(value) || fallback;
+  if (LIFECYCLE_STATUSES.has(status)) {
+    throw createHttpError(409, "tenant_user_lifecycle_transition_requires_dedicated_endpoint");
+  }
   if (!ALLOWED_USER_STATUSES.has(status)) {
     throw createHttpError(400, "invalid_user_status");
   }
   return status;
 }
 
+function assertManualStatusPatchAllowed({ currentStatus, requestedStatus }) {
+  if (!requestedStatus) return;
+  if (LIFECYCLE_STATUSES.has(requestedStatus) || LIFECYCLE_STATUSES.has(currentStatus)) {
+    throw createHttpError(409, "tenant_user_lifecycle_transition_requires_dedicated_endpoint");
+  }
+}
 function initialsFromEmail(email) {
   const prefix = String(email || "").split("@")[0] || "";
   const compact = prefix.replace(/[^a-zA-Z0-9]/g, "").slice(0, 12);
@@ -223,6 +233,10 @@ async function updateManualUser(input) {
     if (!existing) {
       throw createHttpError(404, "tenant_user_not_found");
     }
+    assertManualStatusPatchAllowed({
+      currentStatus: existing.status,
+      requestedStatus: patch.status,
+    });
 
     const user = await repository.updateManualTenantUser(client, {
       tenantId,
@@ -263,6 +277,8 @@ async function deactivateUser(input) {
   const passwordHash = await hashPassword(crypto.randomBytes(24).toString("base64url"));
 
   return withTransaction(async (client) => {
+    await repository.acquireTenantLifecycleLock(client, { tenantId });
+
     const existing = await repository.findTenantUserForUpdate(client, { tenantId, userId });
     if (!existing) {
       throw createHttpError(404, "tenant_user_not_found");
@@ -461,4 +477,8 @@ module.exports = {
   listUsers,
   requestSync,
   updateManualUser,
+  _test: {
+    assertManualStatusPatchAllowed,
+    normalizeStatus,
+  },
 };

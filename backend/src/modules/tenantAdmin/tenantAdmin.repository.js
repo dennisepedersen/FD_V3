@@ -477,6 +477,14 @@ async function createManualSyncJob(client, { tenantId, endpointKey, userId, meta
   return rows[0];
 }
 
+async function acquireTenantLifecycleLock(client, { tenantId }) {
+  await client.query(
+    `
+      SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))
+    `,
+    [tenantId]
+  );
+}
 async function findTenantUserForUpdate(client, { tenantId, userId }) {
   const { rows } = await client.query(
     `
