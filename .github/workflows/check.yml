@@ -1,0 +1,37 @@
+name: Check
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            backend/package-lock.json
+
+      - name: Install root package
+        run: npm ci
+
+      - name: Install backend dependencies
+        run: npm ci --prefix backend
+
+      - name: Run checks
+        env:
+          CHECK_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CHECK_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: npm run check

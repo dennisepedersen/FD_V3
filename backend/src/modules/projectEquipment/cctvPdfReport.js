@@ -99,7 +99,7 @@ function drawOverviewTable(doc, cameras) {
 
   const columns = [
     { label: "Kamera-ID", key: "camera_id", width: 48 },
-    { label: "Mærke", key: "brand", width: 48 },
+    { label: "MÃ¦rke", key: "brand", width: 48 },
     { label: "Model", key: "model", width: 60 },
     { label: "MAC", key: "mac", width: 73 },
     { label: "S/N", key: "serial_number", width: 54 },

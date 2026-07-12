@@ -1,0 +1,28 @@
+* text=auto eol=lf
+
+*.js text eol=lf
+*.mjs text eol=lf
+*.cjs text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.sql text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.sh text eol=lf
+*.ps1 text eol=crlf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.tgz binary
+*.p12 binary
+*.pfx binary
+*.key binary
+*.pem text eol=lf

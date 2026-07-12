@@ -45,6 +45,10 @@ Scope: points to docs; does not replace them
 | `backend/docs/decisions/database_indexing_decision.md` | Index decisions based on real query predicates | Verified decision |
 | `backend/docs/operations/render_service.md` | Verified Render web service identity and deploy settings | Verified ops fact |
 | `backend/docs/auth/tenant_user_account_setup_invitations.md` | Tenant user account setup invitations, token security, and mail infrastructure | Implemented |
+| `docs/development/TESTING.md` | Developer test/check commands and limitations | Current |
+| `docs/runbooks/PR_VERIFICATION.md` | Practical PR verification checklist | Current |
+| `docs/runbooks/RENDER_VERIFICATION.md` | Render one-off smoke and live passive sanity | Current |
+| `docs/runbooks/MAIL_PROVIDER_VERIFICATION.md` | Mail provider and invitation template verification | Current |
 
 ## Integration Docs
 
