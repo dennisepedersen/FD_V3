@@ -50,6 +50,13 @@ Scope: links to decisions; does not duplicate full decisions
 | --- | --- |
 | Render production service identity is verified as `FielddeskAI` / `srv-d6h0h8fgi27c73a99jgg`, repo `FD_V3`, branch `main`, auto deploy enabled, PR previews disabled | `backend/docs/operations/render_service.md` |
 
+## AI Development Workflow Decisions
+
+| Date | Decision | Reason | Impact |
+| --- | --- | --- | --- |
+| 2026-07-12 | Fielddesk adopts a fixed AI development workflow separating architecture/review from implementation/operations. | Reduce duplicate audits, improve review quality, clarify responsibility, and prevent false readiness blockers. | ChatGPT performs architecture, scope and PR review; Codex performs code, tests, Git and Render operations; Dennis approves product and risky actions. |
+| 2026-07-12 | Production migration readiness is authoritative from Render/Linux. Local Windows CRLF checksum mismatches are treated as false positives when LF-normalized hashes, Git blobs, and DB checksums match. | Prevent incorrect readiness blockers caused by line-ending differences. | Migration drift must be verified against Git blobs and production checksums before work is blocked. |
+
 ## Module Decisions
 
 | Decision | Source |
