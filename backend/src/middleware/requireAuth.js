@@ -9,6 +9,16 @@ function isActiveTenantUser(user) {
     && user.login_status === "active";
 }
 
+function normalizeSessionVersion(value, fallback) {
+  if (value == null) {
+    return fallback;
+  }
+  if (typeof value === "string" && value.trim() === "") {
+    return NaN;
+  }
+  return Number(value);
+}
+
 function requireAuth(expectedType) {
   return async (req, res, next) => {
     const header = req.headers.authorization || "";
@@ -46,7 +56,14 @@ function requireAuth(expectedType) {
         return next(createHttpError(401, "tenant_user_inactive"));
       }
 
-      if (Number(user.session_version || 0) !== Number(payload.session_version || -1)) {
+      const databaseSessionVersion = normalizeSessionVersion(user.session_version, 0);
+      const tokenSessionVersion = normalizeSessionVersion(payload.session_version, -1);
+
+      if (
+        !Number.isInteger(databaseSessionVersion)
+        || !Number.isInteger(tokenSessionVersion)
+        || databaseSessionVersion !== tokenSessionVersion
+      ) {
         return next(createHttpError(401, "session_revoked"));
       }
 
@@ -54,7 +71,7 @@ function requireAuth(expectedType) {
         ...payload,
         role: user.role,
         email: user.email,
-        session_version: Number(user.session_version || 0),
+        session_version: databaseSessionVersion,
       };
       return next();
     } catch (error) {
