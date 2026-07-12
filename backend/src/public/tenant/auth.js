@@ -6578,7 +6578,7 @@
         equipmentMacError.textContent = message || "";
         equipmentMacError.hidden = !message;
       }
-      setEquipmentMacFeedback(message || "", Boolean(message));
+      setEquipmentMacFeedback("", false);
     }
 
     function clearEquipmentMacValidationError() {

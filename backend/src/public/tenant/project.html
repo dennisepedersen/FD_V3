@@ -1105,6 +1105,26 @@
       color: var(--text);
     }
 
+    #equipmentDrawerCloseBtn {
+      min-width: 42px;
+      height: 42px;
+      border-color: rgba(255, 255, 255, 0.72);
+      background: #ffffff;
+      color: #0f172a;
+      font-size: 28px;
+      font-weight: 900;
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
+    }
+
+    #equipmentDrawerCloseBtn:hover,
+    #equipmentDrawerCloseBtn:focus-visible {
+      border-color: #ffffff;
+      background: #f8fafc;
+      color: #020617;
+      outline: 3px solid rgba(94, 200, 229, 0.32);
+      outline-offset: 2px;
+    }
+
     .qaDrawerBody {
       flex: 1;
       overflow: auto;
@@ -1919,20 +1939,31 @@
     .equipmentCardChevron {
       display: grid;
       place-items: center;
-      width: 30px;
-      height: 30px;
-      border: 1px solid #cbd5e1;
-      border-radius: 999px;
-      background: #f8fafc;
-      color: #0f172a;
-      font-size: 16px;
-      font-weight: 900;
+      width: 18px;
+      height: 18px;
+      color: #64748b;
+      font-size: 0;
       line-height: 1;
+      transition: color 0.15s ease;
+    }
+
+    .equipmentCardChevron::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-right: 2px solid currentColor;
+      border-bottom: 2px solid currentColor;
+      transform: translateY(-1px) rotate(45deg);
       transition: transform 0.15s ease;
     }
 
-    .equipmentCard.expanded .equipmentCardChevron {
-      transform: rotate(180deg);
+    .equipmentCard.expanded .equipmentCardChevron::before {
+      transform: translateY(2px) rotate(225deg);
+    }
+
+    .equipmentCardHeaderBtn:hover .equipmentCardChevron,
+    .equipmentCardHeaderBtn:focus-visible .equipmentCardChevron {
+      color: #0f172a;
     }
 
     .equipmentCardExpanded,
