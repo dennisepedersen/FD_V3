@@ -5391,6 +5391,7 @@
     const equipmentBrandSuggestions = document.getElementById("equipmentBrandSuggestions");
     const equipmentModelSuggestions = document.getElementById("equipmentModelSuggestions");
     const equipmentLocationInput = document.getElementById("equipmentLocationInput");
+    const equipmentLocationPlaceBtn = document.getElementById("equipmentLocationPlaceBtn");
     const equipmentStatusSelect = document.getElementById("equipmentStatusSelect");
     const equipmentNoteInput = document.getElementById("equipmentNoteInput");
     const equipmentFormStatus = document.getElementById("equipmentFormStatus");
@@ -5433,7 +5434,6 @@
     const equipmentDrawingFileInput = document.getElementById("equipmentDrawingFileInput");
     const equipmentDrawingTitleInput = document.getElementById("equipmentDrawingTitleInput");
     const equipmentDrawingCameraSelect = document.getElementById("equipmentDrawingCameraSelect");
-    const equipmentDrawingPlaceBtn = document.getElementById("equipmentDrawingPlaceBtn");
     const equipmentDrawingDeleteBtn = document.getElementById("equipmentDrawingDeleteBtn");
     const equipmentDrawingStatus = document.getElementById("equipmentDrawingStatus");
     const equipmentDrawingCanvas = document.getElementById("equipmentDrawingCanvas");
@@ -7664,7 +7664,6 @@
       equipmentState.isDrawingFileProcessing = Boolean(isProcessing);
       if (equipmentDrawingFileInput) equipmentDrawingFileInput.disabled = Boolean(isProcessing);
       if (equipmentDrawingPdfImportBtn) equipmentDrawingPdfImportBtn.disabled = Boolean(isProcessing) || !((equipmentState.pdfImportItems || []).some((item) => item.include));
-      if (equipmentDrawingPlaceBtn) equipmentDrawingPlaceBtn.disabled = Boolean(isProcessing);
       if (equipmentDrawingDeleteBtn) equipmentDrawingDeleteBtn.disabled = Boolean(isProcessing);
     }
 
@@ -7865,8 +7864,8 @@
         .map((slotType) => `${slotType.label}: ${hasEquipmentImageSlot(imageSlots[slotType.value]) ? "OK" : "Tom"}`)
         .join(" · ");
       grid.appendChild(makeEquipmentMeta("Kamera-ID", camera.camera_id || pin.label));
-      grid.appendChild(makeEquipmentMeta("MAC", formatEquipmentMac(camera.mac_address)));
-      grid.appendChild(makeEquipmentMeta("S/N", camera.serial_number));
+      grid.appendChild(makeEquipmentMeta("MAC-adresse", formatEquipmentMac(camera.mac_address)));
+      grid.appendChild(makeEquipmentMeta("Serienummer", camera.serial_number));
       grid.appendChild(makeEquipmentMeta("Mærke", brandModel.brand));
       grid.appendChild(makeEquipmentMeta("Model", brandModel.model));
       grid.appendChild(makeEquipmentMeta("Placering", camera.location_text));
@@ -8040,17 +8039,31 @@
       }
       updateEquipmentDrawingViewportTransform();
     }
+    function handleEquipmentDrawingWheel(event) {
+      if (!equipmentDrawingCanvas || !equipmentDrawingCanvas.contains(event.target)) return;
+      if (!getEquipmentDrawingStage()) return;
+      if (event.ctrlKey) {
+        event.preventDefault();
+        const direction = event.deltaY > 0 ? -1 : 1;
+        updateEquipmentDrawingZoom(equipmentState.drawingZoom + (direction * EQUIPMENT_DRAWING_ZOOM_STEP));
+        return;
+      }
+      if (event.shiftKey && equipmentState.drawingZoom > EQUIPMENT_DRAWING_DEFAULT_ZOOM) {
+        const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+        if (!delta) return;
+        event.preventDefault();
+        equipmentState.drawingPan = {
+          ...equipmentState.drawingPan,
+          x: equipmentState.drawingPan.x - delta,
+        };
+        updateEquipmentDrawingViewportTransform();
+      }
+    }
     function renderEquipmentDrawingCanvas() {
       if (!equipmentDrawingCanvas) return;
       equipmentDrawingCanvas.innerHTML = "";
       const isPlacing = Boolean(equipmentState.drawingPlacementCameraId);
       equipmentDrawingCanvas.classList.toggle("isPlacing", isPlacing);
-      if (equipmentDrawingPlaceBtn) {
-        equipmentDrawingPlaceBtn.classList.toggle("isActive", isPlacing);
-        equipmentDrawingPlaceBtn.setAttribute("aria-pressed", isPlacing ? "true" : "false");
-        equipmentDrawingPlaceBtn.disabled = !isPlacing;
-        equipmentDrawingPlaceBtn.title = isPlacing ? "Klik på tegningen for at placere kameraet" : "Vælg Placer fra et kamerakort først";
-      }
       const drawing = getActiveEquipmentDrawing();
       if (!drawing) {
         equipmentDrawingCanvas.textContent = "Upload eller vælg en tegning.";
@@ -8284,6 +8297,10 @@
         setEquipmentDrawingStatus(equipmentErrorMessage(error, "Kunne ikke slette pin."), true);
       }
     }
+    function formatEquipmentCompactDetail(label, value) {
+      const clean = String(value || "").trim();
+      return clean ? `${label}: ${clean}` : "";
+    }
     function renderEquipmentList() {
       if (!equipmentUi || !equipmentList) {
         return;
@@ -8338,10 +8355,12 @@
 
         const summary = document.createElement("div");
         summary.className = "equipmentCardSummary";
-        const line = [camera.location_text, formatEquipmentMac(camera.mac_address), camera.serial_number]
-          .filter(Boolean)
-          .slice(0, 2)
-          .join(" · ") || "Ingen placering/MAC endnu";
+        const compactDetails = [
+          formatEquipmentCompactDetail("Placering", camera.location_text),
+          formatEquipmentCompactDetail("MAC-adresse", formatEquipmentMac(camera.mac_address)),
+          formatEquipmentCompactDetail("Serienummer", camera.serial_number),
+        ].filter(Boolean);
+        const line = compactDetails.slice(0, 2).join(" · ") || "Ingen placering/MAC-adresse endnu";
         const summaryText = document.createElement("span");
         summaryText.textContent = line;
         summary.appendChild(summaryText);
@@ -8369,8 +8388,8 @@
           const col1 = document.createElement("div");
           col1.className = "equipmentCardColumn";
           col1.appendChild(makeEquipmentMeta("Kamera", camera.camera_id || "Kamera"));
-          col1.appendChild(makeEquipmentMeta("MAC", formatEquipmentMac(camera.mac_address)));
-          col1.appendChild(makeEquipmentMeta("S/N", camera.serial_number));
+          col1.appendChild(makeEquipmentMeta("MAC-adresse", formatEquipmentMac(camera.mac_address)));
+          col1.appendChild(makeEquipmentMeta("Serienummer", camera.serial_number));
           col1.appendChild(makeEquipmentMeta("Mærke/model", [brandModel.brand, brandModel.model].filter(Boolean).join(" / ")));
           col1.appendChild(makeEquipmentMeta("Placering", camera.location_text));
 
@@ -8431,6 +8450,29 @@
       if (equipmentNoteInput) equipmentNoteInput.value = camera?.note || "";
       if (equipmentFormStatus) equipmentFormStatus.textContent = "";
       updateEquipmentBrandModelSuggestions();
+      updateEquipmentLocationPlaceAction();
+    }
+
+    function updateEquipmentLocationPlaceAction() {
+      if (!equipmentLocationPlaceBtn) return;
+      const canPlace = Boolean(equipmentState.activeCameraId);
+      equipmentLocationPlaceBtn.disabled = !canPlace;
+      equipmentLocationPlaceBtn.title = canPlace ? "Placer kameraet på tegning" : "Gem kameraet før placering";
+      equipmentLocationPlaceBtn.setAttribute("aria-disabled", canPlace ? "false" : "true");
+    }
+
+    function openEquipmentPlacementFromForm() {
+      if (!equipmentState.activeCameraId) {
+        if (equipmentFormStatus) equipmentFormStatus.textContent = "Gem kameraet før placering.";
+        updateEquipmentLocationPlaceAction();
+        return;
+      }
+      const camera = getEquipmentCameraById(equipmentState.activeCameraId) || {
+        id: equipmentState.activeCameraId,
+        camera_id: equipmentCameraIdInput ? equipmentCameraIdInput.value.trim() : "Kamera",
+        drawing_pin: null,
+      };
+      openEquipmentDrawing(camera, true);
     }
 
     function openEquipmentDrawer() {
@@ -8485,7 +8527,7 @@
       setEquipmentMode("check");
       equipmentState.checkCamera = null;
       if (equipmentDrawerTitle) equipmentDrawerTitle.textContent = "Kontroller kamera";
-      if (equipmentDrawerMeta) equipmentDrawerMeta.textContent = "Søg på MAC, S/N eller Kamera-ID";
+      if (equipmentDrawerMeta) equipmentDrawerMeta.textContent = "Søg på MAC, serienummer eller Kamera-ID";
       if (equipmentCheckInput) equipmentCheckInput.value = formatEquipmentMac(prefillValue) || "";
       if (equipmentCheckStatus) equipmentCheckStatus.textContent = "";
       if (equipmentCheckResult) equipmentCheckResult.innerHTML = "";
@@ -8625,8 +8667,8 @@
         grid.className = "equipmentMetaGrid";
         const brandModel = getEquipmentCameraBrandModel(camera);
         grid.appendChild(makeEquipmentMeta("Kamera-ID", camera.camera_id));
-        grid.appendChild(makeEquipmentMeta("MAC", formatEquipmentMac(camera.mac_address)));
-        grid.appendChild(makeEquipmentMeta("S/N", camera.serial_number));
+        grid.appendChild(makeEquipmentMeta("MAC-adresse", formatEquipmentMac(camera.mac_address)));
+        grid.appendChild(makeEquipmentMeta("Serienummer", camera.serial_number));
         grid.appendChild(makeEquipmentMeta("Mærke", brandModel.brand));
         grid.appendChild(makeEquipmentMeta("Model", brandModel.model));
         grid.appendChild(makeEquipmentMeta("Placering", camera.location_text));
@@ -8689,7 +8731,7 @@
     async function checkEquipmentCamera() {
       const query = equipmentCheckInput ? equipmentCheckInput.value.trim() : "";
       if (!query) {
-        if (equipmentCheckStatus) equipmentCheckStatus.textContent = "Indtast MAC, S/N eller Kamera-ID.";
+        if (equipmentCheckStatus) equipmentCheckStatus.textContent = "Indtast MAC, serienummer eller Kamera-ID.";
         return;
       }
       if (equipmentCheckSubmitBtn) equipmentCheckSubmitBtn.disabled = true;
@@ -8905,25 +8947,14 @@
     if (equipmentDrawingFileInput) {
       equipmentDrawingFileInput.addEventListener("change", handleEquipmentDrawingFileSelection);
     }
+    if (equipmentDrawingCanvas) {
+      equipmentDrawingCanvas.addEventListener("wheel", handleEquipmentDrawingWheel, { passive: false });
+    }
 
     if (equipmentDrawingPdfImportBtn) {
       equipmentDrawingPdfImportBtn.addEventListener("click", importEquipmentDrawingPdfPages);
     }
 
-    if (equipmentDrawingPlaceBtn) {
-      equipmentDrawingPlaceBtn.addEventListener("click", () => {
-        if (!equipmentState.activeDrawingId) {
-          setEquipmentDrawingStatus("Vælg eller upload en tegning først.", true);
-          return;
-        }
-        if (!equipmentState.drawingPlacementCameraId) {
-          setEquipmentDrawingStatus("Vælg Placer fra et kamerakort først.", true);
-          return;
-        }
-        setEquipmentDrawingStatus("Klik på tegningen for at placere kameraet.");
-        renderEquipmentDrawingCanvas();
-      });
-    }
 
     if (equipmentDrawingDeleteBtn) {
       equipmentDrawingDeleteBtn.addEventListener("click", deleteEquipmentDrawing);
@@ -9013,6 +9044,9 @@
 
     if (equipmentSerialScanBtn) {
       equipmentSerialScanBtn.addEventListener("click", () => openEquipmentScanner("serial"));
+    }
+    if (equipmentLocationPlaceBtn) {
+      equipmentLocationPlaceBtn.addEventListener("click", openEquipmentPlacementFromForm);
     }
 
     if (equipmentCheckScanBtn) {
