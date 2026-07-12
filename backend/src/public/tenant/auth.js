@@ -5433,6 +5433,10 @@
     const equipmentDrawingPdfImport = document.getElementById("equipmentDrawingPdfImport");
     const equipmentDrawingPdfImportBtn = document.getElementById("equipmentDrawingPdfImportBtn");
     const equipmentDrawingPdfList = document.getElementById("equipmentDrawingPdfList");
+    const equipmentDrawingZoomOutBtn = document.getElementById("equipmentDrawingZoomOutBtn");
+    const equipmentDrawingZoomInBtn = document.getElementById("equipmentDrawingZoomInBtn");
+    const equipmentDrawingResetViewBtn = document.getElementById("equipmentDrawingResetViewBtn");
+    const equipmentDrawingZoomValue = document.getElementById("equipmentDrawingZoomValue");
 
     if (!projectId) {
       renderProjectDetailError("Ugyldig sagssti");
@@ -5491,7 +5495,19 @@
       pdfImportFiles: [],
       pdfJsPromise: null,
       isDrawingFileProcessing: false,
+      cardExpandedIds: new Set(),
+      drawingZoom: 100,
+      drawingPan: { x: 0, y: 0 },
+      drawingPanDrag: null,
+      drawingIsPanning: false,
+      suppressDrawingPlacementClick: false,
     };
+    const EQUIPMENT_DRAWING_DEFAULT_ZOOM = 100;
+    const EQUIPMENT_DRAWING_MIN_ZOOM = 50;
+    const EQUIPMENT_DRAWING_MAX_ZOOM = 300;
+    const EQUIPMENT_DRAWING_ZOOM_STEP = 25;
+    const EQUIPMENT_DRAWING_PAN_THRESHOLD = 4;
+
     const equipmentScannerState = {
       target: null,
       stream: null,
@@ -7287,6 +7303,30 @@
       row.appendChild(viewBtn);
       return row;
     }
+    function getEquipmentImageStatusText(camera) {
+      const slots = camera && camera.image_slots ? camera.image_slots : {};
+      const total = equipmentImageSlotTypes.length;
+      const ready = equipmentImageSlotTypes.filter((slotType) => hasEquipmentImageSlot(slots[slotType.value])).length;
+      return `${ready}/${total} billeder`;
+    }
+
+    function makeEquipmentStatusChip(text, isReady) {
+      const chip = document.createElement("span");
+      chip.className = `equipmentImageBadge${isReady ? " hasImage" : ""}`;
+      chip.textContent = text;
+      return chip;
+    }
+
+    function renderEquipmentNote(text) {
+      if (!text) return null;
+      const note = document.createElement("p");
+      note.className = "equipmentNote";
+      const label = document.createElement("strong");
+      label.textContent = "Note: ";
+      note.appendChild(label);
+      note.appendChild(document.createTextNode(text));
+      return note;
+    }
     function chooseEquipmentImageFile(slotType) {
       if (!equipmentState.activeCameraId) {
         if (equipmentImageStatus) equipmentImageStatus.textContent = "Gem kameraet, før billeder kan tilføjes.";
@@ -7858,6 +7898,83 @@
       }
     }
 
+    function getEquipmentDrawingStage() {
+      return equipmentDrawingCanvas ? equipmentDrawingCanvas.querySelector(".equipmentDrawingStage") : null;
+    }
+
+    function updateEquipmentDrawingViewportTransform() {
+      if (equipmentDrawingZoomValue) equipmentDrawingZoomValue.textContent = `${equipmentState.drawingZoom}%`;
+      const stage = getEquipmentDrawingStage();
+      if (!stage) return;
+      const zoom = equipmentState.drawingZoom / 100;
+      stage.style.transform = `translate(${equipmentState.drawingPan.x}px, ${equipmentState.drawingPan.y}px) scale(${zoom})`;
+      stage.classList.toggle("isPannable", equipmentState.drawingZoom > EQUIPMENT_DRAWING_DEFAULT_ZOOM);
+      stage.classList.toggle("isPanning", Boolean(equipmentState.drawingIsPanning));
+    }
+
+    function resetEquipmentDrawingView() {
+      equipmentState.drawingZoom = EQUIPMENT_DRAWING_DEFAULT_ZOOM;
+      equipmentState.drawingPan = { x: 0, y: 0 };
+      equipmentState.drawingPanDrag = null;
+      equipmentState.drawingIsPanning = false;
+      equipmentState.suppressDrawingPlacementClick = false;
+      updateEquipmentDrawingViewportTransform();
+    }
+
+    function updateEquipmentDrawingZoom(nextZoom) {
+      const clamped = Math.max(EQUIPMENT_DRAWING_MIN_ZOOM, Math.min(EQUIPMENT_DRAWING_MAX_ZOOM, Number(nextZoom) || EQUIPMENT_DRAWING_DEFAULT_ZOOM));
+      equipmentState.drawingZoom = clamped;
+      if (clamped <= EQUIPMENT_DRAWING_DEFAULT_ZOOM) {
+        equipmentState.drawingPan = { x: 0, y: 0 };
+      }
+      updateEquipmentDrawingViewportTransform();
+    }
+
+    function startEquipmentDrawingPan(event) {
+      if (equipmentState.drawingZoom <= EQUIPMENT_DRAWING_DEFAULT_ZOOM) return;
+      if (event.target && event.target.closest && event.target.closest(".equipmentDrawingPin")) return;
+      event.currentTarget.setPointerCapture(event.pointerId);
+      equipmentState.drawingPanDrag = {
+        pointerId: event.pointerId,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        startPan: { ...equipmentState.drawingPan },
+        didDrag: false,
+      };
+    }
+
+    function moveEquipmentDrawingPan(event) {
+      const drag = equipmentState.drawingPanDrag;
+      if (!drag || drag.pointerId !== event.pointerId || equipmentState.drawingZoom <= EQUIPMENT_DRAWING_DEFAULT_ZOOM) return;
+      const deltaX = event.clientX - drag.startClientX;
+      const deltaY = event.clientY - drag.startClientY;
+      if (Math.hypot(deltaX, deltaY) >= EQUIPMENT_DRAWING_PAN_THRESHOLD) {
+        drag.didDrag = true;
+        equipmentState.drawingIsPanning = true;
+        equipmentState.drawingPan = {
+          x: drag.startPan.x + deltaX,
+          y: drag.startPan.y + deltaY,
+        };
+        updateEquipmentDrawingViewportTransform();
+      }
+    }
+
+    function stopEquipmentDrawingPan(event) {
+      const drag = equipmentState.drawingPanDrag;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      equipmentState.suppressDrawingPlacementClick = Boolean(drag.didDrag);
+      if (drag.didDrag) {
+        window.setTimeout(() => { equipmentState.suppressDrawingPlacementClick = false; }, 0);
+      }
+      equipmentState.drawingIsPanning = false;
+      equipmentState.drawingPanDrag = null;
+      try {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      } catch (_error) {
+        // Pointer capture cleanup is best-effort.
+      }
+      updateEquipmentDrawingViewportTransform();
+    }
     function renderEquipmentDrawingCanvas() {
       if (!equipmentDrawingCanvas) return;
       equipmentDrawingCanvas.innerHTML = "";
@@ -7866,28 +7983,36 @@
       if (!drawing) {
         equipmentDrawingCanvas.textContent = "Upload eller vælg en tegning.";
         renderEquipmentDrawingPinPanel(null);
+        updateEquipmentDrawingViewportTransform();
         return;
       }
       if (!equipmentState.drawingObjectUrl) {
         equipmentDrawingCanvas.textContent = "Henter tegning...";
+        updateEquipmentDrawingViewportTransform();
         return;
       }
       const renderToken = `${drawing.id}:${Date.now()}`;
       equipmentState.drawingRenderToken = renderToken;
       const stage = document.createElement("div");
       stage.className = "equipmentDrawingStage";
+      stage.addEventListener("pointerdown", startEquipmentDrawingPan);
+      stage.addEventListener("pointermove", moveEquipmentDrawingPan);
+      stage.addEventListener("pointerup", stopEquipmentDrawingPan);
+      stage.addEventListener("pointercancel", stopEquipmentDrawingPan);
+      stage.addEventListener("click", placeEquipmentDrawingPinFromEvent);
       if (isEquipmentPdfDrawing(drawing)) {
         const canvas = document.createElement("canvas");
         canvas.className = "equipmentDrawingImage";
         canvas.dataset.drawingSurface = "true";
         canvas.setAttribute("aria-label", drawing.title || "CCTV PDF-side");
         stage.appendChild(canvas);
-        stage.addEventListener("click", placeEquipmentDrawingPinFromEvent);
         equipmentDrawingCanvas.appendChild(stage);
+        updateEquipmentDrawingViewportTransform();
         renderEquipmentPdfDrawingSurface(canvas, drawing, renderToken)
           .then(() => {
             if (equipmentState.drawingRenderToken !== renderToken) return;
             appendEquipmentDrawingPins(stage);
+            updateEquipmentDrawingViewportTransform();
             const selected = equipmentState.drawingPins.find((pin) => pin.id === equipmentState.selectedDrawingPinId) || null;
             renderEquipmentDrawingPinPanel(selected);
           })
@@ -7903,10 +8028,11 @@
       image.dataset.drawingSurface = "true";
       image.src = equipmentState.drawingObjectUrl;
       image.alt = drawing.title || "CCTV tegning";
+      image.draggable = false;
       stage.appendChild(image);
       appendEquipmentDrawingPins(stage);
-      stage.addEventListener("click", placeEquipmentDrawingPinFromEvent);
       equipmentDrawingCanvas.appendChild(stage);
+      updateEquipmentDrawingViewportTransform();
       const selected = equipmentState.drawingPins.find((pin) => pin.id === equipmentState.selectedDrawingPinId) || null;
       renderEquipmentDrawingPinPanel(selected);
     }
@@ -7948,6 +8074,7 @@
       equipmentDrawingShell.classList.add("open");
       equipmentDrawingShell.setAttribute("aria-hidden", "false");
       document.body.classList.add("equipment-drawing-open");
+      resetEquipmentDrawingView();
       setEquipmentDrawingStatus("Henter tegninger...");
       renderEquipmentDrawingSelects();
       try {
@@ -7976,6 +8103,7 @@
       document.body.classList.remove("equipment-drawing-open");
       equipmentState.drawingPlacementCameraId = null;
       equipmentState.selectedDrawingPinId = null;
+      resetEquipmentDrawingView();
       revokeEquipmentDrawingObjectUrl();
     }
 
@@ -8039,6 +8167,10 @@
     }
 
     async function placeEquipmentDrawingPinFromEvent(event) {
+      if (equipmentState.suppressDrawingPlacementClick) {
+        equipmentState.suppressDrawingPlacementClick = false;
+        return;
+      }
       if (!equipmentState.drawingPlacementCameraId || !equipmentState.activeDrawingId) return;
       const surface = event.currentTarget.querySelector("[data-drawing-surface]");
       if (!surface) return;
@@ -8102,55 +8234,120 @@
       setEquipmentStateMessage("", false);
       equipmentState.cameras.forEach((camera) => {
         const statusView = getEquipmentStatusView(camera.status);
+        const brandModel = getEquipmentCameraBrandModel(camera);
+        const hasPin = Boolean(camera && camera.drawing_pin && camera.drawing_pin.drawing_id);
+        const hasAnyImage = equipmentImageSlotTypes.some((slotType) => hasEquipmentImageSlot(camera?.image_slots?.[slotType.value]));
+        const isExpanded = equipmentState.cardExpandedIds.has(String(camera.id));
         const card = document.createElement("article");
-        card.className = "equipmentCard";
-        const top = document.createElement("div");
-        top.className = "equipmentCardTop";
+        card.className = `equipmentCard${isExpanded ? " expanded" : ""}`;
+
+        const header = document.createElement("button");
+        header.type = "button";
+        header.className = "equipmentCardHeaderBtn";
+        header.setAttribute("aria-expanded", isExpanded ? "true" : "false");
+        header.addEventListener("click", () => {
+          const key = String(camera.id);
+          if (equipmentState.cardExpandedIds.has(key)) {
+            equipmentState.cardExpandedIds.delete(key);
+          } else {
+            equipmentState.cardExpandedIds.add(key);
+          }
+          renderEquipmentList();
+        });
+
+        const headerCopy = document.createElement("div");
+        const titleRow = document.createElement("div");
+        titleRow.className = "equipmentCardTitleRow";
         const title = document.createElement("h3");
         title.className = "equipmentTitle";
         title.textContent = camera.camera_id || "Kamera";
-        const badges = document.createElement("div");
-        badges.className = "qaBadgeRow";
-        badges.appendChild(makeQaBadge(statusView.label, statusView.className));
-        top.appendChild(title);
-        top.appendChild(badges);
-        const grid = document.createElement("div");
-        grid.className = "equipmentMetaGrid";
-        const brandModel = getEquipmentCameraBrandModel(camera);
-        grid.appendChild(makeEquipmentMeta("MAC", formatEquipmentMac(camera.mac_address)));
-        grid.appendChild(makeEquipmentMeta("S/N", camera.serial_number));
-        grid.appendChild(makeEquipmentMeta("Mærke", brandModel.brand));
-        grid.appendChild(makeEquipmentMeta("Model", brandModel.model));
-        grid.appendChild(makeEquipmentMeta("Placering", camera.location_text));
-        const actions = document.createElement("div");
-        actions.className = "equipmentCardActions";
-        const editBtn = document.createElement("button");
-        editBtn.type = "button";
-        editBtn.className = "btn btnCompact";
-        editBtn.textContent = "Rediger";
-        editBtn.addEventListener("click", () => openEquipmentCameraForm(camera));
-        const checkBtn = document.createElement("button");
-        checkBtn.type = "button";
-        checkBtn.className = "btn btnCompact";
-        checkBtn.textContent = "Kontroller";
-        checkBtn.addEventListener("click", () => openEquipmentCheck(camera.camera_id || camera.mac_address || camera.serial_number || ""));
-        actions.appendChild(editBtn);
-        actions.appendChild(checkBtn);
-        card.appendChild(top);
-        card.appendChild(grid);
-        card.appendChild(makeEquipmentImageStatusRow(camera));
-        card.appendChild(makeEquipmentDrawingStatusRow(camera));
-        if (camera.note) {
-          const note = document.createElement("p");
-          note.className = "equipmentNote";
-          note.textContent = camera.note;
-          card.appendChild(note);
+        titleRow.appendChild(title);
+        titleRow.appendChild(makeQaBadge(statusView.label, statusView.className));
+        headerCopy.appendChild(titleRow);
+
+        const summary = document.createElement("div");
+        summary.className = "equipmentCardSummary";
+        const line = [camera.location_text, formatEquipmentMac(camera.mac_address), camera.serial_number]
+          .filter(Boolean)
+          .slice(0, 2)
+          .join(" · ") || "Ingen placering/MAC endnu";
+        const summaryText = document.createElement("span");
+        summaryText.textContent = line;
+        summary.appendChild(summaryText);
+        const compactChips = document.createElement("span");
+        compactChips.className = "equipmentCardCompactChips";
+        compactChips.appendChild(makeEquipmentStatusChip(getEquipmentImageStatusText(camera), hasAnyImage));
+        compactChips.appendChild(makeEquipmentStatusChip(hasPin ? "Pin OK" : "Mangler pin", hasPin));
+        summary.appendChild(compactChips);
+        headerCopy.appendChild(summary);
+
+        const chevron = document.createElement("span");
+        chevron.className = "equipmentCardChevron";
+        chevron.setAttribute("aria-hidden", "true");
+        chevron.textContent = "v";
+        header.appendChild(headerCopy);
+        header.appendChild(chevron);
+        card.appendChild(header);
+
+        if (isExpanded) {
+          const expanded = document.createElement("div");
+          expanded.className = "equipmentCardExpanded";
+          const columns = document.createElement("div");
+          columns.className = "equipmentCardColumns";
+
+          const col1 = document.createElement("div");
+          col1.className = "equipmentCardColumn";
+          col1.appendChild(makeEquipmentMeta("Kamera", camera.camera_id || "Kamera"));
+          col1.appendChild(makeEquipmentMeta("MAC", formatEquipmentMac(camera.mac_address)));
+          col1.appendChild(makeEquipmentMeta("S/N", camera.serial_number));
+          col1.appendChild(makeEquipmentMeta("Mærke/model", [brandModel.brand, brandModel.model].filter(Boolean).join(" / ")));
+          col1.appendChild(makeEquipmentMeta("Placering", camera.location_text));
+
+          const col2 = document.createElement("div");
+          col2.className = "equipmentCardColumn";
+          col2.appendChild(makeEquipmentMeta("Status", statusView.label));
+          col2.appendChild(makeEquipmentImageStatusRow(camera));
+          col2.appendChild(makeEquipmentDrawingStatusRow(camera));
+          const note = renderEquipmentNote(camera.note);
+          if (note) col2.appendChild(note);
+
+          const col3 = document.createElement("div");
+          col3.className = "equipmentCardColumn";
+          const editBtn = document.createElement("button");
+          editBtn.type = "button";
+          editBtn.className = "btn btnCompact";
+          editBtn.textContent = "Rediger";
+          editBtn.addEventListener("click", () => openEquipmentCameraForm(camera));
+          const checkBtn = document.createElement("button");
+          checkBtn.type = "button";
+          checkBtn.className = "btn btnCompact";
+          checkBtn.textContent = "Kontroller";
+          checkBtn.addEventListener("click", () => openEquipmentCheck(camera.camera_id || camera.mac_address || camera.serial_number || ""));
+          const imagesBtn = document.createElement("button");
+          imagesBtn.type = "button";
+          imagesBtn.className = "btn btnCompact";
+          imagesBtn.textContent = "Billeder";
+          imagesBtn.addEventListener("click", () => openEquipmentImageViewer(camera));
+          const drawingBtn = document.createElement("button");
+          drawingBtn.type = "button";
+          drawingBtn.className = "btn btnCompact";
+          drawingBtn.textContent = hasPin ? "Vis på tegning" : "Placer";
+          drawingBtn.addEventListener("click", () => openEquipmentDrawing(camera, !hasPin));
+          col3.appendChild(editBtn);
+          col3.appendChild(checkBtn);
+          col3.appendChild(imagesBtn);
+          col3.appendChild(drawingBtn);
+
+          columns.appendChild(col1);
+          columns.appendChild(col2);
+          columns.appendChild(col3);
+          expanded.appendChild(columns);
+          card.appendChild(expanded);
         }
-        card.appendChild(actions);
+
         equipmentList.appendChild(card);
       });
     }
-
     function fillEquipmentForm(camera) {
       const brandModel = getEquipmentCameraBrandModel(camera);
       if (equipmentCameraIdInput) equipmentCameraIdInput.value = camera?.camera_id || "";
@@ -8659,6 +8856,18 @@
 
     if (equipmentDrawingDeleteBtn) {
       equipmentDrawingDeleteBtn.addEventListener("click", deleteEquipmentDrawing);
+    }
+
+    if (equipmentDrawingZoomOutBtn) {
+      equipmentDrawingZoomOutBtn.addEventListener("click", () => updateEquipmentDrawingZoom(equipmentState.drawingZoom - EQUIPMENT_DRAWING_ZOOM_STEP));
+    }
+
+    if (equipmentDrawingZoomInBtn) {
+      equipmentDrawingZoomInBtn.addEventListener("click", () => updateEquipmentDrawingZoom(equipmentState.drawingZoom + EQUIPMENT_DRAWING_ZOOM_STEP));
+    }
+
+    if (equipmentDrawingResetViewBtn) {
+      equipmentDrawingResetViewBtn.addEventListener("click", resetEquipmentDrawingView);
     }
 
     if (equipmentDrawingOverlay) {

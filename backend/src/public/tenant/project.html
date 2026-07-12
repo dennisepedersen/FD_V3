@@ -1737,7 +1737,81 @@
     }
 
     .equipmentPanel {
-      gap: 14px;
+      gap: 10px;
+    }
+
+    .equipmentStickyBar {
+      position: sticky;
+      top: 0;
+      z-index: 8;
+      display: grid;
+      gap: 8px;
+      margin: -4px -4px 0;
+      padding: 8px;
+      border: 1px solid rgba(203, 213, 225, 0.82);
+      border-radius: 12px;
+      background: rgba(248, 250, 252, 0.96);
+      box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+      backdrop-filter: blur(10px);
+    }
+
+    .equipmentSubnav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .equipmentSubnavTabs {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      scrollbar-width: thin;
+    }
+
+    .equipmentSubnavTab {
+      flex: 0 0 auto;
+      min-height: 28px;
+      border: 1px solid rgba(2, 132, 199, 0.28);
+      border-radius: 999px;
+      background: #eff6ff;
+      color: #075985;
+      padding: 5px 10px;
+      font-size: 12px;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .equipmentSubnavTab[aria-current="true"] {
+      border-color: #0284c7;
+      background: #0284c7;
+      color: #fff;
+    }
+
+    .equipmentSubnavHint {
+      color: #64748b;
+      font-size: 12px;
+      font-weight: 750;
+    }
+
+    .equipmentStickyBar .qaSummaryCard {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-height: 34px;
+      padding: 6px 8px;
+      border-radius: 999px;
+      box-shadow: none;
+    }
+
+    .equipmentStickyBar .qaSummaryLabel {
+      font-size: 10px;
+    }
+
+    .equipmentStickyBar .qaSummaryValue {
+      font-size: 14px;
     }
 
     .equipmentHeaderRow,
@@ -1760,7 +1834,7 @@
 
     .equipmentActions {
       display: flex;
-      gap: 8px;
+      gap: 6px;
       flex-wrap: wrap;
       justify-content: flex-end;
     }
@@ -1791,18 +1865,79 @@
     .equipmentCard {
       border: 1px solid #cbd5e1;
       border-left: 4px solid var(--brand);
-      border-radius: 12px;
+      border-radius: 10px;
       background: #fff;
-      box-shadow: 0 12px 30px rgba(15, 23, 42, 0.10);
-      padding: 13px;
+      box-shadow: 0 8px 22px rgba(15, 23, 42, 0.08);
+      padding: 10px;
       display: grid;
+      gap: 8px;
+    }
+
+    .equipmentCardHeaderBtn {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
       gap: 10px;
+      align-items: center;
+      width: 100%;
+      border: 0;
+      background: transparent;
+      padding: 0;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .equipmentCardTitleRow,
+    .equipmentCardSummary,
+    .equipmentCardCompactChips {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      flex-wrap: wrap;
+      min-width: 0;
+    }
+
+    .equipmentCardSummary {
+      margin-top: 4px;
+      color: #64748b;
+      font-size: 12px;
+      font-weight: 750;
+    }
+
+    .equipmentCardChevron {
+      display: grid;
+      place-items: center;
+      width: 30px;
+      height: 30px;
+      border: 1px solid #cbd5e1;
+      border-radius: 999px;
+      background: #f8fafc;
+      color: #0f172a;
+      font-size: 16px;
+      font-weight: 900;
+      line-height: 1;
+      transition: transform 0.15s ease;
+    }
+
+    .equipmentCard.expanded .equipmentCardChevron {
+      transform: rotate(180deg);
+    }
+
+    .equipmentCardExpanded,
+    .equipmentCardColumn {
+      display: grid;
+      gap: 8px;
+    }
+
+    .equipmentCardColumns {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
     }
 
     .equipmentTitle {
       margin: 0;
       color: #0f172a;
-      font-size: 17px;
+      font-size: 15px;
       font-weight: 900;
       overflow-wrap: anywhere;
     }
@@ -1817,7 +1952,7 @@
       display: grid;
       gap: 3px;
       min-width: 0;
-      padding: 8px 9px;
+      padding: 7px 8px;
       border: 1px solid #cbd5e1;
       border-radius: 8px;
       background: #f8fafc;
@@ -1845,6 +1980,11 @@
       font-weight: 650;
       line-height: 1.45;
       overflow-wrap: anywhere;
+    }
+
+    .equipmentNote strong {
+      color: #475569;
+      font-weight: 900;
     }
 
     .equipmentFeedback {
@@ -2079,7 +2219,7 @@
       gap: 12px;
       max-width: 980px;
       margin: 0 auto;
-      padding: 14px;
+      padding: 10px;
       border-radius: 14px;
       background: #fff;
       box-shadow: 0 22px 70px rgba(15, 23, 42, 0.32);
@@ -2090,6 +2230,21 @@
       justify-content: space-between;
       gap: 12px;
       align-items: flex-start;
+    }
+
+    .equipmentImageViewerHeader .iconBtn {
+      min-width: 38px;
+      min-height: 38px;
+      border: 1px solid #94a3b8;
+      background: #0f172a;
+      color: #fff;
+      font-size: 26px;
+      line-height: 1;
+      box-shadow: 0 8px 18px rgba(15, 23, 42, 0.22);
+    }
+
+    .equipmentImageViewerHeader .iconBtn:hover {
+      background: #1e293b;
     }
 
     .equipmentImageViewerBody {
@@ -2151,13 +2306,13 @@
 
     .equipmentDrawingPanel {
       position: absolute;
-      inset: 14px;
+      inset: 10px;
       display: grid;
       grid-template-rows: auto auto auto minmax(0, 1fr);
-      gap: 10px;
-      max-width: 1180px;
+      gap: 8px;
+      max-width: 1280px;
       margin: 0 auto;
-      padding: 14px;
+      padding: 10px;
       border-radius: 14px;
       background: #fff;
       box-shadow: 0 22px 70px rgba(15, 23, 42, 0.32);
@@ -2176,10 +2331,31 @@
 
     .equipmentDrawingControls {
       justify-content: flex-start;
-      padding: 10px;
+      align-items: end;
+      padding: 8px;
       border: 1px solid #cbd5e1;
       border-radius: 10px;
       background: #f8fafc;
+    }
+
+    .equipmentDrawingZoomControls {
+      display: inline-flex;
+      gap: 5px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-left: auto;
+    }
+
+    .equipmentDrawingZoomValue {
+      min-width: 56px;
+      padding: 6px 8px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      background: #fff;
+      color: #0f172a;
+      text-align: center;
+      font-size: 12px;
+      font-weight: 900;
     }
 
     .equipmentDrawingControls .qaLabel {
@@ -2196,21 +2372,21 @@
     .equipmentDrawingBody {
       display: grid;
       grid-template-columns: minmax(0, 1fr);
-      gap: 10px;
+      gap: 8px;
       min-height: 0;
-      overflow: auto;
+      overflow: hidden;
     }
 
     .equipmentDrawingCanvas {
       position: relative;
       display: grid;
       place-items: center;
-      min-height: 280px;
+      min-height: 360px;
       border: 1px solid #cbd5e1;
       border-radius: 10px;
       background: #0f172a;
       color: #cbd5e1;
-      overflow: auto;
+      overflow: hidden;
       font-weight: 850;
       text-align: center;
     }
@@ -2219,12 +2395,24 @@
       position: relative;
       max-width: 100%;
       line-height: 0;
+      transform-origin: center center;
+      touch-action: none;
+      user-select: none;
+      will-change: transform;
+    }
+
+    .equipmentDrawingStage.isPannable {
+      cursor: grab;
+    }
+
+    .equipmentDrawingStage.isPanning {
+      cursor: grabbing;
     }
 
     .equipmentDrawingImage {
       display: block;
       max-width: 100%;
-      max-height: 68vh;
+      max-height: 72vh;
       object-fit: contain;
     }
 
@@ -2430,12 +2618,16 @@
 
       .qaSummaryGrid,
       .equipmentSummaryGrid {
-        grid-template-columns: repeat(4, minmax(0, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
       }
 
       .equipmentFormGrid,
       .equipmentMetaGrid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .equipmentCardColumns {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
       }
 
 
@@ -2722,27 +2914,36 @@
 
 
     <section id="equipmentSection" class="panel sectionPanel equipmentPanel" data-project-module-panel="equipment" data-project-module-available="false" hidden>
-      <div class="equipmentHeaderRow">
-        <div class="equipmentHeaderCopy">
-          <h2 class="sectionTitle">Projektudstyr Beta &middot; CCTV</h2>
-          <p id="equipmentMetaText" class="qaMetaText">Indlæser CCTV...</p>
+      <div class="equipmentStickyBar">
+        <div class="equipmentSubnav" aria-label="Udstyrsmoduler">
+          <div class="equipmentSubnavTabs" role="tablist" aria-label="Vælg udstyrsmodul">
+            <button class="equipmentSubnavTab" type="button" aria-current="true">CCTV</button>
+            <button class="equipmentSubnavTab" type="button" disabled>AIA</button>
+            <button class="equipmentSubnavTab" type="button" disabled>ADK</button>
+          </div>
+          <span id="equipmentMetaText" class="equipmentSubnavHint">Indlæser CCTV...</span>
         </div>
-        <div class="equipmentActions">
-          <button id="equipmentCheckBtn" class="btn btnCompact" type="button">Kontroller kamera</button>
-          <button id="equipmentDrawingBtn" class="btn btnCompact" type="button">Tegning</button>
-          <button id="equipmentAddBtn" class="btn btnPrimary btnCompact" type="button">Tilføj kamera</button>
-          <a id="equipmentExportLink" class="btn btnCompact" href="#">CSV</a>
-          <a id="equipmentPdfExportLink" class="btn btnCompact" href="#">Eksportér PDF</a>
+        <div class="equipmentHeaderRow">
+          <div class="equipmentHeaderCopy">
+            <h2 class="sectionTitle">Projektudstyr Beta &middot; CCTV</h2>
+          </div>
+          <div class="equipmentActions">
+            <button id="equipmentCheckBtn" class="btn btnCompact" type="button">Kontroller kamera</button>
+            <button id="equipmentDrawingBtn" class="btn btnCompact" type="button">Tegning</button>
+            <button id="equipmentAddBtn" class="btn btnPrimary btnCompact" type="button">Tilføj kamera</button>
+            <a id="equipmentExportLink" class="btn btnCompact" href="#">CSV</a>
+            <a id="equipmentPdfExportLink" class="btn btnCompact" href="#">Eksportér PDF</a>
+          </div>
         </div>
+        <div class="equipmentToolbar">
+          <label class="equipmentSearch">
+            Søg/filter
+            <input id="equipmentSearchInput" class="qaInput" type="search" placeholder="Kamera-ID, MAC, S/N, placering" />
+          </label>
+        </div>
+        <div id="equipmentSummaryGrid" class="equipmentSummaryGrid" aria-live="polite"></div>
+        <p id="equipmentFeedback" class="equipmentFeedback" hidden></p>
       </div>
-      <div class="equipmentToolbar">
-        <label class="equipmentSearch">
-          Søg/filter
-          <input id="equipmentSearchInput" class="qaInput" type="search" placeholder="Kamera-ID, MAC, S/N, placering" />
-        </label>
-      </div>
-      <p id="equipmentFeedback" class="equipmentFeedback" hidden></p>
-      <div id="equipmentSummaryGrid" class="equipmentSummaryGrid" aria-live="polite"></div>
       <div id="equipmentState" class="sectionState">Indlæser CCTV...</div>
       <div id="equipmentList" class="equipmentList" aria-live="polite"></div>
     </section>
@@ -3025,6 +3226,12 @@
         <div class="equipmentDrawingActions">
           <button id="equipmentDrawingPlaceBtn" class="btn btnPrimary btnCompact" type="button">Placer kamera</button>
           <button id="equipmentDrawingDeleteBtn" class="btn equipmentDangerBtn btnCompact" type="button">Slet tegning</button>
+        </div>
+        <div class="equipmentDrawingZoomControls" aria-label="Zoom tegning">
+          <button id="equipmentDrawingZoomOutBtn" class="btn btnCompact" type="button">Zoom -</button>
+          <span id="equipmentDrawingZoomValue" class="equipmentDrawingZoomValue">100%</span>
+          <button id="equipmentDrawingZoomInBtn" class="btn btnCompact" type="button">Zoom +</button>
+          <button id="equipmentDrawingResetViewBtn" class="btn btnCompact" type="button">Nulstil/Fit</button>
         </div>
         <div id="equipmentDrawingPdfImport" class="equipmentDrawingPdfImport" hidden>
           <div id="equipmentDrawingPdfList" class="equipmentDrawingPdfList" hidden></div>
