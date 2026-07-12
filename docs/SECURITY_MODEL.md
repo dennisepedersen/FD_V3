@@ -286,3 +286,11 @@ The tenant admin people/resource-group APIs use the `tenant_admin` module permis
 
 ## Tenant user account setup invitations
 Tenant user account setup links are tenant-host scoped and require `tenant_admin:invite` to issue. The raw token is never stored; only a SHA-256 hash is persisted in `tenant_user_invitation_token`. Resend revokes existing open account setup tokens for that tenant user, tokens expire after 72 hours, and accept marks the token used before activating the user. Public validation/accept routes do not require login but resolve tenant from the request host and return generic invalid/expired responses for unusable tokens.
+
+### Tenant User Lifecycle And Session Revocation
+
+Tenant user lifecycle is represented on `tenant_user.status`: `active`, `deactivated`, and `pending_reactivation` are the security-relevant states. Deactivation never hard-deletes the `tenant_user` or changes E-Komplet-derived `fitter` status. It bumps `tenant_user.session_version`, revokes open account setup invitations, replaces the password hash with an unusable random hash, records deactivation fields for current status display, and writes both `audit_event` rows and append-only `tenant_user_lifecycle_event` rows.
+
+Access JWTs include `session_version`. `requireAuth("access")` verifies the JWT and then reloads the tenant user from the database to check tenant match, active status, active login status, and session-version equality. Deactivated and pending-reactivation users are rejected with stable auth errors, so old JWTs stop on the next protected request after deactivation.
+
+Reactivation does not directly activate a user. A tenant admin requests a new one-time account setup link for the same `tenant_user` and email; open links are revoked first, the account remains `pending_reactivation`, and accept requires a new password. Accept marks the token used, revokes other open links, activates the existing user, and logs reactivation lifecycle/audit events. Tokens, token hashes, password data, full links, provider secrets, and mail credentials must not be logged.

@@ -169,6 +169,53 @@ router.patch("/api/tenant/admin/users/:userId", requireTenantHost, requireAuth("
   }
 });
 
+router.post("/api/tenant/admin/users/:userId/deactivate", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  try {
+    const { tenantId, userId: actorId } = getTenantContext(req);
+    requireTenantAdmin(req, "update");
+    const result = await tenantAdminService.deactivateUser({
+      tenantId,
+      actorId,
+      userId: req.params.userId,
+      reason: req.body?.reason,
+    });
+    res.status(result.already_deactivated ? 200 : 200).json({
+      success: true,
+      user: result.user,
+      already_deactivated: result.already_deactivated === true,
+      revoked_invitations: result.revoked_invitations || 0,
+    });
+  } catch (error) {
+    logRouteError(req, "/api/tenant/admin/users/:userId/deactivate", "POST", error);
+    next(error);
+  }
+});
+
+router.post("/api/tenant/admin/users/:userId/reactivation-invitations", requireTenantHost, requireAuth("access"), invitationSendRateLimit, async (req, res, next) => {
+  try {
+    const { tenantId, userId: actorId } = getTenantContext(req);
+    requireTenantAdmin(req, "invite");
+    const result = await tenantUserInvitationService.sendTenantUserReactivationInvitation({
+      tenantId,
+      actorId,
+      userId: req.params.userId,
+      requestProtocol: req.protocol,
+      requestHost: req.get("host"),
+      tenantSlug: req.context.tenant.slug,
+    });
+    res.status(202).json({ success: true, invitation: result.invitation });
+  } catch (error) {
+    logRouteError(req, "/api/tenant/admin/users/:userId/reactivation-invitations", "POST", error);
+    if (error && error.invitation) {
+      return res.status(error.statusCode || 503).json({
+        success: false,
+        error: { message: error.code || error.message || "mail_send_failed" },
+        invitation: error.invitation,
+      });
+    }
+    next(error);
+  }
+});
 router.get("/api/tenant/admin/resource-groups", requireTenantHost, requireAuth("access"), async (req, res, next) => {
   try {
     const { tenantId } = getTenantContext(req);

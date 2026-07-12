@@ -186,14 +186,25 @@ CREATE TABLE tenant_user (
   role text NOT NULL,
   status text NOT NULL,
   password_hash text NOT NULL,
+  login_status text NOT NULL DEFAULT 'active',
   username varchar(4) NULL,
+  session_version integer NOT NULL DEFAULT 0,
+  last_invited_at timestamptz NULL,
+  invite_accepted_at timestamptz NULL,
+  disabled_at timestamptz NULL,
+  deactivated_reason text NULL,
+  deactivated_by_user_id uuid NULL,
+  deactivated_at timestamptz NULL,
+  reactivation_requested_at timestamptz NULL,
+  reactivation_requested_by_user_id uuid NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT fk_tenant_user_tenant FOREIGN KEY (tenant_id) REFERENCES tenant(id) ON DELETE RESTRICT,
   CONSTRAINT ck_tenant_user_email_not_blank CHECK (btrim(email) <> ''),
   CONSTRAINT ck_tenant_user_name_not_blank CHECK (btrim(name) <> ''),
   CONSTRAINT ck_tenant_user_role CHECK (role IN ('tenant_admin', 'project_leader', 'technician')),
-  CONSTRAINT ck_tenant_user_status CHECK (status IN ('active', 'suspended', 'invited', 'deleted')),
+  CONSTRAINT ck_tenant_user_status CHECK (status IN ('active', 'suspended', 'invited', 'deleted', 'deactivated', 'pending_reactivation')),
+  CONSTRAINT ck_tenant_user_login_status CHECK (login_status IN ('imported_no_login','pending_invite','invited','active','disabled','pending_reactivation')),
   CONSTRAINT ck_tenant_user_password_hash_not_blank CHECK (btrim(password_hash) <> '')
 );
 
@@ -202,6 +213,8 @@ ALTER TABLE tenant_user
 
 CREATE UNIQUE INDEX uq_tenant_user_tenant_email_ci ON tenant_user (tenant_id, lower(email));
 CREATE INDEX ix_tenant_user_tenant_role_status ON tenant_user (tenant_id, role, status);
+CREATE INDEX ix_tenant_user_lifecycle_status ON tenant_user (tenant_id, status, login_status);
+CREATE INDEX ix_tenant_user_session_version ON tenant_user (tenant_id, id, session_version);
 CREATE UNIQUE INDEX tenant_user_username_tenant_uniq ON tenant_user (tenant_id, lower(username)) WHERE username IS NOT NULL;
 CREATE INDEX tenant_user_username_idx ON tenant_user (tenant_id, username) WHERE username IS NOT NULL;
 
@@ -216,7 +229,39 @@ FOR EACH ROW
 EXECUTE FUNCTION prevent_immutable_update('id', 'tenant_id', 'email', 'created_at');
 
 -- ============================================================================
--- 5) global_admin_user
+-- 5) tenant_user_lifecycle_event
+-- ============================================================================
+
+CREATE TABLE tenant_user_lifecycle_event (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id uuid NOT NULL,
+  tenant_user_id uuid NOT NULL,
+  event_type text NOT NULL,
+  reason text NULL,
+  actor_user_id uuid NULL,
+  occurred_at timestamptz NOT NULL DEFAULT now(),
+  metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+  CONSTRAINT fk_tenant_user_lifecycle_event_user FOREIGN KEY (tenant_user_id, tenant_id) REFERENCES tenant_user(id, tenant_id) ON DELETE RESTRICT,
+  CONSTRAINT fk_tenant_user_lifecycle_event_actor FOREIGN KEY (actor_user_id) REFERENCES tenant_user(id) ON DELETE SET NULL,
+  CONSTRAINT ck_tenant_user_lifecycle_event_type CHECK (event_type IN ('deactivated','sessions_revoked','reactivation_requested','reactivation_invite_sent','reactivation_invite_failed','reactivated')),
+  CONSTRAINT ck_tenant_user_lifecycle_metadata_is_object CHECK (jsonb_typeof(metadata) = 'object')
+);
+
+CREATE INDEX ix_tenant_user_lifecycle_event_user_occurred ON tenant_user_lifecycle_event (tenant_id, tenant_user_id, occurred_at DESC);
+CREATE INDEX ix_tenant_user_lifecycle_event_type ON tenant_user_lifecycle_event (event_type, occurred_at DESC);
+
+CREATE TRIGGER trg_tenant_user_lifecycle_event_prevent_update
+BEFORE UPDATE ON tenant_user_lifecycle_event
+FOR EACH ROW
+EXECUTE FUNCTION prevent_update_delete_append_only();
+
+CREATE TRIGGER trg_tenant_user_lifecycle_event_prevent_delete
+BEFORE DELETE ON tenant_user_lifecycle_event
+FOR EACH ROW
+EXECUTE FUNCTION prevent_update_delete_append_only();
+
+-- ============================================================================
+-- 6) global_admin_user
 -- ============================================================================
 
 CREATE TABLE global_admin_user (
@@ -401,6 +446,19 @@ CREATE TABLE audit_event (
       'onboarding_completed',
       'invitation_accept_success',
       'logout',
+      'tenant_user_created',
+      'tenant_user_updated',
+      'tenant_user_invite_requested',
+      'tenant_user_invite_sent',
+      'tenant_user_invite_send_failed',
+      'tenant_user_invite_revoked',
+      'tenant_user_invite_accepted',
+      'tenant_user_deactivated',
+      'tenant_user_sessions_revoked',
+      'tenant_user_reactivation_requested',
+      'tenant_user_reactivation_invite_sent',
+      'tenant_user_reactivation_invite_failed',
+      'tenant_user_reactivated',
       'qa_thread_created',
       'qa_message_created',
       'qa_thread_status_changed',

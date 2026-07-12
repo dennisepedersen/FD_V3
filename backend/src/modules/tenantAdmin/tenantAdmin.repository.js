@@ -61,6 +61,12 @@ async function listUsers(client, { tenantId, search }) {
           END AS login_status,
           tu.last_invited_at,
           tu.invite_accepted_at,
+          tu.session_version,
+          tu.deactivated_reason,
+          tu.deactivated_by_user_id,
+          du.name AS deactivated_by_name,
+          tu.deactivated_at,
+          tu.reactivation_requested_at,
           li.status AS invitation_status,
           li.expires_at AS invitation_expires_at,
           li.sent_at AS invitation_sent_at,
@@ -87,6 +93,9 @@ async function listUsers(client, { tenantId, search }) {
         LEFT JOIN fitter_groups fg
           ON fg.tenant_id = f.tenant_id
          AND fg.fitter_id = f.fitter_id
+        LEFT JOIN tenant_user du
+          ON du.tenant_id = f.tenant_id
+         AND du.id = tu.deactivated_by_user_id
         LEFT JOIN latest_invitations li
           ON li.tenant_id = f.tenant_id
          AND li.tenant_user_id = tu.id
@@ -109,6 +118,12 @@ async function listUsers(client, { tenantId, search }) {
           COALESCE(tu.login_status, CASE WHEN tu.status = 'active' THEN 'active' ELSE 'imported_no_login' END) AS login_status,
           tu.last_invited_at,
           tu.invite_accepted_at,
+          tu.session_version,
+          tu.deactivated_reason,
+          tu.deactivated_by_user_id,
+          du.name AS deactivated_by_name,
+          tu.deactivated_at,
+          tu.reactivation_requested_at,
           li.status AS invitation_status,
           li.expires_at AS invitation_expires_at,
           li.sent_at AS invitation_sent_at,
@@ -127,6 +142,9 @@ async function listUsers(client, { tenantId, search }) {
             COALESCE(tu.role, '')
           ) AS search_text
         FROM tenant_user tu
+        LEFT JOIN tenant_user du
+          ON du.tenant_id = tu.tenant_id
+         AND du.id = tu.deactivated_by_user_id
         LEFT JOIN latest_invitations li
           ON li.tenant_id = tu.tenant_id
          AND li.tenant_user_id = tu.id
@@ -459,17 +477,152 @@ async function createManualSyncJob(client, { tenantId, endpointKey, userId, meta
   return rows[0];
 }
 
+async function findTenantUserForUpdate(client, { tenantId, userId }) {
+  const { rows } = await client.query(
+    `
+      SELECT id, tenant_id, email, name, role, status, login_status, username, session_version,
+             deactivated_reason, deactivated_by_user_id, deactivated_at, reactivation_requested_at
+      FROM tenant_user
+      WHERE tenant_id = $1 AND id = $2
+      FOR UPDATE
+    `,
+    [tenantId, userId]
+  );
+  return rows[0] || null;
+}
+
+async function findTenantUserByEmail(client, { tenantId, email }) {
+  const { rows } = await client.query(
+    `
+      SELECT id, tenant_id, email, name, role, status, login_status
+      FROM tenant_user
+      WHERE tenant_id = $1 AND lower(email) = lower($2)
+      LIMIT 1
+    `,
+    [tenantId, email]
+  );
+  return rows[0] || null;
+}
+
+async function countActiveTenantAdmins(client, { tenantId }) {
+  const { rows } = await client.query(
+    `
+      SELECT COUNT(*)::int AS count
+      FROM tenant_user
+      WHERE tenant_id = $1
+        AND role = 'tenant_admin'
+        AND status = 'active'
+        AND login_status = 'active'
+    `,
+    [tenantId]
+  );
+  return rows[0]?.count || 0;
+}
+
+async function revokeOpenTenantUserInvitations(client, { tenantId, userId }) {
+  const { rows } = await client.query(
+    `
+      UPDATE tenant_user_invitation_token
+      SET status = 'revoked',
+          revoked_at = now()
+      WHERE tenant_id = $1
+        AND tenant_user_id = $2
+        AND purpose = 'account_setup'
+        AND status IN ('pending','sent','send_failed')
+        AND used_at IS NULL
+        AND revoked_at IS NULL
+      RETURNING id
+    `,
+    [tenantId, userId]
+  );
+  return rows.length;
+}
+
+async function deactivateTenantUser(client, { tenantId, userId, actorId, reason, passwordHash }) {
+  const { rows } = await client.query(
+    `
+      UPDATE tenant_user
+      SET status = 'deactivated',
+          login_status = 'disabled',
+          password_hash = $5,
+          session_version = session_version + 1,
+          deactivated_reason = $4,
+          deactivated_by_user_id = $3,
+          deactivated_at = now(),
+          reactivation_requested_at = NULL,
+          reactivation_requested_by_user_id = NULL,
+          disabled_at = now(),
+          updated_at = now()
+      WHERE tenant_id = $1
+        AND id = $2
+        AND status = 'active'
+      RETURNING id, tenant_id, email, name, role, status, login_status, session_version,
+                deactivated_reason, deactivated_by_user_id, deactivated_at, reactivation_requested_at,
+                last_invited_at, invite_accepted_at, created_at, updated_at
+    `,
+    [tenantId, userId, actorId, reason, passwordHash]
+  );
+  return rows[0] || null;
+}
+
+async function requestTenantUserReactivation(client, { tenantId, userId, actorId, passwordHash }) {
+  const { rows } = await client.query(
+    `
+      UPDATE tenant_user
+      SET status = 'pending_reactivation',
+          login_status = 'pending_reactivation',
+          password_hash = $4,
+          reactivation_requested_at = now(),
+          reactivation_requested_by_user_id = $3,
+          updated_at = now()
+      WHERE tenant_id = $1
+        AND id = $2
+        AND status IN ('deactivated','pending_reactivation')
+      RETURNING id, tenant_id, email, name, role, status, login_status, session_version,
+                deactivated_reason, deactivated_by_user_id, deactivated_at, reactivation_requested_at,
+                last_invited_at, invite_accepted_at, created_at, updated_at
+    `,
+    [tenantId, userId, actorId, passwordHash]
+  );
+  return rows[0] || null;
+}
+
+async function insertTenantUserLifecycleEvent(client, { tenantId, userId, eventType, reason, actorId, metadata }) {
+  const { rows } = await client.query(
+    `
+      INSERT INTO tenant_user_lifecycle_event (
+        tenant_id,
+        tenant_user_id,
+        event_type,
+        reason,
+        actor_user_id,
+        metadata
+      )
+      VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+      RETURNING id, tenant_id, tenant_user_id, event_type, reason, actor_user_id, occurred_at, metadata
+    `,
+    [tenantId, userId, eventType, reason || null, actorId || null, JSON.stringify(metadata || {})]
+  );
+  return rows[0];
+}
 module.exports = {
   createManualFitterForTenantUser,
   createManualSyncJob,
   createManualTenantUser,
   ensureEndpointSelected,
   findActiveEndpointJob,
+  countActiveTenantAdmins,
+  deactivateTenantUser,
   findTenantUser,
+  findTenantUserByEmail,
+  findTenantUserForUpdate,
   hasEkompletIntegration,
   listResourceGroups,
   listSyncStatus,
   listUsers,
   updateManualFitterForTenantUser,
+  insertTenantUserLifecycleEvent,
+  requestTenantUserReactivation,
+  revokeOpenTenantUserInvitations,
   updateManualTenantUser,
 };

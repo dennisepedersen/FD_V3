@@ -32,3 +32,44 @@ test('sync worker is disabled in NODE_ENV=test to keep checks DB-free', () => {
   const worker = read('backend/src/services/syncWorker.js');
   assert.match(worker, /env\.NODE_ENV === "test"/);
 });
+test('tenant user lifecycle migration is append-only and session-version backed', () => {
+  const migration = read('migrations/0037_tenant_user_lifecycle.sql');
+  assert.match(migration, /ADD COLUMN IF NOT EXISTS session_version integer NOT NULL DEFAULT 0/);
+  assert.match(migration, /status IN \('active', 'suspended', 'invited', 'deleted', 'deactivated', 'pending_reactivation'\)/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS tenant_user_lifecycle_event/);
+  assert.match(migration, /trg_tenant_user_lifecycle_event_prevent_update/);
+  assert.match(migration, /trg_tenant_user_lifecycle_event_prevent_delete/);
+  assert.match(migration, /tenant_user_reactivation_invite_failed/);
+});
+
+test('access auth checks active DB status and session version after JWT verification', () => {
+  const auth = read('backend/src/middleware/requireAuth.js');
+  const jwt = read('backend/src/services/jwtService.js');
+  const login = read('backend/src/routes/tenantAuthRoutes.js');
+  assert.match(jwt, /session_version: Number\(sessionVersion \|\| 0\)/);
+  assert.match(jwt, /Number\.isInteger\(payload\.session_version\)/);
+  assert.match(auth, /findSessionTenantUserById/);
+  assert.match(auth, /user\.status === "active"/);
+  assert.match(auth, /user\.login_status === "active"/);
+  assert.match(auth, /session_revoked/);
+  assert.match(login, /sessionVersion: user\.session_version/);
+});
+
+test('tenant lifecycle service protects deactivation and reactivation invariants', () => {
+  const service = read('backend/src/modules/tenantAdmin/tenantAdmin.service.js');
+  const invitations = read('backend/src/modules/tenantAdmin/tenantUserInvitation.service.js');
+  const ui = read('backend/src/public/tenant/auth.js');
+  assert.match(service, /self_deactivation_not_allowed/);
+  assert.match(service, /last_active_tenant_admin/);
+  assert.match(service, /revokeOpenTenantUserInvitations/);
+  assert.match(service, /tenant_user_sessions_revoked/);
+  assert.match(service, /tenant_user_requires_reactivation/);
+  assert.match(invitations, /sendTenantUserReactivationInvitation/);
+  assert.match(invitations, /active_user_cannot_be_reactivated/);
+  assert.match(invitations, /status = 'pending_reactivation'/);
+  assert.match(invitations, /tenant_user_reactivated/);
+  assert.match(ui, /Deaktiver bruger/);
+  assert.match(ui, /Genaktiver med oprettelseslink/);
+  assert.match(ui, /Gensend genaktiveringslink/);
+  assert.match(ui, /Begrundelse er paakraevet/);
+});

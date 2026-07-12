@@ -42,7 +42,7 @@ router.post("/v1/auth/login", requireTenantHost, loginRateLimit, async (req, res
       });
     }
 
-    if (!user || user.status !== "active") {
+    if (!user || user.status !== "active" || user.login_status !== "active") {
       await auditQueries.insertAuditEvent(client, {
         actorId: "anonymous",
         actorScope: "tenant",
@@ -78,6 +78,7 @@ router.post("/v1/auth/login", requireTenantHost, loginRateLimit, async (req, res
       tenantId: user.tenant_id,
       role: user.role,
       email: user.email,
+      sessionVersion: user.session_version,
       rememberMe,
     });
 

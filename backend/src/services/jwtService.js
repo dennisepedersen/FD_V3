@@ -8,7 +8,7 @@ const GLOBAL_ADMIN_TTL = "12h";
 // Current value: 30 minutes.
 const ONBOARDING_TTL = "30m";
 
-function issueAccessToken({ userId, tenantId, role, email, rememberMe = false }) {
+function issueAccessToken({ userId, tenantId, role, email, sessionVersion, rememberMe = false }) {
   return jwt.sign(
     {
       sub: userId,
@@ -16,6 +16,7 @@ function issueAccessToken({ userId, tenantId, role, email, rememberMe = false })
       tenant_id: tenantId,
       role,
       email,
+      session_version: Number(sessionVersion || 0),
       type: "access",
     },
     env.JWT_SECRET,
@@ -66,7 +67,7 @@ function verifyToken(token, expectedType) {
   }
 
   if (expectedType === "access") {
-    if (!payload.sub || !payload.tenant_id || !payload.role || !payload.email) {
+    if (!payload.sub || !payload.tenant_id || !payload.role || !payload.email || !Number.isInteger(payload.session_version)) {
       throw new Error("Token missing required claims");
     }
 

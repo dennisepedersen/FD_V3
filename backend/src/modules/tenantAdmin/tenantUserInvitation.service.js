@@ -7,6 +7,7 @@ const auditService = require("../../services/auditService");
 const { sendEmail } = require("../../services/mailService");
 const { hashPassword } = require("../../services/passwordService");
 const { buildInviteEmail } = require("./tenantUserInvitationEmail");
+const tenantAdminRepository = require("./tenantAdmin.repository");
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const OPEN_INVITATION_STATUSES = new Set(["pending", "sent", "send_failed"]);
@@ -103,7 +104,8 @@ async function logAudit(client, input) {
 async function getTenantUserForUpdate(client, { tenantId, userId }) {
   const { rows } = await client.query(
     `
-      SELECT id, tenant_id, email, name, role, status, login_status
+      SELECT id, tenant_id, email, name, role, status, login_status, session_version,
+             deactivated_reason, deactivated_by_user_id, deactivated_at, reactivation_requested_at
       FROM tenant_user
       WHERE tenant_id = $1 AND id = $2
       FOR UPDATE
@@ -128,7 +130,8 @@ async function getFitterForUpdate(client, { tenantId, fitterRowId }) {
 async function getTenantUserByEmailForUpdate(client, { tenantId, email }) {
   const { rows } = await client.query(
     `
-      SELECT id, tenant_id, email, name, role, status, login_status
+      SELECT id, tenant_id, email, name, role, status, login_status, session_version,
+             deactivated_reason, deactivated_by_user_id, deactivated_at, reactivation_requested_at
       FROM tenant_user
       WHERE tenant_id = $1 AND lower(email) = lower($2)
       FOR UPDATE
@@ -346,8 +349,8 @@ async function sendTenantUserInvitation(input) {
     if (!user.email) {
       throw createHttpError(400, "tenant_user_email_required");
     }
-    if (user.status === "deleted" || user.status === "suspended") {
-      throw createHttpError(409, "tenant_user_disabled");
+    if (["deleted", "suspended", "deactivated", "pending_reactivation"].includes(user.status)) {
+      throw createHttpError(409, ["deactivated", "pending_reactivation"].includes(user.status) ? "tenant_user_requires_reactivation" : "tenant_user_disabled");
     }
     if (user.status === "active" && user.login_status === "active") {
       throw createHttpError(409, "tenant_user_already_active");
@@ -432,6 +435,189 @@ async function sendTenantUserInvitation(input) {
   }
 }
 
+async function markReactivationInvitationSent({ tenantId, userId, invitationId, actorId, provider }) {
+  await withTransaction(async (client) => {
+    const { rows } = await client.query(
+      `
+        UPDATE tenant_user_invitation_token
+        SET status = 'sent',
+            sent_at = now(),
+            send_error = NULL
+        WHERE tenant_id = $1
+          AND tenant_user_id = $2
+          AND id = $3
+        RETURNING id, expires_at, sent_at
+      `,
+      [tenantId, userId, invitationId]
+    );
+
+    await client.query(
+      `
+        UPDATE tenant_user
+        SET login_status = 'pending_reactivation',
+            status = 'pending_reactivation',
+            last_invited_at = now(),
+            updated_at = now()
+        WHERE tenant_id = $1 AND id = $2
+      `,
+      [tenantId, userId]
+    );
+
+    await tenantAdminRepository.insertTenantUserLifecycleEvent(client, {
+      tenantId,
+      userId,
+      eventType: "reactivation_invite_sent",
+      reason: "reactivation_invite_sent",
+      actorId,
+      metadata: { invitation_id: invitationId, expires_at: rows[0]?.expires_at || null, provider },
+    });
+
+    await logAudit(client, {
+      tenantId,
+      actorId,
+      eventType: "tenant_user_reactivation_invite_sent",
+      resourceId: userId,
+      metadata: { invitation_id: invitationId, expires_at: rows[0]?.expires_at || null, provider },
+    });
+  });
+}
+
+async function markReactivationInvitationSendFailed({ tenantId, userId, invitationId, actorId, error }) {
+  await withTransaction(async (client) => {
+    await client.query(
+      `
+        UPDATE tenant_user_invitation_token
+        SET status = 'send_failed',
+            send_error = $4
+        WHERE tenant_id = $1
+          AND tenant_user_id = $2
+          AND id = $3
+      `,
+      [tenantId, userId, invitationId, String(error?.code || error?.message || "mail_send_failed").slice(0, 500)]
+    );
+
+    await tenantAdminRepository.insertTenantUserLifecycleEvent(client, {
+      tenantId,
+      userId,
+      eventType: "reactivation_invite_failed",
+      reason: "mail_send_failed",
+      actorId,
+      metadata: { invitation_id: invitationId },
+    });
+
+    await logAudit(client, {
+      tenantId,
+      actorId,
+      eventType: "tenant_user_reactivation_invite_failed",
+      resourceId: userId,
+      outcome: "fail",
+      reason: error?.code || error?.message || "mail_send_failed",
+      metadata: { invitation_id: invitationId },
+    });
+  });
+}
+
+async function sendTenantUserReactivationInvitation(input) {
+  const tenantId = normalizeUuid(input?.tenantId, "tenant_id_required");
+  const actorId = normalizeUuid(input?.actorId, "actor_id_required");
+  const userId = normalizeUuid(input?.userId, "user_id_required");
+  const rawToken = generateToken();
+  const tokenHash = hashToken(rawToken);
+  const expiresAt = new Date(Date.now() + INVITE_TTL_HOURS * 60 * 60 * 1000);
+  const acceptUrl = buildAcceptUrl({
+    token: rawToken,
+    requestProtocol: input?.requestProtocol,
+    requestHost: input?.requestHost,
+    tenantSlug: input?.tenantSlug,
+  });
+  const passwordHash = await hashPassword(crypto.randomBytes(24).toString("base64url"));
+
+  const prepared = await withTransaction(async (client) => {
+    const existing = await tenantAdminRepository.findTenantUserForUpdate(client, { tenantId, userId });
+    if (!existing) {
+      throw createHttpError(404, "tenant_user_not_found");
+    }
+    if (existing.status === "active") {
+      throw createHttpError(409, "active_user_cannot_be_reactivated");
+    }
+    if (!["deactivated", "pending_reactivation"].includes(existing.status)) {
+      throw createHttpError(409, "tenant_user_not_deactivated");
+    }
+    if (!existing.email) {
+      throw createHttpError(400, "tenant_user_email_required");
+    }
+
+    await revokeOpenInvitations(client, { tenantId, userId, actorId });
+    const user = await tenantAdminRepository.requestTenantUserReactivation(client, {
+      tenantId,
+      userId,
+      actorId,
+      passwordHash,
+    });
+    const invitation = await insertInvitation(client, {
+      tenantId,
+      userId,
+      actorId,
+      tokenHash,
+      expiresAt,
+      acceptUrl,
+    });
+
+    await tenantAdminRepository.insertTenantUserLifecycleEvent(client, {
+      tenantId,
+      userId,
+      eventType: "reactivation_requested",
+      reason: "reactivation_requested",
+      actorId,
+      metadata: { invitation_id: invitation.id, resend: existing.status === "pending_reactivation" },
+    });
+
+    await logAudit(client, {
+      tenantId,
+      actorId,
+      eventType: "tenant_user_reactivation_requested",
+      resourceId: userId,
+      metadata: { invitation_id: invitation.id, resend: existing.status === "pending_reactivation" },
+    });
+
+    return { user, invitation };
+  });
+
+  const email = buildInviteEmail({
+    user: prepared.user,
+    acceptUrl,
+    expiresAt: prepared.invitation.expires_at,
+  });
+
+  try {
+    const mailResult = await sendEmail({
+      to: prepared.user.email,
+      subject: email.subject,
+      html: email.html,
+      text: email.text,
+      tenantId,
+      template: "tenant_user_reactivation",
+    });
+    await markReactivationInvitationSent({
+      tenantId,
+      userId: prepared.user.id,
+      invitationId: prepared.invitation.id,
+      actorId,
+      provider: mailResult.provider,
+    });
+    return { invitation: { ...prepared.invitation, status: "sent" } };
+  } catch (error) {
+    await markReactivationInvitationSendFailed({
+      tenantId,
+      userId: prepared.user.id,
+      invitationId: prepared.invitation.id,
+      actorId,
+      error,
+    });
+    error.invitation = { ...prepared.invitation, status: "send_failed" };
+    throw error;
+  }
+}
 async function findInvitationByToken(client, { tenantId, token, forUpdate }) {
   const lock = forUpdate ? "FOR UPDATE" : "";
   const { rows } = await client.query(
@@ -447,7 +633,11 @@ async function findInvitationByToken(client, { tenantId, token, forUpdate }) {
         tu.email,
         tu.name,
         tu.status AS user_status,
-        tu.login_status
+        tu.login_status,
+        tu.deactivated_reason,
+        tu.deactivated_by_user_id,
+        tu.deactivated_at,
+        tu.reactivation_requested_at
       FROM tenant_user_invitation_token i
       JOIN tenant_user tu
         ON tu.tenant_id = i.tenant_id
@@ -522,6 +712,7 @@ async function acceptTenantUserInvitation(input) {
       [tenantId, invitation.tenant_user_id, invitation.id]
     );
 
+    const isReactivation = invitation.user_status === "pending_reactivation";
     const { rows } = await client.query(
       `
         UPDATE tenant_user
@@ -529,11 +720,16 @@ async function acceptTenantUserInvitation(input) {
             status = 'active',
             login_status = 'active',
             invite_accepted_at = now(),
+            deactivated_reason = CASE WHEN $4::boolean THEN NULL ELSE deactivated_reason END,
+            deactivated_by_user_id = CASE WHEN $4::boolean THEN NULL ELSE deactivated_by_user_id END,
+            deactivated_at = CASE WHEN $4::boolean THEN NULL ELSE deactivated_at END,
+            reactivation_requested_at = NULL,
+            reactivation_requested_by_user_id = NULL,
             updated_at = now()
         WHERE tenant_id = $1 AND id = $2
-        RETURNING id, tenant_id, email, name, role, status, login_status
+        RETURNING id, tenant_id, email, name, role, status, login_status, session_version
       `,
-      [tenantId, invitation.tenant_user_id, passwordHash]
+      [tenantId, invitation.tenant_user_id, passwordHash, isReactivation]
     );
 
     await logAudit(client, {
@@ -547,6 +743,25 @@ async function acceptTenantUserInvitation(input) {
       },
     });
 
+    if (isReactivation) {
+      await tenantAdminRepository.insertTenantUserLifecycleEvent(client, {
+        tenantId,
+        userId: invitation.tenant_user_id,
+        eventType: "reactivated",
+        reason: "reactivation_invite_accepted",
+        actorId: invitation.tenant_user_id,
+        metadata: { invitation_id: invitation.id },
+      });
+      await logAudit(client, {
+        tenantId,
+        actorId: invitation.tenant_user_id,
+        actorType: "tenant_user",
+        eventType: "tenant_user_reactivated",
+        resourceId: invitation.tenant_user_id,
+        metadata: { invitation_id: invitation.id },
+      });
+    }
+
     return { user: rows[0] };
   });
 }
@@ -554,5 +769,6 @@ async function acceptTenantUserInvitation(input) {
 module.exports = {
   acceptTenantUserInvitation,
   sendTenantUserInvitation,
+  sendTenantUserReactivationInvitation,
   validateTenantUserInvitation,
 };
