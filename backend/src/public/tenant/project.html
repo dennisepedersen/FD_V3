@@ -37,6 +37,10 @@
       box-sizing: border-box;
     }
 
+    html {
+      scrollbar-gutter: stable;
+    }
+
     [hidden] {
       display: none !important;
     }
@@ -425,7 +429,7 @@
 
     .projectHeaderInfoGrid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 6px;
       margin-top: 2px;
     }
@@ -1789,6 +1793,15 @@
       color: #fff;
     }
 
+    .equipmentSubnavTab:disabled {
+      border-style: dashed;
+      border-color: #cbd5e1;
+      background: #f8fafc;
+      color: #94a3b8;
+      cursor: not-allowed;
+      opacity: 1;
+    }
+
     .equipmentSubnavHint {
       color: #64748b;
       font-size: 12px;
@@ -2419,29 +2432,119 @@
     .equipmentDrawingPin {
       position: absolute;
       transform: translate(-50%, -100%);
-      display: grid;
-      place-items: center;
-      min-width: 30px;
-      min-height: 30px;
-      border: 2px solid #fff;
-      border-radius: 999px 999px 999px 3px;
-      background: #0284c7;
-      color: #fff;
-      box-shadow: 0 8px 18px rgba(15, 23, 42, 0.34);
+      width: 28px;
+      height: 38px;
+      border: 0;
+      background: transparent;
+      color: #0f172a;
       cursor: pointer;
-      font-size: 11px;
-      font-weight: 900;
       line-height: 1;
+      padding: 0;
+      z-index: 2;
     }
 
-    .equipmentDrawingPin.active {
+    .equipmentDrawingPinMarker {
+      position: absolute;
+      left: 50%;
+      bottom: 0;
+      width: 24px;
+      height: 34px;
+      transform: translateX(-50%);
+      filter: drop-shadow(0 8px 12px rgba(15, 23, 42, 0.34));
+    }
+
+    .equipmentDrawingPinMarker::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 24px;
+      height: 24px;
+      border: 2px solid #fff;
+      border-radius: 999px;
+      background: #ef4444;
+    }
+
+    .equipmentDrawingPinMarker::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: 22px;
+      width: 0;
+      height: 0;
+      transform: translateX(-50%);
+      border-left: 7px solid transparent;
+      border-right: 7px solid transparent;
+      border-top: 12px solid #ef4444;
+    }
+
+    .equipmentDrawingPinMarkerInner {
+      position: absolute;
+      left: 50%;
+      top: 7px;
+      width: 8px;
+      height: 8px;
+      transform: translateX(-50%);
+      border-radius: 999px;
+      background: #fff;
+      box-shadow: inset 0 0 0 2px rgba(15, 23, 42, 0.12);
+      z-index: 1;
+    }
+
+    .equipmentDrawingPinLabel {
+      position: absolute;
+      left: 24px;
+      top: -2px;
+      max-width: 120px;
+      padding: 3px 6px;
+      border: 1px solid rgba(15, 23, 42, 0.14);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.94);
+      color: #0f172a;
+      box-shadow: 0 6px 14px rgba(15, 23, 42, 0.16);
+      font-size: 10px;
+      font-weight: 900;
+      line-height: 1.1;
+      opacity: 0;
+      pointer-events: none;
+      text-overflow: ellipsis;
+      overflow: hidden;
+      white-space: nowrap;
+      transform: translateY(2px);
+      transition: opacity 0.12s ease, transform 0.12s ease;
+    }
+
+    .equipmentDrawingPin:hover .equipmentDrawingPinLabel,
+    .equipmentDrawingPin:focus-visible .equipmentDrawingPinLabel,
+    .equipmentDrawingPin.active .equipmentDrawingPinLabel {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .equipmentDrawingPin.active .equipmentDrawingPinMarker::before {
       background: #16a34a;
+      box-shadow: 0 0 0 5px rgba(34, 197, 94, 0.22);
+    }
+
+    .equipmentDrawingPin.active .equipmentDrawingPinMarker::after {
+      border-top-color: #16a34a;
     }
 
     .equipmentDrawingCanvas.isPlacing {
       cursor: crosshair;
       outline: 3px solid rgba(94, 200, 229, 0.35);
       outline-offset: -3px;
+    }
+
+    .equipmentDrawingCanvas.isPlacing .equipmentDrawingStage,
+    .equipmentDrawingCanvas.isPlacing [data-drawing-surface] {
+      cursor: crosshair;
+    }
+
+    .equipmentDrawingActions .isActive {
+      border-color: #0284c7;
+      background: #0284c7;
+      color: #fff;
     }
 
 
@@ -2616,6 +2719,10 @@
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
 
+      .projectHeaderInfoGrid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
       .qaSummaryGrid,
       .equipmentSummaryGrid {
         grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
@@ -2643,6 +2750,12 @@
 
       .qaAllColumns {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 620px) {
+      .projectHeaderInfoGrid {
+        grid-template-columns: 1fr;
       }
     }
 
@@ -2918,8 +3031,8 @@
         <div class="equipmentSubnav" aria-label="Udstyrsmoduler">
           <div class="equipmentSubnavTabs" role="tablist" aria-label="Vælg udstyrsmodul">
             <button class="equipmentSubnavTab" type="button" aria-current="true">CCTV</button>
-            <button class="equipmentSubnavTab" type="button" disabled>AIA</button>
-            <button class="equipmentSubnavTab" type="button" disabled>ADK</button>
+            <button class="equipmentSubnavTab" type="button" disabled title="Kommer senere">AIA</button>
+            <button class="equipmentSubnavTab" type="button" disabled title="Kommer senere">ADK</button>
           </div>
           <span id="equipmentMetaText" class="equipmentSubnavHint">Indlæser CCTV...</span>
         </div>
@@ -3222,7 +3335,6 @@
         <label class="qaLabel">Tegning<select id="equipmentDrawingSelect" class="qaSelect"></select></label>
         <label class="qaLabel">Vælg fil<input id="equipmentDrawingFileInput" class="qaInput" type="file" accept="image/jpeg,image/png,image/webp,application/pdf,.pdf" multiple /></label>
         <label class="qaLabel">Titel<input id="equipmentDrawingTitleInput" class="qaInput" type="text" maxlength="160" placeholder="Fx Stueplan" /></label>
-        <label class="qaLabel">Kamera<select id="equipmentDrawingCameraSelect" class="qaSelect"></select></label>
         <div class="equipmentDrawingActions">
           <button id="equipmentDrawingPlaceBtn" class="btn btnPrimary btnCompact" type="button">Placer kamera</button>
           <button id="equipmentDrawingDeleteBtn" class="btn equipmentDangerBtn btnCompact" type="button">Slet tegning</button>
