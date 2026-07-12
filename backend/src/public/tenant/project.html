@@ -2082,6 +2082,58 @@
       margin: 0 -1px;
     }
 
+    .equipmentModelField {
+      position: relative;
+      min-width: 0;
+    }
+
+    .equipmentModelDropdown {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: calc(100% + 4px);
+      z-index: 110;
+      display: grid;
+      max-height: 220px;
+      overflow: auto;
+      border: 1px solid #cbd5e1;
+      border-radius: 10px;
+      background: #fff;
+      box-shadow: 0 14px 34px rgba(15, 23, 42, 0.18);
+      padding: 4px;
+    }
+
+    .equipmentModelDropdown[hidden] {
+      display: none;
+    }
+
+    .equipmentModelOption {
+      width: 100%;
+      border: 0;
+      border-radius: 7px;
+      background: transparent;
+      color: #0f172a;
+      cursor: pointer;
+      padding: 8px 10px;
+      text-align: left;
+      font-size: 13px;
+      font-weight: 850;
+    }
+
+    .equipmentModelOption:hover,
+    .equipmentModelOption:focus-visible,
+    .equipmentModelOption.active {
+      background: #e0f2fe;
+      color: #075985;
+      outline: none;
+    }
+
+    .equipmentModelEmpty {
+      padding: 8px 10px;
+      color: #64748b;
+      font-size: 12px;
+      font-weight: 750;
+    }
     .equipmentMacFeedback {
       min-height: 17px;
       color: #64748b;
@@ -3275,9 +3327,8 @@
               <button id="equipmentSerialScanBtn" class="btn btnCompact" type="button">Scan</button>
             </div>
             <label class="qaLabel">Mærke<input id="equipmentBrandInput" class="qaInput" type="text" maxlength="80" list="equipmentBrandSuggestions" autocomplete="off" /></label>
-            <label class="qaLabel">Model<input id="equipmentModelInput" class="qaInput" type="text" maxlength="120" list="equipmentModelSuggestions" autocomplete="off" /></label>
+            <div class="qaLabel equipmentModelField"><label for="equipmentModelInput">Model</label><input id="equipmentModelInput" class="qaInput" type="text" maxlength="120" autocomplete="off" aria-autocomplete="list" aria-expanded="false" aria-controls="equipmentModelDropdown" /><div id="equipmentModelDropdown" class="equipmentModelDropdown" role="listbox" hidden></div></div>
             <datalist id="equipmentBrandSuggestions"></datalist>
-            <datalist id="equipmentModelSuggestions"></datalist>
             <div class="equipmentInputWithAction">
               <label class="qaLabel">Placering<input id="equipmentLocationInput" class="qaInput" type="text" maxlength="240" /></label>
               <button id="equipmentLocationPlaceBtn" class="btn btnCompact" type="button">Placer</button>
