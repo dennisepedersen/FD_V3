@@ -5380,15 +5380,19 @@
     const equipmentDrawerMeta = document.getElementById("equipmentDrawerMeta");
     const equipmentCameraForm = document.getElementById("equipmentCameraForm");
     const equipmentCameraIdInput = document.getElementById("equipmentCameraIdInput");
+    const equipmentCameraIdField = document.getElementById("equipmentCameraIdField");
+    const equipmentCameraIdError = document.getElementById("equipmentCameraIdError");
     const equipmentMacInput = document.getElementById("equipmentMacInput");
     const equipmentMacSegmentInputs = Array.from(document.querySelectorAll("[data-mac-segment]"));
     const equipmentMacFeedback = document.getElementById("equipmentMacFeedback");
+    const equipmentMacSegments = document.getElementById("equipmentMacSegments");
+    const equipmentMacError = document.getElementById("equipmentMacError");
     const equipmentMacScanBtn = document.getElementById("equipmentMacScanBtn");
     const equipmentSerialInput = document.getElementById("equipmentSerialInput");
     const equipmentSerialScanBtn = document.getElementById("equipmentSerialScanBtn");
     const equipmentBrandInput = document.getElementById("equipmentBrandInput");
     const equipmentModelInput = document.getElementById("equipmentModelInput");
-    const equipmentBrandSuggestions = document.getElementById("equipmentBrandSuggestions");
+    const equipmentBrandDropdown = document.getElementById("equipmentBrandDropdown");
     const equipmentModelDropdown = document.getElementById("equipmentModelDropdown");
     const equipmentLocationInput = document.getElementById("equipmentLocationInput");
     const equipmentLocationPlaceBtn = document.getElementById("equipmentLocationPlaceBtn");
@@ -6542,6 +6546,54 @@
       equipmentMacFeedback.textContent = message || "";
       equipmentMacFeedback.classList.toggle("isError", Boolean(isError));
     }
+    function setEquipmentFieldError(input, fieldNode, errorNode, message) {
+      if (input) input.classList.add("fieldInvalid");
+      if (fieldNode) fieldNode.classList.add("fieldInvalid");
+      if (errorNode) {
+        errorNode.textContent = message || "";
+        errorNode.hidden = !message;
+      }
+    }
+
+    function clearEquipmentFieldError(input, fieldNode, errorNode) {
+      if (input) input.classList.remove("fieldInvalid");
+      if (fieldNode) fieldNode.classList.remove("fieldInvalid");
+      if (errorNode) {
+        errorNode.textContent = "";
+        errorNode.hidden = true;
+      }
+    }
+
+    function setEquipmentCameraIdError(message) {
+      setEquipmentFieldError(equipmentCameraIdInput, equipmentCameraIdField, equipmentCameraIdError, message);
+    }
+
+    function clearEquipmentCameraIdError() {
+      clearEquipmentFieldError(equipmentCameraIdInput, equipmentCameraIdField, equipmentCameraIdError);
+    }
+
+    function setEquipmentMacValidationError(message) {
+      if (equipmentMacSegments) equipmentMacSegments.classList.add("fieldInvalid");
+      if (equipmentMacError) {
+        equipmentMacError.textContent = message || "";
+        equipmentMacError.hidden = !message;
+      }
+      setEquipmentMacFeedback(message || "", Boolean(message));
+    }
+
+    function clearEquipmentMacValidationError() {
+      if (equipmentMacSegments) equipmentMacSegments.classList.remove("fieldInvalid");
+      if (equipmentMacError) {
+        equipmentMacError.textContent = "";
+        equipmentMacError.hidden = true;
+      }
+      setEquipmentMacFeedback("", false);
+    }
+
+    function clearEquipmentFormValidation() {
+      clearEquipmentCameraIdError();
+      clearEquipmentMacValidationError();
+    }
 
     function getEquipmentMacCompact() {
       return equipmentMacSegmentInputs.map((input) => sanitizeEquipmentMacSegment(input.value)).join("");
@@ -6752,6 +6804,70 @@
       });
     }
 
+    function getEquipmentBrandSuggestionValues() {
+      const typedBrand = normalizeEquipmentLookupKey(equipmentBrandInput && equipmentBrandInput.value ? equipmentBrandInput.value : "");
+      const suggestionCameras = equipmentState.suggestionCameras.length ? equipmentState.suggestionCameras : equipmentState.cameras;
+      const brandMap = new Map();
+      suggestionCameras.filter(isEquipmentCameraActiveForSuggestions).forEach((camera) => {
+        const parsed = getEquipmentCameraBrandModel(camera);
+        const brand = parsed.brand.trim();
+        const brandKey = normalizeEquipmentLookupKey(brand);
+        if (brand && (!typedBrand || brandKey.includes(typedBrand))) {
+          brandMap.set(brandKey, brand);
+        }
+      });
+      return Array.from(brandMap.values()).sort((a, b) => a.localeCompare(b, "da"));
+    }
+
+    function hideEquipmentBrandDropdown() {
+      if (!equipmentBrandDropdown) return;
+      equipmentBrandDropdown.hidden = true;
+      equipmentBrandDropdown.innerHTML = "";
+      if (equipmentBrandInput) equipmentBrandInput.setAttribute("aria-expanded", "false");
+    }
+
+    function selectEquipmentBrandSuggestion(brand) {
+      if (equipmentBrandInput) {
+        equipmentBrandInput.value = brand;
+        equipmentBrandInput.focus();
+      }
+      hideEquipmentBrandDropdown();
+      updateEquipmentBrandModelSuggestions();
+    }
+
+    function renderEquipmentBrandDropdown(options = {}) {
+      if (!equipmentBrandDropdown || !equipmentBrandInput) return;
+      const isOpenContext = options.forceOpen || document.activeElement === equipmentBrandInput;
+      if (!isOpenContext) {
+        hideEquipmentBrandDropdown();
+        return;
+      }
+      const brands = getEquipmentBrandSuggestionValues();
+      equipmentBrandDropdown.innerHTML = "";
+      if (!brands.length) {
+        const empty = document.createElement("div");
+        empty.className = "equipmentBrandEmpty";
+        empty.textContent = "Ingen forslag";
+        equipmentBrandDropdown.appendChild(empty);
+      } else {
+        brands.slice(0, 16).forEach((brand, index) => {
+          const option = document.createElement("button");
+          option.type = "button";
+          option.className = `equipmentBrandOption${index === 0 ? " active" : ""}`;
+          option.setAttribute("role", "option");
+          option.textContent = brand;
+          option.addEventListener("mousedown", (event) => {
+            event.preventDefault();
+            selectEquipmentBrandSuggestion(brand);
+          });
+          option.addEventListener("click", () => selectEquipmentBrandSuggestion(brand));
+          equipmentBrandDropdown.appendChild(option);
+        });
+      }
+      equipmentBrandDropdown.hidden = false;
+      equipmentBrandInput.setAttribute("aria-expanded", "true");
+    }
+
     function getEquipmentModelSuggestionValues() {
       const selectedBrand = normalizeEquipmentLookupKey(equipmentBrandInput && equipmentBrandInput.value ? equipmentBrandInput.value : "");
       if (!selectedBrand) return [];
@@ -6820,15 +6936,7 @@
     }
 
     function updateEquipmentBrandModelSuggestions() {
-      const brandMap = new Map();
-      const suggestionCameras = equipmentState.suggestionCameras.length ? equipmentState.suggestionCameras : equipmentState.cameras;
-      suggestionCameras.filter(isEquipmentCameraActiveForSuggestions).forEach((camera) => {
-        const parsed = getEquipmentCameraBrandModel(camera);
-        const brand = parsed.brand.trim();
-        const brandKey = normalizeEquipmentLookupKey(brand);
-        if (brand) brandMap.set(brandKey, brand);
-      });
-      setEquipmentDatalistOptions(equipmentBrandSuggestions, Array.from(brandMap.values()).sort((a, b) => a.localeCompare(b, "da")));
+      renderEquipmentBrandDropdown();
       renderEquipmentModelDropdown();
     }
 
@@ -8511,6 +8619,9 @@
       if (equipmentStatusSelect) equipmentStatusSelect.value = camera?.status || "registered";
       if (equipmentNoteInput) equipmentNoteInput.value = camera?.note || "";
       if (equipmentFormStatus) equipmentFormStatus.textContent = "";
+      clearEquipmentFormValidation();
+      hideEquipmentBrandDropdown();
+      hideEquipmentModelDropdown();
       updateEquipmentBrandModelSuggestions();
       updateEquipmentLocationPlaceAction();
     }
@@ -8558,6 +8669,9 @@
       document.body.classList.remove("equipment-modal-open");
       closeEquipmentScanner();
       clearEquipmentActiveImageSlots();
+      clearEquipmentFormValidation();
+      hideEquipmentBrandDropdown();
+      hideEquipmentModelDropdown();
       equipmentState.activeCameraId = null;
       equipmentState.mode = null;
       equipmentState.checkCamera = null;
@@ -8652,16 +8766,21 @@
 
     async function persistEquipmentCamera(options = {}) {
       if (equipmentState.isCameraSaving) return null;
+      clearEquipmentFormValidation();
       const macState = syncEquipmentMacHidden({ showFeedback: true });
-      if (!macState.valid) {
-        if (equipmentFormStatus) equipmentFormStatus.textContent = "MAC-adressen er ufuldstændig.";
-        focusEquipmentMacSegment(0);
-        return null;
-      }
       const payload = getEquipmentFormPayload();
+      let firstInvalidTarget = null;
       if (!payload.camera_id) {
-        if (equipmentFormStatus) equipmentFormStatus.textContent = "Kamera-ID er påkrævet.";
-        if (equipmentCameraIdInput) equipmentCameraIdInput.focus();
+        setEquipmentCameraIdError("Kamera-ID er påkrævet.");
+        firstInvalidTarget = firstInvalidTarget || equipmentCameraIdInput;
+      }
+      if (!macState.valid) {
+        setEquipmentMacValidationError("MAC-adressen er ufuldstændig.");
+        firstInvalidTarget = firstInvalidTarget || equipmentMacSegmentInputs[0];
+      }
+      if (firstInvalidTarget) {
+        if (equipmentFormStatus) equipmentFormStatus.textContent = !payload.camera_id ? "Kamera-ID er påkrævet." : "MAC-adressen er ufuldstændig.";
+        firstInvalidTarget.focus();
         return null;
       }
       const isEdit = Boolean(equipmentState.activeCameraId);
@@ -8685,6 +8804,8 @@
         return camera;
       } catch (error) {
         const message = equipmentErrorMessage(error, "Kunne ikke gemme kamera.");
+        if (message && /kamera-id/i.test(message)) setEquipmentCameraIdError(message);
+        if (message && /mac/i.test(message)) setEquipmentMacValidationError(message);
         if (equipmentFormStatus && message) equipmentFormStatus.textContent = message;
         return null;
       } finally {
@@ -9073,7 +9194,10 @@
 
     equipmentMacSegmentInputs.forEach((input, index) => {
       input.addEventListener("keydown", (event) => handleEquipmentMacSegmentKeydown(event, index));
-      input.addEventListener("input", (event) => handleEquipmentMacSegmentInput(event, index));
+      input.addEventListener("input", (event) => {
+        clearEquipmentMacValidationError();
+        handleEquipmentMacSegmentInput(event, index);
+      });
       input.addEventListener("paste", handleEquipmentMacPaste);
       input.addEventListener("blur", () => syncEquipmentMacHidden({ showFeedback: false }));
     });
@@ -9086,10 +9210,36 @@
       });
     }
 
+    if (equipmentCameraIdInput) {
+      equipmentCameraIdInput.addEventListener("input", clearEquipmentCameraIdError);
+    }
+
     if (equipmentBrandInput) {
-      equipmentBrandInput.addEventListener("input", updateEquipmentBrandModelSuggestions);
+      equipmentBrandInput.addEventListener("focus", () => renderEquipmentBrandDropdown({ forceOpen: true }));
+      equipmentBrandInput.addEventListener("input", () => {
+        renderEquipmentBrandDropdown({ forceOpen: true });
+        renderEquipmentModelDropdown();
+      });
+      equipmentBrandInput.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          hideEquipmentBrandDropdown();
+          return;
+        }
+        if (event.key === "Enter") {
+          const activeOption = equipmentBrandDropdown ? equipmentBrandDropdown.querySelector(".equipmentBrandOption.active") : null;
+          if (activeOption) {
+            event.preventDefault();
+            selectEquipmentBrandSuggestion(activeOption.textContent || "");
+          }
+        }
+      });
       equipmentBrandInput.addEventListener("change", normalizeEquipmentBrandModelInputs);
-      equipmentBrandInput.addEventListener("blur", normalizeEquipmentBrandModelInputs);
+      equipmentBrandInput.addEventListener("blur", () => {
+        window.setTimeout(() => {
+          normalizeEquipmentBrandModelInputs();
+          hideEquipmentBrandDropdown();
+        }, 0);
+      });
     }
 
     if (equipmentModelInput) {
@@ -9117,10 +9267,13 @@
     }
 
     document.addEventListener("pointerdown", (event) => {
-      if (!equipmentModelDropdown || equipmentModelDropdown.hidden) return;
       const target = event.target;
-      if (target === equipmentModelInput || equipmentModelDropdown.contains(target)) return;
-      hideEquipmentModelDropdown();
+      if (equipmentBrandDropdown && !equipmentBrandDropdown.hidden && target !== equipmentBrandInput && !equipmentBrandDropdown.contains(target)) {
+        hideEquipmentBrandDropdown();
+      }
+      if (equipmentModelDropdown && !equipmentModelDropdown.hidden && target !== equipmentModelInput && !equipmentModelDropdown.contains(target)) {
+        hideEquipmentModelDropdown();
+      }
     });
 
     if (equipmentArchiveBtn) {

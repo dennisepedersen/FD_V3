@@ -2082,11 +2082,13 @@
       margin: 0 -1px;
     }
 
+    .equipmentBrandField,
     .equipmentModelField {
       position: relative;
       min-width: 0;
     }
 
+    .equipmentBrandDropdown,
     .equipmentModelDropdown {
       position: absolute;
       left: 0;
@@ -2103,10 +2105,12 @@
       padding: 4px;
     }
 
+    .equipmentBrandDropdown[hidden],
     .equipmentModelDropdown[hidden] {
       display: none;
     }
 
+    .equipmentBrandOption,
     .equipmentModelOption {
       width: 100%;
       border: 0;
@@ -2120,6 +2124,9 @@
       font-weight: 850;
     }
 
+    .equipmentBrandOption:hover,
+    .equipmentBrandOption:focus-visible,
+    .equipmentBrandOption.active,
     .equipmentModelOption:hover,
     .equipmentModelOption:focus-visible,
     .equipmentModelOption.active {
@@ -2128,6 +2135,7 @@
       outline: none;
     }
 
+    .equipmentBrandEmpty,
     .equipmentModelEmpty {
       padding: 8px 10px;
       color: #64748b;
@@ -2141,6 +2149,43 @@
       font-weight: 700;
     }
 
+    .equipmentInputError {
+      color: #be123c;
+      font-size: 11px;
+      font-weight: 850;
+      line-height: 1.25;
+      text-transform: none;
+      letter-spacing: 0;
+    }
+
+    .qaLabel.fieldInvalid .qaInput,
+    .qaInput.fieldInvalid {
+      border-color: #ef4444;
+      background: #fff1f2;
+      box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.15);
+    }
+
+    .qaLabel.fieldInvalid .qaInput:focus,
+    .qaInput.fieldInvalid:focus {
+      border-color: #dc2626;
+      box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.22);
+      outline: none;
+    }
+
+    .equipmentMacSegments.fieldInvalid {
+      border-color: #ef4444;
+      background: #fff1f2;
+      box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.15);
+    }
+
+    .equipmentMacSegments.fieldInvalid .equipmentMacSegment {
+      background: #fff7f7;
+    }
+
+    .equipmentMacSegments.fieldInvalid .equipmentMacSegment:focus {
+      border-color: #dc2626;
+      box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.20);
+    }
     .equipmentMacFeedback.isError {
       color: #be123c;
     }
@@ -3300,7 +3345,7 @@
       <div class="equipmentDrawerBody">
         <form id="equipmentCameraForm" class="qaComposer" hidden>
           <div class="equipmentFormGrid">
-            <label class="qaLabel">Kamera-ID<input id="equipmentCameraIdInput" class="qaInput" type="text" maxlength="80" required placeholder="CAM-001" /></label>
+            <label class="qaLabel" id="equipmentCameraIdField">Kamera-ID<input id="equipmentCameraIdInput" class="qaInput" type="text" maxlength="80" required placeholder="CAM-001" /><span id="equipmentCameraIdError" class="equipmentInputError" hidden></span></label>
             <label class="qaLabel">Status<select id="equipmentStatusSelect" class="qaSelect"><option value="registered">Registreret</option><option value="planned">Planlagt</option><option value="mounted">Monteret</option><option value="checked">Kontrolleret</option><option value="deviation">Afvigelse</option></select></label>
             <div class="equipmentInputWithAction equipmentMacInputRow">
               <label class="qaLabel">MAC-adresse
@@ -3319,6 +3364,7 @@
                   <input class="qaInput equipmentMacSegment" type="text" inputmode="text" maxlength="2" autocomplete="off" autocapitalize="characters" spellcheck="false" data-mac-segment="5" aria-label="MAC gruppe 6" />
                 </span>
                 <span id="equipmentMacFeedback" class="equipmentMacFeedback" aria-live="polite"></span>
+                <span id="equipmentMacError" class="equipmentInputError" hidden></span>
               </label>
               <button id="equipmentMacScanBtn" class="btn btnCompact" type="button">Scan</button>
             </div>
@@ -3326,9 +3372,8 @@
               <label class="qaLabel">Serienummer<input id="equipmentSerialInput" class="qaInput" type="text" maxlength="120" /></label>
               <button id="equipmentSerialScanBtn" class="btn btnCompact" type="button">Scan</button>
             </div>
-            <label class="qaLabel">Mærke<input id="equipmentBrandInput" class="qaInput" type="text" maxlength="80" list="equipmentBrandSuggestions" autocomplete="off" /></label>
+            <div class="qaLabel equipmentBrandField"><label for="equipmentBrandInput">Mærke</label><input id="equipmentBrandInput" class="qaInput" type="text" maxlength="80" autocomplete="off" aria-autocomplete="list" aria-expanded="false" aria-controls="equipmentBrandDropdown" /><div id="equipmentBrandDropdown" class="equipmentBrandDropdown" role="listbox" hidden></div></div>
             <div class="qaLabel equipmentModelField"><label for="equipmentModelInput">Model</label><input id="equipmentModelInput" class="qaInput" type="text" maxlength="120" autocomplete="off" aria-autocomplete="list" aria-expanded="false" aria-controls="equipmentModelDropdown" /><div id="equipmentModelDropdown" class="equipmentModelDropdown" role="listbox" hidden></div></div>
-            <datalist id="equipmentBrandSuggestions"></datalist>
             <div class="equipmentInputWithAction">
               <label class="qaLabel">Placering<input id="equipmentLocationInput" class="qaInput" type="text" maxlength="240" /></label>
               <button id="equipmentLocationPlaceBtn" class="btn btnCompact" type="button">Placer</button>
