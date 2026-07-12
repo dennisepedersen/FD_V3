@@ -5389,7 +5389,7 @@
     const equipmentBrandInput = document.getElementById("equipmentBrandInput");
     const equipmentModelInput = document.getElementById("equipmentModelInput");
     const equipmentBrandSuggestions = document.getElementById("equipmentBrandSuggestions");
-    const equipmentModelSuggestions = document.getElementById("equipmentModelSuggestions");
+    const equipmentModelDropdown = document.getElementById("equipmentModelDropdown");
     const equipmentLocationInput = document.getElementById("equipmentLocationInput");
     const equipmentLocationPlaceBtn = document.getElementById("equipmentLocationPlaceBtn");
     const equipmentStatusSelect = document.getElementById("equipmentStatusSelect");
@@ -5509,6 +5509,7 @@
       drawingPanDrag: null,
       drawingIsPanning: false,
       suppressDrawingPlacementClick: false,
+      isCameraSaving: false,
     };
     const EQUIPMENT_DRAWING_DEFAULT_ZOOM = 100;
     const EQUIPMENT_DRAWING_MIN_ZOOM = 50;
@@ -6751,23 +6752,84 @@
       });
     }
 
+    function getEquipmentModelSuggestionValues() {
+      const selectedBrand = normalizeEquipmentLookupKey(equipmentBrandInput && equipmentBrandInput.value ? equipmentBrandInput.value : "");
+      if (!selectedBrand) return [];
+      const typedModel = normalizeEquipmentLookupKey(equipmentModelInput && equipmentModelInput.value ? equipmentModelInput.value : "");
+      const suggestionCameras = equipmentState.suggestionCameras.length ? equipmentState.suggestionCameras : equipmentState.cameras;
+      const sameBrandModels = new Map();
+      suggestionCameras.filter(isEquipmentCameraActiveForSuggestions).forEach((camera) => {
+        const parsed = getEquipmentCameraBrandModel(camera);
+        const brandKey = normalizeEquipmentLookupKey(parsed.brand);
+        const model = normalizeEquipmentModelName(parsed.model);
+        const modelKey = normalizeEquipmentLookupKey(model);
+        if (model && brandKey === selectedBrand && (!typedModel || modelKey.includes(typedModel))) {
+          sameBrandModels.set(modelKey, model);
+        }
+      });
+      return Array.from(sameBrandModels.values()).sort((a, b) => a.localeCompare(b, "da"));
+    }
+
+    function hideEquipmentModelDropdown() {
+      if (!equipmentModelDropdown) return;
+      equipmentModelDropdown.hidden = true;
+      equipmentModelDropdown.innerHTML = "";
+      if (equipmentModelInput) equipmentModelInput.setAttribute("aria-expanded", "false");
+    }
+
+    function selectEquipmentModelSuggestion(model) {
+      if (equipmentModelInput) {
+        equipmentModelInput.value = model;
+        equipmentModelInput.focus();
+      }
+      hideEquipmentModelDropdown();
+    }
+
+    function renderEquipmentModelDropdown(options = {}) {
+      if (!equipmentModelDropdown || !equipmentModelInput) return;
+      const isOpenContext = options.forceOpen || document.activeElement === equipmentModelInput;
+      const selectedBrand = normalizeEquipmentLookupKey(equipmentBrandInput && equipmentBrandInput.value ? equipmentBrandInput.value : "");
+      if (!isOpenContext || !selectedBrand) {
+        hideEquipmentModelDropdown();
+        return;
+      }
+      const models = getEquipmentModelSuggestionValues();
+      equipmentModelDropdown.innerHTML = "";
+      if (!models.length) {
+        const empty = document.createElement("div");
+        empty.className = "equipmentModelEmpty";
+        empty.textContent = "Ingen forslag";
+        equipmentModelDropdown.appendChild(empty);
+      } else {
+        models.slice(0, 16).forEach((model, index) => {
+          const option = document.createElement("button");
+          option.type = "button";
+          option.className = `equipmentModelOption${index === 0 ? " active" : ""}`;
+          option.setAttribute("role", "option");
+          option.textContent = model;
+          option.addEventListener("mousedown", (event) => {
+            event.preventDefault();
+            selectEquipmentModelSuggestion(model);
+          });
+          option.addEventListener("click", () => selectEquipmentModelSuggestion(model));
+          equipmentModelDropdown.appendChild(option);
+        });
+      }
+      equipmentModelDropdown.hidden = false;
+      equipmentModelInput.setAttribute("aria-expanded", "true");
+    }
+
     function updateEquipmentBrandModelSuggestions() {
       const brandMap = new Map();
-      const sameBrandModels = new Map();
-      const selectedBrand = normalizeEquipmentLookupKey(equipmentBrandInput && equipmentBrandInput.value ? equipmentBrandInput.value : "");
       const suggestionCameras = equipmentState.suggestionCameras.length ? equipmentState.suggestionCameras : equipmentState.cameras;
       suggestionCameras.filter(isEquipmentCameraActiveForSuggestions).forEach((camera) => {
         const parsed = getEquipmentCameraBrandModel(camera);
         const brand = parsed.brand.trim();
-        const model = normalizeEquipmentModelName(parsed.model);
         const brandKey = normalizeEquipmentLookupKey(brand);
         if (brand) brandMap.set(brandKey, brand);
-        if (model && selectedBrand && brandKey === selectedBrand) {
-          sameBrandModels.set(normalizeEquipmentLookupKey(model), model);
-        }
       });
       setEquipmentDatalistOptions(equipmentBrandSuggestions, Array.from(brandMap.values()).sort((a, b) => a.localeCompare(b, "da")));
-      setEquipmentDatalistOptions(equipmentModelSuggestions, Array.from(sameBrandModels.values()).sort((a, b) => a.localeCompare(b, "da")));
+      renderEquipmentModelDropdown();
     }
 
     function setEquipmentScannerStatus(message, isError = false) {
@@ -8072,7 +8134,7 @@
         return;
       }
       if (!equipmentState.drawingObjectUrl) {
-        equipmentDrawingCanvas.textContent = "Henter tegning...";
+        equipmentDrawingCanvas.textContent = "Opdaterer tegning...";
         updateEquipmentDrawingViewportTransform();
         return;
       }
@@ -8129,7 +8191,7 @@
       renderEquipmentDrawingCanvas();
       if (!drawing) return;
       try {
-        setEquipmentDrawingStatus("Henter tegning...");
+        setEquipmentDrawingStatus("Opdaterer tegning...");
         equipmentState.drawingObjectUrl = await fetchEquipmentDrawingObjectUrl(drawing);
         const pinResult = await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/equipment/cctv/drawings/${encodeURIComponent(drawing.id)}/pins`, { method: "GET" });
         equipmentState.drawingPins = Array.isArray(pinResult.pins) ? pinResult.pins : [];
@@ -8160,7 +8222,7 @@
       equipmentDrawingShell.setAttribute("aria-hidden", "false");
       document.body.classList.add("equipment-drawing-open");
       resetEquipmentDrawingView();
-      setEquipmentDrawingStatus("Henter tegninger...");
+      setEquipmentDrawingStatus("Opdaterer tegning...");
       renderEquipmentDrawingSelects();
       try {
         await loadEquipmentDrawings(camera?.drawing_pin?.drawing_id || equipmentState.activeDrawingId);
@@ -8455,23 +8517,26 @@
 
     function updateEquipmentLocationPlaceAction() {
       if (!equipmentLocationPlaceBtn) return;
-      const canPlace = Boolean(equipmentState.activeCameraId);
-      equipmentLocationPlaceBtn.disabled = !canPlace;
-      equipmentLocationPlaceBtn.title = canPlace ? "Placer kameraet på tegning" : "Gem kameraet før placering";
-      equipmentLocationPlaceBtn.setAttribute("aria-disabled", canPlace ? "false" : "true");
+      equipmentLocationPlaceBtn.disabled = Boolean(equipmentState.isCameraSaving);
+      equipmentLocationPlaceBtn.textContent = equipmentState.isCameraSaving ? "Gemmer..." : "Placer";
+      equipmentLocationPlaceBtn.title = equipmentState.activeCameraId ? "Placer kameraet på tegning" : "Gem kameraet og placer det på tegning";
+      equipmentLocationPlaceBtn.setAttribute("aria-disabled", equipmentState.isCameraSaving ? "true" : "false");
     }
 
-    function openEquipmentPlacementFromForm() {
-      if (!equipmentState.activeCameraId) {
-        if (equipmentFormStatus) equipmentFormStatus.textContent = "Gem kameraet før placering.";
-        updateEquipmentLocationPlaceAction();
+    async function openEquipmentPlacementFromForm() {
+      if (equipmentState.isCameraSaving) return;
+      if (equipmentState.activeCameraId) {
+        const camera = getEquipmentCameraById(equipmentState.activeCameraId) || {
+          id: equipmentState.activeCameraId,
+          camera_id: equipmentCameraIdInput ? equipmentCameraIdInput.value.trim() : "Kamera",
+          drawing_pin: null,
+        };
+        openEquipmentDrawing(camera, true);
         return;
       }
-      const camera = getEquipmentCameraById(equipmentState.activeCameraId) || {
-        id: equipmentState.activeCameraId,
-        camera_id: equipmentCameraIdInput ? equipmentCameraIdInput.value.trim() : "Kamera",
-        drawing_pin: null,
-      };
+      const camera = await persistEquipmentCamera({ closeAfterSave: true, feedback: false, saveLabel: "Gemmer..." });
+      if (!camera || !camera.id) return;
+      showEquipmentFeedback(`Kamera ${getEquipmentCameraLabel(camera)} oprettet. Klik på tegningen for at placere det.`);
       openEquipmentDrawing(camera, true);
     }
 
@@ -8585,39 +8650,53 @@
       renderEquipmentList();
     }
 
-    async function saveEquipmentCamera(event) {
-      event.preventDefault();
+    async function persistEquipmentCamera(options = {}) {
+      if (equipmentState.isCameraSaving) return null;
       const macState = syncEquipmentMacHidden({ showFeedback: true });
       if (!macState.valid) {
         if (equipmentFormStatus) equipmentFormStatus.textContent = "MAC-adressen er ufuldstændig.";
         focusEquipmentMacSegment(0);
-        return;
+        return null;
       }
       const payload = getEquipmentFormPayload();
       if (!payload.camera_id) {
         if (equipmentFormStatus) equipmentFormStatus.textContent = "Kamera-ID er påkrævet.";
-        return;
+        if (equipmentCameraIdInput) equipmentCameraIdInput.focus();
+        return null;
       }
+      const isEdit = Boolean(equipmentState.activeCameraId);
+      equipmentState.isCameraSaving = true;
       if (equipmentSaveBtn) equipmentSaveBtn.disabled = true;
-      if (equipmentFormStatus) equipmentFormStatus.textContent = "Gemmer...";
+      updateEquipmentLocationPlaceAction();
+      if (equipmentFormStatus) equipmentFormStatus.textContent = options.saveLabel || "Gemmer...";
       try {
-        const isEdit = Boolean(equipmentState.activeCameraId);
         const response = await apiFetch(isEdit
           ? `/api/projects/${encodeURIComponent(projectId)}/equipment/cctv/${encodeURIComponent(equipmentState.activeCameraId)}`
           : `/api/projects/${encodeURIComponent(projectId)}/equipment/cctv`, {
           method: isEdit ? "PATCH" : "POST",
           body: JSON.stringify(payload),
         });
-        const camera = response && response.camera ? response.camera : payload;
+        const camera = response && response.camera ? response.camera : { ...payload, id: equipmentState.activeCameraId };
         await loadEquipmentCctv();
-        closeEquipmentDrawer();
-        showEquipmentFeedback(`Kamera ${getEquipmentCameraLabel(camera, payload.camera_id)} ${isEdit ? "opdateret" : "oprettet"}.`);
+        if (options.closeAfterSave !== false) closeEquipmentDrawer();
+        if (options.feedback !== false) {
+          showEquipmentFeedback(`Kamera ${getEquipmentCameraLabel(camera, payload.camera_id)} ${isEdit ? "opdateret" : "oprettet"}.`);
+        }
+        return camera;
       } catch (error) {
         const message = equipmentErrorMessage(error, "Kunne ikke gemme kamera.");
         if (equipmentFormStatus && message) equipmentFormStatus.textContent = message;
+        return null;
       } finally {
+        equipmentState.isCameraSaving = false;
         if (equipmentSaveBtn) equipmentSaveBtn.disabled = false;
+        updateEquipmentLocationPlaceAction();
       }
+    }
+
+    async function saveEquipmentCamera(event) {
+      event.preventDefault();
+      await persistEquipmentCamera({ closeAfterSave: true, feedback: true });
     }
     async function archiveEquipmentCamera() {
       if (!equipmentState.activeCameraId) {
@@ -9014,9 +9093,35 @@
     }
 
     if (equipmentModelInput) {
-      equipmentModelInput.addEventListener("focus", updateEquipmentBrandModelSuggestions);
-      equipmentModelInput.addEventListener("blur", normalizeEquipmentBrandModelInputs);
+      equipmentModelInput.addEventListener("focus", () => renderEquipmentModelDropdown({ forceOpen: true }));
+      equipmentModelInput.addEventListener("input", () => renderEquipmentModelDropdown({ forceOpen: true }));
+      equipmentModelInput.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          hideEquipmentModelDropdown();
+          return;
+        }
+        if (event.key === "Enter") {
+          const activeOption = equipmentModelDropdown ? equipmentModelDropdown.querySelector(".equipmentModelOption.active") : null;
+          if (activeOption) {
+            event.preventDefault();
+            selectEquipmentModelSuggestion(activeOption.textContent || "");
+          }
+        }
+      });
+      equipmentModelInput.addEventListener("blur", () => {
+        window.setTimeout(() => {
+          normalizeEquipmentBrandModelInputs();
+          hideEquipmentModelDropdown();
+        }, 0);
+      });
     }
+
+    document.addEventListener("pointerdown", (event) => {
+      if (!equipmentModelDropdown || equipmentModelDropdown.hidden) return;
+      const target = event.target;
+      if (target === equipmentModelInput || equipmentModelDropdown.contains(target)) return;
+      hideEquipmentModelDropdown();
+    });
 
     if (equipmentArchiveBtn) {
       equipmentArchiveBtn.addEventListener("click", archiveEquipmentCamera);
