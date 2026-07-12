@@ -614,6 +614,7 @@ async function insertTenantUserLifecycleEvent(client, { tenantId, userId, eventT
   return rows[0];
 }
 module.exports = {
+  acquireTenantLifecycleLock,
   createManualFitterForTenantUser,
   createManualSyncJob,
   createManualTenantUser,

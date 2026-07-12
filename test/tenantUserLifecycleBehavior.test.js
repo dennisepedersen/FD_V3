@@ -44,6 +44,100 @@ function cloneState(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+test('tenant lifecycle repository exports advisory lock and service uses it', async () => {
+  const tenantId = uuid(1);
+  const userId = uuid(2);
+  const actorId = uuid(3);
+  const queries = [];
+  const lifecycleEvents = [];
+  const original = {
+    connect: pool.connect,
+    audit: auditService.logAuditEvent,
+    find: tenantAdminRepository.findTenantUserForUpdate,
+    count: tenantAdminRepository.countActiveTenantAdmins,
+    revoke: tenantAdminRepository.revokeOpenTenantUserInvitations,
+    deactivate: tenantAdminRepository.deactivateTenantUser,
+    lifecycle: tenantAdminRepository.insertTenantUserLifecycleEvent,
+  };
+
+  assert.equal(typeof tenantAdminRepository.acquireTenantLifecycleLock, 'function');
+
+  pool.connect = async () => ({
+    async query(sql, params = []) {
+      const text = String(sql);
+      queries.push({ sql: text, params });
+      if (/^\s*(BEGIN|COMMIT|ROLLBACK)\s*$/i.test(text)) return { rows: [] };
+      if (text.includes('pg_advisory_xact_lock') && text.includes('hashtextextended($1::text, 0)')) {
+        return { rows: [{}] };
+      }
+      return { rows: [] };
+    },
+    release() {},
+  });
+  auditService.logAuditEvent = async () => {};
+  tenantAdminRepository.findTenantUserForUpdate = async () => ({
+    id: userId,
+    tenant_id: tenantId,
+    role: 'technician',
+    status: 'active',
+    login_status: 'active',
+    session_version: 0,
+  });
+  tenantAdminRepository.countActiveTenantAdmins = async () => 1;
+  tenantAdminRepository.revokeOpenTenantUserInvitations = async () => 0;
+  tenantAdminRepository.deactivateTenantUser = async () => ({
+    id: userId,
+    tenant_id: tenantId,
+    role: 'technician',
+    status: 'deactivated',
+    login_status: 'disabled',
+    session_version: 1,
+    deactivated_reason: 'left',
+    deactivated_by_user_id: actorId,
+    deactivated_at: '2026-07-12T00:00:00.000Z',
+  });
+  tenantAdminRepository.insertTenantUserLifecycleEvent = async (_client, event) => {
+    lifecycleEvents.push(event);
+    return { id: uuid(100 + lifecycleEvents.length), ...event };
+  };
+
+  try {
+    const directClient = {
+      async query(sql, params = []) {
+        queries.push({ sql: String(sql), params });
+        return { rows: [] };
+      },
+    };
+    await tenantAdminRepository.acquireTenantLifecycleLock(directClient, { tenantId });
+    assert.equal(
+      queries.some((query) => query.sql.includes('pg_advisory_xact_lock')
+        && query.sql.includes('hashtextextended($1::text, 0)')
+        && query.params[0] === tenantId),
+      true
+    );
+
+    queries.length = 0;
+    const result = await tenantAdminService.deactivateUser({ tenantId, actorId, userId, reason: 'left' });
+    assert.equal(result.user.status, 'deactivated');
+    assert.equal(
+      queries.some((query) => query.sql.includes('pg_advisory_xact_lock')
+        && query.sql.includes('hashtextextended($1::text, 0)')
+        && query.params[0] === tenantId),
+      true
+    );
+    assert.equal(lifecycleEvents.some((event) => event.eventType === 'deactivated'), true);
+    assert.equal(lifecycleEvents.some((event) => event.eventType === 'sessions_revoked'), true);
+  } finally {
+    pool.connect = original.connect;
+    auditService.logAuditEvent = original.audit;
+    tenantAdminRepository.findTenantUserForUpdate = original.find;
+    tenantAdminRepository.countActiveTenantAdmins = original.count;
+    tenantAdminRepository.revokeOpenTenantUserInvitations = original.revoke;
+    tenantAdminRepository.deactivateTenantUser = original.deactivate;
+    tenantAdminRepository.insertTenantUserLifecycleEvent = original.lifecycle;
+  }
+});
+
 function installStatefulCompletionPool(state) {
   return installPool((sql, params) => {
     if (sql.includes('FROM tenant_user_invitation_token') && sql.includes('FOR UPDATE')) {
