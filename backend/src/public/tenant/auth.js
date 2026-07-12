@@ -3990,9 +3990,8 @@
       const groupMode = selectedCount > 1;
 
       if (listMetaText) {
-        const modeText = groupMode ? "Grupperet visning" : "Enkelt visning";
-        const caseLabel = state.showingClosedFallback ? "lukkede sager" : "aktive sager";
-        listMetaText.textContent = `${visibleProjects.length} ${caseLabel} · ${modeText}`;
+        listMetaText.textContent = "";
+        listMetaText.hidden = true;
       }
 
       if (visibleProjects.length === 0) {
@@ -4059,7 +4058,8 @@
     async function loadProjects() {
       projectsContainer.innerHTML = "";
       if (listMetaText) {
-        listMetaText.textContent = "Indlæser sager...";
+        listMetaText.textContent = "";
+        listMetaText.hidden = true;
       }
 
       try {
@@ -4077,7 +4077,8 @@
         const message = `Kunne ikke hente sager: ${getErrorMessage(error, "request_failed")}`;
         projectsContainer.textContent = message;
         if (listMetaText) {
-          listMetaText.textContent = "Fejl under indlæsning";
+          listMetaText.textContent = "";
+          listMetaText.hidden = true;
         }
       }
     }
@@ -4365,7 +4366,10 @@
       renderDashboard();
 
       if (state.projectsLoading) {
-        setText(listMetaText, "Indlaeser sager...");
+        if (listMetaText) {
+          listMetaText.textContent = "";
+          listMetaText.hidden = true;
+        }
         const loader = document.createElement("div");
         loader.className = "fdLoadingList";
         loader.innerHTML = '<div class="fdSkeleton"></div><div class="fdSkeleton"></div><div class="fdSkeleton"></div>';
@@ -4374,7 +4378,10 @@
       }
 
       if (state.projectLoadError) {
-        setText(listMetaText, "Fejl under indlaesning");
+        if (listMetaText) {
+          listMetaText.textContent = "";
+          listMetaText.hidden = true;
+        }
         const error = document.createElement("div");
         error.className = "fdErrorState";
         error.innerHTML = '<strong>Kunne ikke hente sager</strong><span>' + escapeHtml(state.projectLoadError) + '</span><button class="fdRetryBtn" type="button">Prov igen</button>';
@@ -4385,8 +4392,10 @@
       }
 
       const visibleItems = getVisibleCaseItems();
-      const caseLabel = state.showingClosedFallback ? "sager" : "aktive sager";
-      setText(listMetaText, visibleItems.length + " " + caseLabel + " i aktuel visning");
+      if (listMetaText) {
+        listMetaText.textContent = "";
+        listMetaText.hidden = true;
+      }
 
       if (visibleItems.length === 0) {
         const empty = document.createElement("div");
@@ -4406,17 +4415,18 @@
       const name = state.me && state.me.name ? String(state.me.name) : "Fielddesk";
       const firstName = name.split(" ").filter(Boolean)[0] || name;
       const items = getCaseItems();
-      const activeItems = items.filter((item) => item.status === "aktiv");
-      const attentionItems = items.filter((item) => item.status === "obs" || item.status === "kritisk");
+      const visibleItems = getVisibleCaseItems();
+      const activeVisibleItems = state.showingClosedFallback ? visibleItems.filter((item) => item.status === "aktiv") : visibleItems;
+      const attentionItems = visibleItems.filter((item) => item.status === "obs" || item.status === "kritisk");
       setText(dashboardWelcomeName, firstName);
       setText(dashboardDateText, formatDashboardDate());
-      setText(dashboardProjectCount, String(getVisibleCaseItems().length));
-      setText(dashboardOpenCount, String(activeItems.length));
-      setText(projectOpenCount, String(activeItems.length));
+      setText(dashboardProjectCount, String(visibleItems.length));
+      setText(dashboardOpenCount, String(activeVisibleItems.length));
+      setText(projectOpenCount, String(activeVisibleItems.length));
       setText(dashboardAttentionCount, String(attentionItems.length));
       setText(dashboardQaStatus, items.length > 0 ? "Via sag" : "-");
       setText(currentScopeValue, currentCaseFilterLabel());
-      setText(moduleProjectsMeta, items.length > 0 ? activeItems.length + " aktive sager · " + items.length + " i alt" : "Ingen sager hentet endnu");
+      setText(moduleProjectsMeta, visibleItems.length > 0 ? activeVisibleItems.length + " aktive sager · " + attentionItems.length + " OBS" : "Ingen sager hentet endnu");
     }
 
     async function loadProjects() {
@@ -5015,13 +5025,11 @@
       ? [vm.responsible.teamLeaderCode, vm.responsible.teamLeaderName].filter(Boolean).join(" · ")
       : null;
 
-    const currentUserIsResponsible = isCurrentUserResponsible(vm, currentUser);
-
-    setValue("detailResponsible", currentUserIsResponsible ? "Dig" : responsibleText);
+    setValue("detailResponsible", responsibleText);
     if (detailResponsible) {
-      detailResponsible.classList.toggle("fieldValueStrong", currentUserIsResponsible);
+      detailResponsible.classList.remove("fieldValueStrong");
     }
-    setNote("detailResponsibleNote", currentUserIsResponsible && responsibleText ? responsibleText : null);
+    setNote("detailResponsibleNote", null);
     setValue("detailTeamLeader", teamLeaderText);
     if (relationSection) {
       const parentLabel = vm && vm.relation && vm.relation.parentProjectEkId
@@ -6675,9 +6683,56 @@
       return { brand: "", model: raw };
     }
 
+    function normalizeEquipmentLookupKey(value) {
+      return String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
+    }
+
+    function isEquipmentCameraActiveForSuggestions(camera) {
+      if (!camera) return false;
+      const status = normalizeEquipmentLookupKey(camera.status);
+      return !camera.archived_at
+        && !camera.deleted_at
+        && !camera.is_archived
+        && !camera.is_deleted
+        && status !== "archived"
+        && status !== "deleted";
+    }
+
+    function normalizeEquipmentBrandName(value) {
+      const raw = String(value || "").trim().replace(/\s+/g, " ");
+      if (!raw) return "";
+      const key = normalizeEquipmentLookupKey(raw);
+      const suggestionCameras = equipmentState.suggestionCameras.length ? equipmentState.suggestionCameras : equipmentState.cameras;
+      for (const camera of suggestionCameras.filter(isEquipmentCameraActiveForSuggestions)) {
+        const parsed = getEquipmentCameraBrandModel(camera);
+        if (normalizeEquipmentLookupKey(parsed.brand) === key && parsed.brand) {
+          return parsed.brand.trim();
+        }
+      }
+      return raw
+        .split(/([\s-]+)/)
+        .map((part) => /^[\s-]+$/.test(part) ? part : part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+        .join("");
+    }
+
+    function normalizeEquipmentModelName(value) {
+      const raw = String(value || "").trim().replace(/\s+/g, " ");
+      if (!raw) return "";
+      return /[0-9-]/.test(raw) ? raw.toUpperCase() : raw;
+    }
+
+    function normalizeEquipmentBrandModelInputs() {
+      const brand = normalizeEquipmentBrandName(equipmentBrandInput ? equipmentBrandInput.value : "");
+      const model = normalizeEquipmentModelName(equipmentModelInput ? equipmentModelInput.value : "");
+      if (equipmentBrandInput) equipmentBrandInput.value = brand;
+      if (equipmentModelInput) equipmentModelInput.value = model;
+      updateEquipmentBrandModelSuggestions();
+      return { brand, model };
+    }
+
     function combineEquipmentBrandModel(brandValue, modelValue) {
-      const brand = String(brandValue || "").trim();
-      const model = String(modelValue || "").trim();
+      const brand = normalizeEquipmentBrandName(brandValue);
+      const model = normalizeEquipmentModelName(modelValue);
       if (brand && model) return `${brand}${EQUIPMENT_MODEL_SEPARATOR}${model}`;
       return model || brand || null;
     }
@@ -6699,21 +6754,20 @@
     function updateEquipmentBrandModelSuggestions() {
       const brandMap = new Map();
       const sameBrandModels = new Map();
-      const otherModels = new Map();
-      const selectedBrand = String(equipmentBrandInput && equipmentBrandInput.value ? equipmentBrandInput.value : "").trim().toLowerCase();
+      const selectedBrand = normalizeEquipmentLookupKey(equipmentBrandInput && equipmentBrandInput.value ? equipmentBrandInput.value : "");
       const suggestionCameras = equipmentState.suggestionCameras.length ? equipmentState.suggestionCameras : equipmentState.cameras;
-      suggestionCameras.forEach((camera) => {
+      suggestionCameras.filter(isEquipmentCameraActiveForSuggestions).forEach((camera) => {
         const parsed = getEquipmentCameraBrandModel(camera);
         const brand = parsed.brand.trim();
-        const model = parsed.model.trim();
-        if (brand) brandMap.set(brand.toLowerCase(), brand);
-        if (model) {
-          const target = brand && selectedBrand && brand.toLowerCase() === selectedBrand ? sameBrandModels : otherModels;
-          target.set(model.toLowerCase(), model);
+        const model = normalizeEquipmentModelName(parsed.model);
+        const brandKey = normalizeEquipmentLookupKey(brand);
+        if (brand) brandMap.set(brandKey, brand);
+        if (model && selectedBrand && brandKey === selectedBrand) {
+          sameBrandModels.set(normalizeEquipmentLookupKey(model), model);
         }
       });
       setEquipmentDatalistOptions(equipmentBrandSuggestions, Array.from(brandMap.values()).sort((a, b) => a.localeCompare(b, "da")));
-      setEquipmentDatalistOptions(equipmentModelSuggestions, [...sameBrandModels.values(), ...otherModels.values()]);
+      setEquipmentDatalistOptions(equipmentModelSuggestions, Array.from(sameBrandModels.values()).sort((a, b) => a.localeCompare(b, "da")));
     }
 
     function setEquipmentScannerStatus(message, isError = false) {
@@ -7846,7 +7900,6 @@
       moveBtn.textContent = "Flyt placering";
       moveBtn.addEventListener("click", () => {
         equipmentState.drawingPlacementCameraId = camera.id || pin.camera_record_id;
-        if (equipmentDrawingCameraSelect) equipmentDrawingCameraSelect.value = equipmentState.drawingPlacementCameraId;
         setEquipmentDrawingStatus("Klik på tegningen for at flytte kameraet.");
         renderEquipmentDrawingCanvas();
       });
@@ -7867,8 +7920,20 @@
         button.className = `equipmentDrawingPin${pin.id === equipmentState.selectedDrawingPinId ? " active" : ""}`;
         button.style.left = `${pin.x_percent}%`;
         button.style.top = `${pin.y_percent}%`;
-        button.textContent = pin.label || pin.camera?.camera_id || "CAM";
-        button.title = pin.label || pin.camera?.camera_id || "Kamera";
+        const labelText = pin.label || pin.camera?.camera_id || "CAM";
+        const marker = document.createElement("span");
+        marker.className = "equipmentDrawingPinMarker";
+        marker.setAttribute("aria-hidden", "true");
+        const markerInner = document.createElement("span");
+        markerInner.className = "equipmentDrawingPinMarkerInner";
+        marker.appendChild(markerInner);
+        const label = document.createElement("span");
+        label.className = "equipmentDrawingPinLabel";
+        label.textContent = labelText;
+        button.appendChild(marker);
+        button.appendChild(label);
+        button.setAttribute("aria-label", `Kamera ${labelText}`);
+        button.title = labelText;
         button.addEventListener("click", (event) => {
           event.stopPropagation();
           equipmentState.selectedDrawingPinId = pin.id;
@@ -7978,7 +8043,14 @@
     function renderEquipmentDrawingCanvas() {
       if (!equipmentDrawingCanvas) return;
       equipmentDrawingCanvas.innerHTML = "";
-      equipmentDrawingCanvas.classList.toggle("isPlacing", Boolean(equipmentState.drawingPlacementCameraId));
+      const isPlacing = Boolean(equipmentState.drawingPlacementCameraId);
+      equipmentDrawingCanvas.classList.toggle("isPlacing", isPlacing);
+      if (equipmentDrawingPlaceBtn) {
+        equipmentDrawingPlaceBtn.classList.toggle("isActive", isPlacing);
+        equipmentDrawingPlaceBtn.setAttribute("aria-pressed", isPlacing ? "true" : "false");
+        equipmentDrawingPlaceBtn.disabled = !isPlacing;
+        equipmentDrawingPlaceBtn.title = isPlacing ? "Klik på tegningen for at placere kameraet" : "Vælg Placer fra et kamerakort først";
+      }
       const drawing = getActiveEquipmentDrawing();
       if (!drawing) {
         equipmentDrawingCanvas.textContent = "Upload eller vælg en tegning.";
@@ -8070,7 +8142,7 @@
     async function openEquipmentDrawing(camera = null, placeCamera = false) {
       if (!equipmentDrawingShell) return;
       equipmentState.drawingPlacementCameraId = placeCamera && camera ? camera.id : null;
-      if (equipmentDrawingCameraSelect && camera) equipmentDrawingCameraSelect.value = camera.id;
+
       equipmentDrawingShell.classList.add("open");
       equipmentDrawingShell.setAttribute("aria-hidden", "false");
       document.body.classList.add("equipment-drawing-open");
@@ -8087,7 +8159,6 @@
         }
         if (placeCamera && camera) {
           equipmentState.drawingPlacementCameraId = camera.id;
-          if (equipmentDrawingCameraSelect) equipmentDrawingCameraSelect.value = camera.id;
           setEquipmentDrawingStatus(equipmentState.activeDrawingId ? "Klik på tegningen for at placere kameraet." : "Vælg en tegning før kameraet kan placeres.");
           renderEquipmentDrawingCanvas();
         }
@@ -8424,11 +8495,12 @@
 
     function getEquipmentFormPayload() {
       const macState = syncEquipmentMacHidden();
+      const brandModel = normalizeEquipmentBrandModelInputs();
       return {
         camera_id: equipmentCameraIdInput ? equipmentCameraIdInput.value.trim() : "",
         mac_address: macState.valid ? macState.value : macState.value,
         serial_number: equipmentSerialInput ? equipmentSerialInput.value.trim() || null : null,
-        model: combineEquipmentBrandModel(equipmentBrandInput ? equipmentBrandInput.value : "", equipmentModelInput ? equipmentModelInput.value : ""),
+        model: combineEquipmentBrandModel(brandModel.brand, brandModel.model),
         location_text: equipmentLocationInput ? equipmentLocationInput.value.trim() || null : null,
         status: equipmentStatusSelect ? equipmentStatusSelect.value : "registered",
         note: equipmentNoteInput ? equipmentNoteInput.value.trim() || null : null,
@@ -8844,9 +8916,8 @@
           setEquipmentDrawingStatus("Vælg eller upload en tegning først.", true);
           return;
         }
-        equipmentState.drawingPlacementCameraId = equipmentDrawingCameraSelect ? equipmentDrawingCameraSelect.value : null;
         if (!equipmentState.drawingPlacementCameraId) {
-          setEquipmentDrawingStatus("Vælg et kamera først.", true);
+          setEquipmentDrawingStatus("Vælg Placer fra et kamerakort først.", true);
           return;
         }
         setEquipmentDrawingStatus("Klik på tegningen for at placere kameraet.");
@@ -8907,11 +8978,13 @@
 
     if (equipmentBrandInput) {
       equipmentBrandInput.addEventListener("input", updateEquipmentBrandModelSuggestions);
-      equipmentBrandInput.addEventListener("change", updateEquipmentBrandModelSuggestions);
+      equipmentBrandInput.addEventListener("change", normalizeEquipmentBrandModelInputs);
+      equipmentBrandInput.addEventListener("blur", normalizeEquipmentBrandModelInputs);
     }
 
     if (equipmentModelInput) {
       equipmentModelInput.addEventListener("focus", updateEquipmentBrandModelSuggestions);
+      equipmentModelInput.addEventListener("blur", normalizeEquipmentBrandModelInputs);
     }
 
     if (equipmentArchiveBtn) {
