@@ -6595,6 +6595,16 @@
       clearEquipmentMacValidationError();
     }
 
+    function updateEquipmentMacValidationState() {
+      const state = syncEquipmentMacHidden({ showFeedback: false });
+      if (state.valid) {
+        clearEquipmentMacValidationError();
+      } else {
+        setEquipmentMacValidationError("MAC-adressen er ufuldstændig.");
+      }
+      return state;
+    }
+
     function getEquipmentMacCompact() {
       return equipmentMacSegmentInputs.map((input) => sanitizeEquipmentMacSegment(input.value)).join("");
     }
@@ -6631,12 +6641,12 @@
       if (!raw) {
         equipmentMacSegmentInputs.forEach((input) => { input.value = ""; });
         if (equipmentMacInput) equipmentMacInput.value = "";
-        setEquipmentMacFeedback("", false);
+        clearEquipmentMacValidationError();
         return true;
       }
       const compact = raw.replace(/[^0-9a-fA-F]/g, "").toUpperCase();
       if (!/^[0-9A-F]{12}$/.test(compact)) {
-        setEquipmentMacFeedback("MAC-adressen skal udfyldes med 6 grupper a 2 hex-tegn.", true);
+        setEquipmentMacValidationError("MAC-adressen er ufuldstændig.");
         return false;
       }
       const pairs = compact.match(/.{1,2}/g);
@@ -6644,6 +6654,7 @@
         input.value = pairs[index] || "";
       });
       syncEquipmentMacHidden();
+      clearEquipmentMacValidationError();
       if (options.focusSerial && equipmentSerialInput) {
         equipmentSerialInput.focus();
         equipmentSerialInput.select();
@@ -6672,13 +6683,13 @@
         equipmentSerialInput.focus();
         equipmentSerialInput.select();
       }
-      syncEquipmentMacHidden({ showFeedback: false });
+      updateEquipmentMacValidationState();
     }
 
     function handleEquipmentMacSegmentKeydown(event, index) {
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       if (event.key === "Enter" || (event.key === "Tab" && !event.shiftKey)) {
-        const state = syncEquipmentMacHidden({ showFeedback: event.key === "Enter" });
+        const state = updateEquipmentMacValidationState();
         if (state.valid && !state.isEmpty && equipmentSerialInput) {
           event.preventDefault();
           equipmentSerialInput.focus();
@@ -6716,7 +6727,7 @@
         equipmentSerialInput.focus();
         equipmentSerialInput.select();
       }
-      syncEquipmentMacHidden({ showFeedback: false });
+      updateEquipmentMacValidationState();
     }
 
     const EQUIPMENT_MODEL_SEPARATOR = " · ";
@@ -9194,12 +9205,9 @@
 
     equipmentMacSegmentInputs.forEach((input, index) => {
       input.addEventListener("keydown", (event) => handleEquipmentMacSegmentKeydown(event, index));
-      input.addEventListener("input", (event) => {
-        clearEquipmentMacValidationError();
-        handleEquipmentMacSegmentInput(event, index);
-      });
+      input.addEventListener("input", (event) => handleEquipmentMacSegmentInput(event, index));
       input.addEventListener("paste", handleEquipmentMacPaste);
-      input.addEventListener("blur", () => syncEquipmentMacHidden({ showFeedback: false }));
+      input.addEventListener("blur", updateEquipmentMacValidationState);
     });
 
     if (equipmentSerialInput) {
