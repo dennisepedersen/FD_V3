@@ -12,6 +12,7 @@ const INTERNAL_DEFECT_STATUSES = Object.freeze(["open", "in_progress", "ready_fo
 const OBS_STATUSES = Object.freeze(["open", "monitoring", "blocking", "resolved"]);
 const PRIORITIES = Object.freeze(["low", "normal", "high", "critical"]);
 const RISKS = Object.freeze(["low", "medium", "high", "critical"]);
+const CLIENT_MANAGED_IMPORT_FIELDS = Object.freeze(["source", "external_import_id", "external_import_payload"]);
 
 function normalizeOptionalText(value) {
   if (value === null || value === undefined) return null;
@@ -35,7 +36,7 @@ function normalizeOptionalUuid(value, message) {
 }
 
 function normalizeKind(value, existing) {
-  const normalized = normalizeOptionalText(value || existing?.kind);
+  const normalized = normalizeOptionalText(value === undefined ? existing?.kind : value);
   if (!normalized || !KINDS.includes(normalized)) {
     throw createHttpError(400, "invalid_restarbejde_kind");
   }
@@ -46,7 +47,7 @@ function normalizeKind(value, existing) {
 }
 
 function normalizeStatus(value, kind, existing) {
-  const normalized = normalizeOptionalText(value || existing?.status) || "open";
+  const normalized = normalizeOptionalText(value === undefined ? existing?.status : value) || "open";
   const allowed = kind === "internal_defect" ? INTERNAL_DEFECT_STATUSES : OBS_STATUSES;
   if (!allowed.includes(normalized)) {
     throw createHttpError(400, "invalid_restarbejde_status");
@@ -109,31 +110,63 @@ function normalizeOptionalDate(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
     throw createHttpError(400, "invalid_restarbejde_deadline");
   }
+  const [year, month, day] = normalized.split("-").map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  if (
+    parsed.getUTCFullYear() !== year
+    || parsed.getUTCMonth() !== month - 1
+    || parsed.getUTCDate() !== day
+  ) {
+    throw createHttpError(400, "invalid_restarbejde_deadline");
+  }
   return normalized;
 }
 
-function normalizeOptionalBoolean(value) {
-  if (value === undefined || value === null || value === "") return null;
-  return Boolean(value);
+function normalizeOptionalBoolean(value, message) {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "boolean") throw createHttpError(400, message);
+  return value;
 }
 
-function normalizeBoolean(value, fallback = false) {
-  if (value === undefined || value === null || value === "") return fallback;
-  return Boolean(value);
+function normalizeBoolean(value, message) {
+  if (typeof value !== "boolean") throw createHttpError(400, message);
+  return value;
 }
 
-function normalizeImportPayload(value, existing) {
-  if (value === undefined) return existing?.external_import_payload || {};
-  if (value === null) return {};
-  if (typeof value !== "object" || Array.isArray(value)) {
-    throw createHttpError(400, "restarbejde_import_payload_must_be_object");
+function rejectClientManagedImportMetadata(body) {
+  for (const field of CLIENT_MANAGED_IMPORT_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(body, field)) {
+      throw createHttpError(400, "restarbejde_import_metadata_server_managed");
+    }
   }
-  return { ...value };
+}
+
+function normalizeListFilters({ kind, status } = {}) {
+  const normalizedKind = normalizeOptionalText(kind);
+  if (normalizedKind && !KINDS.includes(normalizedKind)) {
+    throw createHttpError(400, "invalid_restarbejde_kind_filter");
+  }
+
+  const normalizedStatus = normalizeOptionalText(status);
+  if (!normalizedStatus) return { kind: normalizedKind, status: null };
+
+  const allowedStatuses = normalizedKind === "internal_defect"
+    ? INTERNAL_DEFECT_STATUSES
+    : normalizedKind === "obs"
+      ? OBS_STATUSES
+      : [...new Set([...INTERNAL_DEFECT_STATUSES, ...OBS_STATUSES])];
+
+  if (!allowedStatuses.includes(normalizedStatus)) {
+    throw createHttpError(400, "invalid_restarbejde_status_filter");
+  }
+
+  return { kind: normalizedKind, status: normalizedStatus };
 }
 
 function normalizePayload(input, { existing = null, actorUserId, canCloseInternalDefect = false } = {}) {
   const body = input || {};
   const has = (key) => Object.prototype.hasOwnProperty.call(body, key);
+  rejectClientManagedImportMetadata(body);
   const kind = normalizeKind(has("kind") ? body.kind : undefined, existing);
   const status = normalizeStatus(has("status") ? body.status : undefined, kind, existing);
   const isClosingInternal = kind === "internal_defect" && status === "closed";
@@ -160,13 +193,13 @@ function normalizePayload(input, { existing = null, actorUserId, canCloseInterna
     deadline: has("deadline") ? normalizeOptionalDate(body.deadline) : existing?.deadline || null,
     percentComplete: normalizePercentComplete(has("percent_complete") ? body.percent_complete : undefined, kind, status, existing),
     externalParty: has("external_party") ? normalizeOptionalText(body.external_party) : existing?.external_party || null,
-    blocksDelivery: has("blocks_delivery") ? normalizeBoolean(body.blocks_delivery, false) : Boolean(existing?.blocks_delivery),
-    escalated: has("escalated") ? normalizeBoolean(body.escalated, false) : Boolean(existing?.escalated),
-    canInternalTeamAct: has("can_internal_team_act") ? normalizeOptionalBoolean(body.can_internal_team_act) : existing?.can_internal_team_act ?? null,
+    blocksDelivery: has("blocks_delivery") ? normalizeBoolean(body.blocks_delivery, "invalid_restarbejde_blocks_delivery") : Boolean(existing?.blocks_delivery),
+    escalated: has("escalated") ? normalizeBoolean(body.escalated, "invalid_restarbejde_escalated") : Boolean(existing?.escalated),
+    canInternalTeamAct: has("can_internal_team_act") ? normalizeOptionalBoolean(body.can_internal_team_act, "invalid_restarbejde_can_internal_team_act") : existing?.can_internal_team_act ?? null,
     comment: has("comment") ? normalizeOptionalText(body.comment) : existing?.comment || null,
-    source: has("source") ? normalizeOptionalText(body.source) : existing?.source || null,
-    externalImportId: has("external_import_id") ? normalizeOptionalText(body.external_import_id) : existing?.external_import_id || null,
-    externalImportPayload: normalizeImportPayload(has("external_import_payload") ? body.external_import_payload : undefined, existing),
+    source: existing?.source || null,
+    externalImportId: existing?.external_import_id || null,
+    externalImportPayload: existing?.external_import_payload || {},
     closedAt,
     closedByUserId,
   };
@@ -245,6 +278,7 @@ async function audit(client, { tenantId, userId, eventType, resourceId, projectI
 }
 
 async function listItems({ tenantId, userId, projectId, includeArchived = false, kind, status }) {
+  const filters = normalizeListFilters({ kind, status });
   const client = await pool.connect();
   try {
     const projectContext = await requireProject(client, { tenantId, userId, projectId });
@@ -252,8 +286,8 @@ async function listItems({ tenantId, userId, projectId, includeArchived = false,
       tenantId,
       projectId: projectContext.projectId,
       includeArchived,
-      kind: normalizeOptionalText(kind),
-      status: normalizeOptionalText(status),
+      kind: filters.kind,
+      status: filters.status,
     });
     return { project: projectContext.project, items: rows.map(mapItem) };
   } finally {
@@ -395,6 +429,7 @@ module.exports = {
   updateItem,
   _test: {
     normalizePayload,
+    normalizeListFilters,
     mapSummary,
   },
 };

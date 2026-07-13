@@ -1936,11 +1936,11 @@ CREATE TABLE project_restarbejde_item (
   archived_by_user_id uuid NULL,
   CONSTRAINT fk_project_restarbejde_item_tenant FOREIGN KEY (tenant_id) REFERENCES tenant(id) ON DELETE CASCADE,
   CONSTRAINT fk_project_restarbejde_item_project FOREIGN KEY (project_id, tenant_id) REFERENCES project_core(project_id, tenant_id) ON DELETE RESTRICT,
-  CONSTRAINT fk_project_restarbejde_item_assigned_user FOREIGN KEY (assigned_tenant_user_id, tenant_id) REFERENCES tenant_user(id, tenant_id) ON DELETE SET NULL,
+  CONSTRAINT fk_project_restarbejde_item_assigned_user FOREIGN KEY (assigned_tenant_user_id, tenant_id) REFERENCES tenant_user(id, tenant_id) ON DELETE SET NULL (assigned_tenant_user_id),
   CONSTRAINT fk_project_restarbejde_item_created_by_user FOREIGN KEY (created_by_user_id, tenant_id) REFERENCES tenant_user(id, tenant_id) ON DELETE RESTRICT,
   CONSTRAINT fk_project_restarbejde_item_updated_by_user FOREIGN KEY (updated_by_user_id, tenant_id) REFERENCES tenant_user(id, tenant_id) ON DELETE RESTRICT,
-  CONSTRAINT fk_project_restarbejde_item_closed_by_user FOREIGN KEY (closed_by_user_id, tenant_id) REFERENCES tenant_user(id, tenant_id) ON DELETE SET NULL,
-  CONSTRAINT fk_project_restarbejde_item_archived_by_user FOREIGN KEY (archived_by_user_id, tenant_id) REFERENCES tenant_user(id, tenant_id) ON DELETE SET NULL,
+  CONSTRAINT fk_project_restarbejde_item_closed_by_user FOREIGN KEY (closed_by_user_id, tenant_id) REFERENCES tenant_user(id, tenant_id) ON DELETE SET NULL (closed_by_user_id),
+  CONSTRAINT fk_project_restarbejde_item_archived_by_user FOREIGN KEY (archived_by_user_id, tenant_id) REFERENCES tenant_user(id, tenant_id) ON DELETE SET NULL (archived_by_user_id),
   CONSTRAINT uq_project_restarbejde_item_id_tenant UNIQUE (id, tenant_id),
   CONSTRAINT ck_project_restarbejde_item_kind CHECK (kind IN ('internal_defect', 'obs')),
   CONSTRAINT ck_project_restarbejde_item_title_not_blank CHECK (btrim(title) <> ''),
@@ -1977,6 +1977,9 @@ CREATE TABLE project_restarbejde_item (
     (archived_at IS NULL AND archived_by_user_id IS NULL)
     OR (archived_at IS NOT NULL AND archived_by_user_id IS NOT NULL AND archived_at >= created_at)
   ),
+  CONSTRAINT ck_project_restarbejde_item_import_source_required CHECK (
+    external_import_id IS NULL OR (source IS NOT NULL AND btrim(source) <> '')
+  ),
   CONSTRAINT ck_project_restarbejde_item_import_payload_is_object CHECK (jsonb_typeof(external_import_payload) = 'object')
 );
 
@@ -1994,7 +1997,7 @@ CREATE INDEX ix_project_restarbejde_item_assigned_active
 
 CREATE UNIQUE INDEX uq_project_restarbejde_item_import_id
   ON project_restarbejde_item (tenant_id, source, external_import_id)
-  WHERE external_import_id IS NOT NULL;
+  WHERE source IS NOT NULL AND external_import_id IS NOT NULL;
 
 CREATE TRIGGER trg_project_restarbejde_item_set_updated_at
 BEFORE UPDATE ON project_restarbejde_item

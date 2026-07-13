@@ -41,6 +41,10 @@ function assertDenied(fn) {
   assert.throws(fn, (error) => error.statusCode === 403 && error.message === 'module_access_denied');
 }
 
+function assertBadRequest(fn, message) {
+  assert.throws(fn, (error) => error.statusCode === 400 && error.message === message);
+}
+
 function installPool() {
   const originalConnect = pool.connect;
   const queries = [];
@@ -138,6 +142,84 @@ test('restarbejde validation enforces status and percent rules', () => {
   assert.equal(obsResolved.percentComplete, null);
 });
 
+test('restarbejde validation only accepts real JSON booleans', () => {
+  const normalize = restarbejdeService._test.normalizePayload;
+  const base = { kind: 'internal_defect', title: 'A', trade_key: 'el' };
+  assert.equal(normalize({ ...base, blocks_delivery: true }, { actorUserId: uuid(2) }).blocksDelivery, true);
+  assert.equal(normalize({ ...base, blocks_delivery: false }, { actorUserId: uuid(2) }).blocksDelivery, false);
+  assert.equal(normalize({ ...base, escalated: true }, { actorUserId: uuid(2) }).escalated, true);
+  assert.equal(normalize({ ...base, can_internal_team_act: true }, { actorUserId: uuid(2) }).canInternalTeamAct, true);
+  assert.equal(normalize({ ...base, can_internal_team_act: null }, { actorUserId: uuid(2) }).canInternalTeamAct, null);
+
+  const existing = item({ blocks_delivery: true, escalated: true, can_internal_team_act: false });
+  const preserved = normalize({}, { existing, actorUserId: uuid(2) });
+  assert.equal(preserved.blocksDelivery, true);
+  assert.equal(preserved.escalated, true);
+  assert.equal(preserved.canInternalTeamAct, false);
+
+  for (const value of ['true', 'false', '0', '1', 'yes', 'no', 1, 0, [], {}]) {
+    assertBadRequest(() => normalize({ ...base, blocks_delivery: value }, { actorUserId: uuid(2) }), 'invalid_restarbejde_blocks_delivery');
+    assertBadRequest(() => normalize({ ...base, escalated: value }, { actorUserId: uuid(2) }), 'invalid_restarbejde_escalated');
+    assertBadRequest(() => normalize({ ...base, can_internal_team_act: value }, { actorUserId: uuid(2) }), 'invalid_restarbejde_can_internal_team_act');
+  }
+});
+
+test('restarbejde public CRUD rejects client-managed import metadata', () => {
+  const normalize = restarbejdeService._test.normalizePayload;
+  const base = { kind: 'internal_defect', title: 'A', trade_key: 'el' };
+  const values = {
+    source: 'prototype',
+    external_import_id: 'row-1',
+    external_import_payload: { raw: true },
+  };
+
+  for (const [field, value] of Object.entries(values)) {
+    assertBadRequest(() => normalize({ ...base, [field]: value }, { actorUserId: uuid(2) }), 'restarbejde_import_metadata_server_managed');
+    assertBadRequest(() => normalize({ [field]: value }, { existing: item(), actorUserId: uuid(2) }), 'restarbejde_import_metadata_server_managed');
+  }
+
+  const existing = item({ source: 'prototype', external_import_id: 'row-1', external_import_payload: { raw: true } });
+  const updated = normalize({ title: 'A2' }, { existing, actorUserId: uuid(2) });
+  assert.equal(updated.source, 'prototype');
+  assert.equal(updated.externalImportId, 'row-1');
+  assert.deepEqual(updated.externalImportPayload, { raw: true });
+});
+
+test('restarbejde deadline must be a real ISO calendar date', () => {
+  const normalize = restarbejdeService._test.normalizePayload;
+  const base = { kind: 'internal_defect', title: 'A', trade_key: 'el' };
+  assert.equal(normalize({ ...base, deadline: '2026-07-14' }, { actorUserId: uuid(2) }).deadline, '2026-07-14');
+  assert.equal(normalize({ ...base, deadline: '2028-02-29' }, { actorUserId: uuid(2) }).deadline, '2028-02-29');
+
+  for (const deadline of ['2026-02-31', '2026-13-01', '2026-00-10', '26-07-14', '2026-07-14T00:00:00Z']) {
+    assertBadRequest(() => normalize({ ...base, deadline }, { actorUserId: uuid(2) }), 'invalid_restarbejde_deadline');
+  }
+});
+
+test('restarbejde list filters validate before database access', async () => {
+  const normalizeFilters = restarbejdeService._test.normalizeListFilters;
+  assert.deepEqual(normalizeFilters({ kind: 'internal_defect', status: 'open' }), { kind: 'internal_defect', status: 'open' });
+  assert.deepEqual(normalizeFilters({ status: 'resolved' }), { kind: null, status: 'resolved' });
+  assertBadRequest(() => normalizeFilters({ kind: 'punch' }), 'invalid_restarbejde_kind_filter');
+  assertBadRequest(() => normalizeFilters({ kind: 'obs', status: 'closed' }), 'invalid_restarbejde_status_filter');
+  assertBadRequest(() => normalizeFilters({ status: 'done' }), 'invalid_restarbejde_status_filter');
+
+  const originalConnect = pool.connect;
+  let poolTouched = false;
+  pool.connect = async () => {
+    poolTouched = true;
+    throw new Error('pool_should_not_be_touched');
+  };
+  try {
+    await assert.rejects(
+      restarbejdeService.listItems({ tenantId: uuid(1), userId: uuid(2), projectId: uuid(3), kind: 'punch' }),
+      (error) => error.statusCode === 400 && error.message === 'invalid_restarbejde_kind_filter'
+    );
+    assert.equal(poolTouched, false);
+  } finally {
+    pool.connect = originalConnect;
+  }
+});
 test('service requires normal project access before listing repository data', async () => {
   const tenantId = uuid(1);
   const userId = uuid(2);
@@ -329,7 +411,12 @@ test('migration defines foundation constraints without drawing tables', () => {
   assert.match(migration, /ck_project_restarbejde_item_priority_risk/);
   assert.match(migration, /ck_project_restarbejde_item_percent/);
   assert.match(migration, /ck_project_restarbejde_item_closed_state/);
+  assert.match(migration, /ck_project_restarbejde_item_import_source_required/);
+  assert.match(migration, /WHERE source IS NOT NULL AND external_import_id IS NOT NULL/);
   assert.match(migration, /FOREIGN KEY \(project_id, tenant_id\) REFERENCES project_core/);
+  assert.match(migration, /ON DELETE SET NULL \(assigned_tenant_user_id\)/);
+  assert.match(migration, /ON DELETE SET NULL \(closed_by_user_id\)/);
+  assert.match(migration, /ON DELETE SET NULL \(archived_by_user_id\)/);
   assert.doesNotMatch(migration, /project_restarbejde_drawing/);
   assert.doesNotMatch(migration, /project_restarbejde_pin/);
 });
