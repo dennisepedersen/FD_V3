@@ -5455,8 +5455,6 @@
       return;
     }
 
-    renderInlineIcons(document);
-
     const qaUi = Boolean(qaSummaryGrid && qaMetaText && qaStateNode && qaThreadList);
     const qaState = {
       summary: { NEW: 0, WAITING: 0, ANSWERED: 0, CLOSED: 0 },

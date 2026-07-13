@@ -2067,86 +2067,6 @@
       overflow: hidden;
     }
 
-    .fdStatusBar {
-      height: 34px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 10px 22px 0;
-      color: #0e1018;
-      font-size: 13px;
-      font-weight: 800;
-      position: relative;
-      flex: 0 0 auto;
-    }
-
-    .fdStatusNotch {
-      position: absolute;
-      left: 50%;
-      top: 8px;
-      width: 112px;
-      height: 28px;
-      transform: translateX(-50%);
-      border-radius: 999px;
-      background: #070b14;
-    }
-
-    .fdStatusRight {
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      font-size: 11px;
-    }
-
-    .fdSignalBars {
-      width: 18px;
-      height: 12px;
-      display: inline-flex;
-      gap: 2px;
-      align-items: end;
-    }
-
-    .fdSignalBars span {
-      display: block;
-      width: 3px;
-      border-radius: 3px;
-      background: #0e1018;
-    }
-
-    .fdSignalBars span:nth-child(1) { height: 4px; }
-    .fdSignalBars span:nth-child(2) { height: 6px; }
-    .fdSignalBars span:nth-child(3) { height: 8px; }
-    .fdSignalBars span:nth-child(4) { height: 10px; }
-
-    .fdBattery {
-      width: 22px;
-      height: 11px;
-      border: 1.5px solid #7a8c88;
-      border-radius: 999px;
-      padding: 1px;
-      position: relative;
-      display: inline-block;
-    }
-
-    .fdBattery::before {
-      content: "";
-      position: absolute;
-      right: -3px;
-      top: 3px;
-      width: 2px;
-      height: 5px;
-      border-radius: 2px;
-      background: #7a8c88;
-    }
-
-    .fdBattery::after {
-      content: "";
-      display: block;
-      height: 100%;
-      width: 75%;
-      border-radius: 999px;
-      background: #059669;
-    }
 
     .fdCaseContent {
       display: grid;
@@ -2888,7 +2808,7 @@
 
       .fdCaseContent {
         flex: 1 1 auto;
-        padding: 28px 20px 0;
+        padding: max(28px, calc(16px + env(safe-area-inset-top))) 20px 0;
         overflow: hidden;
       }
 
@@ -3061,7 +2981,6 @@
         display: block;
       }
 
-      .fdStatusBar,
       .fdCaseMobileHeader,
       .fdMobileSearch,
       .fdBottomNav,
@@ -3621,11 +3540,6 @@
 
         <section id="projectsView" class="view fdCaseView" data-view="projects" hidden>
           <div class="fdCaseSurface">
-            <div class="fdStatusBar" aria-hidden="true">
-              <span>9:41</span>
-              <span class="fdStatusNotch"></span>
-              <span class="fdStatusRight"><span class="fdSignalBars"><span></span><span></span><span></span><span></span></span><span>5G</span><span class="fdBattery"></span></span>
-            </div>
 
             <div class="fdCaseContent">
               <header class="fdCaseMobileHeader">
