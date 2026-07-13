@@ -2513,6 +2513,33 @@
       font-weight: 900;
     }
 
+    .equipmentDrawingPlacementBar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 8px 10px;
+      border: 1px solid #bfdbfe;
+      border-radius: 10px;
+      background: #eff6ff;
+      color: #0f172a;
+      font-size: 12px;
+      font-weight: 850;
+    }
+
+    .equipmentDrawingPlacementBar[hidden] {
+      display: none !important;
+    }
+
+    .equipmentDrawingPendingPin .equipmentDrawingPinMarker::before {
+      background: linear-gradient(145deg, #fbbf24 0%, #f97316 76%);
+      box-shadow: 0 0 0 5px rgba(249, 115, 22, 0.24);
+    }
+
+    .equipmentDrawingPendingPin .equipmentDrawingPinMarker::after {
+      border-top-color: #f97316;
+    }
+
     .equipmentDrawingControls .qaLabel {
       min-width: min(100%, 190px);
     }
@@ -2876,13 +2903,37 @@
       .equipmentActions {
         width: 100%;
         display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 5px;
       }
 
       .equipmentActions .btn,
       .equipmentActions a.btn {
         width: 100%;
-        justify-content: center;
+        min-height: 34px;
+        justify-content: flex-start;
+        padding: 6px 7px;
+        text-align: left;
+        font-size: 12px;
+        line-height: 1.1;
+        white-space: normal;
+      }
+
+      #equipmentAddBtn {
+        order: 1;
+      }
+
+      #equipmentCheckBtn {
+        order: 2;
+      }
+
+      #equipmentDrawingBtn {
+        order: 3;
+      }
+
+      #equipmentExportLink,
+      #equipmentPdfExportLink {
+        display: none;
       }
 
       .equipmentSummaryGrid {
@@ -2910,6 +2961,15 @@
 
       .equipmentSearch {
         flex-basis: 100%;
+        gap: 0;
+        font-size: 0;
+        letter-spacing: 0;
+        text-transform: none;
+      }
+
+      #equipmentSearchInput {
+        min-height: 36px;
+        padding-block: 7px;
       }
 
       .equipmentCard {
@@ -2988,10 +3048,10 @@
         max-width: none;
         height: 100dvh;
         margin: 0;
-        padding: max(10px, env(safe-area-inset-top)) 10px max(10px, env(safe-area-inset-bottom));
+        padding: max(8px, env(safe-area-inset-top)) 8px max(8px, env(safe-area-inset-bottom));
         border-radius: 0;
-        grid-template-rows: auto auto auto minmax(0, 1fr);
-        gap: 6px;
+        grid-template-rows: auto auto minmax(0, 1fr);
+        gap: 5px;
       }
 
       .equipmentDrawingHeader {
@@ -3010,8 +3070,24 @@
       .equipmentDrawingControls {
         display: grid;
         grid-template-columns: minmax(0, 1fr);
-        gap: 6px;
+        gap: 5px;
+        padding: 6px;
+      }
+
+      .equipmentDrawingPlacementBar {
+        align-items: stretch;
+        flex-direction: column;
         padding: 7px;
+      }
+
+      .equipmentDrawingPlacementBar .btn {
+        width: 100%;
+      }
+
+      .equipmentDrawingControls .qaLabel:not(:first-child),
+      .equipmentDrawingActions,
+      .equipmentDrawingPdfImport {
+        display: none;
       }
 
       .equipmentDrawingZoomControls {
@@ -3029,6 +3105,7 @@
       .equipmentDrawingBody {
         grid-template-rows: minmax(0, 1fr) auto;
         height: 100%;
+        min-height: 0;
       }
 
       .equipmentDrawingCanvas {
@@ -3037,13 +3114,15 @@
       }
 
       .equipmentDrawingImage {
-        max-height: calc(100dvh - 250px);
+        max-height: calc(100dvh - 132px);
       }
 
       .equipmentDrawingPinPanel {
-        max-height: 34dvh;
+        max-height: 24dvh;
         overflow: auto;
-        padding-bottom: max(10px, env(safe-area-inset-bottom));
+        padding: 8px;
+        padding-bottom: max(8px, env(safe-area-inset-bottom));
+        border-radius: 12px 12px 0 0;
       }
 
       .equipmentDrawingPinPanel .equipmentMetaGrid {
@@ -3053,6 +3132,15 @@
       .equipmentDrawingPinPanelActions {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .topbar {
+        display: none;
+      }
+
+      .fdBottomNav {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        padding-inline: 8px;
       }
     }
     @media (min-width: 760px) {
@@ -3407,8 +3495,7 @@
         </div>
         <div class="equipmentToolbar">
           <label class="equipmentSearch">
-            Søg/filter
-            <input id="equipmentSearchInput" class="qaInput" type="search" placeholder="Kamera-ID, MAC, serienummer, placering" />
+            <input id="equipmentSearchInput" class="qaInput" type="search" placeholder="Søg kamera-ID, MAC, serienummer eller placering" />
           </label>
         </div>
         <div id="equipmentSummaryGrid" class="equipmentSummaryGrid" aria-live="polite"></div>
@@ -3711,6 +3798,10 @@
         </div>
       </div>
       <p id="equipmentDrawingStatus" class="equipmentFormStatus"></p>
+      <div id="equipmentDrawingPlacementBar" class="equipmentDrawingPlacementBar" hidden>
+        <span id="equipmentDrawingPlacementHint">Tryk på tegningen for at vælge placering.</span>
+        <button id="equipmentDrawingConfirmPlacementBtn" class="btn btnPrimary btnCompact" type="button" disabled>Gem placering</button>
+      </div>
       <div class="equipmentDrawingBody">
         <div id="equipmentDrawingCanvas" class="equipmentDrawingCanvas">Upload eller vælg en tegning.</div>
         <aside id="equipmentDrawingPinPanel" class="equipmentDrawingPinPanel" hidden></aside>

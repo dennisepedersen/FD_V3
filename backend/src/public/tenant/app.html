@@ -1433,6 +1433,11 @@
       color: var(--brand-strong);
     }
 
+    .mobileSettingsPanel,
+    .tenantAdminMobileLogout {
+      display: none;
+    }
+
     .drawerBody {
       flex: 1;
       overflow: auto;
@@ -2770,12 +2775,25 @@
     }
 
     @media (max-width: 767px) {
-      .appShell .sidebar {
+      .appShell .sidebar,
+      .appShell .topbar {
         display: none;
       }
 
       .appShell .page {
         padding-bottom: calc(88px + env(safe-area-inset-bottom));
+      }
+
+      .mobileSettingsPanel {
+        display: grid;
+        gap: 10px;
+      }
+
+      .tenantAdminMobileLogout {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
       }
     }
     @media (max-width: 767px) {
@@ -3263,6 +3281,16 @@
         </section>
 
         <section id="resourceGroupsView" class="view" data-view="resource-groups" hidden>
+          <section class="panel headerPanel mobileSettingsPanel" aria-label="Mobil indstillinger">
+            <div class="titleRow">
+              <div>
+                <h1>Indstillinger</h1>
+                <p class="subtitle">Konto og app</p>
+              </div>
+            </div>
+            <button id="mobileSettingsLogoutBtn" class="btn btnCompact tenantAdminMobileLogout" type="button">Log ud</button>
+          </section>
+
           <section class="panel headerPanel tenantAdminHeaderPanel">
             <div class="titleRow">
               <div>
