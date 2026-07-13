@@ -216,6 +216,71 @@ router.post("/api/tenant/admin/users/:userId/reactivation-invitations", requireT
     next(error);
   }
 });
+
+router.get("/api/tenant/admin/projects", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  try {
+    const { tenantId } = getTenantContext(req);
+    requireTenantAdmin(req, "read");
+    const result = await tenantAdminService.listProjects({
+      tenantId,
+      search: req.query?.q,
+    });
+    res.status(200).json({ success: true, projects: result.projects });
+  } catch (error) {
+    logRouteError(req, "/api/tenant/admin/projects", "GET", error);
+    next(error);
+  }
+});
+
+router.get("/api/tenant/admin/projects/:projectId/assignments", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  try {
+    const { tenantId } = getTenantContext(req);
+    requireTenantAdmin(req, "read");
+    const result = await tenantAdminService.listProjectAssignments({
+      tenantId,
+      projectId: req.params.projectId,
+    });
+    res.status(200).json({ success: true, project: result.project, assignments: result.assignments });
+  } catch (error) {
+    logRouteError(req, "/api/tenant/admin/projects/:projectId/assignments", "GET", error);
+    next(error);
+  }
+});
+
+router.post("/api/tenant/admin/projects/:projectId/assignments", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  try {
+    const { tenantId, userId: actorId } = getTenantContext(req);
+    requireTenantAdmin(req, "update");
+    const result = await tenantAdminService.assignProjectUser({
+      tenantId,
+      actorId,
+      projectId: req.params.projectId,
+      userId: req.body?.tenant_user_id || req.body?.user_id,
+      assignmentRole: req.body?.assignment_role,
+    });
+    res.status(200).json({ success: true, project: result.project, user: result.user, assignment: result.assignment });
+  } catch (error) {
+    logRouteError(req, "/api/tenant/admin/projects/:projectId/assignments", "POST", error);
+    next(error);
+  }
+});
+
+router.delete("/api/tenant/admin/projects/:projectId/assignments/:userId", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  try {
+    const { tenantId, userId: actorId } = getTenantContext(req);
+    requireTenantAdmin(req, "update");
+    const result = await tenantAdminService.removeProjectUserAssignment({
+      tenantId,
+      actorId,
+      projectId: req.params.projectId,
+      userId: req.params.userId,
+    });
+    res.status(200).json({ success: true, project: result.project, assignment: result.assignment });
+  } catch (error) {
+    logRouteError(req, "/api/tenant/admin/projects/:projectId/assignments/:userId", "DELETE", error);
+    next(error);
+  }
+});
 router.get("/api/tenant/admin/resource-groups", requireTenantHost, requireAuth("access"), async (req, res, next) => {
   try {
     const { tenantId } = getTenantContext(req);

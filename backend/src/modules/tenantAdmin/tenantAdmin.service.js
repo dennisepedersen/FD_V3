@@ -9,6 +9,7 @@ const repository = require("./tenantAdmin.repository");
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ALLOWED_ROLES = new Set(["tenant_admin", "project_leader", "technician"]);
 const ALLOWED_USER_STATUSES = new Set(["active", "suspended", "invited", "deleted"]);
+const ALLOWED_ASSIGNMENT_ROLES = new Set(["owner", "contributor", "reviewer"]);
 const LIFECYCLE_STATUSES = new Set(["deactivated", "pending_reactivation"]);
 const SUPPORTED_SYNC_ENTITIES = new Map([
   ["fitters", "fitters"],
@@ -56,6 +57,14 @@ function normalizeRole(value, fallback = "technician") {
   return role;
 }
 
+
+function normalizeAssignmentRole(value) {
+  const role = optionalText(value) || "contributor";
+  if (!ALLOWED_ASSIGNMENT_ROLES.has(role)) {
+    throw createHttpError(400, "invalid_project_assignment_role");
+  }
+  return role;
+}
 function normalizeStatus(value, fallback = "invited") {
   const status = optionalText(value) || fallback;
   if (LIFECYCLE_STATUSES.has(status)) {
@@ -370,6 +379,116 @@ async function listResourceGroups({ tenantId, includeArchived, search }) {
   }
 }
 
+async function listProjects(input) {
+  const tenantId = normalizeUuid(input?.tenantId, "tenant_id_required");
+  const client = await pool.connect();
+  try {
+    const projects = await repository.listProjects(client, {
+      tenantId,
+      search: optionalText(input?.search),
+    });
+    return { projects };
+  } finally {
+    client.release();
+  }
+}
+
+async function listProjectAssignments(input) {
+  const tenantId = normalizeUuid(input?.tenantId, "tenant_id_required");
+  const projectId = normalizeUuid(input?.projectId, "project_id_required");
+  const client = await pool.connect();
+  try {
+    const project = await repository.findProject(client, { tenantId, projectId });
+    if (!project) {
+      throw createHttpError(404, "project_not_found");
+    }
+    const assignments = await repository.listProjectAssignments(client, { tenantId, projectId });
+    return { project, assignments };
+  } finally {
+    client.release();
+  }
+}
+
+async function assignProjectUser(input) {
+  const tenantId = normalizeUuid(input?.tenantId, "tenant_id_required");
+  const actorId = normalizeUuid(input?.actorId, "actor_id_required");
+  const projectId = normalizeUuid(input?.projectId, "project_id_required");
+  const userId = normalizeUuid(input?.userId || input?.tenantUserId, "tenant_user_id_required");
+  const assignmentRole = normalizeAssignmentRole(input?.assignmentRole || input?.assignment_role);
+
+  return withTransaction(async (client) => {
+    const project = await repository.findProject(client, { tenantId, projectId });
+    if (!project) {
+      throw createHttpError(404, "project_not_found");
+    }
+
+    const user = await repository.findAssignableTenantUser(client, { tenantId, userId });
+    if (!user) {
+      throw createHttpError(404, "tenant_user_not_found_or_not_assignable");
+    }
+
+    const assignment = await repository.upsertProjectAssignment(client, {
+      tenantId,
+      projectId,
+      userId,
+      assignmentRole,
+    });
+    if (!assignment) {
+      throw createHttpError(409, "project_assignment_conflict");
+    }
+
+    await audit(client, {
+      tenantId,
+      actorId,
+      eventType: "tenant_user_updated",
+      resourceType: "project_assignment",
+      resourceId: assignment.id,
+      metadata: {
+        action: assignment.inserted ? "project_assignment_created" : "project_assignment_updated",
+        project_id: projectId,
+        tenant_user_id: userId,
+        assignment_role: assignmentRole,
+      },
+    });
+
+    return { project, user, assignment };
+  });
+}
+
+async function removeProjectUserAssignment(input) {
+  const tenantId = normalizeUuid(input?.tenantId, "tenant_id_required");
+  const actorId = normalizeUuid(input?.actorId, "actor_id_required");
+  const projectId = normalizeUuid(input?.projectId, "project_id_required");
+  const userId = normalizeUuid(input?.userId || input?.tenantUserId, "tenant_user_id_required");
+
+  return withTransaction(async (client) => {
+    const project = await repository.findProject(client, { tenantId, projectId });
+    if (!project) {
+      throw createHttpError(404, "project_not_found");
+    }
+
+    const assignment = await repository.deleteProjectAssignment(client, { tenantId, projectId, userId });
+    if (!assignment) {
+      throw createHttpError(404, "project_assignment_not_found");
+    }
+
+    await audit(client, {
+      tenantId,
+      actorId,
+      eventType: "tenant_user_updated",
+      resourceType: "project_assignment",
+      resourceId: assignment.id,
+      metadata: {
+        action: "project_assignment_removed",
+        project_id: projectId,
+        tenant_user_id: userId,
+        assignment_role: assignment.assignment_role,
+      },
+    });
+
+    return { project, assignment };
+  });
+}
 async function getSyncStatus({ tenantId }) {
   const normalizedTenantId = normalizeUuid(tenantId, "tenant_id_required");
   const endpoints = ["fitters"];
@@ -470,15 +589,20 @@ async function requestSync(input) {
 }
 
 module.exports = {
+  assignProjectUser,
   createManualUser,
   deactivateUser,
   getSyncStatus,
+  listProjectAssignments,
+  listProjects,
   listResourceGroups,
   listUsers,
   requestSync,
+  removeProjectUserAssignment,
   updateManualUser,
   _test: {
     assertManualStatusPatchAllowed,
+    normalizeAssignmentRole,
     normalizeStatus,
   },
 };
