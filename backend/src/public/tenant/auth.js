@@ -682,6 +682,7 @@
     const appShell = document.querySelector(".appShell");
     const brandUserName = document.getElementById("brandUserName");
     const logoutBtn = document.getElementById("logoutBtn");
+    const mobileSettingsLogoutBtn = document.getElementById("mobileSettingsLogoutBtn");
     const dashboardView = document.getElementById("dashboardView");
     const calendarView = document.getElementById("calendarView");
     const resourceGroupsView = document.getElementById("resourceGroupsView");
@@ -4856,6 +4857,12 @@
         logout();
       });
     }
+
+    if (mobileSettingsLogoutBtn) {
+      mobileSettingsLogoutBtn.addEventListener("click", function () {
+        logout();
+      });
+    }
   }
 
   function formatProjectHeaderStatus(status) {
@@ -5449,6 +5456,9 @@
     const equipmentDrawingZoomInBtn = document.getElementById("equipmentDrawingZoomInBtn");
     const equipmentDrawingResetViewBtn = document.getElementById("equipmentDrawingResetViewBtn");
     const equipmentDrawingZoomValue = document.getElementById("equipmentDrawingZoomValue");
+    const equipmentDrawingPlacementBar = document.getElementById("equipmentDrawingPlacementBar");
+    const equipmentDrawingPlacementHint = document.getElementById("equipmentDrawingPlacementHint");
+    const equipmentDrawingConfirmPlacementBtn = document.getElementById("equipmentDrawingConfirmPlacementBtn");
 
     if (!projectId) {
       renderProjectDetailError("Ugyldig sagssti");
@@ -5501,6 +5511,9 @@
       drawingPins: [],
       drawingObjectUrl: null,
       drawingPlacementCameraId: null,
+      drawingWorkspaceMode: "browse",
+      drawingPlacementReturnMode: null,
+      drawingPendingPlacement: null,
       selectedDrawingPinId: null,
       drawingRenderToken: null,
       pdfImportItems: [],
@@ -7765,6 +7778,51 @@
       equipmentDrawingStatus.style.fontWeight = isError ? "800" : "";
     }
 
+    function isEquipmentDrawingPlacementWorkspace() {
+      return equipmentState.drawingWorkspaceMode === "place" || equipmentState.drawingWorkspaceMode === "move";
+    }
+
+    function clearEquipmentDrawingPendingPlacement() {
+      equipmentState.drawingPendingPlacement = null;
+      updateEquipmentDrawingWorkspaceUi();
+    }
+
+    function updateEquipmentDrawingWorkspaceUi() {
+      const isWorkspace = isEquipmentDrawingPlacementWorkspace();
+      const hasPending = Boolean(equipmentState.drawingPendingPlacement);
+      if (equipmentDrawingShell) {
+        equipmentDrawingShell.classList.toggle("isPlacementWorkspace", isWorkspace);
+      }
+      if (equipmentDrawingPlacementBar) {
+        equipmentDrawingPlacementBar.hidden = !isWorkspace;
+      }
+      if (equipmentDrawingPlacementHint) {
+        equipmentDrawingPlacementHint.textContent = hasPending ? "Placering valgt. Gem for at bekræfte." : "Tryk på tegningen for at vælge placering.";
+      }
+      if (equipmentDrawingConfirmPlacementBtn) {
+        equipmentDrawingConfirmPlacementBtn.disabled = !hasPending;
+      }
+    }
+
+    function beginEquipmentDrawingPlacement(camera, mode = "place", returnMode = "camera") {
+      if (!camera || !camera.id) return;
+      equipmentState.drawingPlacementCameraId = camera.id;
+      equipmentState.drawingWorkspaceMode = mode === "move" ? "move" : "place";
+      equipmentState.drawingPlacementReturnMode = returnMode;
+      equipmentState.drawingPendingPlacement = null;
+      setEquipmentDrawingStatus(equipmentState.activeDrawingId ? "Tryk på tegningen for at vælge placering." : "Vælg en tegning før kameraet kan placeres.");
+      updateEquipmentDrawingWorkspaceUi();
+      renderEquipmentDrawingCanvas();
+    }
+
+    function endEquipmentDrawingPlacementWorkspace() {
+      equipmentState.drawingPlacementCameraId = null;
+      equipmentState.drawingWorkspaceMode = "browse";
+      equipmentState.drawingPlacementReturnMode = null;
+      equipmentState.drawingPendingPlacement = null;
+      updateEquipmentDrawingWorkspaceUi();
+    }
+
     function getActiveEquipmentDrawing() {
       return equipmentState.drawings.find((drawing) => drawing.id === equipmentState.activeDrawingId) || null;
     }
@@ -8101,9 +8159,8 @@
       moveBtn.className = "btn btnPrimary btnCompact";
       moveBtn.textContent = "Flyt placering";
       moveBtn.addEventListener("click", () => {
-        equipmentState.drawingPlacementCameraId = camera.id || pin.camera_record_id;
-        setEquipmentDrawingStatus("Klik på tegningen for at flytte kameraet.");
-        renderEquipmentDrawingCanvas();
+        const placementCamera = camera && camera.id ? camera : { ...camera, id: pin.camera_record_id, camera_id: pin.label || "Kamera" };
+        beginEquipmentDrawingPlacement(placementCamera, "move", "pin");
       });
       actions.appendChild(moveBtn);
       const deleteBtn = document.createElement("button");
@@ -8115,35 +8172,45 @@
       equipmentDrawingPinPanel.appendChild(actions);
     }
 
-    function appendEquipmentDrawingPins(stage) {
-      equipmentState.drawingPins.forEach((pin) => {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = `equipmentDrawingPin${pin.id === equipmentState.selectedDrawingPinId ? " active" : ""}`;
-        button.style.left = `${pin.x_percent}%`;
-        button.style.top = `${pin.y_percent}%`;
-        const labelText = pin.label || pin.camera?.camera_id || "CAM";
-        const marker = document.createElement("span");
-        marker.className = "equipmentDrawingPinMarker";
-        marker.setAttribute("aria-hidden", "true");
-        const markerInner = document.createElement("span");
-        markerInner.className = "equipmentDrawingPinMarkerInner";
-        marker.appendChild(markerInner);
-        const label = document.createElement("span");
-        label.className = "equipmentDrawingPinLabel";
-        label.textContent = labelText;
-        button.appendChild(marker);
-        button.appendChild(label);
-        button.setAttribute("aria-label", `Kamera ${labelText}`);
-        button.title = labelText;
+    function appendEquipmentDrawingPin(stage, pin, options = {}) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `equipmentDrawingPin${pin.id === equipmentState.selectedDrawingPinId ? " active" : ""}${options.pending ? " equipmentDrawingPendingPin active" : ""}`;
+      button.style.left = `${pin.x_percent}%`;
+      button.style.top = `${pin.y_percent}%`;
+      const labelText = pin.label || pin.camera?.camera_id || "CAM";
+      const marker = document.createElement("span");
+      marker.className = "equipmentDrawingPinMarker";
+      marker.setAttribute("aria-hidden", "true");
+      const markerInner = document.createElement("span");
+      markerInner.className = "equipmentDrawingPinMarkerInner";
+      marker.appendChild(markerInner);
+      const label = document.createElement("span");
+      label.className = "equipmentDrawingPinLabel";
+      label.textContent = options.pending ? `${labelText} (ny placering)` : labelText;
+      button.appendChild(marker);
+      button.appendChild(label);
+      button.setAttribute("aria-label", options.pending ? `Ny placering for ${labelText}` : `Kamera ${labelText}`);
+      button.title = options.pending ? "Ny placering - gem for at bekræfte" : labelText;
+      if (options.pending) {
+        button.disabled = true;
+      } else {
         button.addEventListener("click", (event) => {
           event.stopPropagation();
           equipmentState.selectedDrawingPinId = pin.id;
           renderEquipmentDrawingCanvas();
           renderEquipmentDrawingPinPanel(pin);
         });
-        stage.appendChild(button);
-      });
+      }
+      stage.appendChild(button);
+    }
+
+    function appendEquipmentDrawingPins(stage) {
+      equipmentState.drawingPins.forEach((pin) => appendEquipmentDrawingPin(stage, pin));
+      const pending = equipmentState.drawingPendingPlacement;
+      if (pending && pending.drawing_id === equipmentState.activeDrawingId) {
+        appendEquipmentDrawingPin(stage, pending, { pending: true });
+      }
     }
 
     async function renderEquipmentPdfDrawingSurface(canvas, drawing, renderToken) {
@@ -8311,6 +8378,7 @@
       equipmentDrawingCanvas.innerHTML = "";
       const isPlacing = Boolean(equipmentState.drawingPlacementCameraId);
       equipmentDrawingCanvas.classList.toggle("isPlacing", isPlacing);
+      updateEquipmentDrawingWorkspaceUi();
       const drawing = getActiveEquipmentDrawing();
       if (!drawing) {
         equipmentDrawingCanvas.textContent = "Upload eller vælg en tegning.";
@@ -8401,7 +8469,7 @@
 
     async function openEquipmentDrawing(camera = null, placeCamera = false) {
       if (!equipmentDrawingShell) return;
-      equipmentState.drawingPlacementCameraId = placeCamera && camera ? camera.id : null;
+      endEquipmentDrawingPlacementWorkspace();
 
       equipmentDrawingShell.classList.add("open");
       equipmentDrawingShell.setAttribute("aria-hidden", "false");
@@ -8418,9 +8486,7 @@
           renderEquipmentDrawingPinPanel(selectedPin);
         }
         if (placeCamera && camera) {
-          equipmentState.drawingPlacementCameraId = camera.id;
-          setEquipmentDrawingStatus(equipmentState.activeDrawingId ? "Klik på tegningen for at placere kameraet." : "Vælg en tegning før kameraet kan placeres.");
-          renderEquipmentDrawingCanvas();
+          beginEquipmentDrawingPlacement(camera, camera?.drawing_pin?.pin_id ? "move" : "place", "camera");
         }
       } catch (error) {
         setEquipmentDrawingStatus(equipmentErrorMessage(error, "Kunne ikke hente tegninger."), true);
@@ -8432,7 +8498,7 @@
       equipmentDrawingShell.classList.remove("open");
       equipmentDrawingShell.setAttribute("aria-hidden", "true");
       document.body.classList.remove("equipment-drawing-open");
-      equipmentState.drawingPlacementCameraId = null;
+      endEquipmentDrawingPlacementWorkspace();
       equipmentState.selectedDrawingPinId = null;
       resetEquipmentDrawingView();
       revokeEquipmentDrawingObjectUrl();
@@ -8497,7 +8563,7 @@
       }
     }
 
-    async function placeEquipmentDrawingPinFromEvent(event) {
+    function placeEquipmentDrawingPinFromEvent(event) {
       if (equipmentState.suppressDrawingPlacementClick) {
         equipmentState.suppressDrawingPlacementClick = false;
         return;
@@ -8505,32 +8571,61 @@
       if (!equipmentState.drawingPlacementCameraId || !equipmentState.activeDrawingId) return;
       const surface = event.currentTarget.querySelector("[data-drawing-surface]");
       if (!surface) return;
-      const rect = surface.getBoundingClientRect();
       if (equipmentState.drawingTouchPointers.size > 1 || equipmentState.drawingPinchGesture) {
         equipmentState.suppressDrawingPlacementClick = false;
         return;
       }
+      const rect = surface.getBoundingClientRect();
       const x = ((event.clientX - rect.left) / rect.width) * 100;
       const y = ((event.clientY - rect.top) / rect.height) * 100;
       const camera = getEquipmentCameraById(equipmentState.drawingPlacementCameraId);
+      equipmentState.drawingPendingPlacement = {
+        id: "pending-placement",
+        drawing_id: equipmentState.activeDrawingId,
+        camera_record_id: equipmentState.drawingPlacementCameraId,
+        x_percent: Math.max(0, Math.min(100, x)),
+        y_percent: Math.max(0, Math.min(100, y)),
+        label: camera ? getEquipmentCameraLabel(camera) : "Kamera",
+        camera: camera || null,
+      };
+      setEquipmentDrawingStatus("Placering valgt. Tryk Gem placering for at bekræfte.");
+      updateEquipmentDrawingWorkspaceUi();
+      renderEquipmentDrawingCanvas();
+    }
+
+    async function confirmEquipmentDrawingPlacement() {
+      const pending = equipmentState.drawingPendingPlacement;
+      if (!pending || !pending.camera_record_id || !pending.drawing_id) return;
+      const returnMode = equipmentState.drawingPlacementReturnMode;
       try {
         setEquipmentDrawingStatus("Gemmer placering...");
-        const result = await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/equipment/cctv/drawings/${encodeURIComponent(equipmentState.activeDrawingId)}/pins`, {
+        if (equipmentDrawingConfirmPlacementBtn) equipmentDrawingConfirmPlacementBtn.disabled = true;
+        const result = await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/equipment/cctv/drawings/${encodeURIComponent(pending.drawing_id)}/pins`, {
           method: "POST",
           body: JSON.stringify({
-            camera_record_id: equipmentState.drawingPlacementCameraId,
-            x_percent: Math.max(0, Math.min(100, x)),
-            y_percent: Math.max(0, Math.min(100, y)),
-            label: camera ? getEquipmentCameraLabel(camera) : null,
+            camera_record_id: pending.camera_record_id,
+            x_percent: pending.x_percent,
+            y_percent: pending.y_percent,
+            label: pending.label,
           }),
         });
-        equipmentState.drawingPlacementCameraId = null;
-        equipmentState.selectedDrawingPinId = result?.pin?.id || null;
+        const cameraId = pending.camera_record_id;
+        const savedPinId = result?.pin?.id || null;
+        endEquipmentDrawingPlacementWorkspace();
         await loadEquipmentDrawingContentAndPins();
+        equipmentState.selectedDrawingPinId = savedPinId;
+        renderEquipmentDrawingCanvas();
+        renderEquipmentDrawingPinPanel(equipmentState.drawingPins.find((pin) => pin.id === savedPinId) || null);
         await loadEquipmentCctv();
         showEquipmentFeedback("Kamera placeret på tegning.");
+        if (returnMode === "camera") {
+          const camera = getEquipmentCameraById(cameraId);
+          closeEquipmentDrawing();
+          if (camera) openEquipmentCameraForm(camera);
+        }
       } catch (error) {
         setEquipmentDrawingStatus(equipmentErrorMessage(error, "Kunne ikke gemme placering."), true);
+        updateEquipmentDrawingWorkspaceUi();
       }
     }
 
@@ -9215,6 +9310,7 @@
     if (equipmentDrawingSelect) {
       equipmentDrawingSelect.addEventListener("change", async () => {
         equipmentState.activeDrawingId = equipmentDrawingSelect.value || null;
+        clearEquipmentDrawingPendingPlacement();
         await loadEquipmentDrawingContentAndPins();
       });
     }
@@ -9251,6 +9347,10 @@
 
     if (equipmentDrawingResetViewBtn) {
       equipmentDrawingResetViewBtn.addEventListener("click", resetEquipmentDrawingView);
+    }
+
+    if (equipmentDrawingConfirmPlacementBtn) {
+      equipmentDrawingConfirmPlacementBtn.addEventListener("click", confirmEquipmentDrawingPlacement);
     }
 
     if (equipmentDrawingOverlay) {
@@ -9515,6 +9615,7 @@
         logout();
       });
     }
+
   }
 
   if (document.body && document.body.dataset.page === "login") {
