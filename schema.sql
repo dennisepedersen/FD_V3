@@ -479,6 +479,11 @@ CREATE TABLE audit_event (
       'project_equipment_cctv_pin_created',
       'project_equipment_cctv_pin_updated',
       'project_equipment_cctv_pin_deleted',
+      'restarbejde.item_created',
+      'restarbejde.item_updated',
+      'restarbejde.item_status_changed',
+      'restarbejde.item_archived',
+      'restarbejde.item_restored',
       'storage_object_uploaded',
       'storage_object_downloaded',
       'storage_object_deleted'
@@ -1893,4 +1898,113 @@ CREATE TRIGGER trg_project_equipment_cctv_pin_prevent_immutable_update
 BEFORE UPDATE ON project_equipment_cctv_pin
 FOR EACH ROW
 EXECUTE FUNCTION prevent_immutable_update('id', 'tenant_id', 'project_id', 'drawing_id', 'camera_record_id', 'coordinate_mode', 'created_by_user_id', 'created_at');
+-- ============================================================================
+-- 27) project restarbejde foundation
+-- ============================================================================
+
+CREATE TABLE project_restarbejde_item (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id uuid NOT NULL,
+  project_id uuid NOT NULL,
+  kind text NOT NULL,
+  title text NOT NULL,
+  description text NULL,
+  trade_key text NOT NULL,
+  status text NOT NULL,
+  priority text NULL,
+  risk text NULL,
+  location_text text NULL,
+  assigned_tenant_user_id uuid NULL,
+  responsible_text text NULL,
+  deadline date NULL,
+  percent_complete integer NULL,
+  external_party text NULL,
+  blocks_delivery boolean NOT NULL DEFAULT false,
+  escalated boolean NOT NULL DEFAULT false,
+  can_internal_team_act boolean NULL,
+  comment text NULL,
+  source text NULL,
+  external_import_id text NULL,
+  external_import_payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  created_by_user_id uuid NOT NULL,
+  updated_by_user_id uuid NOT NULL,
+  closed_at timestamptz NULL,
+  closed_by_user_id uuid NULL,
+  archived_at timestamptz NULL,
+  archived_by_user_id uuid NULL,
+  CONSTRAINT fk_project_restarbejde_item_tenant FOREIGN KEY (tenant_id) REFERENCES tenant(id) ON DELETE CASCADE,
+  CONSTRAINT fk_project_restarbejde_item_project FOREIGN KEY (project_id, tenant_id) REFERENCES project_core(project_id, tenant_id) ON DELETE RESTRICT,
+  CONSTRAINT fk_project_restarbejde_item_assigned_user FOREIGN KEY (assigned_tenant_user_id, tenant_id) REFERENCES tenant_user(id, tenant_id) ON DELETE SET NULL,
+  CONSTRAINT fk_project_restarbejde_item_created_by_user FOREIGN KEY (created_by_user_id, tenant_id) REFERENCES tenant_user(id, tenant_id) ON DELETE RESTRICT,
+  CONSTRAINT fk_project_restarbejde_item_updated_by_user FOREIGN KEY (updated_by_user_id, tenant_id) REFERENCES tenant_user(id, tenant_id) ON DELETE RESTRICT,
+  CONSTRAINT fk_project_restarbejde_item_closed_by_user FOREIGN KEY (closed_by_user_id, tenant_id) REFERENCES tenant_user(id, tenant_id) ON DELETE SET NULL,
+  CONSTRAINT fk_project_restarbejde_item_archived_by_user FOREIGN KEY (archived_by_user_id, tenant_id) REFERENCES tenant_user(id, tenant_id) ON DELETE SET NULL,
+  CONSTRAINT uq_project_restarbejde_item_id_tenant UNIQUE (id, tenant_id),
+  CONSTRAINT ck_project_restarbejde_item_kind CHECK (kind IN ('internal_defect', 'obs')),
+  CONSTRAINT ck_project_restarbejde_item_title_not_blank CHECK (btrim(title) <> ''),
+  CONSTRAINT ck_project_restarbejde_item_trade_key_not_blank CHECK (btrim(trade_key) <> ''),
+  CONSTRAINT ck_project_restarbejde_item_text_not_blank CHECK (
+    (description IS NULL OR btrim(description) <> '')
+    AND (location_text IS NULL OR btrim(location_text) <> '')
+    AND (responsible_text IS NULL OR btrim(responsible_text) <> '')
+    AND (external_party IS NULL OR btrim(external_party) <> '')
+    AND (comment IS NULL OR btrim(comment) <> '')
+    AND (source IS NULL OR btrim(source) <> '')
+    AND (external_import_id IS NULL OR btrim(external_import_id) <> '')
+  ),
+  CONSTRAINT ck_project_restarbejde_item_kind_status CHECK (
+    (kind = 'internal_defect' AND status IN ('open', 'in_progress', 'ready_for_review', 'closed'))
+    OR (kind = 'obs' AND status IN ('open', 'monitoring', 'blocking', 'resolved'))
+  ),
+  CONSTRAINT ck_project_restarbejde_item_priority_risk CHECK (
+    (kind = 'internal_defect' AND priority IN ('low', 'normal', 'high', 'critical') AND risk IS NULL)
+    OR (kind = 'obs' AND risk IN ('low', 'medium', 'high', 'critical') AND priority IS NULL)
+  ),
+  CONSTRAINT ck_project_restarbejde_item_percent CHECK (
+    (kind = 'internal_defect' AND percent_complete IS NOT NULL AND percent_complete >= 0 AND percent_complete <= 100)
+    OR (kind = 'obs' AND percent_complete IS NULL)
+  ),
+  CONSTRAINT ck_project_restarbejde_item_closed_state CHECK (
+    (kind = 'internal_defect' AND status = 'closed' AND percent_complete = 100 AND closed_at IS NOT NULL AND closed_by_user_id IS NOT NULL)
+    OR ((kind <> 'internal_defect' OR status <> 'closed') AND closed_at IS NULL AND closed_by_user_id IS NULL)
+  ),
+  CONSTRAINT ck_project_restarbejde_item_obs_resolved_percent CHECK (
+    kind <> 'obs' OR status <> 'resolved' OR percent_complete IS NULL
+  ),
+  CONSTRAINT ck_project_restarbejde_item_archive_state CHECK (
+    (archived_at IS NULL AND archived_by_user_id IS NULL)
+    OR (archived_at IS NOT NULL AND archived_by_user_id IS NOT NULL AND archived_at >= created_at)
+  ),
+  CONSTRAINT ck_project_restarbejde_item_import_payload_is_object CHECK (jsonb_typeof(external_import_payload) = 'object')
+);
+
+CREATE INDEX ix_project_restarbejde_item_project_active
+  ON project_restarbejde_item (tenant_id, project_id, kind, status, updated_at DESC)
+  WHERE archived_at IS NULL;
+
+CREATE INDEX ix_project_restarbejde_item_project_archived
+  ON project_restarbejde_item (tenant_id, project_id, archived_at DESC)
+  WHERE archived_at IS NOT NULL;
+
+CREATE INDEX ix_project_restarbejde_item_assigned_active
+  ON project_restarbejde_item (tenant_id, assigned_tenant_user_id, updated_at DESC)
+  WHERE archived_at IS NULL AND assigned_tenant_user_id IS NOT NULL;
+
+CREATE UNIQUE INDEX uq_project_restarbejde_item_import_id
+  ON project_restarbejde_item (tenant_id, source, external_import_id)
+  WHERE external_import_id IS NOT NULL;
+
+CREATE TRIGGER trg_project_restarbejde_item_set_updated_at
+BEFORE UPDATE ON project_restarbejde_item
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER trg_project_restarbejde_item_prevent_immutable_update
+BEFORE UPDATE ON project_restarbejde_item
+FOR EACH ROW
+EXECUTE FUNCTION prevent_immutable_update('id', 'tenant_id', 'project_id', 'kind', 'created_by_user_id', 'created_at');
+
+
 COMMIT;

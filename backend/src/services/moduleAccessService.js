@@ -4,6 +4,21 @@ function isEnabledFlag(value) {
   return ["1", "true", "yes", "on"].includes(String(value || "").trim().toLowerCase());
 }
 
+const RESTARBEJDE_ACTIONS = Object.freeze([
+  "read",
+  "create",
+  "update",
+  "close",
+  "archive",
+  "restore",
+  "comment",
+  "manage_placements",
+  "manage_drawings",
+  "manage_photos",
+  "export",
+  "report",
+]);
+
 const MODULE_REGISTRY = Object.freeze({
   qa: Object.freeze({
     key: "qa",
@@ -30,6 +45,11 @@ const MODULE_REGISTRY = Object.freeze({
     enabled: isEnabledFlag(process.env.PROJECT_EQUIPMENT_BETA_ENABLED),
     actions: Object.freeze(["read", "create", "update", "delete", "export"]),
   }),
+  project_restarbejde: Object.freeze({
+    key: "project_restarbejde",
+    enabled: true,
+    actions: RESTARBEJDE_ACTIONS,
+  }),
 });
 
 const ROLE_PERMISSIONS = Object.freeze({
@@ -53,6 +73,7 @@ const ROLE_PERMISSIONS = Object.freeze({
     "project_equipment_beta:update",
     "project_equipment_beta:delete",
     "project_equipment_beta:export",
+    ...RESTARBEJDE_ACTIONS.map((action) => `project_restarbejde:${action}`),
   ]),
   project_leader: Object.freeze([
     "qa:read",
@@ -63,6 +84,7 @@ const ROLE_PERMISSIONS = Object.freeze({
     "project_equipment_beta:update",
     "project_equipment_beta:delete",
     "project_equipment_beta:export",
+    ...RESTARBEJDE_ACTIONS.map((action) => `project_restarbejde:${action}`),
   ]),
   technician: Object.freeze([
     "qa:read",
@@ -71,6 +93,12 @@ const ROLE_PERMISSIONS = Object.freeze({
     "project_equipment_beta:create",
     "project_equipment_beta:update",
     "project_equipment_beta:export",
+    "project_restarbejde:read",
+    "project_restarbejde:create",
+    "project_restarbejde:update",
+    "project_restarbejde:comment",
+    "project_restarbejde:manage_placements",
+    "project_restarbejde:manage_photos",
   ]),
 });
 

@@ -14,6 +14,7 @@ const calendarRoutes = require("../modules/calendar/calendar.routes");
 const resourceGroupRoutes = require("../modules/resourceGroups/resourceGroup.routes");
 const tenantAdminRoutes = require("../modules/tenantAdmin/tenantAdmin.routes");
 const projectEquipmentRoutes = require("../modules/projectEquipment/projectEquipment.routes");
+const restarbejdeRoutes = require("../modules/restarbejde/restarbejde.routes");
 const { createHttpError } = require("../middleware/errorHandler");
 const { versionTenantHtml } = require("../utils/tenantAssetVersion");
 
@@ -125,6 +126,7 @@ router.use(calendarRoutes);
 router.use(resourceGroupRoutes);
 router.use(tenantAdminRoutes);
 router.use(projectEquipmentRoutes);
+router.use(restarbejdeRoutes);
 
 router.get("/api/me", requireTenantHost, requireAuth("access"), async (req, res, next) => {
   if (hasAccessContextMismatch(req)) {
@@ -631,4 +633,3 @@ router.get("/api/projects/:projectId/fitterhours/breakdown", requireTenantHost, 
 });
 
 module.exports = router;
-
