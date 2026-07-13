@@ -5455,6 +5455,8 @@
       return;
     }
 
+    renderInlineIcons(document);
+
     const qaUi = Boolean(qaSummaryGrid && qaMetaText && qaStateNode && qaThreadList);
     const qaState = {
       summary: { NEW: 0, WAITING: 0, ANSWERED: 0, CLOSED: 0 },
@@ -5511,6 +5513,8 @@
       drawingZoom: 100,
       drawingPan: { x: 0, y: 0 },
       drawingPanDrag: null,
+      drawingTouchPointers: new Map(),
+      drawingPinchGesture: null,
       drawingIsPanning: false,
       suppressDrawingPlacementClick: false,
       isCameraSaving: false,
@@ -6595,14 +6599,24 @@
       clearEquipmentMacValidationError();
     }
 
-    function updateEquipmentMacValidationState() {
+    function updateEquipmentMacValidationState(options = {}) {
       const state = syncEquipmentMacHidden({ showFeedback: false });
+      const keepVisible = Boolean(options.keepVisible && equipmentMacError && !equipmentMacError.hidden);
       if (state.valid) {
         clearEquipmentMacValidationError();
-      } else {
+      } else if (options.showError || keepVisible) {
         setEquipmentMacValidationError("MAC-adressen er ufuldstændig.");
+      } else {
+        clearEquipmentMacValidationError();
       }
       return state;
+    }
+
+    function handleEquipmentMacGroupBlur() {
+      window.setTimeout(() => {
+        if (equipmentMacSegments && equipmentMacSegments.contains(document.activeElement)) return;
+        updateEquipmentMacValidationState({ showError: true });
+      }, 0);
     }
 
     function getEquipmentMacCompact() {
@@ -6683,13 +6697,22 @@
         equipmentSerialInput.focus();
         equipmentSerialInput.select();
       }
-      updateEquipmentMacValidationState();
+      updateEquipmentMacValidationState({ keepVisible: true });
     }
 
     function handleEquipmentMacSegmentKeydown(event, index) {
       if (event.ctrlKey || event.metaKey || event.altKey) return;
-      if (event.key === "Enter" || (event.key === "Tab" && !event.shiftKey)) {
-        const state = updateEquipmentMacValidationState();
+      if (event.key === "Enter") {
+        const state = updateEquipmentMacValidationState({ showError: true });
+        if (state.valid && !state.isEmpty && equipmentSerialInput) {
+          event.preventDefault();
+          equipmentSerialInput.focus();
+          equipmentSerialInput.select();
+        }
+        return;
+      }
+      if (event.key === "Tab" && !event.shiftKey) {
+        const state = updateEquipmentMacValidationState({ keepVisible: true });
         if (state.valid && !state.isEmpty && equipmentSerialInput) {
           event.preventDefault();
           equipmentSerialInput.focus();
@@ -6727,7 +6750,7 @@
         equipmentSerialInput.focus();
         equipmentSerialInput.select();
       }
-      updateEquipmentMacValidationState();
+      updateEquipmentMacValidationState({ keepVisible: true });
     }
 
     const EQUIPMENT_MODEL_SEPARATOR = " · ";
@@ -6843,7 +6866,7 @@
         equipmentBrandInput.focus();
       }
       hideEquipmentBrandDropdown();
-      updateEquipmentBrandModelSuggestions();
+      renderEquipmentModelDropdown();
     }
 
     function renderEquipmentBrandDropdown(options = {}) {
@@ -8003,7 +8026,8 @@
           equipmentState.drawings.forEach((drawing) => {
             const option = document.createElement("option");
             option.value = drawing.id;
-            option.textContent = `${drawing.title || "Tegning"}${drawing.pin_count ? ` (${drawing.pin_count})` : ""}`;
+            const pinCount = Number(drawing.pin_count || 0);
+            option.textContent = `${drawing.title || "Tegning"}${pinCount ? ` - ${pinCount} ${pinCount === 1 ? "kamera" : "kameraer"}` : ""}`;
             equipmentDrawingSelect.appendChild(option);
           });
           equipmentDrawingSelect.value = equipmentState.activeDrawingId || equipmentState.drawings[0].id;
@@ -8161,6 +8185,8 @@
       equipmentState.drawingZoom = EQUIPMENT_DRAWING_DEFAULT_ZOOM;
       equipmentState.drawingPan = { x: 0, y: 0 };
       equipmentState.drawingPanDrag = null;
+      equipmentState.drawingTouchPointers.clear();
+      equipmentState.drawingPinchGesture = null;
       equipmentState.drawingIsPanning = false;
       equipmentState.suppressDrawingPlacementClick = false;
       updateEquipmentDrawingViewportTransform();
@@ -8176,9 +8202,24 @@
     }
 
     function startEquipmentDrawingPan(event) {
-      if (equipmentState.drawingZoom <= EQUIPMENT_DRAWING_DEFAULT_ZOOM) return;
       if (event.target && event.target.closest && event.target.closest(".equipmentDrawingPin")) return;
-      event.currentTarget.setPointerCapture(event.pointerId);
+      try {
+        event.currentTarget.setPointerCapture(event.pointerId);
+      } catch (_error) {
+        // Pointer capture is best-effort across mobile browsers.
+      }
+      equipmentState.drawingTouchPointers.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY });
+      if (equipmentState.drawingTouchPointers.size >= 2) {
+        const points = Array.from(equipmentState.drawingTouchPointers.values()).slice(0, 2);
+        const distance = Math.hypot(points[0].clientX - points[1].clientX, points[0].clientY - points[1].clientY);
+        equipmentState.drawingPinchGesture = { startDistance: distance || 1, startZoom: equipmentState.drawingZoom };
+        equipmentState.drawingPanDrag = null;
+        equipmentState.drawingIsPanning = false;
+        equipmentState.suppressDrawingPlacementClick = true;
+        updateEquipmentDrawingViewportTransform();
+        return;
+      }
+      if (equipmentState.drawingZoom <= EQUIPMENT_DRAWING_DEFAULT_ZOOM) return;
       equipmentState.drawingPanDrag = {
         pointerId: event.pointerId,
         startClientX: event.clientX,
@@ -8189,6 +8230,18 @@
     }
 
     function moveEquipmentDrawingPan(event) {
+      if (equipmentState.drawingTouchPointers.has(event.pointerId)) {
+        equipmentState.drawingTouchPointers.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY });
+      }
+      if (equipmentState.drawingPinchGesture && equipmentState.drawingTouchPointers.size >= 2) {
+        event.preventDefault();
+        const points = Array.from(equipmentState.drawingTouchPointers.values()).slice(0, 2);
+        const distance = Math.hypot(points[0].clientX - points[1].clientX, points[0].clientY - points[1].clientY);
+        const ratio = distance / Math.max(1, equipmentState.drawingPinchGesture.startDistance);
+        updateEquipmentDrawingZoom(equipmentState.drawingPinchGesture.startZoom * ratio);
+        equipmentState.suppressDrawingPlacementClick = true;
+        return;
+      }
       const drag = equipmentState.drawingPanDrag;
       if (!drag || drag.pointerId !== event.pointerId || equipmentState.drawingZoom <= EQUIPMENT_DRAWING_DEFAULT_ZOOM) return;
       const deltaX = event.clientX - drag.startClientX;
@@ -8205,6 +8258,21 @@
     }
 
     function stopEquipmentDrawingPan(event) {
+      equipmentState.drawingTouchPointers.delete(event.pointerId);
+      if (equipmentState.drawingPinchGesture) {
+        equipmentState.drawingPinchGesture = equipmentState.drawingTouchPointers.size >= 2 ? equipmentState.drawingPinchGesture : null;
+        equipmentState.drawingPanDrag = null;
+        equipmentState.drawingIsPanning = false;
+        equipmentState.suppressDrawingPlacementClick = true;
+        window.setTimeout(() => { equipmentState.suppressDrawingPlacementClick = false; }, 120);
+        try {
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        } catch (_error) {
+          // Pointer capture cleanup is best-effort.
+        }
+        updateEquipmentDrawingViewportTransform();
+        return;
+      }
       const drag = equipmentState.drawingPanDrag;
       if (!drag || drag.pointerId !== event.pointerId) return;
       equipmentState.suppressDrawingPlacementClick = Boolean(drag.didDrag);
@@ -8440,6 +8508,10 @@
       const surface = event.currentTarget.querySelector("[data-drawing-surface]");
       if (!surface) return;
       const rect = surface.getBoundingClientRect();
+      if (equipmentState.drawingTouchPointers.size > 1 || equipmentState.drawingPinchGesture) {
+        equipmentState.suppressDrawingPlacementClick = false;
+        return;
+      }
       const x = ((event.clientX - rect.left) / rect.width) * 100;
       const y = ((event.clientY - rect.top) / rect.height) * 100;
       const camera = getEquipmentCameraById(equipmentState.drawingPlacementCameraId);
@@ -9207,7 +9279,7 @@
       input.addEventListener("keydown", (event) => handleEquipmentMacSegmentKeydown(event, index));
       input.addEventListener("input", (event) => handleEquipmentMacSegmentInput(event, index));
       input.addEventListener("paste", handleEquipmentMacPaste);
-      input.addEventListener("blur", updateEquipmentMacValidationState);
+      input.addEventListener("blur", handleEquipmentMacGroupBlur);
     });
 
     if (equipmentSerialInput) {

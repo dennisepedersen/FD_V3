@@ -1266,9 +1266,10 @@
       z-index: 35;
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
-      padding: 12px 20px max(22px, env(safe-area-inset-bottom));
-      border-top: 1px solid rgba(5, 150, 105, 0.1);
-      background: rgba(240, 250, 245, 0.96);
+      padding: 10px 14px max(14px, env(safe-area-inset-bottom));
+      border-top: 1px solid rgba(5, 150, 105, 0.16);
+      background: rgba(248, 253, 250, 0.98);
+      box-shadow: 0 -10px 28px rgba(15, 23, 42, 0.12);
       backdrop-filter: blur(20px);
     }
 
@@ -1277,18 +1278,27 @@
       display: grid;
       justify-items: center;
       gap: 4px;
-      color: #7a8c88;
+      color: #475569;
       text-decoration: none;
-      font-size: 9px;
-      font-weight: 800;
+      font-size: 10px;
+      font-weight: 850;
     }
 
     .fdBottomIcon {
       width: 40px;
       height: 32px;
+      border: 1px solid #d1fae5;
       border-radius: 16px;
       display: grid;
       place-items: center;
+      background: #ffffff;
+      color: #334155;
+    }
+
+    .fdBottomIcon svg {
+      width: 19px;
+      height: 19px;
+      stroke-width: 2.35;
     }
 
     .fdBottomLink.active {
@@ -1296,8 +1306,12 @@
     }
 
     .fdBottomLink.active .fdBottomIcon {
+      border-color: var(--fd-brand);
       background: var(--fd-brand-soft);
+      color: var(--fd-brand);
+      box-shadow: inset 0 0 0 1px rgba(5, 150, 105, 0.12);
     }
+
     @media (max-width: 520px) {
       .topbar {
         padding: 10px 12px;
@@ -2823,6 +2837,220 @@
       border-radius: 10px;
       background: rgba(220, 252, 231, 0.72);
     }
+
+    @media (max-width: 767px) {
+      input,
+      select,
+      textarea,
+      .qaInput,
+      .qaSelect,
+      .qaTextarea,
+      .equipmentMacSegment,
+      .equipmentBrandOption,
+      .equipmentModelOption,
+      .equipmentBrandEmpty,
+      .equipmentModelEmpty {
+        font-size: 16px;
+      }
+
+      .page {
+        padding-bottom: calc(112px + env(safe-area-inset-bottom));
+      }
+
+      .equipmentStickyBar {
+        top: 0;
+        margin-inline: -8px;
+        padding: 8px;
+        border-radius: 0 0 12px 12px;
+      }
+
+      .equipmentHeaderRow,
+      .equipmentToolbar {
+        gap: 8px;
+      }
+
+      .equipmentActions {
+        width: 100%;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .equipmentActions .btn,
+      .equipmentActions a.btn {
+        width: 100%;
+        justify-content: center;
+      }
+
+      .equipmentSummaryGrid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 6px;
+      }
+
+      .equipmentStickyBar .qaSummaryCard {
+        display: grid;
+        justify-items: center;
+        min-height: 0;
+        padding: 6px 4px;
+        border-radius: 9px;
+      }
+
+      .equipmentStickyBar .qaSummaryLabel {
+        font-size: 9px;
+        letter-spacing: 0.03em;
+        text-align: center;
+      }
+
+      .equipmentStickyBar .qaSummaryValue {
+        font-size: 15px;
+      }
+
+      .equipmentSearch {
+        flex-basis: 100%;
+      }
+
+      .equipmentCard {
+        gap: 6px;
+        padding: 8px;
+        border-radius: 9px;
+      }
+
+      .equipmentCardHeaderBtn {
+        gap: 6px;
+      }
+
+      .equipmentCardTitleRow {
+        flex-wrap: nowrap;
+      }
+
+      .equipmentTitle {
+        font-size: 14px;
+        min-width: 0;
+      }
+
+      .equipmentCardSummary {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 4px 6px;
+        margin-top: 3px;
+        font-size: 11px;
+      }
+
+      .equipmentCardSummary > span:first-child {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .equipmentCardCompactChips {
+        justify-content: flex-end;
+      }
+
+      .equipmentCard.expanded .equipmentCardColumns,
+      .equipmentMetaGrid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px;
+      }
+
+      .equipmentCardColumn {
+        gap: 6px;
+      }
+
+      .equipmentMetaItem {
+        padding: 6px 7px;
+        gap: 2px;
+      }
+
+      .equipmentMetaLabel {
+        font-size: 10px;
+      }
+
+      .equipmentMetaValue {
+        font-size: 13px;
+      }
+
+      .equipmentCardColumn:last-child {
+        grid-column: 1 / -1;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .equipmentNote {
+        grid-column: 1 / -1;
+        font-size: 12px;
+      }
+
+      .equipmentDrawingPanel {
+        inset: 0;
+        width: 100%;
+        max-width: none;
+        height: 100dvh;
+        margin: 0;
+        padding: max(10px, env(safe-area-inset-top)) 10px max(10px, env(safe-area-inset-bottom));
+        border-radius: 0;
+        grid-template-rows: auto auto auto minmax(0, 1fr);
+        gap: 6px;
+      }
+
+      .equipmentDrawingHeader {
+        align-items: center;
+        flex-wrap: nowrap;
+      }
+
+      .equipmentDrawingHeader .qaDrawerTitle {
+        font-size: 17px;
+      }
+
+      .equipmentDrawingHeader .qaDrawerMeta {
+        display: none;
+      }
+
+      .equipmentDrawingControls {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 6px;
+        padding: 7px;
+      }
+
+      .equipmentDrawingZoomControls {
+        width: 100%;
+        margin-left: 0;
+        display: grid;
+        grid-template-columns: auto minmax(54px, 1fr) auto auto;
+      }
+
+      .equipmentDrawingZoomControls .btn {
+        min-width: 0;
+        padding-inline: 8px;
+      }
+
+      .equipmentDrawingBody {
+        grid-template-rows: minmax(0, 1fr) auto;
+        height: 100%;
+      }
+
+      .equipmentDrawingCanvas {
+        min-height: 0;
+        height: 100%;
+      }
+
+      .equipmentDrawingImage {
+        max-height: calc(100dvh - 250px);
+      }
+
+      .equipmentDrawingPinPanel {
+        max-height: 34dvh;
+        overflow: auto;
+        padding-bottom: max(10px, env(safe-area-inset-bottom));
+      }
+
+      .equipmentDrawingPinPanel .equipmentMetaGrid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .equipmentDrawingPinPanelActions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
     @media (min-width: 760px) {
       .topbar {
         padding: 12px 24px;
@@ -2890,7 +3118,7 @@
       }
 
       .page {
-        padding-bottom: calc(92px + env(safe-area-inset-bottom));
+        padding-bottom: calc(112px + env(safe-area-inset-bottom));
       }
     }
 
@@ -3021,7 +3249,7 @@
     @media (max-width: 767px) {
       .scrollTopBtn {
         right: max(14px, env(safe-area-inset-right));
-        bottom: calc(86px + env(safe-area-inset-bottom));
+        bottom: calc(96px + env(safe-area-inset-bottom));
       }
     }
   </style>
