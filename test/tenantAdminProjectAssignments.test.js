@@ -223,6 +223,65 @@ test('routes protect assignment mutations with tenant_admin update access', () =
   assert.match(routeSource, /router\.delete\("\/api\/tenant\/admin\/projects\/:projectId\/assignments\/:userId"[\s\S]+?requireTenantAdmin\(req, "update"\)/);
 });
 
+test('project list route forwards q to tenant admin service', () => {
+  const routeSource = fs.readFileSync(path.join(__dirname, '../backend/src/modules/tenantAdmin/tenantAdmin.routes.js'), 'utf8');
+  assert.match(routeSource, /router\.get\("\/api\/tenant\/admin\/projects"[\s\S]+?search: req\.query\?\.q/);
+});
+
+test('project repository searches project ref, name, responsible and team leader', async () => {
+  const tenantId = uuid(61);
+  const queries = [];
+  const client = {
+    async query(sql, params) {
+      queries.push({ sql: String(sql), params });
+      return { rows: [] };
+    },
+  };
+
+  await tenantAdminRepository.listProjects(client, { tenantId, search: '80548' });
+
+  assert.equal(queries.length, 1);
+  assert.equal(queries[0].params[0], tenantId);
+  assert.equal(queries[0].params[1], '%80548%');
+  assert.match(queries[0].sql, /external_project_ref/);
+  assert.match(queries[0].sql, /pc\.name/);
+  assert.match(queries[0].sql, /responsible_code/);
+  assert.match(queries[0].sql, /team_leader_code/);
+  assert.match(queries[0].sql, /LIMIT 250/);
+});
+
+test('tenant admin project assignment UI has project search and no role selector', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../backend/src/public/tenant/app.html'), 'utf8');
+  const section = html.slice(html.indexOf('tenantAdminProjectAssignmentsSection'), html.indexOf('resourceGroupToolbarSection'));
+
+  assert.match(section, /tenantAdminProjectSearchInput/);
+  assert.match(section, /S.g projekt/);
+  assert.doesNotMatch(section, /tenantAdminAssignmentRoleSelect/);
+  assert.doesNotMatch(section, />Owner</);
+  assert.doesNotMatch(section, />Reviewer</);
+});
+
+test('tenant admin assignment UI searches projects with debounce and guarded request ordering', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../backend/src/public/tenant/auth.js'), 'utf8');
+
+  assert.match(source, /tenantAdminProjectSearchInput\.addEventListener\("input"/);
+  assert.match(source, /window\.clearTimeout\(state\.tenantAdmin\.projectSearchTimer\)/);
+  assert.match(source, /window\.setTimeout\([\s\S]+loadTenantAdminProjects\(\{ force: true \}\)[\s\S]+180/);
+  assert.match(source, /state\.tenantAdmin\.projectSearchRequestSeq/);
+  assert.match(source, /apiFetch\(`\/api\/tenant\/admin\/projects\$\{query\}`/);
+  assert.match(source, /previousProjectId && projects\.some/);
+});
+
+test('tenant admin assignment create payload is contributor without visible role levels', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../backend/src/public/tenant/auth.js'), 'utf8');
+  const appHtml = fs.readFileSync(path.join(__dirname, '../backend/src/public/tenant/app.html'), 'utf8');
+  const section = appHtml.slice(appHtml.indexOf('tenantAdminProjectAssignmentsSection'), appHtml.indexOf('resourceGroupToolbarSection'));
+
+  assert.match(source, /assignment_role: "contributor"/);
+  assert.doesNotMatch(source, /tenantAdminAssignmentRoleSelect/);
+  assert.doesNotMatch(section, /Owner|Reviewer|Bidragsyder/);
+  assert.match(source, /tag\.textContent = "Direkte adgang"/);
+});
 test('project access service accepts and loses assignment-backed access through project query result', async () => {
   const tenantId = uuid(51);
   const userId = uuid(52);

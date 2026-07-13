@@ -787,9 +787,9 @@
     const tenantAdminProjectAssignmentsMeta = document.getElementById("tenantAdminProjectAssignmentsMeta");
     const tenantAdminProjectAssignmentsRefreshBtn = document.getElementById("tenantAdminProjectAssignmentsRefreshBtn");
     const tenantAdminProjectAssignmentForm = document.getElementById("tenantAdminProjectAssignmentForm");
+    const tenantAdminProjectSearchInput = document.getElementById("tenantAdminProjectSearchInput");
     const tenantAdminProjectSelect = document.getElementById("tenantAdminProjectSelect");
     const tenantAdminAssignmentUserSelect = document.getElementById("tenantAdminAssignmentUserSelect");
-    const tenantAdminAssignmentRoleSelect = document.getElementById("tenantAdminAssignmentRoleSelect");
     const tenantAdminAssignmentAddBtn = document.getElementById("tenantAdminAssignmentAddBtn");
     const tenantAdminProjectAssignmentsStatus = document.getElementById("tenantAdminProjectAssignmentsStatus");
     const tenantAdminProjectAssignmentsList = document.getElementById("tenantAdminProjectAssignmentsList");
@@ -872,6 +872,9 @@
         projectsLoaded: false,
         projectsLoading: false,
         selectedProjectId: "",
+        projectSearch: "",
+        projectSearchTimer: null,
+        projectSearchRequestSeq: 0,
         projectAssignments: [],
         projectAssignmentsLoading: false,
         assignmentSubmitting: false,
@@ -1833,12 +1836,7 @@
       }).sort((a, b) => getTenantAdminUserLabel(a).localeCompare(getTenantAdminUserLabel(b), "da"));
     }
 
-    function getTenantAdminAssignmentRoleLabel(role) {
-      const normalized = String(role || "contributor").toLowerCase();
-      if (normalized === "owner") return "Owner";
-      if (normalized === "reviewer") return "Reviewer";
-      return "Bidragsyder";
-    }
+
 
     function renderTenantAdminProjectOptions() {
       if (!tenantAdminProjectSelect) return;
@@ -1900,7 +1898,8 @@
         if (state.tenantAdmin.projectsLoading || state.tenantAdmin.projectAssignmentsLoading) {
           tenantAdminProjectAssignmentsMeta.textContent = "Indlaeser projektadgang...";
         } else if (!projectCount) {
-          tenantAdminProjectAssignmentsMeta.textContent = "Ingen projekter fundet.";
+          const query = state.tenantAdmin.projectSearch ? ` for "${state.tenantAdmin.projectSearch}"` : "";
+          tenantAdminProjectAssignmentsMeta.textContent = `Ingen projekter fundet${query}.`;
         } else {
           tenantAdminProjectAssignmentsMeta.textContent = `${assignments.length} direkte tildeling${assignments.length === 1 ? "" : "er"} paa valgt projekt.`;
         }
@@ -1940,7 +1939,7 @@
         title.textContent = `${name} | ${code}`;
         const tag = document.createElement("span");
         tag.className = "tag tagLive";
-        tag.textContent = getTenantAdminAssignmentRoleLabel(assignment.assignment_role);
+        tag.textContent = "Direkte adgang";
         header.append(title, tag);
         const meta = document.createElement("p");
         meta.className = "resourceGroupMeta";
@@ -1963,29 +1962,43 @@
     async function loadTenantAdminProjects(options) {
       if (!isTenantAdmin(state.me)) return;
       const opts = options || {};
-      if (state.tenantAdmin.projectsLoaded && !opts.force) {
+      const q = tenantAdminProjectSearchInput ? tenantAdminProjectSearchInput.value.trim() : state.tenantAdmin.projectSearch;
+      state.tenantAdmin.projectSearch = q;
+      const requestSeq = state.tenantAdmin.projectSearchRequestSeq + 1;
+      state.tenantAdmin.projectSearchRequestSeq = requestSeq;
+      if (state.tenantAdmin.projectsLoaded && !opts.force && !q) {
         renderTenantAdminProjectAssignments();
         return;
       }
       state.tenantAdmin.projectsLoading = true;
       renderTenantAdminProjectAssignments();
       try {
-        const response = await apiFetch("/api/tenant/admin/projects", { method: "GET" });
-        state.tenantAdmin.projects = response && Array.isArray(response.projects) ? response.projects : [];
-        state.tenantAdmin.projectsLoaded = true;
-        if (!state.tenantAdmin.selectedProjectId && state.tenantAdmin.projects.length) {
-          state.tenantAdmin.selectedProjectId = state.tenantAdmin.projects[0].project_id;
+        const query = q ? `?q=${encodeURIComponent(q)}` : "";
+        const response = await apiFetch(`/api/tenant/admin/projects${query}`, { method: "GET" });
+        if (requestSeq !== state.tenantAdmin.projectSearchRequestSeq) return;
+        const projects = response && Array.isArray(response.projects) ? response.projects : [];
+        const previousProjectId = state.tenantAdmin.selectedProjectId;
+        state.tenantAdmin.projects = projects;
+        state.tenantAdmin.projectsLoaded = !q;
+        if (previousProjectId && projects.some((project) => String(project.project_id) === String(previousProjectId))) {
+          state.tenantAdmin.selectedProjectId = previousProjectId;
+        } else {
+          state.tenantAdmin.selectedProjectId = projects.length ? projects[0].project_id : "";
+          state.tenantAdmin.projectAssignments = [];
         }
         if (state.tenantAdmin.selectedProjectId) {
           await loadTenantAdminProjectAssignments({ force: true });
         }
       } catch (error) {
+        if (requestSeq !== state.tenantAdmin.projectSearchRequestSeq) return;
         if (handleResourceGroupForbidden(error, tenantAdminProjectAssignmentsMeta)) return;
         if (handleAuthFailure(error)) return;
         setText(tenantAdminProjectAssignmentsMeta, `Kunne ikke hente projekter: ${getErrorMessage(error, "request_failed")}`);
       } finally {
-        state.tenantAdmin.projectsLoading = false;
-        renderTenantAdminProjectAssignments();
+        if (requestSeq === state.tenantAdmin.projectSearchRequestSeq) {
+          state.tenantAdmin.projectsLoading = false;
+          renderTenantAdminProjectAssignments();
+        }
       }
     }
 
@@ -1996,6 +2009,7 @@
       renderTenantAdminProjectAssignments();
       try {
         const response = await apiFetch(`/api/tenant/admin/projects/${encodeURIComponent(projectId)}/assignments`, { method: "GET" });
+        if (String(projectId) !== String(state.tenantAdmin.selectedProjectId || "")) return;
         state.tenantAdmin.projectAssignments = response && Array.isArray(response.assignments) ? response.assignments : [];
       } catch (error) {
         if (handleResourceGroupForbidden(error, tenantAdminProjectAssignmentsMeta)) return;
@@ -2012,7 +2026,6 @@
       if (state.tenantAdmin.assignmentSubmitting) return;
       const projectId = tenantAdminProjectSelect ? tenantAdminProjectSelect.value : state.tenantAdmin.selectedProjectId;
       const userId = tenantAdminAssignmentUserSelect ? tenantAdminAssignmentUserSelect.value : "";
-      const assignmentRole = tenantAdminAssignmentRoleSelect ? tenantAdminAssignmentRoleSelect.value : "contributor";
       if (!projectId || !userId) {
         setText(tenantAdminProjectAssignmentsStatus, "Vaelg projekt og bruger foerst.");
         return;
@@ -2024,7 +2037,7 @@
       try {
         await apiFetch(`/api/tenant/admin/projects/${encodeURIComponent(projectId)}/assignments`, {
           method: "POST",
-          body: JSON.stringify({ tenant_user_id: userId, assignment_role: assignmentRole }),
+          body: JSON.stringify({ tenant_user_id: userId, assignment_role: "contributor" }),
         });
         setText(tenantAdminProjectAssignmentsStatus, "Projektadgang er opdateret.");
         await loadTenantAdminProjectAssignments({ force: true });
@@ -5011,6 +5024,14 @@
         state.tenantAdmin.selectedProjectId = tenantAdminProjectSelect.value || "";
         state.tenantAdmin.projectAssignments = [];
         loadTenantAdminProjectAssignments({ force: true });
+      });
+    }
+    if (tenantAdminProjectSearchInput) {
+      tenantAdminProjectSearchInput.addEventListener("input", () => {
+        window.clearTimeout(state.tenantAdmin.projectSearchTimer);
+        state.tenantAdmin.projectSearchTimer = window.setTimeout(() => {
+          loadTenantAdminProjects({ force: true });
+        }, 180);
       });
     }
     if (tenantAdminProjectAssignmentsRefreshBtn) {
