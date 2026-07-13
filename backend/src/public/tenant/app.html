@@ -3349,6 +3349,38 @@
           <section id="tenantAdminUsersSection" class="panel calendarPanel">
             <div id="tenantAdminUsersList" class="resourceGroupDetailList" aria-live="polite"></div>
           </section>
+          <section id="tenantAdminProjectAssignmentsSection" class="panel calendarPanel">
+            <div class="sectionHeader">
+              <div>
+                <h2>Projektadgang</h2>
+                <p id="tenantAdminProjectAssignmentsMeta" class="subtitle">Vaelg projekt og tilfoj Fielddesk-loginbrugere.</p>
+              </div>
+              <button id="tenantAdminProjectAssignmentsRefreshBtn" class="btn btnCompact" type="button">Opdater</button>
+            </div>
+            <form id="tenantAdminProjectAssignmentForm" class="resourceGroupFormGrid">
+              <label>
+                <span>Projekt</span>
+                <select id="tenantAdminProjectSelect" class="sortSelect"></select>
+              </label>
+              <label>
+                <span>Bruger</span>
+                <select id="tenantAdminAssignmentUserSelect" class="sortSelect"></select>
+              </label>
+              <label>
+                <span>Rolle</span>
+                <select id="tenantAdminAssignmentRoleSelect" class="sortSelect">
+                  <option value="contributor">Bidragsyder</option>
+                  <option value="reviewer">Reviewer</option>
+                  <option value="owner">Owner</option>
+                </select>
+              </label>
+              <div class="resourceGroupFormActions">
+                <button id="tenantAdminAssignmentAddBtn" class="btn btnPrimary" type="submit">Tilfoj adgang</button>
+              </div>
+              <p id="tenantAdminProjectAssignmentsStatus" class="resourceGroupFormStatus resourceGroupFieldWide"></p>
+            </form>
+            <div id="tenantAdminProjectAssignmentsList" class="resourceGroupDetailList" aria-live="polite"></div>
+          </section>
 
           <section id="resourceGroupToolbarSection" class="panel toolbar">
             <label class="toolbarControl">

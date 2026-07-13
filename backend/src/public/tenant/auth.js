@@ -783,6 +783,16 @@
     const tenantAdminUserDeactivateCloseBtn = document.getElementById("tenantAdminUserDeactivateCloseBtn");
     const tenantAdminUserDeactivateCancelBtn = document.getElementById("tenantAdminUserDeactivateCancelBtn");
     const tenantAdminOpenGroupCreateBtn = document.getElementById("tenantAdminOpenGroupCreateBtn");
+    const tenantAdminProjectAssignmentsSection = document.getElementById("tenantAdminProjectAssignmentsSection");
+    const tenantAdminProjectAssignmentsMeta = document.getElementById("tenantAdminProjectAssignmentsMeta");
+    const tenantAdminProjectAssignmentsRefreshBtn = document.getElementById("tenantAdminProjectAssignmentsRefreshBtn");
+    const tenantAdminProjectAssignmentForm = document.getElementById("tenantAdminProjectAssignmentForm");
+    const tenantAdminProjectSelect = document.getElementById("tenantAdminProjectSelect");
+    const tenantAdminAssignmentUserSelect = document.getElementById("tenantAdminAssignmentUserSelect");
+    const tenantAdminAssignmentRoleSelect = document.getElementById("tenantAdminAssignmentRoleSelect");
+    const tenantAdminAssignmentAddBtn = document.getElementById("tenantAdminAssignmentAddBtn");
+    const tenantAdminProjectAssignmentsStatus = document.getElementById("tenantAdminProjectAssignmentsStatus");
+    const tenantAdminProjectAssignmentsList = document.getElementById("tenantAdminProjectAssignmentsList");
     const resourceGroupCreateModal = document.getElementById("resourceGroupCreateModal");
     const resourceGroupCreateCloseBtn = document.getElementById("resourceGroupCreateCloseBtn");
     const resourceGroupCreateCancelBtn = document.getElementById("resourceGroupCreateCancelBtn");
@@ -858,6 +868,14 @@
         ekStatusFilter: "all",
         loginStatusFilter: "all",
         syncMessage: "",
+        projects: [],
+        projectsLoaded: false,
+        projectsLoading: false,
+        selectedProjectId: "",
+        projectAssignments: [],
+        projectAssignmentsLoading: false,
+        assignmentSubmitting: false,
+        assignmentRemoving: new Set(),
         searchTimer: null,
       },
       resourceGroups: {
@@ -1797,6 +1815,250 @@
       });
     }
 
+    function getTenantAdminProjectLabel(project) {
+      if (!project) return "Ukendt projekt";
+      const ref = project.external_project_ref || project.project_ref || project.project_id || "-";
+      const name = project.name || "Uden navn";
+      return `${ref} | ${name}`;
+    }
+
+    function getTenantAdminAssignableUsers() {
+      const users = Array.isArray(state.tenantAdmin.users) ? state.tenantAdmin.users : [];
+      return users.filter((user) => {
+        if (!user || !user.tenant_user_id) return false;
+        const status = String(user.status || "").toLowerCase();
+        const loginStatus = String(user.login_status || "").toLowerCase();
+        if (!["active", "invited"].includes(status)) return false;
+        return !["disabled", "deactivated", "pending_reactivation"].includes(loginStatus);
+      }).sort((a, b) => getTenantAdminUserLabel(a).localeCompare(getTenantAdminUserLabel(b), "da"));
+    }
+
+    function getTenantAdminAssignmentRoleLabel(role) {
+      const normalized = String(role || "contributor").toLowerCase();
+      if (normalized === "owner") return "Owner";
+      if (normalized === "reviewer") return "Reviewer";
+      return "Bidragsyder";
+    }
+
+    function renderTenantAdminProjectOptions() {
+      if (!tenantAdminProjectSelect) return;
+      const projects = Array.isArray(state.tenantAdmin.projects) ? state.tenantAdmin.projects : [];
+      tenantAdminProjectSelect.replaceChildren();
+      if (!projects.length) {
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent = state.tenantAdmin.projectsLoading ? "Indlaeser projekter..." : "Ingen projekter fundet";
+        tenantAdminProjectSelect.appendChild(option);
+        tenantAdminProjectSelect.disabled = true;
+        return;
+      }
+      tenantAdminProjectSelect.disabled = state.tenantAdmin.projectsLoading;
+      projects.forEach((project) => {
+        const option = document.createElement("option");
+        option.value = project.project_id;
+        option.textContent = getTenantAdminProjectLabel(project);
+        tenantAdminProjectSelect.appendChild(option);
+      });
+      if (state.tenantAdmin.selectedProjectId) {
+        tenantAdminProjectSelect.value = state.tenantAdmin.selectedProjectId;
+      }
+    }
+
+    function renderTenantAdminAssignmentUserOptions() {
+      if (!tenantAdminAssignmentUserSelect) return;
+      const users = getTenantAdminAssignableUsers();
+      tenantAdminAssignmentUserSelect.replaceChildren();
+      if (!users.length) {
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent = "Inviter eller opret bruger foerst";
+        tenantAdminAssignmentUserSelect.appendChild(option);
+        tenantAdminAssignmentUserSelect.disabled = true;
+        return;
+      }
+      tenantAdminAssignmentUserSelect.disabled = false;
+      users.forEach((user) => {
+        const option = document.createElement("option");
+        option.value = user.tenant_user_id;
+        option.textContent = getTenantAdminUserLabel(user);
+        tenantAdminAssignmentUserSelect.appendChild(option);
+      });
+    }
+
+    function renderTenantAdminProjectAssignments() {
+      renderTenantAdminProjectOptions();
+      renderTenantAdminAssignmentUserOptions();
+      if (tenantAdminAssignmentAddBtn) {
+        tenantAdminAssignmentAddBtn.disabled = state.tenantAdmin.assignmentSubmitting
+          || !state.tenantAdmin.selectedProjectId
+          || !tenantAdminAssignmentUserSelect
+          || !tenantAdminAssignmentUserSelect.value;
+      }
+      const assignments = Array.isArray(state.tenantAdmin.projectAssignments) ? state.tenantAdmin.projectAssignments : [];
+      const projectCount = Array.isArray(state.tenantAdmin.projects) ? state.tenantAdmin.projects.length : 0;
+      if (tenantAdminProjectAssignmentsMeta) {
+        if (state.tenantAdmin.projectsLoading || state.tenantAdmin.projectAssignmentsLoading) {
+          tenantAdminProjectAssignmentsMeta.textContent = "Indlaeser projektadgang...";
+        } else if (!projectCount) {
+          tenantAdminProjectAssignmentsMeta.textContent = "Ingen projekter fundet.";
+        } else {
+          tenantAdminProjectAssignmentsMeta.textContent = `${assignments.length} direkte tildeling${assignments.length === 1 ? "" : "er"} paa valgt projekt.`;
+        }
+      }
+      if (!tenantAdminProjectAssignmentsList) return;
+      tenantAdminProjectAssignmentsList.replaceChildren();
+      if (state.tenantAdmin.projectAssignmentsLoading) {
+        const loading = document.createElement("p");
+        loading.className = "calendarMessage";
+        loading.textContent = "Indlaeser tildelinger...";
+        tenantAdminProjectAssignmentsList.appendChild(loading);
+        return;
+      }
+      if (!state.tenantAdmin.selectedProjectId) {
+        const empty = document.createElement("p");
+        empty.className = "calendarMessage";
+        empty.textContent = "Vaelg et projekt.";
+        tenantAdminProjectAssignmentsList.appendChild(empty);
+        return;
+      }
+      if (!assignments.length) {
+        const empty = document.createElement("p");
+        empty.className = "calendarMessage";
+        empty.textContent = "Ingen direkte brugertildelinger paa projektet endnu.";
+        tenantAdminProjectAssignmentsList.appendChild(empty);
+        return;
+      }
+      assignments.forEach((assignment) => {
+        const card = document.createElement("article");
+        card.className = "resourceGroupDetailCard";
+        const header = document.createElement("div");
+        header.className = "resourceGroupDetailHeader";
+        const title = document.createElement("p");
+        title.className = "resourceGroupDetailName";
+        const name = assignment.name || assignment.email || "Ukendt bruger";
+        const code = assignment.short_code ? String(assignment.short_code).toUpperCase() : "-";
+        title.textContent = `${name} | ${code}`;
+        const tag = document.createElement("span");
+        tag.className = "tag tagLive";
+        tag.textContent = getTenantAdminAssignmentRoleLabel(assignment.assignment_role);
+        header.append(title, tag);
+        const meta = document.createElement("p");
+        meta.className = "resourceGroupMeta";
+        meta.textContent = `${assignment.email || "Ingen email"} | ${assignment.role || "rolle ukendt"} | ${assignment.status || "status ukendt"}`;
+        const actions = document.createElement("div");
+        actions.className = "resourceGroupActions";
+        const removeButton = document.createElement("button");
+        removeButton.className = "btn btnCompact";
+        removeButton.type = "button";
+        const userId = assignment.tenant_user_id;
+        removeButton.textContent = state.tenantAdmin.assignmentRemoving.has(userId) ? "Fjerner..." : "Fjern adgang";
+        removeButton.disabled = state.tenantAdmin.assignmentRemoving.has(userId);
+        removeButton.addEventListener("click", () => removeTenantAdminProjectAssignment(userId));
+        actions.appendChild(removeButton);
+        card.append(header, meta, actions);
+        tenantAdminProjectAssignmentsList.appendChild(card);
+      });
+    }
+
+    async function loadTenantAdminProjects(options) {
+      if (!isTenantAdmin(state.me)) return;
+      const opts = options || {};
+      if (state.tenantAdmin.projectsLoaded && !opts.force) {
+        renderTenantAdminProjectAssignments();
+        return;
+      }
+      state.tenantAdmin.projectsLoading = true;
+      renderTenantAdminProjectAssignments();
+      try {
+        const response = await apiFetch("/api/tenant/admin/projects", { method: "GET" });
+        state.tenantAdmin.projects = response && Array.isArray(response.projects) ? response.projects : [];
+        state.tenantAdmin.projectsLoaded = true;
+        if (!state.tenantAdmin.selectedProjectId && state.tenantAdmin.projects.length) {
+          state.tenantAdmin.selectedProjectId = state.tenantAdmin.projects[0].project_id;
+        }
+        if (state.tenantAdmin.selectedProjectId) {
+          await loadTenantAdminProjectAssignments({ force: true });
+        }
+      } catch (error) {
+        if (handleResourceGroupForbidden(error, tenantAdminProjectAssignmentsMeta)) return;
+        if (handleAuthFailure(error)) return;
+        setText(tenantAdminProjectAssignmentsMeta, `Kunne ikke hente projekter: ${getErrorMessage(error, "request_failed")}`);
+      } finally {
+        state.tenantAdmin.projectsLoading = false;
+        renderTenantAdminProjectAssignments();
+      }
+    }
+
+    async function loadTenantAdminProjectAssignments(options) {
+      if (!isTenantAdmin(state.me) || !state.tenantAdmin.selectedProjectId) return;
+      const projectId = state.tenantAdmin.selectedProjectId;
+      state.tenantAdmin.projectAssignmentsLoading = true;
+      renderTenantAdminProjectAssignments();
+      try {
+        const response = await apiFetch(`/api/tenant/admin/projects/${encodeURIComponent(projectId)}/assignments`, { method: "GET" });
+        state.tenantAdmin.projectAssignments = response && Array.isArray(response.assignments) ? response.assignments : [];
+      } catch (error) {
+        if (handleResourceGroupForbidden(error, tenantAdminProjectAssignmentsMeta)) return;
+        if (handleAuthFailure(error)) return;
+        setText(tenantAdminProjectAssignmentsStatus, `Kunne ikke hente projektadgang: ${getErrorMessage(error, "request_failed")}`);
+      } finally {
+        state.tenantAdmin.projectAssignmentsLoading = false;
+        renderTenantAdminProjectAssignments();
+      }
+    }
+
+    async function submitTenantAdminProjectAssignment(event) {
+      event.preventDefault();
+      if (state.tenantAdmin.assignmentSubmitting) return;
+      const projectId = tenantAdminProjectSelect ? tenantAdminProjectSelect.value : state.tenantAdmin.selectedProjectId;
+      const userId = tenantAdminAssignmentUserSelect ? tenantAdminAssignmentUserSelect.value : "";
+      const assignmentRole = tenantAdminAssignmentRoleSelect ? tenantAdminAssignmentRoleSelect.value : "contributor";
+      if (!projectId || !userId) {
+        setText(tenantAdminProjectAssignmentsStatus, "Vaelg projekt og bruger foerst.");
+        return;
+      }
+      state.tenantAdmin.selectedProjectId = projectId;
+      state.tenantAdmin.assignmentSubmitting = true;
+      renderTenantAdminProjectAssignments();
+      setText(tenantAdminProjectAssignmentsStatus, "Tilfojer projektadgang...");
+      try {
+        await apiFetch(`/api/tenant/admin/projects/${encodeURIComponent(projectId)}/assignments`, {
+          method: "POST",
+          body: JSON.stringify({ tenant_user_id: userId, assignment_role: assignmentRole }),
+        });
+        setText(tenantAdminProjectAssignmentsStatus, "Projektadgang er opdateret.");
+        await loadTenantAdminProjectAssignments({ force: true });
+      } catch (error) {
+        if (handleResourceGroupForbidden(error, tenantAdminProjectAssignmentsStatus)) return;
+        if (handleAuthFailure(error)) return;
+        setText(tenantAdminProjectAssignmentsStatus, `Kunne ikke tilfoje projektadgang: ${getErrorMessage(error, "request_failed")}`);
+      } finally {
+        state.tenantAdmin.assignmentSubmitting = false;
+        renderTenantAdminProjectAssignments();
+      }
+    }
+
+    async function removeTenantAdminProjectAssignment(userId) {
+      const projectId = state.tenantAdmin.selectedProjectId;
+      if (!projectId || !userId) return;
+      const confirmed = window.confirm("Fjern brugerens direkte adgang til projektet?");
+      if (!confirmed) return;
+      state.tenantAdmin.assignmentRemoving.add(userId);
+      renderTenantAdminProjectAssignments();
+      setText(tenantAdminProjectAssignmentsStatus, "Fjerner projektadgang...");
+      try {
+        await apiFetch(`/api/tenant/admin/projects/${encodeURIComponent(projectId)}/assignments/${encodeURIComponent(userId)}`, { method: "DELETE" });
+        setText(tenantAdminProjectAssignmentsStatus, "Projektadgang er fjernet.");
+        await loadTenantAdminProjectAssignments({ force: true });
+      } catch (error) {
+        if (handleResourceGroupForbidden(error, tenantAdminProjectAssignmentsStatus)) return;
+        if (handleAuthFailure(error)) return;
+        setText(tenantAdminProjectAssignmentsStatus, `Kunne ikke fjerne projektadgang: ${getErrorMessage(error, "request_failed")}`);
+      } finally {
+        state.tenantAdmin.assignmentRemoving.delete(userId);
+        renderTenantAdminProjectAssignments();
+      }
+    }
     async function loadTenantAdminUsers(options) {
       if (!isTenantAdmin(state.me)) return;
       state.tenantAdmin.usersLoading = true;
@@ -1814,6 +2076,7 @@
       } finally {
         state.tenantAdmin.usersLoading = false;
         renderTenantAdminUsers();
+        renderTenantAdminProjectAssignments();
       }
     }
 
@@ -1833,7 +2096,7 @@
 
     async function loadTenantAdmin(options) {
       if (!isTenantAdmin(state.me)) return;
-      await Promise.all([loadTenantAdminUsers(options), loadTenantAdminSyncStatus()]);
+      await Promise.all([loadTenantAdminUsers(options), loadTenantAdminSyncStatus(), loadTenantAdminProjects(options)]);
     }
 
     function getCreatedTenantAdminInviteUser(response, fallback) {
@@ -4739,6 +5002,22 @@
 
     if (tenantAdminUserDeactivateForm) {
       tenantAdminUserDeactivateForm.addEventListener("submit", submitTenantAdminUserDeactivate);
+    }
+    if (tenantAdminProjectAssignmentForm) {
+      tenantAdminProjectAssignmentForm.addEventListener("submit", submitTenantAdminProjectAssignment);
+    }
+    if (tenantAdminProjectSelect) {
+      tenantAdminProjectSelect.addEventListener("change", () => {
+        state.tenantAdmin.selectedProjectId = tenantAdminProjectSelect.value || "";
+        state.tenantAdmin.projectAssignments = [];
+        loadTenantAdminProjectAssignments({ force: true });
+      });
+    }
+    if (tenantAdminProjectAssignmentsRefreshBtn) {
+      tenantAdminProjectAssignmentsRefreshBtn.addEventListener("click", () => {
+        state.tenantAdmin.projectsLoaded = false;
+        loadTenantAdminProjects({ force: true });
+      });
     }
 
     if (tenantAdminUserSearchInput) {

@@ -613,22 +613,191 @@ async function insertTenantUserLifecycleEvent(client, { tenantId, userId, eventT
   );
   return rows[0];
 }
+async function listProjects(client, { tenantId, search }) {
+  const normalizedSearch = search ? `%${String(search).trim().toLowerCase()}%` : null;
+  const { rows } = await client.query(
+    `
+      SELECT
+        pc.project_id,
+        pc.external_project_ref,
+        pc.name,
+        pc.status,
+        pc.is_closed,
+        pc.responsible_code,
+        pc.responsible_name,
+        pc.team_leader_code,
+        pc.team_leader_name,
+        pc.updated_at
+      FROM project_core pc
+      WHERE pc.tenant_id = $1
+        AND (
+          $2::text IS NULL
+          OR lower(coalesce(pc.external_project_ref, '')) LIKE $2
+          OR lower(coalesce(pc.name, '')) LIKE $2
+          OR lower(coalesce(pc.responsible_code, '')) LIKE $2
+          OR lower(coalesce(pc.team_leader_code, '')) LIKE $2
+        )
+      ORDER BY
+        COALESCE(pc.is_closed, false) ASC,
+        pc.external_project_ref ASC NULLS LAST,
+        pc.name ASC NULLS LAST
+      LIMIT 250
+    `,
+    [tenantId, normalizedSearch]
+  );
+  return rows;
+}
+
+async function findProject(client, { tenantId, projectId }) {
+  const { rows } = await client.query(
+    `
+      SELECT
+        project_id,
+        external_project_ref,
+        name,
+        status,
+        is_closed,
+        owner_user_id,
+        responsible_code,
+        responsible_name,
+        team_leader_code,
+        team_leader_name
+      FROM project_core
+      WHERE tenant_id = $1
+        AND project_id = $2
+      LIMIT 1
+    `,
+    [tenantId, projectId]
+  );
+  return rows[0] || null;
+}
+
+async function findAssignableTenantUser(client, { tenantId, userId }) {
+  const { rows } = await client.query(
+    `
+      SELECT
+        tu.id,
+        tu.tenant_id,
+        tu.email,
+        tu.name,
+        tu.role,
+        tu.status,
+        tu.login_status,
+        tu.username,
+        f.fitter_id,
+        f.username AS fitter_username
+      FROM tenant_user tu
+      LEFT JOIN fitter f
+        ON f.tenant_id = tu.tenant_id
+       AND f.tenant_user_id = tu.id
+      WHERE tu.tenant_id = $1
+        AND tu.id = $2
+        AND tu.status IN ('active', 'invited')
+      LIMIT 1
+    `,
+    [tenantId, userId]
+  );
+  return rows[0] || null;
+}
+
+async function listProjectAssignments(client, { tenantId, projectId }) {
+  const { rows } = await client.query(
+    `
+      SELECT
+        pa.id,
+        pa.tenant_id,
+        pa.project_id,
+        pa.tenant_user_id,
+        pa.assignment_role,
+        pa.created_at,
+        pa.updated_at,
+        tu.email,
+        tu.name,
+        tu.role,
+        tu.status,
+        tu.login_status,
+        tu.username,
+        f.fitter_id,
+        f.username AS fitter_username,
+        COALESCE(NULLIF(btrim(f.username), ''), NULLIF(btrim(tu.username), ''), UPPER(NULLIF(btrim(split_part(tu.email, '@', 1)), ''))) AS short_code
+      FROM project_assignment pa
+      JOIN tenant_user tu
+        ON tu.tenant_id = pa.tenant_id
+       AND tu.id = pa.tenant_user_id
+      LEFT JOIN fitter f
+        ON f.tenant_id = tu.tenant_id
+       AND f.tenant_user_id = tu.id
+      WHERE pa.tenant_id = $1
+        AND pa.project_id = $2
+      ORDER BY
+        tu.name ASC NULLS LAST,
+        tu.email ASC NULLS LAST
+    `,
+    [tenantId, projectId]
+  );
+  return rows;
+}
+
+async function upsertProjectAssignment(client, { tenantId, projectId, userId, assignmentRole }) {
+  const { rows } = await client.query(
+    `
+      INSERT INTO project_assignment (tenant_id, project_id, tenant_user_id, assignment_role)
+      VALUES ($1, $2, $3, $4)
+      ON CONFLICT (project_id, tenant_user_id)
+      DO UPDATE SET
+        assignment_role = EXCLUDED.assignment_role,
+        updated_at = now()
+      WHERE project_assignment.tenant_id = EXCLUDED.tenant_id
+      RETURNING
+        id,
+        tenant_id,
+        project_id,
+        tenant_user_id,
+        assignment_role,
+        created_at,
+        updated_at,
+        (xmax = 0) AS inserted
+    `,
+    [tenantId, projectId, userId, assignmentRole]
+  );
+  return rows[0] || null;
+}
+
+async function deleteProjectAssignment(client, { tenantId, projectId, userId }) {
+  const { rows } = await client.query(
+    `
+      DELETE FROM project_assignment
+      WHERE tenant_id = $1
+        AND project_id = $2
+        AND tenant_user_id = $3
+      RETURNING id, tenant_id, project_id, tenant_user_id, assignment_role, created_at, updated_at
+    `,
+    [tenantId, projectId, userId]
+  );
+  return rows[0] || null;
+}
 module.exports = {
   acquireTenantLifecycleLock,
   createManualFitterForTenantUser,
   createManualSyncJob,
   createManualTenantUser,
+  deleteProjectAssignment,
   ensureEndpointSelected,
   findActiveEndpointJob,
+  findAssignableTenantUser,
   countActiveTenantAdmins,
   deactivateTenantUser,
+  findProject,
   findTenantUser,
   findTenantUserByEmail,
   findTenantUserForUpdate,
   hasEkompletIntegration,
+  listProjectAssignments,
+  listProjects,
   listResourceGroups,
   listSyncStatus,
   listUsers,
+  upsertProjectAssignment,
   updateManualFitterForTenantUser,
   insertTenantUserLifecycleEvent,
   requestTenantUserReactivation,
