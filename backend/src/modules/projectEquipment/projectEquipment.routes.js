@@ -44,27 +44,6 @@ function requireProjectEquipmentAccess(req, action) {
   }
 }
 
-function parseAllowList(value) {
-  return new Set(String(value || "")
-    .split(",")
-    .map((entry) => entry.trim().toLowerCase())
-    .filter(Boolean));
-}
-
-function requireProjectEquipmentBetaScope(req) {
-  const tenantAllowList = parseAllowList(process.env.PROJECT_EQUIPMENT_BETA_TENANT_IDS);
-  const projectAllowList = parseAllowList(process.env.PROJECT_EQUIPMENT_BETA_PROJECT_IDS);
-  const userAllowList = parseAllowList(process.env.PROJECT_EQUIPMENT_BETA_USER_IDS);
-  const tenantId = String(req.context?.tenant?.id || "").toLowerCase();
-  const projectId = String(req.params?.projectId || "").toLowerCase();
-  const userId = String(req.auth?.sub || "").toLowerCase();
-
-  if ((tenantAllowList.size > 0 && !tenantAllowList.has(tenantId))
-    || (projectAllowList.size > 0 && !projectAllowList.has(projectId))
-    || (userAllowList.size > 0 && !userAllowList.has(userId))) {
-    throw createHttpError(403, "project_equipment_beta_scope_denied");
-  }
-}
 
 function logRouteError(req, route, method, error) {
   console.error("[projectEquipment.routes] request_failed", {
@@ -297,7 +276,6 @@ router.get("/api/projects/:projectId/equipment/cctv", requireTenantHost, require
   try {
     const { tenantId, userId } = getTenantContext(req);
     requireProjectEquipmentAccess(req, "read");
-    requireProjectEquipmentBetaScope(req);
 
     const result = await projectEquipmentService.listCctvForProject({
       tenantId,
@@ -322,7 +300,6 @@ router.get("/api/projects/:projectId/equipment/cctv/check", requireTenantHost, r
   try {
     const { tenantId, userId } = getTenantContext(req);
     requireProjectEquipmentAccess(req, "read");
-    requireProjectEquipmentBetaScope(req);
 
     const result = await projectEquipmentService.checkCctv({
       tenantId,
@@ -353,7 +330,6 @@ router.get("/api/projects/:projectId/equipment/cctv/export.csv", requireTenantHo
   try {
     const { tenantId, userId } = getTenantContext(req);
     requireProjectEquipmentAccess(req, "export");
-    requireProjectEquipmentBetaScope(req);
 
     const result = await projectEquipmentService.exportCctvCsv({
       tenantId,
@@ -375,7 +351,6 @@ router.get("/api/projects/:projectId/equipment/cctv/export.pdf", requireTenantHo
   try {
     const { tenantId, userId } = getTenantContext(req);
     requireProjectEquipmentAccess(req, "export");
-    requireProjectEquipmentBetaScope(req);
 
     const result = await projectEquipmentService.exportCctvPdf({
       tenantId,
@@ -401,7 +376,6 @@ router.get("/api/projects/:projectId/equipment/cctv/drawings", requireTenantHost
   try {
     const { tenantId, userId } = getTenantContext(req);
     requireProjectEquipmentAccess(req, "read");
-    requireProjectEquipmentBetaScope(req);
 
     const result = await projectEquipmentService.listCctvDrawings({
       tenantId,
@@ -424,7 +398,6 @@ router.post("/api/projects/:projectId/equipment/cctv/drawings", requireTenantHos
   try {
     const { tenantId, userId } = getTenantContext(req);
     requireProjectEquipmentAccess(req, "create");
-    requireProjectEquipmentBetaScope(req);
     const file = await parseSingleImageUpload(req);
 
     const result = await projectEquipmentService.uploadCctvDrawing({
@@ -450,7 +423,6 @@ router.post("/api/projects/:projectId/equipment/cctv/drawings/pdf/import", requi
   try {
     const { tenantId, userId } = getTenantContext(req);
     requireProjectEquipmentAccess(req, "create");
-    requireProjectEquipmentBetaScope(req);
     const upload = await parsePdfDrawingImportUpload(req);
 
     const result = await projectEquipmentService.importCctvDrawingPdfPages({
@@ -475,7 +447,6 @@ router.get("/api/projects/:projectId/equipment/cctv/drawings/:drawingId/content"
   try {
     const { tenantId, userId } = getTenantContext(req);
     requireProjectEquipmentAccess(req, "read");
-    requireProjectEquipmentBetaScope(req);
 
     const result = await projectEquipmentService.getCctvDrawingContent({
       tenantId,
@@ -503,7 +474,6 @@ router.delete("/api/projects/:projectId/equipment/cctv/drawings/:drawingId", req
   try {
     const { tenantId, userId } = getTenantContext(req);
     requireProjectEquipmentAccess(req, "delete");
-    requireProjectEquipmentBetaScope(req);
 
     const result = await projectEquipmentService.deleteCctvDrawing({
       tenantId,
@@ -528,7 +498,6 @@ router.get("/api/projects/:projectId/equipment/cctv/drawings/:drawingId/pins", r
   try {
     const { tenantId, userId } = getTenantContext(req);
     requireProjectEquipmentAccess(req, "read");
-    requireProjectEquipmentBetaScope(req);
 
     const result = await projectEquipmentService.listCctvPins({
       tenantId,
@@ -553,7 +522,6 @@ router.post("/api/projects/:projectId/equipment/cctv/drawings/:drawingId/pins", 
   try {
     const { tenantId, userId } = getTenantContext(req);
     requireProjectEquipmentAccess(req, "update");
-    requireProjectEquipmentBetaScope(req);
 
     const result = await projectEquipmentService.saveCctvPin({
       tenantId,
@@ -580,7 +548,6 @@ router.patch("/api/projects/:projectId/equipment/cctv/drawings/:drawingId/pins/:
   try {
     const { tenantId, userId } = getTenantContext(req);
     requireProjectEquipmentAccess(req, "update");
-    requireProjectEquipmentBetaScope(req);
 
     const result = await projectEquipmentService.updateCctvPin({
       tenantId,
@@ -607,7 +574,6 @@ router.delete("/api/projects/:projectId/equipment/cctv/drawings/:drawingId/pins/
   try {
     const { tenantId, userId } = getTenantContext(req);
     requireProjectEquipmentAccess(req, "delete");
-    requireProjectEquipmentBetaScope(req);
 
     const result = await projectEquipmentService.deleteCctvPin({
       tenantId,
@@ -633,7 +599,6 @@ router.post("/api/projects/:projectId/equipment/cctv", requireTenantHost, requir
   try {
     const { tenantId, userId } = getTenantContext(req);
     requireProjectEquipmentAccess(req, "create");
-    requireProjectEquipmentBetaScope(req);
 
     const result = await projectEquipmentService.createCctv({
       tenantId,
@@ -657,7 +622,6 @@ router.get("/api/projects/:projectId/equipment/cctv/:cameraRecordId/images", req
   try {
     const { tenantId, userId } = getTenantContext(req);
     requireProjectEquipmentAccess(req, "read");
-    requireProjectEquipmentBetaScope(req);
 
     const result = await projectEquipmentService.listCctvImages({
       tenantId,
@@ -682,7 +646,6 @@ router.post("/api/projects/:projectId/equipment/cctv/:cameraRecordId/images/:slo
   try {
     const { tenantId, userId } = getTenantContext(req);
     requireProjectEquipmentAccess(req, "update");
-    requireProjectEquipmentBetaScope(req);
     const file = await parseSingleImageUpload(req);
 
     const result = await projectEquipmentService.uploadCctvImage({
@@ -711,7 +674,6 @@ router.get("/api/projects/:projectId/equipment/cctv/:cameraRecordId/images/:slot
   try {
     const { tenantId, userId } = getTenantContext(req);
     requireProjectEquipmentAccess(req, "read");
-    requireProjectEquipmentBetaScope(req);
 
     const result = await projectEquipmentService.getCctvImageContent({
       tenantId,
@@ -740,7 +702,6 @@ router.delete("/api/projects/:projectId/equipment/cctv/:cameraRecordId/images/:s
   try {
     const { tenantId, userId } = getTenantContext(req);
     requireProjectEquipmentAccess(req, "delete");
-    requireProjectEquipmentBetaScope(req);
 
     const result = await projectEquipmentService.deleteCctvImage({
       tenantId,
@@ -766,7 +727,6 @@ router.patch("/api/projects/:projectId/equipment/cctv/:cameraRecordId", requireT
   try {
     const { tenantId, userId } = getTenantContext(req);
     requireProjectEquipmentAccess(req, "update");
-    requireProjectEquipmentBetaScope(req);
 
     const result = await projectEquipmentService.updateCctv({
       tenantId,
@@ -791,7 +751,6 @@ router.delete("/api/projects/:projectId/equipment/cctv/:cameraRecordId", require
   try {
     const { tenantId, userId } = getTenantContext(req);
     requireProjectEquipmentAccess(req, "delete");
-    requireProjectEquipmentBetaScope(req);
 
     const result = await projectEquipmentService.archiveCctv({
       tenantId,
