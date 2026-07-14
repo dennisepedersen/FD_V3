@@ -16,11 +16,6 @@
     return text || fallback;
   }
 
-  function toNumber(value, fallback = 1) {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : fallback;
-  }
-
   function drawingToEngineDrawing(drawing = {}) {
     const sourceType = toText(drawing.source_type).toLowerCase();
     return {
@@ -49,15 +44,18 @@
       x_percent: pin.x_percent,
       y_percent: pin.y_percent,
     });
+    const label = pin.label || pin.camera?.camera_id || "Kamera";
     return engine.createOverlay({
       id: pin.id || pin.pin_id || null,
       drawing_id: coordinate.drawing_id,
       page_number: coordinate.page_number,
       x_percent: coordinate.x_percent,
       y_percent: coordinate.y_percent,
-      label: pin.label || pin.camera?.camera_id || "Kamera",
+      label,
       status: pin.camera?.status || null,
       source: "project_equipment_cctv_pin",
+      aria_label: `Kamera ${label}`,
+      title: label,
       data: pin,
     });
   }
@@ -69,13 +67,17 @@
       x_percent: point && point.x_percent,
       y_percent: point && point.y_percent,
     });
+    const label = cameraLabel(camera);
     return {
       id: "pending-placement",
       drawing_id: coordinate.drawing_id,
+      page_number: coordinate.page_number,
       camera_record_id: camera && camera.id ? camera.id : null,
       x_percent: coordinate.x_percent,
       y_percent: coordinate.y_percent,
-      label: cameraLabel(camera),
+      label,
+      aria_label: `Ny placering for ${label}`,
+      title: "Ny placering - gem for at bekræfte",
       camera: camera || null,
     };
   }
