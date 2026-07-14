@@ -5781,6 +5781,8 @@
     };
 
     const equipmentUi = Boolean(equipmentSection && equipmentSummaryGrid && equipmentStateNode && equipmentList);
+    const drawingEngine = window.FielddeskDrawingEngine;
+    const cctvDrawingAdapter = window.FielddeskCctvDrawingAdapter;
     const equipmentStatuses = [
       { value: "registered", label: "Registreret", className: "qaBadgeNew" },
       { value: "planned", label: "Planlagt", className: "qaBadgeMuted" },
@@ -8132,7 +8134,7 @@
     }
 
     function isEquipmentPdfDrawing(drawing) {
-      return String(drawing && drawing.source_type || "").toLowerCase() === "pdf_page";
+      return cctvDrawingAdapter.isPdfDrawing(drawing);
     }
 
     async function loadEquipmentPdfJs() {
@@ -8476,9 +8478,10 @@
       const button = document.createElement("button");
       button.type = "button";
       button.className = `equipmentDrawingPin${pin.id === equipmentState.selectedDrawingPinId ? " active" : ""}${options.pending ? " equipmentDrawingPendingPin active" : ""}`;
-      button.style.left = `${pin.x_percent}%`;
-      button.style.top = `${pin.y_percent}%`;
-      const labelText = pin.label || pin.camera?.camera_id || "CAM";
+      const overlay = cctvDrawingAdapter.pinToOverlay(pin);
+      button.style.left = `${overlay.x_percent}%`;
+      button.style.top = `${overlay.y_percent}%`;
+      const labelText = overlay.label || "CAM";
       const marker = document.createElement("span");
       marker.className = "equipmentDrawingPinMarker";
       marker.setAttribute("aria-hidden", "true");
@@ -8540,9 +8543,9 @@
       if (equipmentDrawingZoomValue) equipmentDrawingZoomValue.textContent = `${equipmentState.drawingZoom}%`;
       const stage = getEquipmentDrawingStage();
       if (!stage) return;
-      const zoom = equipmentState.drawingZoom / 100;
-      stage.style.transform = `translate(${equipmentState.drawingPan.x}px, ${equipmentState.drawingPan.y}px) scale(${zoom})`;
-      stage.classList.toggle("isPannable", equipmentState.drawingZoom > EQUIPMENT_DRAWING_DEFAULT_ZOOM);
+      const viewport = { zoom: equipmentState.drawingZoom, pan: equipmentState.drawingPan };
+      stage.style.transform = drawingEngine.viewportTransformStyle(viewport);
+      stage.classList.toggle("isPannable", drawingEngine.isZoomed(viewport, EQUIPMENT_DRAWING_DEFAULT_ZOOM));
       stage.classList.toggle("isPanning", Boolean(equipmentState.drawingIsPanning));
     }
 
@@ -8558,11 +8561,15 @@
     }
 
     function updateEquipmentDrawingZoom(nextZoom) {
-      const clamped = Math.max(EQUIPMENT_DRAWING_MIN_ZOOM, Math.min(EQUIPMENT_DRAWING_MAX_ZOOM, Number(nextZoom) || EQUIPMENT_DRAWING_DEFAULT_ZOOM));
-      equipmentState.drawingZoom = clamped;
-      if (clamped <= EQUIPMENT_DRAWING_DEFAULT_ZOOM) {
-        equipmentState.drawingPan = { x: 0, y: 0 };
-      }
+      const viewport = drawingEngine.createViewportState({
+        zoom: nextZoom,
+        pan: equipmentState.drawingPan,
+        minZoom: EQUIPMENT_DRAWING_MIN_ZOOM,
+        maxZoom: EQUIPMENT_DRAWING_MAX_ZOOM,
+        defaultZoom: EQUIPMENT_DRAWING_DEFAULT_ZOOM,
+      });
+      equipmentState.drawingZoom = viewport.zoom;
+      equipmentState.drawingPan = viewport.pan;
       updateEquipmentDrawingViewportTransform();
     }
 
@@ -8576,7 +8583,7 @@
       equipmentState.drawingTouchPointers.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY });
       if (equipmentState.drawingTouchPointers.size >= 2) {
         const points = Array.from(equipmentState.drawingTouchPointers.values()).slice(0, 2);
-        const distance = Math.hypot(points[0].clientX - points[1].clientX, points[0].clientY - points[1].clientY);
+        const distance = drawingEngine.getDistanceBetweenPoints(points[0], points[1]);
         equipmentState.drawingPinchGesture = { startDistance: distance || 1, startZoom: equipmentState.drawingZoom };
         equipmentState.drawingPanDrag = null;
         equipmentState.drawingIsPanning = false;
@@ -8601,7 +8608,7 @@
       if (equipmentState.drawingPinchGesture && equipmentState.drawingTouchPointers.size >= 2) {
         event.preventDefault();
         const points = Array.from(equipmentState.drawingTouchPointers.values()).slice(0, 2);
-        const distance = Math.hypot(points[0].clientX - points[1].clientX, points[0].clientY - points[1].clientY);
+        const distance = drawingEngine.getDistanceBetweenPoints(points[0], points[1]);
         const ratio = distance / Math.max(1, equipmentState.drawingPinchGesture.startDistance);
         updateEquipmentDrawingZoom(equipmentState.drawingPinchGesture.startZoom * ratio);
         equipmentState.suppressDrawingPlacementClick = true;
@@ -8614,10 +8621,13 @@
       if (Math.hypot(deltaX, deltaY) >= EQUIPMENT_DRAWING_PAN_THRESHOLD) {
         drag.didDrag = true;
         equipmentState.drawingIsPanning = true;
-        equipmentState.drawingPan = {
-          x: drag.startPan.x + deltaX,
-          y: drag.startPan.y + deltaY,
-        };
+        equipmentState.drawingPan = drawingEngine.nextPanFromDrag({
+          startPan: drag.startPan,
+          startClientX: drag.startClientX,
+          startClientY: drag.startClientY,
+          clientX: event.clientX,
+          clientY: event.clientY,
+        });
         updateEquipmentDrawingViewportTransform();
       }
     }
@@ -8875,19 +8885,14 @@
         equipmentState.suppressDrawingPlacementClick = false;
         return;
       }
-      const rect = surface.getBoundingClientRect();
-      const x = ((event.clientX - rect.left) / rect.width) * 100;
-      const y = ((event.clientY - rect.top) / rect.height) * 100;
+      const point = drawingEngine.pointerEventToPercent(surface, event);
+      if (!point) return;
       const camera = getEquipmentCameraById(equipmentState.drawingPlacementCameraId);
-      equipmentState.drawingPendingPlacement = {
-        id: "pending-placement",
-        drawing_id: equipmentState.activeDrawingId,
-        camera_record_id: equipmentState.drawingPlacementCameraId,
-        x_percent: Math.max(0, Math.min(100, x)),
-        y_percent: Math.max(0, Math.min(100, y)),
-        label: camera ? getEquipmentCameraLabel(camera) : "Kamera",
-        camera: camera || null,
-      };
+      equipmentState.drawingPendingPlacement = cctvDrawingAdapter.pendingPlacementToOverlay({
+        drawingId: equipmentState.activeDrawingId,
+        camera: camera || { id: equipmentState.drawingPlacementCameraId, camera_id: "Kamera" },
+        point,
+      });
       setEquipmentDrawingStatus("Placering valgt. Tryk Gem placering for at bekræfte.");
       updateEquipmentDrawingWorkspaceUi();
       renderEquipmentDrawingCanvas();
@@ -8902,12 +8907,7 @@
         if (equipmentDrawingConfirmPlacementBtn) equipmentDrawingConfirmPlacementBtn.disabled = true;
         const result = await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/equipment/cctv/drawings/${encodeURIComponent(pending.drawing_id)}/pins`, {
           method: "POST",
-          body: JSON.stringify({
-            camera_record_id: pending.camera_record_id,
-            x_percent: pending.x_percent,
-            y_percent: pending.y_percent,
-            label: pending.label,
-          }),
+          body: JSON.stringify(cctvDrawingAdapter.pinSavePayload(pending)),
         });
         const cameraId = pending.camera_record_id;
         const savedPinId = result?.pin?.id || null;
