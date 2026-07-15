@@ -385,6 +385,7 @@ async function insertDrawing(client, { tenantId, projectId, payload, actorUserId
   const { rows } = await client.query(
     `
       INSERT INTO project_restarbejde_drawing (
+        id,
         tenant_id,
         project_id,
         title,
@@ -397,7 +398,7 @@ async function insertDrawing(client, { tenantId, projectId, payload, actorUserId
         created_by_user_id,
         updated_by_user_id
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
       RETURNING
         id,
         tenant_id,
@@ -417,6 +418,7 @@ async function insertDrawing(client, { tenantId, projectId, payload, actorUserId
         archived_by_user_id
     `,
     [
+      payload.id,
       tenantId,
       projectId,
       payload.title,
@@ -682,6 +684,7 @@ async function insertAttachment(client, { tenantId, projectId, itemId, payload, 
   const { rows } = await client.query(
     `
       INSERT INTO project_restarbejde_attachment (
+        id,
         tenant_id,
         project_id,
         item_id,
@@ -693,7 +696,7 @@ async function insertAttachment(client, { tenantId, projectId, itemId, payload, 
         caption,
         created_by_user_id
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
       RETURNING
         id,
         tenant_id,
@@ -710,7 +713,7 @@ async function insertAttachment(client, { tenantId, projectId, itemId, payload, 
         archived_at,
         archived_by_user_id
     `,
-    [tenantId, projectId, itemId, payload.storageObjectId, payload.attachmentType, payload.originalFilename, payload.mimeType, payload.fileSizeBytes, payload.caption, actorUserId]
+    [payload.id, tenantId, projectId, itemId, payload.storageObjectId, payload.attachmentType, payload.originalFilename, payload.mimeType, payload.fileSizeBytes, payload.caption, actorUserId]
   );
   return rows[0];
 }

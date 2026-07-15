@@ -26,8 +26,19 @@ const ALLOWED_IMAGE_TYPES = Object.freeze({
   "image/webp": Object.freeze([".webp"]),
 });
 const PDF_CONTENT_TYPE = "application/pdf";
-const DEFAULT_PDF_MAX_UPLOAD_MB = 50;
-const DEFAULT_DOCUMENT_MAX_UPLOAD_MB = 25;
+const PDF_DRAWING_MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+const DOCUMENT_ATTACHMENT_MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
+const INLINE_CONTENT_TYPES = new Set(["image/jpeg", "image/png", "image/webp", PDF_CONTENT_TYPE]);
+const UNSAFE_ATTACHMENT_MIME_TYPES = new Set([
+  "text/html",
+  "application/xhtml+xml",
+  "image/svg+xml",
+  "application/javascript",
+  "application/ecmascript",
+  "application/x-javascript",
+  "text/javascript",
+  "text/ecmascript",
+]);
 const ATTACHMENT_TYPES = Object.freeze(["photo", "document", "other"]);
 let pdfJsModulePromise = null;
 
@@ -58,13 +69,11 @@ function getAllowedExtension({ contentType, originalFilename, allowedTypes, erro
 }
 
 function getPdfMaxUploadBytes() {
-  const configured = Number(process.env.FD_DRAWING_PDF_MAX_UPLOAD_MB || DEFAULT_PDF_MAX_UPLOAD_MB);
-  const mb = Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_PDF_MAX_UPLOAD_MB;
-  return Math.floor(mb * 1024 * 1024);
+  return PDF_DRAWING_MAX_UPLOAD_BYTES;
 }
 
 function getDocumentMaxUploadBytes() {
-  return Math.floor(DEFAULT_DOCUMENT_MAX_UPLOAD_MB * 1024 * 1024);
+  return DOCUMENT_ATTACHMENT_MAX_UPLOAD_BYTES;
 }
 
 function validateUploadBuffer(file, requiredKey) {
@@ -73,9 +82,57 @@ function validateUploadBuffer(file, requiredKey) {
   }
 }
 
+function normalizeContentType(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function isUnsafeAttachmentContentType(contentType) {
+  const normalized = normalizeContentType(contentType);
+  return UNSAFE_ATTACHMENT_MIME_TYPES.has(normalized) || normalized === "application/xml" || normalized === "text/xml" || normalized.endsWith("+xml");
+}
+
+function getContentDisposition(contentType) {
+  return INLINE_CONTENT_TYPES.has(normalizeContentType(contentType)) ? "inline" : "attachment";
+}
+
+function hasJpegSignature(buffer) {
+  return buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+}
+
+function hasPngSignature(buffer) {
+  return buffer.length >= 8
+    && buffer[0] === 0x89
+    && buffer[1] === 0x50
+    && buffer[2] === 0x4e
+    && buffer[3] === 0x47
+    && buffer[4] === 0x0d
+    && buffer[5] === 0x0a
+    && buffer[6] === 0x1a
+    && buffer[7] === 0x0a;
+}
+
+function hasWebpSignature(buffer) {
+  return buffer.length >= 12
+    && buffer.toString("ascii", 0, 4) === "RIFF"
+    && buffer.toString("ascii", 8, 12) === "WEBP";
+}
+
+function validateImageContent(contentType, buffer) {
+  const valid = contentType === "image/jpeg"
+    ? hasJpegSignature(buffer)
+    : contentType === "image/png"
+      ? hasPngSignature(buffer)
+      : contentType === "image/webp"
+        ? hasWebpSignature(buffer)
+        : false;
+  if (!valid) {
+    throw createHttpError(400, "invalid_restarbejde_image_content");
+  }
+}
+
 function validateDrawingFile(file) {
   validateUploadBuffer(file, "restarbejde_drawing_file_required");
-  const contentType = String(file.contentType || "").trim().toLowerCase();
+  const contentType = normalizeContentType(file.contentType);
   const originalFilename = normalizeOptionalText(file.filename);
 
   if (contentType === PDF_CONTENT_TYPE) {
@@ -102,6 +159,7 @@ function validateDrawingFile(file) {
   if (file.buffer.length > fileStorageService.getMaxUploadBytes()) {
     throw createHttpError(413, "restarbejde_drawing_file_too_large");
   }
+  validateImageContent(contentType, file.buffer);
   const extension = getAllowedExtension({
     contentType,
     originalFilename,
@@ -121,7 +179,7 @@ function validateDrawingFile(file) {
 
 function validateAttachmentFile(file, attachmentType) {
   validateUploadBuffer(file, "restarbejde_attachment_file_required");
-  const contentType = String(file.contentType || "").trim().toLowerCase();
+  const contentType = normalizeContentType(file.contentType);
   const originalFilename = normalizeOptionalText(file.filename);
   if (attachmentType === "photo") {
     if (!Object.prototype.hasOwnProperty.call(ALLOWED_IMAGE_TYPES, contentType)) {
@@ -130,6 +188,7 @@ function validateAttachmentFile(file, attachmentType) {
     if (file.buffer.length > fileStorageService.getMaxUploadBytes()) {
       throw createHttpError(413, "restarbejde_attachment_file_too_large");
     }
+    validateImageContent(contentType, file.buffer);
     const extension = getAllowedExtension({
       contentType,
       originalFilename,
@@ -140,6 +199,9 @@ function validateAttachmentFile(file, attachmentType) {
   }
   if (!/^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/.test(contentType)) {
     throw createHttpError(400, "invalid_restarbejde_attachment_mime");
+  }
+  if (isUnsafeAttachmentContentType(contentType)) {
+    throw createHttpError(400, "unsafe_restarbejde_attachment_mime");
   }
   if (file.buffer.length > getDocumentMaxUploadBytes()) {
     throw createHttpError(413, "restarbejde_attachment_file_too_large");
@@ -727,11 +789,12 @@ async function uploadDrawing({ tenantId, userId, projectId, file, title }) {
     }
   }
 
+  const drawingId = crypto.randomUUID();
   let uploadedObject = null;
   try {
     return await withTransaction(async (client) => {
       const projectContext = await requireProject(client, { tenantId, userId, projectId });
-      const storageKey = buildStorageKey({ tenantId, projectId: projectContext.projectId, category: "drawings", extension: drawingFile.extension });
+      const storageKey = buildStorageKey({ tenantId, projectId: projectContext.projectId, category: "drawings", resourceId: drawingId, extension: drawingFile.extension });
       uploadedObject = await fileStorageService.putObject({
         tenantId,
         projectId: projectContext.projectId,
@@ -745,20 +808,21 @@ async function uploadDrawing({ tenantId, userId, projectId, file, title }) {
         projectId: projectContext.projectId,
         moduleKey: MODULE_KEY,
         resourceType: DRAWING_RESOURCE_TYPE,
-        resourceId: projectContext.projectId,
+        resourceId: drawingId,
         storageProvider: uploadedObject.provider,
         storageKey: uploadedObject.key,
         originalFilename: drawingFile.originalFilename,
         contentType: drawingFile.contentType,
         byteSize: drawingFile.byteSize,
         checksumSha256: drawingFile.checksumSha256,
-        metadata: { title: drawingTitle, source_type: drawingFile.sourceType, page_count: pageCount },
+        metadata: { drawing_id: drawingId, title: drawingTitle, source_type: drawingFile.sourceType, page_count: pageCount },
         actorUserId: userId,
       });
       const drawing = await repository.insertDrawing(client, {
         tenantId,
         projectId: projectContext.projectId,
         payload: {
+          id: drawingId,
           title: drawingTitle,
           sourceType: drawingFile.sourceType,
           storageObjectId: storageObject.id,
@@ -793,7 +857,7 @@ async function getDrawingContent({ tenantId, userId, projectId, drawingId }) {
     const drawing = await repository.findDrawingById(client, { tenantId, projectId: projectContext.projectId, drawingId, includeArchived: false });
     if (!drawing) throw createHttpError(404, "restarbejde_drawing_not_found");
     const object = await fileStorageService.getObjectStream({ key: drawing.storage_key });
-    return { project: projectContext.project, drawing: mapDrawing(drawing), contentType: drawing.mime_type || object.contentType, contentLength: drawing.file_size_bytes || object.contentLength, stream: object.stream };
+    return { project: projectContext.project, drawing: mapDrawing(drawing), contentType: drawing.mime_type || object.contentType, contentLength: drawing.file_size_bytes || object.contentLength, contentDisposition: "inline", stream: object.stream };
   } finally {
     client.release();
   }
@@ -919,16 +983,17 @@ async function uploadAttachment({ tenantId, userId, projectId, itemId, file, att
   }
   const attachmentFile = validateAttachmentFile(file, normalizedType);
   const normalizedCaption = normalizeOptionalText(caption)?.slice(0, 240) || null;
+  const attachmentId = crypto.randomUUID();
   let uploadedObject = null;
   try {
     return await withTransaction(async (client) => {
       const projectContext = await requireProject(client, { tenantId, userId, projectId });
       const item = await repository.findItemById(client, { tenantId, projectId: projectContext.projectId, itemId, includeArchived: false });
       if (!item) throw createHttpError(404, "restarbejde_item_not_found");
-      const storageKey = buildStorageKey({ tenantId, projectId: projectContext.projectId, category: "attachments", resourceId: itemId, extension: attachmentFile.extension });
-      uploadedObject = await fileStorageService.putObject({ tenantId, projectId: projectContext.projectId, key: storageKey, buffer: attachmentFile.buffer, contentType: attachmentFile.contentType, metadata: { module_key: MODULE_KEY, resource_type: ATTACHMENT_RESOURCE_TYPE, item_id: itemId, attachment_type: normalizedType } });
-      const storageObject = await storageObjectQueries.insertStorageObject(client, { tenantId, projectId: projectContext.projectId, moduleKey: MODULE_KEY, resourceType: ATTACHMENT_RESOURCE_TYPE, resourceId: itemId, storageProvider: uploadedObject.provider, storageKey: uploadedObject.key, originalFilename: attachmentFile.originalFilename, contentType: attachmentFile.contentType, byteSize: attachmentFile.byteSize, checksumSha256: attachmentFile.checksumSha256, metadata: { item_id: itemId, attachment_type: normalizedType, caption: normalizedCaption }, actorUserId: userId });
-      const attachment = await repository.insertAttachment(client, { tenantId, projectId: projectContext.projectId, itemId, payload: { storageObjectId: storageObject.id, attachmentType: normalizedType, originalFilename: attachmentFile.originalFilename, mimeType: attachmentFile.contentType, fileSizeBytes: attachmentFile.byteSize, caption: normalizedCaption }, actorUserId: userId });
+      const storageKey = buildStorageKey({ tenantId, projectId: projectContext.projectId, category: "attachments", resourceId: attachmentId, extension: attachmentFile.extension });
+      uploadedObject = await fileStorageService.putObject({ tenantId, projectId: projectContext.projectId, key: storageKey, buffer: attachmentFile.buffer, contentType: attachmentFile.contentType, metadata: { module_key: MODULE_KEY, resource_type: ATTACHMENT_RESOURCE_TYPE, item_id: itemId, attachment_id: attachmentId, attachment_type: normalizedType } });
+      const storageObject = await storageObjectQueries.insertStorageObject(client, { tenantId, projectId: projectContext.projectId, moduleKey: MODULE_KEY, resourceType: ATTACHMENT_RESOURCE_TYPE, resourceId: attachmentId, storageProvider: uploadedObject.provider, storageKey: uploadedObject.key, originalFilename: attachmentFile.originalFilename, contentType: attachmentFile.contentType, byteSize: attachmentFile.byteSize, checksumSha256: attachmentFile.checksumSha256, metadata: { item_id: itemId, attachment_id: attachmentId, attachment_type: normalizedType, caption: normalizedCaption }, actorUserId: userId });
+      const attachment = await repository.insertAttachment(client, { tenantId, projectId: projectContext.projectId, itemId, payload: { id: attachmentId, storageObjectId: storageObject.id, attachmentType: normalizedType, originalFilename: attachmentFile.originalFilename, mimeType: attachmentFile.contentType, fileSizeBytes: attachmentFile.byteSize, caption: normalizedCaption }, actorUserId: userId });
       await audit(client, { tenantId, userId, eventType: "restarbejde.attachment_created", resourceType: ATTACHMENT_RESOURCE_TYPE, resourceId: attachment.id, projectId: projectContext.projectId, metadata: { item_id: itemId, attachment_id: attachment.id, storage_object_id: storageObject.id, attachment_type: normalizedType, filename: attachment.original_filename, mime_type: attachment.mime_type } });
       return { project: projectContext.project, item: mapItem(item), attachment: mapAttachment({ ...attachment, storage_provider: storageObject.storage_provider, storage_key: storageObject.storage_key, content_type: storageObject.content_type, byte_size: storageObject.byte_size, checksum_sha256: storageObject.checksum_sha256, metadata: storageObject.metadata }) };
     });
@@ -947,7 +1012,8 @@ async function getAttachmentContent({ tenantId, userId, projectId, itemId, attac
     const attachment = await repository.findAttachmentById(client, { tenantId, projectId: projectContext.projectId, itemId, attachmentId, includeArchived: false });
     if (!attachment) throw createHttpError(404, "restarbejde_attachment_not_found");
     const object = await fileStorageService.getObjectStream({ key: attachment.storage_key });
-    return { project: projectContext.project, item: mapItem(item), attachment: mapAttachment(attachment), contentType: attachment.mime_type || object.contentType, contentLength: attachment.file_size_bytes || object.contentLength, stream: object.stream };
+    const contentType = attachment.mime_type || object.contentType;
+    return { project: projectContext.project, item: mapItem(item), attachment: mapAttachment(attachment), contentType, contentLength: attachment.file_size_bytes || object.contentLength, contentDisposition: getContentDisposition(contentType), stream: object.stream };
   } finally {
     client.release();
   }
@@ -992,6 +1058,10 @@ module.exports = {
     mapDrawing,
     mapPlacement,
     mapSummary,
+    getContentDisposition,
+    getDocumentMaxUploadBytes,
+    getPdfMaxUploadBytes,
+    isUnsafeAttachmentContentType,
     normalizeAttachmentType,
     normalizeListFilters,
     normalizePageNumber,
@@ -999,5 +1069,6 @@ module.exports = {
     normalizePercentCoordinate,
     validateAttachmentFile,
     validateDrawingFile,
+    validateImageContent,
   },
 };

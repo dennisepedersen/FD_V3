@@ -120,7 +120,7 @@ CREATE TABLE project_restarbejde_drawing (
   ),
   CONSTRAINT ck_project_restarbejde_drawing_archive_state CHECK (
     (archived_at IS NULL AND archived_by_user_id IS NULL)
-    OR archived_at IS NOT NULL
+    OR (archived_at IS NOT NULL AND archived_by_user_id IS NOT NULL AND archived_at >= created_at)
   )
 );
 
@@ -171,8 +171,8 @@ CREATE TABLE project_restarbejde_placement (
   archived_by_user_id uuid NULL,
   CONSTRAINT fk_project_restarbejde_placement_tenant FOREIGN KEY (tenant_id) REFERENCES tenant(id) ON DELETE CASCADE,
   CONSTRAINT fk_project_restarbejde_placement_project FOREIGN KEY (project_id, tenant_id) REFERENCES project_core(project_id, tenant_id) ON DELETE RESTRICT,
-  CONSTRAINT fk_project_restarbejde_placement_item FOREIGN KEY (item_id, tenant_id, project_id) REFERENCES project_restarbejde_item(id, tenant_id, project_id) ON DELETE CASCADE,
-  CONSTRAINT fk_project_restarbejde_placement_drawing FOREIGN KEY (drawing_id, tenant_id, project_id) REFERENCES project_restarbejde_drawing(id, tenant_id, project_id) ON DELETE CASCADE,
+  CONSTRAINT fk_project_restarbejde_placement_item FOREIGN KEY (item_id, tenant_id, project_id) REFERENCES project_restarbejde_item(id, tenant_id, project_id) ON DELETE RESTRICT,
+  CONSTRAINT fk_project_restarbejde_placement_drawing FOREIGN KEY (drawing_id, tenant_id, project_id) REFERENCES project_restarbejde_drawing(id, tenant_id, project_id) ON DELETE RESTRICT,
   CONSTRAINT fk_project_restarbejde_placement_created_by_user FOREIGN KEY (created_by_user_id, tenant_id) REFERENCES tenant_user(id, tenant_id) ON DELETE RESTRICT,
   CONSTRAINT fk_project_restarbejde_placement_updated_by_user FOREIGN KEY (updated_by_user_id, tenant_id) REFERENCES tenant_user(id, tenant_id) ON DELETE RESTRICT,
   CONSTRAINT fk_project_restarbejde_placement_archived_by_user FOREIGN KEY (archived_by_user_id, tenant_id) REFERENCES tenant_user(id, tenant_id) ON DELETE SET NULL (archived_by_user_id),
@@ -183,7 +183,7 @@ CREATE TABLE project_restarbejde_placement (
   CONSTRAINT ck_project_restarbejde_placement_label_not_blank CHECK (label IS NULL OR btrim(label) <> ''),
   CONSTRAINT ck_project_restarbejde_placement_archive_state CHECK (
     (archived_at IS NULL AND archived_by_user_id IS NULL)
-    OR archived_at IS NOT NULL
+    OR (archived_at IS NOT NULL AND archived_by_user_id IS NOT NULL AND archived_at >= created_at)
   )
 );
 
@@ -234,7 +234,7 @@ CREATE TABLE project_restarbejde_attachment (
   archived_by_user_id uuid NULL,
   CONSTRAINT fk_project_restarbejde_attachment_tenant FOREIGN KEY (tenant_id) REFERENCES tenant(id) ON DELETE CASCADE,
   CONSTRAINT fk_project_restarbejde_attachment_project FOREIGN KEY (project_id, tenant_id) REFERENCES project_core(project_id, tenant_id) ON DELETE RESTRICT,
-  CONSTRAINT fk_project_restarbejde_attachment_item FOREIGN KEY (item_id, tenant_id, project_id) REFERENCES project_restarbejde_item(id, tenant_id, project_id) ON DELETE CASCADE,
+  CONSTRAINT fk_project_restarbejde_attachment_item FOREIGN KEY (item_id, tenant_id, project_id) REFERENCES project_restarbejde_item(id, tenant_id, project_id) ON DELETE RESTRICT,
   CONSTRAINT fk_project_restarbejde_attachment_storage_object FOREIGN KEY (storage_object_id, tenant_id) REFERENCES storage_object(id, tenant_id) ON DELETE RESTRICT,
   CONSTRAINT fk_project_restarbejde_attachment_created_by_user FOREIGN KEY (created_by_user_id, tenant_id) REFERENCES tenant_user(id, tenant_id) ON DELETE RESTRICT,
   CONSTRAINT fk_project_restarbejde_attachment_archived_by_user FOREIGN KEY (archived_by_user_id, tenant_id) REFERENCES tenant_user(id, tenant_id) ON DELETE SET NULL (archived_by_user_id),
@@ -246,7 +246,7 @@ CREATE TABLE project_restarbejde_attachment (
   CONSTRAINT ck_project_restarbejde_attachment_caption_not_blank CHECK (caption IS NULL OR btrim(caption) <> ''),
   CONSTRAINT ck_project_restarbejde_attachment_archive_state CHECK (
     (archived_at IS NULL AND archived_by_user_id IS NULL)
-    OR archived_at IS NOT NULL
+    OR (archived_at IS NOT NULL AND archived_by_user_id IS NOT NULL AND archived_at >= created_at)
   )
 );
 

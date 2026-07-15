@@ -120,11 +120,17 @@ function parseSingleUpload(req, { fileRequiredKey = "restarbejde_file_required",
   });
 }
 
+function getContentDispositionHeader(result, fallbackName) {
+  const disposition = result.contentDisposition === "inline" ? "inline" : "attachment";
+  const filename = safeInlineFilename(result.drawing?.original_filename || result.attachment?.original_filename || fallbackName);
+  return `${disposition}; filename="${filename}"`;
+}
+
 function streamContent(res, next, result, fallbackName) {
   res.setHeader("Content-Type", result.contentType || "application/octet-stream");
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Cache-Control", "private, no-store");
-  res.setHeader("Content-Disposition", `inline; filename="${safeInlineFilename(result.drawing?.original_filename || result.attachment?.original_filename || fallbackName)}"`);
+  res.setHeader("Content-Disposition", getContentDispositionHeader(result, fallbackName));
   if (result.contentLength != null) {
     res.setHeader("Content-Length", String(result.contentLength));
   }
@@ -454,4 +460,5 @@ router.post("/api/projects/:projectId/restarbejde/items/:itemId/attachments/:att
     next(error);
   }
 });
+router._test = { getContentDispositionHeader, parseSingleUpload, safeInlineFilename };
 module.exports = router;
