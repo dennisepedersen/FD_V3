@@ -1,18 +1,46 @@
+const crypto = require("crypto");
+const path = require("path");
 const pool = require("../../db/pool");
 const { withTransaction } = require("../../db/tx");
 const { createHttpError } = require("../../middleware/errorHandler");
 const auditService = require("../../services/auditService");
+const storageObjectQueries = require("../../db/queries/storageObject");
+const fileStorageService = require("../../services/fileStorageService");
 const projectAccessService = require("../../services/projectAccessService");
 const repository = require("./restarbejde.repository");
 
 const MODULE_KEY = "project_restarbejde";
-const RESOURCE_TYPE = "project_restarbejde_item";
+const ITEM_RESOURCE_TYPE = "project_restarbejde_item";
+const DRAWING_RESOURCE_TYPE = "project_restarbejde_drawing";
+const PLACEMENT_RESOURCE_TYPE = "project_restarbejde_placement";
+const ATTACHMENT_RESOURCE_TYPE = "project_restarbejde_attachment";
 const KINDS = Object.freeze(["internal_defect", "obs"]);
 const INTERNAL_DEFECT_STATUSES = Object.freeze(["open", "in_progress", "ready_for_review", "closed"]);
 const OBS_STATUSES = Object.freeze(["open", "monitoring", "blocking", "resolved"]);
 const PRIORITIES = Object.freeze(["low", "normal", "high", "critical"]);
 const RISKS = Object.freeze(["low", "medium", "high", "critical"]);
 const CLIENT_MANAGED_IMPORT_FIELDS = Object.freeze(["source", "external_import_id", "external_import_payload"]);
+const ALLOWED_IMAGE_TYPES = Object.freeze({
+  "image/jpeg": Object.freeze([".jpg", ".jpeg"]),
+  "image/png": Object.freeze([".png"]),
+  "image/webp": Object.freeze([".webp"]),
+});
+const PDF_CONTENT_TYPE = "application/pdf";
+const PDF_DRAWING_MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+const DOCUMENT_ATTACHMENT_MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
+const INLINE_CONTENT_TYPES = new Set(["image/jpeg", "image/png", "image/webp", PDF_CONTENT_TYPE]);
+const UNSAFE_ATTACHMENT_MIME_TYPES = new Set([
+  "text/html",
+  "application/xhtml+xml",
+  "image/svg+xml",
+  "application/javascript",
+  "application/ecmascript",
+  "application/x-javascript",
+  "text/javascript",
+  "text/ecmascript",
+]);
+const ATTACHMENT_TYPES = Object.freeze(["photo", "document", "other"]);
+let pdfJsModulePromise = null;
 
 function normalizeOptionalText(value) {
   if (value === null || value === undefined) return null;
@@ -24,6 +52,313 @@ function normalizeRequiredText(value, message) {
   const normalized = normalizeOptionalText(value);
   if (!normalized) throw createHttpError(400, message);
   return normalized;
+}
+
+function getOriginalFileExtension(filename) {
+  const basename = path.basename(String(filename || "").trim()).toLowerCase();
+  return path.extname(basename) || null;
+}
+
+function getAllowedExtension({ contentType, originalFilename, allowedTypes, errorKey }) {
+  const allowedExtensions = allowedTypes[contentType] || [];
+  const originalExt = getOriginalFileExtension(originalFilename);
+  if (originalExt && !allowedExtensions.includes(originalExt)) {
+    throw createHttpError(400, errorKey);
+  }
+  return originalExt || allowedExtensions[0] || ".bin";
+}
+
+function getPdfMaxUploadBytes() {
+  return PDF_DRAWING_MAX_UPLOAD_BYTES;
+}
+
+function getDocumentMaxUploadBytes() {
+  return DOCUMENT_ATTACHMENT_MAX_UPLOAD_BYTES;
+}
+
+function validateUploadBuffer(file, requiredKey) {
+  if (!file || !Buffer.isBuffer(file.buffer) || file.buffer.length === 0) {
+    throw createHttpError(400, requiredKey);
+  }
+}
+
+function normalizeContentType(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function isUnsafeAttachmentContentType(contentType) {
+  const normalized = normalizeContentType(contentType);
+  return UNSAFE_ATTACHMENT_MIME_TYPES.has(normalized) || normalized === "application/xml" || normalized === "text/xml" || normalized.endsWith("+xml");
+}
+
+function getContentDisposition(contentType) {
+  return INLINE_CONTENT_TYPES.has(normalizeContentType(contentType)) ? "inline" : "attachment";
+}
+
+function hasJpegSignature(buffer) {
+  return buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+}
+
+function hasPngSignature(buffer) {
+  return buffer.length >= 8
+    && buffer[0] === 0x89
+    && buffer[1] === 0x50
+    && buffer[2] === 0x4e
+    && buffer[3] === 0x47
+    && buffer[4] === 0x0d
+    && buffer[5] === 0x0a
+    && buffer[6] === 0x1a
+    && buffer[7] === 0x0a;
+}
+
+function hasWebpSignature(buffer) {
+  return buffer.length >= 12
+    && buffer.toString("ascii", 0, 4) === "RIFF"
+    && buffer.toString("ascii", 8, 12) === "WEBP";
+}
+
+function validateImageContent(contentType, buffer) {
+  const valid = contentType === "image/jpeg"
+    ? hasJpegSignature(buffer)
+    : contentType === "image/png"
+      ? hasPngSignature(buffer)
+      : contentType === "image/webp"
+        ? hasWebpSignature(buffer)
+        : false;
+  if (!valid) {
+    throw createHttpError(400, "invalid_restarbejde_image_content");
+  }
+}
+
+function validateDrawingFile(file) {
+  validateUploadBuffer(file, "restarbejde_drawing_file_required");
+  const contentType = normalizeContentType(file.contentType);
+  const originalFilename = normalizeOptionalText(file.filename);
+
+  if (contentType === PDF_CONTENT_TYPE) {
+    if (getOriginalFileExtension(originalFilename) !== ".pdf") {
+      throw createHttpError(400, "invalid_restarbejde_drawing_extension");
+    }
+    if (file.buffer.length > getPdfMaxUploadBytes()) {
+      throw createHttpError(413, "restarbejde_drawing_file_too_large");
+    }
+    return {
+      buffer: file.buffer,
+      byteSize: file.buffer.length,
+      contentType,
+      extension: ".pdf",
+      originalFilename,
+      sourceType: "pdf",
+      checksumSha256: crypto.createHash("sha256").update(file.buffer).digest("hex"),
+    };
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(ALLOWED_IMAGE_TYPES, contentType)) {
+    throw createHttpError(400, "invalid_restarbejde_drawing_mime");
+  }
+  if (file.buffer.length > fileStorageService.getMaxUploadBytes()) {
+    throw createHttpError(413, "restarbejde_drawing_file_too_large");
+  }
+  validateImageContent(contentType, file.buffer);
+  const extension = getAllowedExtension({
+    contentType,
+    originalFilename,
+    allowedTypes: ALLOWED_IMAGE_TYPES,
+    errorKey: "invalid_restarbejde_drawing_extension",
+  });
+  return {
+    buffer: file.buffer,
+    byteSize: file.buffer.length,
+    contentType,
+    extension,
+    originalFilename,
+    sourceType: "image",
+    checksumSha256: crypto.createHash("sha256").update(file.buffer).digest("hex"),
+  };
+}
+
+function validateAttachmentFile(file, attachmentType) {
+  validateUploadBuffer(file, "restarbejde_attachment_file_required");
+  const contentType = normalizeContentType(file.contentType);
+  const originalFilename = normalizeOptionalText(file.filename);
+  if (attachmentType === "photo") {
+    if (!Object.prototype.hasOwnProperty.call(ALLOWED_IMAGE_TYPES, contentType)) {
+      throw createHttpError(400, "invalid_restarbejde_attachment_mime");
+    }
+    if (file.buffer.length > fileStorageService.getMaxUploadBytes()) {
+      throw createHttpError(413, "restarbejde_attachment_file_too_large");
+    }
+    validateImageContent(contentType, file.buffer);
+    const extension = getAllowedExtension({
+      contentType,
+      originalFilename,
+      allowedTypes: ALLOWED_IMAGE_TYPES,
+      errorKey: "invalid_restarbejde_attachment_extension",
+    });
+    return { buffer: file.buffer, byteSize: file.buffer.length, contentType, extension, originalFilename, checksumSha256: crypto.createHash("sha256").update(file.buffer).digest("hex") };
+  }
+  if (!/^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/.test(contentType)) {
+    throw createHttpError(400, "invalid_restarbejde_attachment_mime");
+  }
+  if (isUnsafeAttachmentContentType(contentType)) {
+    throw createHttpError(400, "unsafe_restarbejde_attachment_mime");
+  }
+  if (file.buffer.length > getDocumentMaxUploadBytes()) {
+    throw createHttpError(413, "restarbejde_attachment_file_too_large");
+  }
+  return {
+    buffer: file.buffer,
+    byteSize: file.buffer.length,
+    contentType,
+    extension: getOriginalFileExtension(originalFilename) || ".bin",
+    originalFilename,
+    checksumSha256: crypto.createHash("sha256").update(file.buffer).digest("hex"),
+  };
+}
+
+async function getPdfJsModule() {
+  if (!pdfJsModulePromise) {
+    pdfJsModulePromise = import("pdfjs-dist/legacy/build/pdf.mjs");
+  }
+  return pdfJsModulePromise;
+}
+
+async function getPdfPageCount(buffer) {
+  const pdfjs = await getPdfJsModule();
+  const loadingTask = pdfjs.getDocument({ data: new Uint8Array(buffer), disableWorker: true, isEvalSupported: false });
+  const document = await loadingTask.promise;
+  try {
+    return Number(document.numPages || 0);
+  } finally {
+    await document.destroy();
+  }
+}
+
+function normalizeTitle(value, fallback, errorKey = "restarbejde_title_required") {
+  return normalizeRequiredText(normalizeOptionalText(value) || normalizeOptionalText(fallback), errorKey).slice(0, 160);
+}
+
+function normalizeAttachmentType(value) {
+  const normalized = normalizeOptionalText(value) || "photo";
+  if (!ATTACHMENT_TYPES.includes(normalized)) {
+    throw createHttpError(400, "unsupported_restarbejde_attachment_type");
+  }
+  return normalized;
+}
+
+function normalizeLabel(value) {
+  return normalizeOptionalText(value)?.slice(0, 80) || null;
+}
+
+function normalizePageNumber(value, drawing) {
+  const pageNumber = Number(value == null || value === "" ? 1 : value);
+  if (!Number.isInteger(pageNumber) || pageNumber < 1) {
+    throw createHttpError(400, "invalid_restarbejde_page_number");
+  }
+  if (drawing?.source_type === "image" && pageNumber !== 1) {
+    throw createHttpError(400, "invalid_restarbejde_page_number");
+  }
+  if (drawing?.page_count && pageNumber > Number(drawing.page_count)) {
+    throw createHttpError(400, "invalid_restarbejde_page_number");
+  }
+  return pageNumber;
+}
+
+function normalizePercentCoordinate(value, fieldName) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0 || number > 100) {
+    throw createHttpError(400, "invalid_restarbejde_coordinate");
+  }
+  return Number(number.toFixed(3));
+}
+
+function buildStorageKey({ tenantId, projectId, category, resourceId, extension }) {
+  return [
+    "tenants",
+    tenantId,
+    "projects",
+    projectId,
+    "restarbejde",
+    category,
+    resourceId || "project",
+    `${crypto.randomUUID()}${extension}`,
+  ].join("/");
+}
+
+async function deleteBlobBestEffort(storageKey) {
+  if (!storageKey) return;
+  try {
+    await fileStorageService.deleteObject({ key: storageKey });
+  } catch (error) {
+    console.warn("[restarbejde.service] storage_cleanup_failed", { storage_key: storageKey, error_message: error?.message || null });
+  }
+}
+
+function mapDrawing(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    tenant_id: row.tenant_id,
+    project_id: row.project_id,
+    title: row.title,
+    source_type: row.source_type,
+    storage_object_id: row.storage_object_id,
+    original_filename: row.original_filename,
+    mime_type: row.mime_type || row.content_type,
+    file_size_bytes: row.file_size_bytes == null ? Number(row.byte_size || 0) : Number(row.file_size_bytes),
+    page_count: Number(row.page_count || 1),
+    placement_count: row.placement_count == null ? undefined : Number(row.placement_count || 0),
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    created_by_user_id: row.created_by_user_id,
+    updated_by_user_id: row.updated_by_user_id,
+    archived_at: row.archived_at,
+    archived_by_user_id: row.archived_by_user_id,
+    content_url: `/api/projects/${encodeURIComponent(row.project_id)}/restarbejde/drawings/${encodeURIComponent(row.id)}/content`,
+  };
+}
+
+function mapPlacement(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    tenant_id: row.tenant_id,
+    project_id: row.project_id,
+    item_id: row.item_id,
+    drawing_id: row.drawing_id,
+    page_number: Number(row.page_number),
+    x_percent: Number(row.x_percent),
+    y_percent: Number(row.y_percent),
+    label: row.label,
+    item: row.item_title ? { id: row.item_id, kind: row.item_kind, title: row.item_title, status: row.item_status } : undefined,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    created_by_user_id: row.created_by_user_id,
+    updated_by_user_id: row.updated_by_user_id,
+    archived_at: row.archived_at,
+    archived_by_user_id: row.archived_by_user_id,
+  };
+}
+
+function mapAttachment(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    tenant_id: row.tenant_id,
+    project_id: row.project_id,
+    item_id: row.item_id,
+    storage_object_id: row.storage_object_id,
+    attachment_type: row.attachment_type,
+    original_filename: row.original_filename,
+    mime_type: row.mime_type || row.content_type,
+    file_size_bytes: row.file_size_bytes == null ? Number(row.byte_size || 0) : Number(row.file_size_bytes),
+    caption: row.caption,
+    created_at: row.created_at,
+    created_by_user_id: row.created_by_user_id,
+    archived_at: row.archived_at,
+    archived_by_user_id: row.archived_by_user_id,
+    content_url: `/api/projects/${encodeURIComponent(row.project_id)}/restarbejde/items/${encodeURIComponent(row.item_id)}/attachments/${encodeURIComponent(row.id)}/content`,
+  };
 }
 
 function normalizeOptionalUuid(value, message) {
@@ -259,7 +594,7 @@ async function requireProject(client, { tenantId, userId, projectId }) {
   return projectAccessService.requireProjectAccess({ client, tenantId, userId, projectId });
 }
 
-async function audit(client, { tenantId, userId, eventType, resourceId, projectId, metadata }) {
+async function audit(client, { tenantId, userId, eventType, resourceType = ITEM_RESOURCE_TYPE, resourceId, projectId, metadata }) {
   await auditService.logAuditEvent({
     client,
     tenantId,
@@ -268,7 +603,7 @@ async function audit(client, { tenantId, userId, eventType, resourceId, projectI
     actorScope: "tenant",
     moduleKey: MODULE_KEY,
     eventType,
-    resourceType: RESOURCE_TYPE,
+    resourceType,
     resourceId,
     projectId,
     outcome: "success",
@@ -419,17 +754,321 @@ async function getSummary({ tenantId, userId, projectId }) {
   }
 }
 
+
+async function listDrawings({ tenantId, userId, projectId, includeArchived = false }) {
+  const client = await pool.connect();
+  try {
+    const projectContext = await requireProject(client, { tenantId, userId, projectId });
+    const rows = await repository.listDrawings(client, { tenantId, projectId: projectContext.projectId, includeArchived });
+    return { project: projectContext.project, drawings: rows.map(mapDrawing) };
+  } finally {
+    client.release();
+  }
+}
+
+async function getDrawing({ tenantId, userId, projectId, drawingId }) {
+  const client = await pool.connect();
+  try {
+    const projectContext = await requireProject(client, { tenantId, userId, projectId });
+    const row = await repository.findDrawingById(client, { tenantId, projectId: projectContext.projectId, drawingId, includeArchived: false });
+    if (!row) throw createHttpError(404, "restarbejde_drawing_not_found");
+    return { project: projectContext.project, drawing: mapDrawing(row) };
+  } finally {
+    client.release();
+  }
+}
+
+async function uploadDrawing({ tenantId, userId, projectId, file, title }) {
+  const drawingFile = validateDrawingFile(file);
+  const drawingTitle = normalizeTitle(title, drawingFile.originalFilename, "restarbejde_drawing_title_required");
+  let pageCount = 1;
+  if (drawingFile.sourceType === "pdf") {
+    pageCount = await getPdfPageCount(drawingFile.buffer);
+    if (!Number.isInteger(pageCount) || pageCount < 1) {
+      throw createHttpError(400, "invalid_restarbejde_drawing_pdf");
+    }
+  }
+
+  const drawingId = crypto.randomUUID();
+  let uploadedObject = null;
+  try {
+    return await withTransaction(async (client) => {
+      const projectContext = await requireProject(client, { tenantId, userId, projectId });
+      const storageKey = buildStorageKey({ tenantId, projectId: projectContext.projectId, category: "drawings", resourceId: drawingId, extension: drawingFile.extension });
+      uploadedObject = await fileStorageService.putObject({
+        tenantId,
+        projectId: projectContext.projectId,
+        key: storageKey,
+        buffer: drawingFile.buffer,
+        contentType: drawingFile.contentType,
+        metadata: { module_key: MODULE_KEY, resource_type: DRAWING_RESOURCE_TYPE, title: drawingTitle, source_type: drawingFile.sourceType },
+      });
+      const storageObject = await storageObjectQueries.insertStorageObject(client, {
+        tenantId,
+        projectId: projectContext.projectId,
+        moduleKey: MODULE_KEY,
+        resourceType: DRAWING_RESOURCE_TYPE,
+        resourceId: drawingId,
+        storageProvider: uploadedObject.provider,
+        storageKey: uploadedObject.key,
+        originalFilename: drawingFile.originalFilename,
+        contentType: drawingFile.contentType,
+        byteSize: drawingFile.byteSize,
+        checksumSha256: drawingFile.checksumSha256,
+        metadata: { drawing_id: drawingId, title: drawingTitle, source_type: drawingFile.sourceType, page_count: pageCount },
+        actorUserId: userId,
+      });
+      const drawing = await repository.insertDrawing(client, {
+        tenantId,
+        projectId: projectContext.projectId,
+        payload: {
+          id: drawingId,
+          title: drawingTitle,
+          sourceType: drawingFile.sourceType,
+          storageObjectId: storageObject.id,
+          originalFilename: drawingFile.originalFilename,
+          mimeType: drawingFile.contentType,
+          fileSizeBytes: drawingFile.byteSize,
+          pageCount,
+        },
+        actorUserId: userId,
+      });
+      await audit(client, {
+        tenantId,
+        userId,
+        eventType: "restarbejde.drawing_created",
+        resourceType: DRAWING_RESOURCE_TYPE,
+        resourceId: drawing.id,
+        projectId: projectContext.projectId,
+        metadata: { drawing_id: drawing.id, storage_object_id: storageObject.id, source_type: drawing.source_type, filename: drawing.original_filename, mime_type: drawing.mime_type, byte_size: Number(drawing.file_size_bytes || 0), page_count: Number(drawing.page_count || 1) },
+      });
+      return { project: projectContext.project, drawing: mapDrawing({ ...drawing, storage_provider: storageObject.storage_provider, storage_key: storageObject.storage_key, content_type: storageObject.content_type, byte_size: storageObject.byte_size, checksum_sha256: storageObject.checksum_sha256, metadata: storageObject.metadata, placement_count: 0 }) };
+    });
+  } catch (error) {
+    if (uploadedObject?.key) await deleteBlobBestEffort(uploadedObject.key);
+    throw error;
+  }
+}
+
+async function getDrawingContent({ tenantId, userId, projectId, drawingId }) {
+  const client = await pool.connect();
+  try {
+    const projectContext = await requireProject(client, { tenantId, userId, projectId });
+    const drawing = await repository.findDrawingById(client, { tenantId, projectId: projectContext.projectId, drawingId, includeArchived: false });
+    if (!drawing) throw createHttpError(404, "restarbejde_drawing_not_found");
+    const object = await fileStorageService.getObjectStream({ key: drawing.storage_key });
+    return { project: projectContext.project, drawing: mapDrawing(drawing), contentType: drawing.mime_type || object.contentType, contentLength: drawing.file_size_bytes || object.contentLength, contentDisposition: "inline", stream: object.stream };
+  } finally {
+    client.release();
+  }
+}
+
+async function archiveDrawing({ tenantId, userId, projectId, drawingId }) {
+  return withTransaction(async (client) => {
+    const projectContext = await requireProject(client, { tenantId, userId, projectId });
+    const row = await repository.archiveDrawing(client, { tenantId, projectId: projectContext.projectId, drawingId, actorUserId: userId });
+    if (!row) throw createHttpError(404, "restarbejde_drawing_not_found");
+    await audit(client, { tenantId, userId, eventType: "restarbejde.drawing_archived", resourceType: DRAWING_RESOURCE_TYPE, resourceId: row.id, projectId: projectContext.projectId, metadata: { drawing_id: row.id, source_type: row.source_type } });
+    return { project: projectContext.project, drawing: mapDrawing(row) };
+  });
+}
+
+async function restoreDrawing({ tenantId, userId, projectId, drawingId }) {
+  return withTransaction(async (client) => {
+    const projectContext = await requireProject(client, { tenantId, userId, projectId });
+    const row = await repository.restoreDrawing(client, { tenantId, projectId: projectContext.projectId, drawingId, actorUserId: userId });
+    if (!row) throw createHttpError(404, "restarbejde_drawing_not_found");
+    await audit(client, { tenantId, userId, eventType: "restarbejde.drawing_restored", resourceType: DRAWING_RESOURCE_TYPE, resourceId: row.id, projectId: projectContext.projectId, metadata: { drawing_id: row.id, source_type: row.source_type } });
+    return { project: projectContext.project, drawing: mapDrawing(row) };
+  });
+}
+
+async function listPlacements({ tenantId, userId, projectId, drawingId }) {
+  const client = await pool.connect();
+  try {
+    const projectContext = await requireProject(client, { tenantId, userId, projectId });
+    const drawing = await repository.findDrawingById(client, { tenantId, projectId: projectContext.projectId, drawingId, includeArchived: false });
+    if (!drawing) throw createHttpError(404, "restarbejde_drawing_not_found");
+    const rows = await repository.listPlacementsForDrawing(client, { tenantId, projectId: projectContext.projectId, drawingId });
+    return { project: projectContext.project, drawing: mapDrawing(drawing), placements: rows.map(mapPlacement) };
+  } finally {
+    client.release();
+  }
+}
+
+async function normalizePlacementPayload(client, { tenantId, projectId, drawing, input, existing = null }) {
+  const body = input || {};
+  if (existing && Object.prototype.hasOwnProperty.call(body, "item_id") && String(body.item_id) !== String(existing.item_id)) {
+    throw createHttpError(400, "restarbejde_placement_item_immutable");
+  }
+  const itemId = normalizeOptionalUuid(existing ? existing.item_id : body.item_id, "invalid_restarbejde_item_id");
+  if (!itemId) throw createHttpError(400, "restarbejde_item_required");
+  const item = await repository.findItemById(client, { tenantId, projectId, itemId, includeArchived: false });
+  if (!item) throw createHttpError(404, "restarbejde_item_not_found");
+  if (drawing.archived_at) throw createHttpError(400, "restarbejde_drawing_archived");
+  return {
+    itemId,
+    pageNumber: normalizePageNumber(body.page_number === undefined ? existing?.page_number : body.page_number, drawing),
+    xPercent: normalizePercentCoordinate(body.x_percent === undefined ? existing?.x_percent : body.x_percent, "x_percent"),
+    yPercent: normalizePercentCoordinate(body.y_percent === undefined ? existing?.y_percent : body.y_percent, "y_percent"),
+    label: Object.prototype.hasOwnProperty.call(body, "label") ? normalizeLabel(body.label) : normalizeLabel(existing?.label),
+  };
+}
+
+async function createPlacement({ tenantId, userId, projectId, drawingId, input }) {
+  return withTransaction(async (client) => {
+    const projectContext = await requireProject(client, { tenantId, userId, projectId });
+    const drawing = await repository.findDrawingById(client, { tenantId, projectId: projectContext.projectId, drawingId, includeArchived: false });
+    if (!drawing) throw createHttpError(404, "restarbejde_drawing_not_found");
+    const payload = await normalizePlacementPayload(client, { tenantId, projectId: projectContext.projectId, drawing, input });
+    const row = await repository.insertPlacement(client, { tenantId, projectId: projectContext.projectId, drawingId, payload, actorUserId: userId });
+    await audit(client, { tenantId, userId, eventType: "restarbejde.placement_created", resourceType: PLACEMENT_RESOURCE_TYPE, resourceId: row.id, projectId: projectContext.projectId, metadata: { item_id: row.item_id, drawing_id: row.drawing_id, placement_id: row.id, page_number: Number(row.page_number), x_percent: Number(row.x_percent), y_percent: Number(row.y_percent) } });
+    return { project: projectContext.project, drawing: mapDrawing(drawing), placement: mapPlacement(row) };
+  });
+}
+
+async function updatePlacement({ tenantId, userId, projectId, drawingId, placementId, input }) {
+  return withTransaction(async (client) => {
+    const projectContext = await requireProject(client, { tenantId, userId, projectId });
+    const drawing = await repository.findDrawingById(client, { tenantId, projectId: projectContext.projectId, drawingId, includeArchived: false });
+    if (!drawing) throw createHttpError(404, "restarbejde_drawing_not_found");
+    const existing = await repository.findPlacementById(client, { tenantId, projectId: projectContext.projectId, drawingId, placementId, includeArchived: false });
+    if (!existing) throw createHttpError(404, "restarbejde_placement_not_found");
+    const payload = await normalizePlacementPayload(client, { tenantId, projectId: projectContext.projectId, drawing, input, existing });
+    const row = await repository.updatePlacement(client, { tenantId, projectId: projectContext.projectId, drawingId, placementId, payload, actorUserId: userId });
+    await audit(client, { tenantId, userId, eventType: "restarbejde.placement_updated", resourceType: PLACEMENT_RESOURCE_TYPE, resourceId: row.id, projectId: projectContext.projectId, metadata: { item_id: row.item_id, drawing_id: row.drawing_id, placement_id: row.id, previous: { page_number: Number(existing.page_number), x_percent: Number(existing.x_percent), y_percent: Number(existing.y_percent) }, next: { page_number: Number(row.page_number), x_percent: Number(row.x_percent), y_percent: Number(row.y_percent) } } });
+    return { project: projectContext.project, drawing: mapDrawing(drawing), placement: mapPlacement(row) };
+  });
+}
+
+async function archivePlacement({ tenantId, userId, projectId, drawingId, placementId }) {
+  return withTransaction(async (client) => {
+    const projectContext = await requireProject(client, { tenantId, userId, projectId });
+    const row = await repository.archivePlacement(client, { tenantId, projectId: projectContext.projectId, drawingId, placementId, actorUserId: userId });
+    if (!row) throw createHttpError(404, "restarbejde_placement_not_found");
+    await audit(client, { tenantId, userId, eventType: "restarbejde.placement_archived", resourceType: PLACEMENT_RESOURCE_TYPE, resourceId: row.id, projectId: projectContext.projectId, metadata: { item_id: row.item_id, drawing_id: row.drawing_id, placement_id: row.id } });
+    return { project: projectContext.project, placement: mapPlacement(row) };
+  });
+}
+
+async function restorePlacement({ tenantId, userId, projectId, drawingId, placementId }) {
+  return withTransaction(async (client) => {
+    const projectContext = await requireProject(client, { tenantId, userId, projectId });
+    const drawing = await repository.findDrawingById(client, { tenantId, projectId: projectContext.projectId, drawingId, includeArchived: false });
+    if (!drawing) throw createHttpError(404, "restarbejde_drawing_not_found");
+    const row = await repository.restorePlacement(client, { tenantId, projectId: projectContext.projectId, drawingId, placementId, actorUserId: userId });
+    if (!row) throw createHttpError(404, "restarbejde_placement_not_found");
+    await audit(client, { tenantId, userId, eventType: "restarbejde.placement_restored", resourceType: PLACEMENT_RESOURCE_TYPE, resourceId: row.id, projectId: projectContext.projectId, metadata: { item_id: row.item_id, drawing_id: row.drawing_id, placement_id: row.id } });
+    return { project: projectContext.project, placement: mapPlacement(row) };
+  });
+}
+
+async function listAttachments({ tenantId, userId, projectId, itemId }) {
+  const client = await pool.connect();
+  try {
+    const projectContext = await requireProject(client, { tenantId, userId, projectId });
+    const item = await repository.findItemById(client, { tenantId, projectId: projectContext.projectId, itemId, includeArchived: false });
+    if (!item) throw createHttpError(404, "restarbejde_item_not_found");
+    const rows = await repository.listAttachmentsForItem(client, { tenantId, projectId: projectContext.projectId, itemId });
+    return { project: projectContext.project, item: mapItem(item), attachments: rows.map(mapAttachment) };
+  } finally {
+    client.release();
+  }
+}
+
+async function uploadAttachment({ tenantId, userId, projectId, itemId, file, attachmentType, caption, allowNonPhoto = false }) {
+  const normalizedType = normalizeAttachmentType(attachmentType);
+  if (normalizedType !== "photo" && !allowNonPhoto) {
+    throw createHttpError(403, "restarbejde_attachment_type_denied");
+  }
+  const attachmentFile = validateAttachmentFile(file, normalizedType);
+  const normalizedCaption = normalizeOptionalText(caption)?.slice(0, 240) || null;
+  const attachmentId = crypto.randomUUID();
+  let uploadedObject = null;
+  try {
+    return await withTransaction(async (client) => {
+      const projectContext = await requireProject(client, { tenantId, userId, projectId });
+      const item = await repository.findItemById(client, { tenantId, projectId: projectContext.projectId, itemId, includeArchived: false });
+      if (!item) throw createHttpError(404, "restarbejde_item_not_found");
+      const storageKey = buildStorageKey({ tenantId, projectId: projectContext.projectId, category: "attachments", resourceId: attachmentId, extension: attachmentFile.extension });
+      uploadedObject = await fileStorageService.putObject({ tenantId, projectId: projectContext.projectId, key: storageKey, buffer: attachmentFile.buffer, contentType: attachmentFile.contentType, metadata: { module_key: MODULE_KEY, resource_type: ATTACHMENT_RESOURCE_TYPE, item_id: itemId, attachment_id: attachmentId, attachment_type: normalizedType } });
+      const storageObject = await storageObjectQueries.insertStorageObject(client, { tenantId, projectId: projectContext.projectId, moduleKey: MODULE_KEY, resourceType: ATTACHMENT_RESOURCE_TYPE, resourceId: attachmentId, storageProvider: uploadedObject.provider, storageKey: uploadedObject.key, originalFilename: attachmentFile.originalFilename, contentType: attachmentFile.contentType, byteSize: attachmentFile.byteSize, checksumSha256: attachmentFile.checksumSha256, metadata: { item_id: itemId, attachment_id: attachmentId, attachment_type: normalizedType, caption: normalizedCaption }, actorUserId: userId });
+      const attachment = await repository.insertAttachment(client, { tenantId, projectId: projectContext.projectId, itemId, payload: { id: attachmentId, storageObjectId: storageObject.id, attachmentType: normalizedType, originalFilename: attachmentFile.originalFilename, mimeType: attachmentFile.contentType, fileSizeBytes: attachmentFile.byteSize, caption: normalizedCaption }, actorUserId: userId });
+      await audit(client, { tenantId, userId, eventType: "restarbejde.attachment_created", resourceType: ATTACHMENT_RESOURCE_TYPE, resourceId: attachment.id, projectId: projectContext.projectId, metadata: { item_id: itemId, attachment_id: attachment.id, storage_object_id: storageObject.id, attachment_type: normalizedType, filename: attachment.original_filename, mime_type: attachment.mime_type } });
+      return { project: projectContext.project, item: mapItem(item), attachment: mapAttachment({ ...attachment, storage_provider: storageObject.storage_provider, storage_key: storageObject.storage_key, content_type: storageObject.content_type, byte_size: storageObject.byte_size, checksum_sha256: storageObject.checksum_sha256, metadata: storageObject.metadata }) };
+    });
+  } catch (error) {
+    if (uploadedObject?.key) await deleteBlobBestEffort(uploadedObject.key);
+    throw error;
+  }
+}
+
+async function getAttachmentContent({ tenantId, userId, projectId, itemId, attachmentId }) {
+  const client = await pool.connect();
+  try {
+    const projectContext = await requireProject(client, { tenantId, userId, projectId });
+    const item = await repository.findItemById(client, { tenantId, projectId: projectContext.projectId, itemId, includeArchived: false });
+    if (!item) throw createHttpError(404, "restarbejde_item_not_found");
+    const attachment = await repository.findAttachmentById(client, { tenantId, projectId: projectContext.projectId, itemId, attachmentId, includeArchived: false });
+    if (!attachment) throw createHttpError(404, "restarbejde_attachment_not_found");
+    const object = await fileStorageService.getObjectStream({ key: attachment.storage_key });
+    const contentType = attachment.mime_type || object.contentType;
+    return { project: projectContext.project, item: mapItem(item), attachment: mapAttachment(attachment), contentType, contentLength: attachment.file_size_bytes || object.contentLength, contentDisposition: getContentDisposition(contentType), stream: object.stream };
+  } finally {
+    client.release();
+  }
+}
+
+async function archiveAttachment({ tenantId, userId, projectId, itemId, attachmentId }) {
+  return withTransaction(async (client) => {
+    const projectContext = await requireProject(client, { tenantId, userId, projectId });
+    const item = await repository.findItemById(client, { tenantId, projectId: projectContext.projectId, itemId, includeArchived: false });
+    if (!item) throw createHttpError(404, "restarbejde_item_not_found");
+    const row = await repository.archiveAttachment(client, { tenantId, projectId: projectContext.projectId, itemId, attachmentId, actorUserId: userId });
+    if (!row) throw createHttpError(404, "restarbejde_attachment_not_found");
+    await audit(client, { tenantId, userId, eventType: "restarbejde.attachment_archived", resourceType: ATTACHMENT_RESOURCE_TYPE, resourceId: row.id, projectId: projectContext.projectId, metadata: { item_id: itemId, attachment_id: row.id, attachment_type: row.attachment_type } });
+    return { project: projectContext.project, item: mapItem(item), attachment: mapAttachment(row) };
+  });
+}
 module.exports = {
+  archiveAttachment,
+  archiveDrawing,
   archiveItem,
+  archivePlacement,
   createItem,
+  createPlacement,
+  getAttachmentContent,
+  getDrawing,
+  getDrawingContent,
   getItem,
   getSummary,
+  listAttachments,
+  listDrawings,
   listItems,
+  listPlacements,
+  restoreDrawing,
   restoreItem,
+  restorePlacement,
   updateItem,
+  updatePlacement,
+  uploadAttachment,
+  uploadDrawing,
   _test: {
-    normalizePayload,
-    normalizeListFilters,
+    mapAttachment,
+    mapDrawing,
+    mapPlacement,
     mapSummary,
+    getContentDisposition,
+    getDocumentMaxUploadBytes,
+    getPdfMaxUploadBytes,
+    isUnsafeAttachmentContentType,
+    normalizeAttachmentType,
+    normalizeListFilters,
+    normalizePageNumber,
+    normalizePayload,
+    normalizePercentCoordinate,
+    validateAttachmentFile,
+    validateDrawingFile,
+    validateImageContent,
   },
 };

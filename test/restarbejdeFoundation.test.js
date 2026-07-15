@@ -392,7 +392,7 @@ test('repository queries scope items by tenant and project', async () => {
   assert.match(calls[1].sql, /tenant_id = \$1 AND project_id = \$2 AND archived_at IS NULL/);
 });
 
-test('routes expose PR1 endpoints with module permissions only', () => {
+test('routes keep PR1 item endpoints protected by module permissions', () => {
   const routes = read('backend/src/modules/restarbejde/restarbejde.routes.js');
   assert.match(routes, /moduleKey: MODULE_KEY/);
   assert.match(routes, /requireRestarbejdeAccess\(req, "read"\)/);
@@ -400,8 +400,9 @@ test('routes expose PR1 endpoints with module permissions only', () => {
   assert.match(routes, /requireRestarbejdeAccess\(req, "update"\)/);
   assert.match(routes, /requireRestarbejdeAccess\(req, "archive"\)/);
   assert.match(routes, /requireRestarbejdeAccess\(req, "restore"\)/);
-  assert.doesNotMatch(routes, /drawing/i);
-  assert.doesNotMatch(routes, /photo/i);
+  assert.match(routes, /router\.get\("\/api\/projects\/:projectId\/restarbejde\/summary"/);
+  assert.match(routes, /router\.post\("\/api\/projects\/:projectId\/restarbejde\/items\/:itemId\/archive"/);
+  assert.match(routes, /router\.post\("\/api\/projects\/:projectId\/restarbejde\/items\/:itemId\/restore"/);
   assert.doesNotMatch(routes, /export\.csv/);
 });
 
