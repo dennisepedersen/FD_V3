@@ -83,7 +83,7 @@
       y_percent: coordinate.y_percent,
       label,
       aria_label: `Ny placering for ${label}`,
-      title: "Ny placering - gem for at bekræfte",
+      title: "Ny placering - gem for at bekraefte",
       item: item || null,
     };
   }
