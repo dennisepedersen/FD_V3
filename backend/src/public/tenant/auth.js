@@ -5815,26 +5815,18 @@
       drawingPlacementReturnMode: null,
       drawingPendingPlacement: null,
       selectedDrawingPinId: null,
-      drawingRenderToken: null,
+      drawingViewer: null,
       pdfImportItems: [],
       pdfImportFiles: [],
       pdfJsPromise: null,
       isDrawingFileProcessing: false,
       cardExpandedIds: new Set(),
-      drawingZoom: 100,
-      drawingPan: { x: 0, y: 0 },
-      drawingPanDrag: null,
-      drawingTouchPointers: new Map(),
-      drawingPinchGesture: null,
-      drawingIsPanning: false,
-      suppressDrawingPlacementClick: false,
       isCameraSaving: false,
     };
     const EQUIPMENT_DRAWING_DEFAULT_ZOOM = 100;
     const EQUIPMENT_DRAWING_MIN_ZOOM = 50;
     const EQUIPMENT_DRAWING_MAX_ZOOM = 300;
     const EQUIPMENT_DRAWING_ZOOM_STEP = 25;
-    const EQUIPMENT_DRAWING_PAN_THRESHOLD = 4;
 
     const equipmentScannerState = {
       target: null,
@@ -8078,6 +8070,105 @@
       equipmentDrawingStatus.style.fontWeight = isError ? "800" : "";
     }
 
+    function getEquipmentDrawingAssets() {
+      const engine = window.FielddeskDrawingEngine || null;
+      const adapter = window.FielddeskCctvDrawingAdapter || null;
+      if (!engine) return { engine: null, adapter: null, error: "fielddesk_drawing_engine_unavailable" };
+      if (!adapter) return { engine, adapter: null, error: "fielddesk_cctv_drawing_adapter_unavailable" };
+      return { engine, adapter, error: null };
+    }
+
+    function markEquipmentDrawingAssetUnavailable(code) {
+      if (window.console && typeof window.console.error === "function") {
+        window.console.error(code);
+      }
+      setEquipmentDrawingStatus(code, true);
+      if (equipmentDrawingCanvas) equipmentDrawingCanvas.textContent = code;
+    }
+
+    function ensureEquipmentDrawingDependencies() {
+      const assets = getEquipmentDrawingAssets();
+      if (assets.error) {
+        markEquipmentDrawingAssetUnavailable(assets.error);
+        return null;
+      }
+      return assets;
+    }
+
+    function renderEquipmentDrawingOverlayContent({ element, overlay, pending }) {
+      const labelText = overlay.label || "CAM";
+      const marker = document.createElement("span");
+      marker.className = "equipmentDrawingPinMarker";
+      marker.setAttribute("aria-hidden", "true");
+      const markerInner = document.createElement("span");
+      markerInner.className = "equipmentDrawingPinMarkerInner";
+      marker.appendChild(markerInner);
+      const label = document.createElement("span");
+      label.className = "equipmentDrawingPinLabel";
+      label.textContent = pending ? labelText + " (ny placering)" : labelText;
+      element.appendChild(marker);
+      element.appendChild(label);
+    }
+
+    function syncEquipmentDrawingViewportUi(viewport) {
+      if (equipmentDrawingZoomValue) {
+        const zoom = viewport && Number.isFinite(Number(viewport.zoom)) ? Math.round(Number(viewport.zoom)) : EQUIPMENT_DRAWING_DEFAULT_ZOOM;
+        equipmentDrawingZoomValue.textContent = zoom + "%";
+      }
+    }
+
+    function getEquipmentDrawingOverlays(adapter) {
+      return equipmentState.drawingPins.map((pin) => adapter.pinToOverlay(pin));
+    }
+
+    function getEquipmentDrawingPendingOverlay() {
+      const pending = equipmentState.drawingPendingPlacement;
+      if (!pending || pending.drawing_id !== equipmentState.activeDrawingId) return null;
+      return { ...pending, data: pending };
+    }
+
+    function ensureEquipmentDrawingViewer() {
+      const assets = ensureEquipmentDrawingDependencies();
+      if (!assets || !equipmentDrawingCanvas) return null;
+      if (equipmentState.drawingViewer) return equipmentState.drawingViewer;
+      equipmentState.drawingViewer = assets.engine.createDrawingViewerController({
+        container: equipmentDrawingCanvas,
+        document,
+        defaultZoom: EQUIPMENT_DRAWING_DEFAULT_ZOOM,
+        minZoom: EQUIPMENT_DRAWING_MIN_ZOOM,
+        maxZoom: EQUIPMENT_DRAWING_MAX_ZOOM,
+        zoomStep: EQUIPMENT_DRAWING_ZOOM_STEP,
+        stageClassName: "equipmentDrawingStage",
+        surfaceClassName: "equipmentDrawingImage",
+        overlayClassName: "equipmentDrawingPin",
+        selectedOverlayClassName: "active",
+        pendingOverlayClassName: "equipmentDrawingPendingPin active",
+        overlayContainerClassName: "equipmentDrawingPinLayer",
+        placingClassName: "isPlacing",
+        loadPdfJs: loadEquipmentPdfJs,
+        renderOverlayContent: renderEquipmentDrawingOverlayContent,
+        onViewportChange: ({ viewport }) => syncEquipmentDrawingViewportUi(viewport),
+        onOverlaySelect: (overlay) => {
+          const pin = overlay && overlay.data ? overlay.data : null;
+          if (!pin) return;
+          equipmentState.selectedDrawingPinId = pin.id;
+          renderEquipmentDrawingPinPanel(pin);
+        },
+        onPlacement: ({ point }) => handleEquipmentDrawingPlacementPoint(point),
+        onRenderComplete: ({ drawing, surface, empty, loading }) => {
+          if (empty || loading) return;
+          const selected = equipmentState.drawingPins.find((pin) => pin.id === equipmentState.selectedDrawingPinId) || null;
+          renderEquipmentDrawingPinPanel(selected);
+          if (drawing && drawing.type === "pdf_page" && !isEquipmentDrawingPlacementWorkspace()) {
+            setEquipmentDrawingStatus(equipmentState.drawingPins.length ? "PDF-side klar." : "PDF-side klar. Ingen pins endnu.");
+          }
+          if (surface && surface.dataset) surface.dataset.drawingSurface = "true";
+        },
+        onRenderError: (error) => setEquipmentDrawingStatus(equipmentErrorMessage(error, "Kunne ikke vise tegning."), true),
+      });
+      return equipmentState.drawingViewer;
+    }
+
     function isEquipmentDrawingPlacementWorkspace() {
       return equipmentState.drawingWorkspaceMode === "place" || equipmentState.drawingWorkspaceMode === "move";
     }
@@ -8132,7 +8223,8 @@
     }
 
     function isEquipmentPdfDrawing(drawing) {
-      return String(drawing && drawing.source_type || "").toLowerCase() === "pdf_page";
+      const assets = ensureEquipmentDrawingDependencies();
+      return assets ? assets.adapter.isPdfDrawing(drawing) : false;
     }
 
     async function loadEquipmentPdfJs() {
@@ -8472,270 +8564,71 @@
       equipmentDrawingPinPanel.appendChild(actions);
     }
 
-    function appendEquipmentDrawingPin(stage, pin, options = {}) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = `equipmentDrawingPin${pin.id === equipmentState.selectedDrawingPinId ? " active" : ""}${options.pending ? " equipmentDrawingPendingPin active" : ""}`;
-      button.style.left = `${pin.x_percent}%`;
-      button.style.top = `${pin.y_percent}%`;
-      const labelText = pin.label || pin.camera?.camera_id || "CAM";
-      const marker = document.createElement("span");
-      marker.className = "equipmentDrawingPinMarker";
-      marker.setAttribute("aria-hidden", "true");
-      const markerInner = document.createElement("span");
-      markerInner.className = "equipmentDrawingPinMarkerInner";
-      marker.appendChild(markerInner);
-      const label = document.createElement("span");
-      label.className = "equipmentDrawingPinLabel";
-      label.textContent = options.pending ? `${labelText} (ny placering)` : labelText;
-      button.appendChild(marker);
-      button.appendChild(label);
-      button.setAttribute("aria-label", options.pending ? `Ny placering for ${labelText}` : `Kamera ${labelText}`);
-      button.title = options.pending ? "Ny placering - gem for at bekræfte" : labelText;
-      if (options.pending) {
-        button.disabled = true;
-      } else {
-        button.addEventListener("click", (event) => {
-          event.stopPropagation();
-          equipmentState.selectedDrawingPinId = pin.id;
-          renderEquipmentDrawingCanvas();
-          renderEquipmentDrawingPinPanel(pin);
-        });
-      }
-      stage.appendChild(button);
-    }
 
-    function appendEquipmentDrawingPins(stage) {
-      equipmentState.drawingPins.forEach((pin) => appendEquipmentDrawingPin(stage, pin));
-      const pending = equipmentState.drawingPendingPlacement;
-      if (pending && pending.drawing_id === equipmentState.activeDrawingId) {
-        appendEquipmentDrawingPin(stage, pending, { pending: true });
-      }
-    }
-
-    async function renderEquipmentPdfDrawingSurface(canvas, drawing, renderToken) {
-      const pdfjs = await loadEquipmentPdfJs();
-      const task = pdfjs.getDocument({ url: equipmentState.drawingObjectUrl, isEvalSupported: false });
-      const pdf = await task.promise;
-      try {
-        const page = await pdf.getPage(Number(drawing.pdf_page_number || 1));
-        const viewport = page.getViewport({ scale: 1.6 });
-        canvas.width = Math.floor(viewport.width);
-        canvas.height = Math.floor(viewport.height);
-        const context = canvas.getContext("2d");
-        await page.render({ canvasContext: context, viewport }).promise;
-        if (equipmentState.drawingRenderToken === renderToken) {
-          setEquipmentDrawingStatus(equipmentState.drawingPins.length ? "PDF-side klar." : "PDF-side klar. Ingen pins endnu.");
-        }
-      } finally {
-        await pdf.destroy();
-      }
-    }
-
-    function getEquipmentDrawingStage() {
-      return equipmentDrawingCanvas ? equipmentDrawingCanvas.querySelector(".equipmentDrawingStage") : null;
-    }
-
-    function updateEquipmentDrawingViewportTransform() {
-      if (equipmentDrawingZoomValue) equipmentDrawingZoomValue.textContent = `${equipmentState.drawingZoom}%`;
-      const stage = getEquipmentDrawingStage();
-      if (!stage) return;
-      const zoom = equipmentState.drawingZoom / 100;
-      stage.style.transform = `translate(${equipmentState.drawingPan.x}px, ${equipmentState.drawingPan.y}px) scale(${zoom})`;
-      stage.classList.toggle("isPannable", equipmentState.drawingZoom > EQUIPMENT_DRAWING_DEFAULT_ZOOM);
-      stage.classList.toggle("isPanning", Boolean(equipmentState.drawingIsPanning));
+    function getEquipmentDrawingZoom() {
+      return equipmentState.drawingViewer ? equipmentState.drawingViewer.getViewport().zoom : EQUIPMENT_DRAWING_DEFAULT_ZOOM;
     }
 
     function resetEquipmentDrawingView() {
-      equipmentState.drawingZoom = EQUIPMENT_DRAWING_DEFAULT_ZOOM;
-      equipmentState.drawingPan = { x: 0, y: 0 };
-      equipmentState.drawingPanDrag = null;
-      equipmentState.drawingTouchPointers.clear();
-      equipmentState.drawingPinchGesture = null;
-      equipmentState.drawingIsPanning = false;
-      equipmentState.suppressDrawingPlacementClick = false;
-      updateEquipmentDrawingViewportTransform();
+      const viewer = ensureEquipmentDrawingViewer();
+      if (viewer) viewer.resetViewport();
+      else syncEquipmentDrawingViewportUi({ zoom: EQUIPMENT_DRAWING_DEFAULT_ZOOM });
     }
 
     function updateEquipmentDrawingZoom(nextZoom) {
-      const clamped = Math.max(EQUIPMENT_DRAWING_MIN_ZOOM, Math.min(EQUIPMENT_DRAWING_MAX_ZOOM, Number(nextZoom) || EQUIPMENT_DRAWING_DEFAULT_ZOOM));
-      equipmentState.drawingZoom = clamped;
-      if (clamped <= EQUIPMENT_DRAWING_DEFAULT_ZOOM) {
-        equipmentState.drawingPan = { x: 0, y: 0 };
-      }
-      updateEquipmentDrawingViewportTransform();
+      const viewer = ensureEquipmentDrawingViewer();
+      if (viewer) viewer.setZoom(nextZoom);
     }
 
-    function startEquipmentDrawingPan(event) {
-      if (event.target && event.target.closest && event.target.closest(".equipmentDrawingPin")) return;
-      try {
-        event.currentTarget.setPointerCapture(event.pointerId);
-      } catch (_error) {
-        // Pointer capture is best-effort across mobile browsers.
-      }
-      equipmentState.drawingTouchPointers.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY });
-      if (equipmentState.drawingTouchPointers.size >= 2) {
-        const points = Array.from(equipmentState.drawingTouchPointers.values()).slice(0, 2);
-        const distance = Math.hypot(points[0].clientX - points[1].clientX, points[0].clientY - points[1].clientY);
-        equipmentState.drawingPinchGesture = { startDistance: distance || 1, startZoom: equipmentState.drawingZoom };
-        equipmentState.drawingPanDrag = null;
-        equipmentState.drawingIsPanning = false;
-        equipmentState.suppressDrawingPlacementClick = true;
-        updateEquipmentDrawingViewportTransform();
-        return;
-      }
-      if (equipmentState.drawingZoom <= EQUIPMENT_DRAWING_DEFAULT_ZOOM) return;
-      equipmentState.drawingPanDrag = {
-        pointerId: event.pointerId,
-        startClientX: event.clientX,
-        startClientY: event.clientY,
-        startPan: { ...equipmentState.drawingPan },
-        didDrag: false,
-      };
-    }
-
-    function moveEquipmentDrawingPan(event) {
-      if (equipmentState.drawingTouchPointers.has(event.pointerId)) {
-        equipmentState.drawingTouchPointers.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY });
-      }
-      if (equipmentState.drawingPinchGesture && equipmentState.drawingTouchPointers.size >= 2) {
-        event.preventDefault();
-        const points = Array.from(equipmentState.drawingTouchPointers.values()).slice(0, 2);
-        const distance = Math.hypot(points[0].clientX - points[1].clientX, points[0].clientY - points[1].clientY);
-        const ratio = distance / Math.max(1, equipmentState.drawingPinchGesture.startDistance);
-        updateEquipmentDrawingZoom(equipmentState.drawingPinchGesture.startZoom * ratio);
-        equipmentState.suppressDrawingPlacementClick = true;
-        return;
-      }
-      const drag = equipmentState.drawingPanDrag;
-      if (!drag || drag.pointerId !== event.pointerId || equipmentState.drawingZoom <= EQUIPMENT_DRAWING_DEFAULT_ZOOM) return;
-      const deltaX = event.clientX - drag.startClientX;
-      const deltaY = event.clientY - drag.startClientY;
-      if (Math.hypot(deltaX, deltaY) >= EQUIPMENT_DRAWING_PAN_THRESHOLD) {
-        drag.didDrag = true;
-        equipmentState.drawingIsPanning = true;
-        equipmentState.drawingPan = {
-          x: drag.startPan.x + deltaX,
-          y: drag.startPan.y + deltaY,
-        };
-        updateEquipmentDrawingViewportTransform();
-      }
-    }
-
-    function stopEquipmentDrawingPan(event) {
-      equipmentState.drawingTouchPointers.delete(event.pointerId);
-      if (equipmentState.drawingPinchGesture) {
-        equipmentState.drawingPinchGesture = equipmentState.drawingTouchPointers.size >= 2 ? equipmentState.drawingPinchGesture : null;
-        equipmentState.drawingPanDrag = null;
-        equipmentState.drawingIsPanning = false;
-        equipmentState.suppressDrawingPlacementClick = true;
-        window.setTimeout(() => { equipmentState.suppressDrawingPlacementClick = false; }, 120);
-        try {
-          event.currentTarget.releasePointerCapture(event.pointerId);
-        } catch (_error) {
-          // Pointer capture cleanup is best-effort.
-        }
-        updateEquipmentDrawingViewportTransform();
-        return;
-      }
-      const drag = equipmentState.drawingPanDrag;
-      if (!drag || drag.pointerId !== event.pointerId) return;
-      equipmentState.suppressDrawingPlacementClick = Boolean(drag.didDrag);
-      if (drag.didDrag) {
-        window.setTimeout(() => { equipmentState.suppressDrawingPlacementClick = false; }, 0);
-      }
-      equipmentState.drawingIsPanning = false;
-      equipmentState.drawingPanDrag = null;
-      try {
-        event.currentTarget.releasePointerCapture(event.pointerId);
-      } catch (_error) {
-        // Pointer capture cleanup is best-effort.
-      }
-      updateEquipmentDrawingViewportTransform();
-    }
     function handleEquipmentDrawingWheel(event) {
-      if (!equipmentDrawingCanvas || !equipmentDrawingCanvas.contains(event.target)) return;
-      if (!getEquipmentDrawingStage()) return;
-      if (event.ctrlKey) {
-        event.preventDefault();
-        const direction = event.deltaY > 0 ? -1 : 1;
-        updateEquipmentDrawingZoom(equipmentState.drawingZoom + (direction * EQUIPMENT_DRAWING_ZOOM_STEP));
-        return;
-      }
-      if (event.shiftKey && equipmentState.drawingZoom > EQUIPMENT_DRAWING_DEFAULT_ZOOM) {
-        const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
-        if (!delta) return;
-        event.preventDefault();
-        equipmentState.drawingPan = {
-          ...equipmentState.drawingPan,
-          x: equipmentState.drawingPan.x - delta,
-        };
-        updateEquipmentDrawingViewportTransform();
-      }
+      const viewer = equipmentState.drawingViewer;
+      if (viewer) viewer.handleWheel(event);
     }
+
+    function handleEquipmentDrawingPlacementPoint(point) {
+      const assets = ensureEquipmentDrawingDependencies();
+      if (!assets || !point) return;
+      if (!equipmentState.drawingPlacementCameraId || !equipmentState.activeDrawingId) return;
+      const camera = getEquipmentCameraById(equipmentState.drawingPlacementCameraId);
+      equipmentState.drawingPendingPlacement = assets.adapter.pendingPlacementToOverlay({
+        drawingId: equipmentState.activeDrawingId,
+        camera: camera || { id: equipmentState.drawingPlacementCameraId, camera_id: "Kamera" },
+        point,
+      });
+      setEquipmentDrawingStatus("Placering valgt. Tryk Gem placering for at bekr?fte.");
+      updateEquipmentDrawingWorkspaceUi();
+      renderEquipmentDrawingCanvas();
+    }
+
     function renderEquipmentDrawingCanvas() {
-      if (!equipmentDrawingCanvas) return;
-      equipmentDrawingCanvas.innerHTML = "";
+      const assets = ensureEquipmentDrawingDependencies();
+      const viewer = ensureEquipmentDrawingViewer();
+      if (!assets || !viewer) return;
       const isPlacing = Boolean(equipmentState.drawingPlacementCameraId);
-      equipmentDrawingCanvas.classList.toggle("isPlacing", isPlacing);
+      viewer.setMode({ placementEnabled: isPlacing, readOnly: false });
       updateEquipmentDrawingWorkspaceUi();
       const drawing = getActiveEquipmentDrawing();
       if (!drawing) {
-        equipmentDrawingCanvas.textContent = "Upload eller vælg en tegning.";
+        viewer.render({ drawing: null, emptyText: "Upload eller v?lg en tegning." });
         renderEquipmentDrawingPinPanel(null);
-        updateEquipmentDrawingViewportTransform();
         return;
       }
+      const engineDrawing = assets.adapter.drawingToEngineDrawing(drawing);
       if (!equipmentState.drawingObjectUrl) {
-        equipmentDrawingCanvas.textContent = "Opdaterer tegning...";
-        updateEquipmentDrawingViewportTransform();
+        viewer.render({ drawing: engineDrawing, sourceUrl: null, loadingText: "Opdaterer tegning..." });
+        renderEquipmentDrawingPinPanel(null);
         return;
       }
-      const renderToken = `${drawing.id}:${Date.now()}`;
-      equipmentState.drawingRenderToken = renderToken;
-      const stage = document.createElement("div");
-      stage.className = "equipmentDrawingStage";
-      stage.addEventListener("pointerdown", startEquipmentDrawingPan);
-      stage.addEventListener("pointermove", moveEquipmentDrawingPan);
-      stage.addEventListener("pointerup", stopEquipmentDrawingPan);
-      stage.addEventListener("pointercancel", stopEquipmentDrawingPan);
-      stage.addEventListener("click", placeEquipmentDrawingPinFromEvent);
-      if (isEquipmentPdfDrawing(drawing)) {
-        const canvas = document.createElement("canvas");
-        canvas.className = "equipmentDrawingImage";
-        canvas.dataset.drawingSurface = "true";
-        canvas.setAttribute("aria-label", drawing.title || "CCTV PDF-side");
-        stage.appendChild(canvas);
-        equipmentDrawingCanvas.appendChild(stage);
-        updateEquipmentDrawingViewportTransform();
-        renderEquipmentPdfDrawingSurface(canvas, drawing, renderToken)
-          .then(() => {
-            if (equipmentState.drawingRenderToken !== renderToken) return;
-            appendEquipmentDrawingPins(stage);
-            updateEquipmentDrawingViewportTransform();
-            const selected = equipmentState.drawingPins.find((pin) => pin.id === equipmentState.selectedDrawingPinId) || null;
-            renderEquipmentDrawingPinPanel(selected);
-          })
-          .catch((error) => {
-            if (equipmentState.drawingRenderToken === renderToken) {
-              setEquipmentDrawingStatus(equipmentErrorMessage(error, "Kunne ikke vise PDF-side."), true);
-            }
-          });
-        return;
-      }
-      const image = document.createElement("img");
-      image.className = "equipmentDrawingImage";
-      image.dataset.drawingSurface = "true";
-      image.src = equipmentState.drawingObjectUrl;
-      image.alt = drawing.title || "CCTV tegning";
-      image.draggable = false;
-      stage.appendChild(image);
-      appendEquipmentDrawingPins(stage);
-      equipmentDrawingCanvas.appendChild(stage);
-      updateEquipmentDrawingViewportTransform();
-      const selected = equipmentState.drawingPins.find((pin) => pin.id === equipmentState.selectedDrawingPinId) || null;
-      renderEquipmentDrawingPinPanel(selected);
+      viewer.render({
+        drawing: engineDrawing,
+        sourceUrl: equipmentState.drawingObjectUrl,
+        overlays: getEquipmentDrawingOverlays(assets.adapter),
+        pendingOverlay: getEquipmentDrawingPendingOverlay(),
+        selectedOverlayId: equipmentState.selectedDrawingPinId,
+        mode: { placementEnabled: isPlacing, readOnly: false },
+      });
     }
+
     async function loadEquipmentDrawingContentAndPins() {
       const drawing = getActiveEquipmentDrawing();
       revokeEquipmentDrawingObjectUrl();
@@ -8771,10 +8664,15 @@
       if (!equipmentDrawingShell) return;
       endEquipmentDrawingPlacementWorkspace();
 
-      equipmentDrawingShell.classList.add("open");
-      equipmentDrawingShell.setAttribute("aria-hidden", "false");
-      document.body.classList.add("equipment-drawing-open");
-      resetEquipmentDrawingView();
+      const viewer = ensureEquipmentDrawingViewer();
+      if (viewer) {
+        viewer.setWorkspaceOpen(true, { shell: equipmentDrawingShell, body: document.body, bodyClassName: "equipment-drawing-open" });
+      } else {
+        equipmentDrawingShell.classList.add("open");
+        equipmentDrawingShell.setAttribute("aria-hidden", "false");
+        document.body.classList.add("equipment-drawing-open");
+        return;
+      }
       setEquipmentDrawingStatus("Opdaterer tegning...");
       renderEquipmentDrawingSelects();
       try {
@@ -8795,9 +8693,13 @@
 
     function closeEquipmentDrawing() {
       if (!equipmentDrawingShell) return;
-      equipmentDrawingShell.classList.remove("open");
-      equipmentDrawingShell.setAttribute("aria-hidden", "true");
-      document.body.classList.remove("equipment-drawing-open");
+      if (equipmentState.drawingViewer) {
+        equipmentState.drawingViewer.setWorkspaceOpen(false, { shell: equipmentDrawingShell, body: document.body, bodyClassName: "equipment-drawing-open", resetViewport: false });
+      } else {
+        equipmentDrawingShell.classList.remove("open");
+        equipmentDrawingShell.setAttribute("aria-hidden", "true");
+        document.body.classList.remove("equipment-drawing-open");
+      }
       endEquipmentDrawingPlacementWorkspace();
       equipmentState.selectedDrawingPinId = null;
       resetEquipmentDrawingView();
@@ -8863,36 +8765,6 @@
       }
     }
 
-    function placeEquipmentDrawingPinFromEvent(event) {
-      if (equipmentState.suppressDrawingPlacementClick) {
-        equipmentState.suppressDrawingPlacementClick = false;
-        return;
-      }
-      if (!equipmentState.drawingPlacementCameraId || !equipmentState.activeDrawingId) return;
-      const surface = event.currentTarget.querySelector("[data-drawing-surface]");
-      if (!surface) return;
-      if (equipmentState.drawingTouchPointers.size > 1 || equipmentState.drawingPinchGesture) {
-        equipmentState.suppressDrawingPlacementClick = false;
-        return;
-      }
-      const rect = surface.getBoundingClientRect();
-      const x = ((event.clientX - rect.left) / rect.width) * 100;
-      const y = ((event.clientY - rect.top) / rect.height) * 100;
-      const camera = getEquipmentCameraById(equipmentState.drawingPlacementCameraId);
-      equipmentState.drawingPendingPlacement = {
-        id: "pending-placement",
-        drawing_id: equipmentState.activeDrawingId,
-        camera_record_id: equipmentState.drawingPlacementCameraId,
-        x_percent: Math.max(0, Math.min(100, x)),
-        y_percent: Math.max(0, Math.min(100, y)),
-        label: camera ? getEquipmentCameraLabel(camera) : "Kamera",
-        camera: camera || null,
-      };
-      setEquipmentDrawingStatus("Placering valgt. Tryk Gem placering for at bekræfte.");
-      updateEquipmentDrawingWorkspaceUi();
-      renderEquipmentDrawingCanvas();
-    }
-
     async function confirmEquipmentDrawingPlacement() {
       const pending = equipmentState.drawingPendingPlacement;
       if (!pending || !pending.camera_record_id || !pending.drawing_id) return;
@@ -8900,14 +8772,11 @@
       try {
         setEquipmentDrawingStatus("Gemmer placering...");
         if (equipmentDrawingConfirmPlacementBtn) equipmentDrawingConfirmPlacementBtn.disabled = true;
+        const assets = ensureEquipmentDrawingDependencies();
+        if (!assets) return;
         const result = await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/equipment/cctv/drawings/${encodeURIComponent(pending.drawing_id)}/pins`, {
           method: "POST",
-          body: JSON.stringify({
-            camera_record_id: pending.camera_record_id,
-            x_percent: pending.x_percent,
-            y_percent: pending.y_percent,
-            label: pending.label,
-          }),
+          body: JSON.stringify(assets.adapter.pinSavePayload(pending)),
         });
         const cameraId = pending.camera_record_id;
         const savedPinId = result?.pin?.id || null;
@@ -9638,11 +9507,11 @@
     }
 
     if (equipmentDrawingZoomOutBtn) {
-      equipmentDrawingZoomOutBtn.addEventListener("click", () => updateEquipmentDrawingZoom(equipmentState.drawingZoom - EQUIPMENT_DRAWING_ZOOM_STEP));
+      equipmentDrawingZoomOutBtn.addEventListener("click", () => updateEquipmentDrawingZoom(getEquipmentDrawingZoom() - EQUIPMENT_DRAWING_ZOOM_STEP));
     }
 
     if (equipmentDrawingZoomInBtn) {
-      equipmentDrawingZoomInBtn.addEventListener("click", () => updateEquipmentDrawingZoom(equipmentState.drawingZoom + EQUIPMENT_DRAWING_ZOOM_STEP));
+      equipmentDrawingZoomInBtn.addEventListener("click", () => updateEquipmentDrawingZoom(getEquipmentDrawingZoom() + EQUIPMENT_DRAWING_ZOOM_STEP));
     }
 
     if (equipmentDrawingResetViewBtn) {

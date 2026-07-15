@@ -108,6 +108,25 @@ router.get("/tenant/auth.js", requireTenantHost, (req, res) => {
   res.sendFile(path.join(tenantPublicDir, "auth.js"));
 });
 
+router.get("/tenant/drawing-engine.js", requireTenantHost, (req, res) => {
+  if (req.query && req.query.v) {
+    res.set("Cache-Control", "public, max-age=31536000, immutable");
+  } else {
+    res.set("Cache-Control", "no-cache, must-revalidate");
+  }
+  res.type("application/javascript");
+  res.sendFile(path.join(tenantPublicDir, "drawing-engine.js"));
+});
+
+router.get("/tenant/project-equipment-cctv-drawing-adapter.js", requireTenantHost, (req, res) => {
+  if (req.query && req.query.v) {
+    res.set("Cache-Control", "public, max-age=31536000, immutable");
+  } else {
+    res.set("Cache-Control", "no-cache, must-revalidate");
+  }
+  res.type("application/javascript");
+  res.sendFile(path.join(tenantPublicDir, "project-equipment-cctv-drawing-adapter.js"));
+});
 router.get("/tenant/vendor/zxing-browser.min.js", requireTenantHost, (req, res) => {
   res.sendFile(path.join(tenantPublicDir, "vendor", "zxing-browser.min.js"));
 });

@@ -18,9 +18,19 @@ test('tenant asset version falls back without producing empty undefined or null'
   assert.notEqual(getTenantAssetVersion({ RENDER_GIT_COMMIT: 'null' }), '');
 });
 
-test('tenant html gets stable versioned auth asset URL', () => {
-  const html = '<script src="/tenant/auth.js"></script><script src="/tenant/auth.js?v=old"></script>';
+test('tenant html gets stable versioned tenant asset URLs', () => {
+  const html = [
+    '<script src="/tenant/drawing-engine.js"></script>',
+    '<script src="/tenant/project-equipment-cctv-drawing-adapter.js?v=old"></script>',
+    '<script src="/tenant/auth.js"></script>',
+    '<script src="/tenant/auth.js?v=old"></script>',
+  ].join('');
   const out = versionTenantHtml(html, { RENDER_GIT_COMMIT: 'commit/with space' });
-  assert.equal(out, '<script src="/tenant/auth.js?v=commitwithspace"></script><script src="/tenant/auth.js?v=commitwithspace"></script>');
+  assert.equal(out, [
+    '<script src="/tenant/drawing-engine.js?v=commitwithspace"></script>',
+    '<script src="/tenant/project-equipment-cctv-drawing-adapter.js?v=commitwithspace"></script>',
+    '<script src="/tenant/auth.js?v=commitwithspace"></script>',
+    '<script src="/tenant/auth.js?v=commitwithspace"></script>',
+  ].join(''));
   assert.doesNotMatch(out, /v=(?:undefined|null)?["']/);
 });

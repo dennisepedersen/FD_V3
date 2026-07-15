@@ -32,6 +32,32 @@ test('sync worker is disabled in NODE_ENV=test to keep checks DB-free', () => {
   const worker = read('backend/src/services/syncWorker.js');
   assert.match(worker, /env\.NODE_ENV === "test"/);
 });
+
+test('project page loads shared drawing engine before CCTV adapter and auth', () => {
+  const project = read('backend/src/public/tenant/project.html');
+  const engineIndex = project.indexOf('/tenant/drawing-engine.js');
+  const adapterIndex = project.indexOf('/tenant/project-equipment-cctv-drawing-adapter.js');
+  const authIndex = project.indexOf('/tenant/auth.js');
+  assert.ok(engineIndex > -1);
+  assert.ok(adapterIndex > engineIndex);
+  assert.ok(authIndex > adapterIndex);
+});
+
+test('tenant asset versioning and routes include shared drawing engine assets', () => {
+  const routes = read('backend/src/routes/tenantSurfaceRoutes.js');
+  const version = read('backend/src/utils/tenantAssetVersion.js');
+  assert.match(routes, /\/tenant\/drawing-engine\.js/);
+  assert.match(routes, /\/tenant\/project-equipment-cctv-drawing-adapter\.js/);
+  assert.match(version, /\/tenant\/drawing-engine\.js/);
+  assert.match(version, /\/tenant\/project-equipment-cctv-drawing-adapter\.js/);
+});
+
+test('shared drawing engine is domain-neutral and CCTV mapping stays in adapter', () => {
+  const engine = read('backend/src/public/tenant/drawing-engine.js');
+  const adapter = read('backend/src/public/tenant/project-equipment-cctv-drawing-adapter.js');
+  assert.doesNotMatch(engine, /camera|cctv|mac|serial|restarbejde|defect|obs|equipment/i);
+  assert.match(adapter, /project_equipment_cctv_pin/);
+});
 test('tenant user lifecycle migration is append-only and session-version backed', () => {
   const migration = read('migrations/0037_tenant_user_lifecycle.sql');
   assert.match(migration, /ADD COLUMN IF NOT EXISTS session_version integer NOT NULL DEFAULT 0/);
