@@ -170,6 +170,10 @@ Specific duplicate checks:
 - No general equipment model beyond CCTV.
 - Audit is logged for create/update/archive/checked/export/image/drawing/pin mutations; the read-only check endpoint does not create a separate audit event.
 
+## Archive/pin/reporting decision
+
+Archive/pin/reporting behavior is governed by `docs/modules/project-equipment/CCTV_ARCHIVE_PIN_REPORTING_DECISION.md`: archived cameras preserve relations and pins, while active views, counts and exports hide archived cameras by default.
+
 ## Future project-leader module defaults
 
 Not part of this beta change:

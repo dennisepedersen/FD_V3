@@ -20,7 +20,7 @@ Ingen implementering eller arkitekturdesign må startes alene på baggrund af en
 
 ## IDE_COUNTER
 
-Næste ledige ID: IDE-0029
+Næste ledige ID: IDE-0030
 
 ---
 
@@ -30,6 +30,19 @@ Næste ledige ID: IDE-0029
 
 ## 🟡 Under vurdering
 
+### IDE-0029 – CCTV arkivering, pins og aktiv rapportering
+
+Dato: 2026-07-13
+Kilde: Chat / arkitekturbeslutning for arkiverede kameraer, pins og rapportering
+Status: Under vurdering
+Problem: CCTV-kameraer skal kunne fjernes fra den aktive installation uden at historik, billeder, noter, audit eller pin-placering går tabt. Hvis en pin slettes ved arkivering, kan et senere gendannet kamera miste sin dokumenterede placering. Samtidig må arkiverede kameraer ikke forurene standardvisninger, optællinger, rapporter eller eksport, som skal vise den aktuelle aktive installation.
+Mulig løsning: Arkivering skal være den primære brugerhandling frem for slet. Kameraets relationer, billeder, noter, audit, historik og pin bevares. Pinnen skjules kun i aktive standardvisninger, fordi kameraet er arkiveret. Ved gendannelse aktiveres samme kamera igen, og den eksisterende pin vises automatisk med samme `x_percent` / `y_percent`; der oprettes ikke en ny pin. Standardlister, tegninger, kontrolflow, dashboard, KPI, CSV og PDF skal kun medtage aktive kameraer. En senere eksplicit `Vis arkiverede` / `Medtag arkiverede` funktion kan vise arkiverede kameraer og pins med tydelig visuel markering.
+Forretningsværdi: Bevarer dokumentation og historik uden at gøre den aktive installation rodet. Gør det sikkert at gendanne kameraer uden datatab og understøtter revisionsklar historik.
+Risiko: Restore kan give konflikter, hvis et nyt aktivt kamera bruger samme MAC-adresse eller serienummer, mens det gamle kamera er arkiveret. Queries, rapporter og eksport skal være konsekvente, så arkiverede kameraer ikke utilsigtet tælles med. En `Vis arkiverede` funktion skal være tydelig, så arkiverede pins ikke forveksles med aktive installationer.
+Afhængigheder: Project Equipment CCTV, `project_equipment_cctv.archived_at`, `project_equipment_cctv_pin`, partial unique indexes for aktive MAC/S/N, audit events, rapportmotor, CSV/PDF export, dashboard/KPI, fremtidig restore-endpoint og eventuel admin/support-visning for arkiverede pins.
+Noter: Arkitekturbeslutningen er registreret i `docs/modules/project-equipment/CCTV_ARCHIVE_PIN_REPORTING_DECISION.md`. Dette er ikke en implementering og ændrer ikke nuværende funktionalitet.
+
+---
 ### IDE-0027 – Medarbejderportal og Projektroller
 
 Dato: 2026-06-08  

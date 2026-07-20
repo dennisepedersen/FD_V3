@@ -78,6 +78,7 @@ Scope: links to decisions; does not duplicate full decisions
 | Resource group API v1 is tenant-admin-only; resource group manager roles are scope/admin metadata and do not imply absence approval rights | `docs/modules/calendar/CALENDAR_RESOURCE_ABSENCE_MVP.md`, `docs/SECURITY_MODEL.md` |
 | Resource Group Admin UI v1 is tenant-admin-only and does not change Calendar scope, absence visibility, or approval rights | `docs/modules/calendar/CALENDAR_RESOURCE_ABSENCE_MVP.md`, `docs/SECURITY_MODEL.md` |
 | Resource Group Admin member lookup must use Resource Group API scope, default to active `fitter.is_active_derived = true`, and reserve `include_inactive=true` for tenant-admin support/debug; v1 remains limited to attachable `fitter_id` records until a neutral resource/person model exists | `docs/modules/calendar/CALENDAR_RESOURCE_ABSENCE_MVP.md`, `docs/SECURITY_MODEL.md` |
+| CCTV camera archive should preserve camera relations and pins; archived cameras and pins are hidden from active views, counts, reports and exports by default, with future explicit restore/show-archived support | `docs/modules/project-equipment/CCTV_ARCHIVE_PIN_REPORTING_DECISION.md`, `docs/IDE_BANK.md` |
 
 ## Security And Governance Decisions
 
