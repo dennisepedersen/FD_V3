@@ -1,0 +1,4 @@
+interface:
+  display_name: "Fielddesk Review Validation"
+  short_description: "Review and validate completed work"
+  default_prompt: "Use $fielddesk-review-validation to review and validate a completed Fielddesk implementation before merge."

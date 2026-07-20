@@ -1,0 +1,4 @@
+interface:
+  display_name: "Fielddesk Investigation"
+  short_description: "Investigate Fielddesk defects"
+  default_prompt: "Use $fielddesk-investigation to investigate a Fielddesk defect or regression without changing code."

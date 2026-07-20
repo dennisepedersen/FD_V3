@@ -1,0 +1,4 @@
+interface:
+  display_name: "Fielddesk Release Validation"
+  short_description: "Validate release and deploy gates"
+  default_prompt: "Use $fielddesk-release-validation to validate Fielddesk release, PR, deploy, and readiness gates."

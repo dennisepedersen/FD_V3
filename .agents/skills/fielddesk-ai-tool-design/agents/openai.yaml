@@ -1,0 +1,4 @@
+interface:
+  display_name: "Fielddesk AI Tool Design"
+  short_description: "Design secure Fielddesk AI tools"
+  default_prompt: "Use $fielddesk-ai-tool-design to design a secure, tenant-scoped Fielddesk AI tool."

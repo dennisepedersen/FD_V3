@@ -1,0 +1,4 @@
+interface:
+  display_name: "Fielddesk Feature Implementation"
+  short_description: "Scoped Fielddesk feature workflow"
+  default_prompt: "Use $fielddesk-feature-implementation to implement a scoped Fielddesk feature with validation."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Fielddesk Tenant Security Review"
+  short_description: "Review tenant isolation risks"
+  default_prompt: "Use $fielddesk-tenant-security-review to review tenant isolation and authorization risks in Fielddesk."

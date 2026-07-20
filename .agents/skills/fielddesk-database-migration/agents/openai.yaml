@@ -1,0 +1,4 @@
+interface:
+  display_name: "Fielddesk Database Migration"
+  short_description: "Tenant-safe migration workflow"
+  default_prompt: "Use $fielddesk-database-migration to design and validate a Fielddesk database migration."
