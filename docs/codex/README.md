@@ -25,6 +25,8 @@ Repo-specific Skills live in `.agents/skills/`.
 
 Current Skills:
 
+- `fielddesk-task-orchestrator` - coordinate longer Fielddesk tasks across
+  relevant Skills, validation, commits, and approval boundaries.
 - `fielddesk-database-migration` - create or review tenant-safe SQL migrations.
 - `fielddesk-tenant-security-review` - review tenant isolation and access risks.
 - `fielddesk-feature-implementation` - implement scoped Fielddesk changes.
@@ -41,6 +43,16 @@ Add a new Skill only when a repeated Fielddesk task has distinct procedure,
 validation, or stop conditions that would otherwise be re-explained in prompts.
 Use lowercase hyphenated names, keep frontmatter short, and keep detailed steps
 inside `SKILL.md`. Avoid copying `AGENTS.md`; link back to it instead.
+
+Use `fielddesk-task-orchestrator` for longer tasks that need one main workflow
+to clarify target state, choose relevant Skills, coordinate subagents when useful,
+reuse validation, continue through green internal steps, and stop at the next
+approval boundary. By default, ordinary development work should reach a local
+commit ready for push unless the prompt defines another final state. It should
+ask at most three combined questions, and only when scope, target state,
+security, or approval boundaries are genuinely unclear. Push, merge, deploy,
+production migration/config changes, destructive actions, and force-push still
+require explicit approval for the concrete target.
 
 Use `fielddesk-review-validation` after larger implementations are complete. It
 coordinates scope review, tenant/security checks, repair loops, and validation;

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Fielddesk Task Orchestrator"
+  short_description: "Coordinate larger Fielddesk tasks"
+  default_prompt: "Use $fielddesk-task-orchestrator to coordinate a larger Fielddesk task through review, validation, commit, and approval stop."
