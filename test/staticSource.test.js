@@ -33,14 +33,16 @@ test('sync worker is disabled in NODE_ENV=test to keep checks DB-free', () => {
   assert.match(worker, /env\.NODE_ENV === "test"/);
 });
 
-test('project page loads shared drawing engine before CCTV adapter and auth', () => {
+test('project page loads shared drawing engine before adapters and auth', () => {
   const project = read('backend/src/public/tenant/project.html');
   const engineIndex = project.indexOf('/tenant/drawing-engine.js');
-  const adapterIndex = project.indexOf('/tenant/project-equipment-cctv-drawing-adapter.js');
+  const cctvAdapterIndex = project.indexOf('/tenant/project-equipment-cctv-drawing-adapter.js');
+  const restarbejdeAdapterIndex = project.indexOf('/tenant/project-restarbejde-drawing-adapter.js');
   const authIndex = project.indexOf('/tenant/auth.js');
   assert.ok(engineIndex > -1);
-  assert.ok(adapterIndex > engineIndex);
-  assert.ok(authIndex > adapterIndex);
+  assert.ok(cctvAdapterIndex > engineIndex);
+  assert.ok(restarbejdeAdapterIndex > cctvAdapterIndex);
+  assert.ok(authIndex > restarbejdeAdapterIndex);
 });
 
 test('tenant asset versioning and routes include shared drawing engine assets', () => {
@@ -48,8 +50,10 @@ test('tenant asset versioning and routes include shared drawing engine assets', 
   const version = read('backend/src/utils/tenantAssetVersion.js');
   assert.match(routes, /\/tenant\/drawing-engine\.js/);
   assert.match(routes, /\/tenant\/project-equipment-cctv-drawing-adapter\.js/);
+  assert.match(routes, /\/tenant\/project-restarbejde-drawing-adapter\.js/);
   assert.match(version, /\/tenant\/drawing-engine\.js/);
   assert.match(version, /\/tenant\/project-equipment-cctv-drawing-adapter\.js/);
+  assert.match(version, /\/tenant\/project-restarbejde-drawing-adapter\.js/);
 });
 
 test('shared drawing engine is domain-neutral and CCTV mapping stays in adapter', () => {
@@ -57,6 +61,23 @@ test('shared drawing engine is domain-neutral and CCTV mapping stays in adapter'
   const adapter = read('backend/src/public/tenant/project-equipment-cctv-drawing-adapter.js');
   assert.doesNotMatch(engine, /camera|cctv|mac|serial|restarbejde|defect|obs|equipment/i);
   assert.match(adapter, /project_equipment_cctv_pin/);
+});
+
+test('Restarbejde frontend is a project tab with its own drawing adapter', () => {
+  const project = read('backend/src/public/tenant/project.html');
+  const auth = read('backend/src/public/tenant/auth.js');
+  const adapter = read('backend/src/public/tenant/project-restarbejde-drawing-adapter.js');
+  assert.match(project, /data-project-module-tab="restarbejde"/);
+  assert.match(project, /data-project-module-panel="restarbejde"/);
+  assert.match(auth, /function restarbejdeCan/);
+  assert.match(auth, /restarbejde\/items/);
+  assert.match(auth, /FielddeskRestarbejdeDrawingAdapter/);
+  assert.match(auth, /archiveRestarbejdeDrawing/);
+  assert.match(auth, /restoreRestarbejdeDrawing/);
+  assert.match(auth, /archiveRestarbejdePlacement/);
+  assert.match(adapter, /project_restarbejde_placement/);
+  assert.match(adapter, /x_percent/);
+  assert.match(adapter, /y_percent/);
 });
 test('tenant user lifecycle migration is append-only and session-version backed', () => {
   const migration = read('migrations/0037_tenant_user_lifecycle.sql');

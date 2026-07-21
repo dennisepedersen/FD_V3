@@ -15,6 +15,7 @@ function versionTenantHtml(html, env = process.env) {
   return String(html)
     .replace(/\/tenant\/drawing-engine\.js(?:\?v=[^"']*)?/g, `/tenant/drawing-engine.js?v=${version}`)
     .replace(/\/tenant\/project-equipment-cctv-drawing-adapter\.js(?:\?v=[^"']*)?/g, `/tenant/project-equipment-cctv-drawing-adapter.js?v=${version}`)
+    .replace(/\/tenant\/project-restarbejde-drawing-adapter\.js(?:\?v=[^"']*)?/g, `/tenant/project-restarbejde-drawing-adapter.js?v=${version}`)
     .replace(/\/tenant\/auth\.js(?:\?v=[^"']*)?/g, `/tenant/auth.js?v=${version}`);
 }
 

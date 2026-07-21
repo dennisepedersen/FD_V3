@@ -98,6 +98,12 @@ router.get("/tenant/assets/FD_logo.png", requireTenantHost, (req, res) => {
   res.sendFile(path.join(tenantPublicDir, "assets", "FD_logo.png"));
 });
 
+
+router.get("/tenant/project-restarbejde-drawing-adapter.js", requireTenantHost, (req, res) => {
+  res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+  res.type("application/javascript");
+  res.sendFile(path.join(tenantPublicDir, "project-restarbejde-drawing-adapter.js"));
+});
 router.get("/tenant/auth.js", requireTenantHost, (req, res) => {
   if (req.query && req.query.v) {
     res.set("Cache-Control", "public, max-age=31536000, immutable");
