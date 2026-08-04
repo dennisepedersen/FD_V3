@@ -1,6 +1,6 @@
 # Calendar / Resource Absence MVP
 
-Status: PR7a resource group admin UI started
+Status: legacy/direct absence foundation plus PR1 architecture direction
 Scope: Fielddesk-owned absence data foundation, tenant-admin API, first tenant Kalender/Fravaer UI, resource dropdown, active-resource filtering, resource group data foundation, resource group administration API, and tenant-admin resource group UI
 
 ## Decision
@@ -9,6 +9,16 @@ Fielddesk is the primary source of truth for resource absence in v1. Integration
 
 Fielddesk is also the primary source of truth for resource groups. Imported E-Komplet `resource_groups_json` values may be used later as seed data or suggestions, but they do not define the canonical Fielddesk group model.
 
+The future absence request, approved absence, special vacation window, manager relation, notification/outbox, and calendar read-model architecture is now defined in `docs/modules/calendar/RESOURCE_ABSENCE_CALENDAR_ARCHITECTURE_PR1.md`. This MVP document remains evidence for the existing direct absence and resource group foundation. It must not be read as approval to stretch `resource_absences` into the full request workflow without a later approved migration/design PR.
+
+
+## PR2 Absence Request Data Foundation
+
+Implemented local direction:
+- `resource_absences` is unchanged and remains the legacy/direct-registration absence table.
+- New request workflow data lives in `absence_type`, `absence_request`, `absence_request_event`, `absence_special_window`, `absence_special_window_scope`, and `employee_manager_relation`.
+- Request employee and manager identities are `tenant_user` based. `fitter` is optional metadata through nullable `absence_request.employee_fitter_id`.
+- PR2 adds permissions and audit event keys only; it does not add request routes, UI, approve/reject flow, calendar feed, mail, notification outbox, special-window matching, or legacy data migration.
 ## PR1 Foundation
 
 Implemented direction:

@@ -33,3 +33,10 @@ Project-scoped files include `project_id` and use the same tenant boundary as `p
 ## Non-Goals
 
 This policy does not implement UI upload, document folders, reports, OCR/AI, public URLs, or module-specific file workflows by itself.
+
+## Calendar / Absence Data Direction
+
+Absence requests, approved absence, and calendar feed rows are structured tenant-owned PostgreSQL data. Calendar should primarily read from source domains or controlled materialized read-model rows instead of becoming owner of every timed business object.
+
+Employee comments on absence requests are potential private information. They must not be copied into broad calendar feeds, exports, mail payloads, or notifications unless the receiving actor and surface have explicit permission.
+PR2 concretely stores request data in `absence_type`, `absence_request`, `absence_request_event`, `absence_special_window`, `absence_special_window_scope`, and `employee_manager_relation`. Existing `resource_absences` remains legacy/direct absence and is not migrated in PR2.

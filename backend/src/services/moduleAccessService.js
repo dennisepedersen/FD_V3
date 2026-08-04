@@ -19,6 +19,23 @@ const RESTARBEJDE_ACTIONS = Object.freeze([
   "report",
 ]);
 
+const ABSENCE_REQUEST_ACTIONS = Object.freeze([
+  "create_own",
+  "read_own",
+  "update_own_draft",
+  "submit_own",
+  "cancel_own",
+  "read_own_history",
+  "read_managed",
+  "approve_managed",
+  "reject_managed",
+  "propose_change_managed",
+  "read_private_comment",
+  "administrative_override",
+  "approve_before_review_date",
+  "read_audit",
+]);
+
 const MODULE_REGISTRY = Object.freeze({
   qa: Object.freeze({
     key: "qa",
@@ -29,6 +46,26 @@ const MODULE_REGISTRY = Object.freeze({
     key: "calendar_absence",
     enabled: true,
     actions: Object.freeze(["read", "create"]),
+  }),
+  absence_request: Object.freeze({
+    key: "absence_request",
+    enabled: true,
+    actions: ABSENCE_REQUEST_ACTIONS,
+  }),
+  absence_type: Object.freeze({
+    key: "absence_type",
+    enabled: true,
+    actions: Object.freeze(["manage"]),
+  }),
+  absence_special_window: Object.freeze({
+    key: "absence_special_window",
+    enabled: true,
+    actions: Object.freeze(["manage"]),
+  }),
+  employee_manager_relation: Object.freeze({
+    key: "employee_manager_relation",
+    enabled: true,
+    actions: Object.freeze(["manage"]),
   }),
   resource_groups: Object.freeze({
     key: "resource_groups",
@@ -52,6 +89,15 @@ const MODULE_REGISTRY = Object.freeze({
   }),
 });
 
+const OWN_ABSENCE_REQUEST_PERMISSIONS = Object.freeze([
+  "absence_request:create_own",
+  "absence_request:read_own",
+  "absence_request:update_own_draft",
+  "absence_request:submit_own",
+  "absence_request:cancel_own",
+  "absence_request:read_own_history",
+]);
+
 const ROLE_PERMISSIONS = Object.freeze({
   tenant_admin: Object.freeze([
     "qa:read",
@@ -59,6 +105,13 @@ const ROLE_PERMISSIONS = Object.freeze({
     "qa:update",
     "calendar_absence:read",
     "calendar_absence:create",
+    ...OWN_ABSENCE_REQUEST_PERMISSIONS,
+    "absence_request:administrative_override",
+    "absence_request:approve_before_review_date",
+    "absence_request:read_audit",
+    "absence_type:manage",
+    "absence_special_window:manage",
+    "employee_manager_relation:manage",
     "resource_groups:read",
     "resource_groups:create",
     "resource_groups:update",
@@ -79,6 +132,7 @@ const ROLE_PERMISSIONS = Object.freeze({
     "qa:read",
     "qa:create",
     "qa:update",
+    ...OWN_ABSENCE_REQUEST_PERMISSIONS,
     "project_equipment_beta:read",
     "project_equipment_beta:create",
     "project_equipment_beta:update",
@@ -89,6 +143,7 @@ const ROLE_PERMISSIONS = Object.freeze({
   technician: Object.freeze([
     "qa:read",
     "qa:create",
+    ...OWN_ABSENCE_REQUEST_PERMISSIONS,
     "project_equipment_beta:read",
     "project_equipment_beta:create",
     "project_equipment_beta:update",
@@ -112,6 +167,16 @@ function normalizeRequiredString(value) {
     safeDeny();
   }
   return normalized;
+}
+
+function normalizePermissionList(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((permission) => String(permission || "").trim().toLowerCase())
+    .filter(Boolean);
 }
 
 function requireModuleAccess({ tenant, auth, moduleKey, action }) {
@@ -141,7 +206,8 @@ function requireModuleAccess({ tenant, auth, moduleKey, action }) {
 
   const permission = `${normalizedModuleKey}:${normalizedAction}`;
   const rolePermissions = ROLE_PERMISSIONS[role] || [];
-  if (!rolePermissions.includes(permission)) {
+  const actorPermissions = normalizePermissionList(auth.permissions);
+  if (!rolePermissions.includes(permission) && !actorPermissions.includes(permission)) {
     safeDeny();
   }
 

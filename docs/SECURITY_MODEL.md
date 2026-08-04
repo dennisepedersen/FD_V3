@@ -229,6 +229,8 @@ Calendar / Resource Absence direction:
 - Visibility must be enforced in backend policy before non-admin roles can read full absence type/reason.
 - Later resource group, manager approval, finance visibility, and unavailable-only views must be explicit capabilities, not frontend-only filtering.
 - Audit events for create, update, cancel, approve, reject, and visibility-sensitive access should be added when write routes/actions are introduced.
+- Future absence request workflow must keep request, approved absence, calendar feed, notification state, and audit history separate. Private employee comments require explicit permission and tenant admin is not automatically a private-comment reader. Personnel approval must be based on a Fielddesk-owned manager relation, not project responsible, resource group manager, tenant admin role, or imported `fitter` identity.
+- PR2 absence request tables use composite tenant foreign keys and `tenant_user` identities for employees/managers. `absence_request:read_private_comment` is a separate permission and is not granted to tenant-admin by default. RLS remains a future defense-in-depth gap.
 
 ## 9. Known Gaps
 
