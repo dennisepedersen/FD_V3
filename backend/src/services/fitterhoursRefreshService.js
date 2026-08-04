@@ -943,6 +943,234 @@ async function updateRefreshStatus(client, {
   );
 }
 
+
+async function resolveRefreshUser(client, { tenantId, userId = null, userCode = null }) {
+  const params = [tenantId];
+  const filters = ["tenant_id = $1", "status = 'active'", "login_status = 'active'"];
+  if (userId) {
+    params.push(String(userId));
+    filters.push(`id = $${params.length}::uuid`);
+  }
+  if (userCode) {
+    params.push(String(userCode));
+    filters.push(`lower(btrim(username)) = lower(btrim($${params.length}))`);
+  }
+  if (!userId && !userCode) {
+    throw new Error('Provide userId or userCode');
+  }
+
+  const { rows } = await client.query(
+    `
+      SELECT id, tenant_id, username, email, name, role
+      FROM tenant_user
+      WHERE ${filters.join('\n        AND ')}
+      LIMIT 2
+    `,
+    params
+  );
+  if (rows.length !== 1) {
+    throw new Error(`expected_one_active_refresh_user:found:${rows.length}`);
+  }
+  return rows[0];
+}
+
+async function listRefreshProjectsForUser(client, { tenantId, userId, limit = 500 }) {
+  const safeLimit = Math.min(Math.max(Number(limit) || 500, 1), 2000);
+  const { rows } = await client.query(
+    `
+      WITH current_actor AS (
+        SELECT lower(nullif(btrim(username), '')) AS username_ci
+        FROM tenant_user
+        WHERE tenant_id = $1
+          AND id = $2
+        LIMIT 1
+      ),
+      scoped_projects AS (
+        SELECT DISTINCT
+          pc.project_id,
+          pc.external_project_ref,
+          pc.status,
+          pc.is_closed,
+          pm.ek_project_id,
+          pw.last_registration,
+          pw.last_fitter_hour_date,
+          GREATEST(
+            COALESCE(pw.last_registration, '-infinity'::timestamptz),
+            COALESCE(pw.last_fitter_hour_date, '-infinity'::timestamptz)
+          ) AS activity_date,
+          pc.updated_at
+        FROM project_core pc
+        CROSS JOIN current_actor cu
+        JOIN project_masterdata_v4 pm
+          ON pm.tenant_id = pc.tenant_id
+         AND pm.project_id = pc.project_id
+        LEFT JOIN project_wip pw
+          ON pw.tenant_id = pc.tenant_id
+         AND pw.project_id = pc.project_id
+        LEFT JOIN project_assignment pa
+          ON pa.tenant_id = pc.tenant_id
+         AND pa.project_id = pc.project_id
+        WHERE pc.tenant_id = $1
+          AND pc.status = 'open'
+          AND COALESCE(pc.is_closed, false) = false
+          AND pm.ek_project_id IS NOT NULL
+          AND (
+            (cu.username_ci IS NOT NULL AND lower(btrim(coalesce(pc.responsible_code, ''))) = cu.username_ci)
+            OR (cu.username_ci IS NOT NULL AND lower(btrim(coalesce(pc.team_leader_code, ''))) = cu.username_ci)
+            OR pc.owner_user_id = $2
+            OR pa.tenant_user_id = $2
+          )
+      )
+      SELECT *
+      FROM scoped_projects
+      ORDER BY updated_at DESC, external_project_ref ASC NULLS LAST
+      LIMIT $3
+    `,
+    [tenantId, userId, safeLimit]
+  );
+  return rows;
+}
+
+function summarizeMultiProjectRefresh(results) {
+  const summary = {
+    projects: results.length,
+    ready: 0,
+    blocked: 0,
+    failed: 0,
+    remoteRows: 0,
+    mappedRows: 0,
+    expectedInserts: 0,
+    expectedUpdates: 0,
+    expectedUnchanged: 0,
+  };
+  for (const row of results) {
+    if (row.status === 'ready' || row.status === 'success') summary.ready += 1;
+    else if (String(row.status || '').startsWith('blocked_') || row.status === 'blocked') summary.blocked += 1;
+    else summary.failed += 1;
+    summary.remoteRows += Number(row.preCheck?.ekProjectDetail?.remoteRows || 0);
+    summary.mappedRows += Number(row.preCheck?.mapping?.mappedRows || 0);
+    summary.expectedInserts += Number(row.preCheck?.dryRun?.inserted || 0);
+    summary.expectedUpdates += Number(row.preCheck?.dryRun?.updated || 0);
+    summary.expectedUnchanged += Number(row.preCheck?.dryRun?.unchanged || 0);
+  }
+  return summary;
+}
+
+async function preCheckUserProjectsFitterhoursRefresh(client, {
+  tenantConfig,
+  userId = null,
+  userCode = null,
+  limit = 500,
+}) {
+  const user = await resolveRefreshUser(client, {
+    tenantId: tenantConfig.tenantId,
+    userId,
+    userCode,
+  });
+  const projects = await listRefreshProjectsForUser(client, {
+    tenantId: tenantConfig.tenantId,
+    userId: user.id,
+    limit,
+  });
+  const results = [];
+
+  for (const project of projects) {
+    try {
+      const preCheck = await preCheckProjectFitterhoursRefresh(client, {
+        tenantConfig,
+        projectId: project.project_id,
+      });
+      results.push({
+        projectId: project.project_id,
+        externalProjectRef: project.external_project_ref,
+        ekProjectId: Number(project.ek_project_id),
+        status: preCheck.status,
+        preCheck,
+        error: null,
+      });
+    } catch (error) {
+      results.push({
+        projectId: project.project_id,
+        externalProjectRef: project.external_project_ref,
+        ekProjectId: Number(project.ek_project_id),
+        status: 'failed',
+        preCheck: null,
+        error: String(error.message || 'precheck_failed'),
+      });
+    }
+  }
+
+  return {
+    user: {
+      id: user.id,
+      username: user.username,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+    },
+    endpoint: PROJECT_DETAIL_ENDPOINT,
+    projectsConsidered: projects.length,
+    results,
+    summary: summarizeMultiProjectRefresh(results),
+    safety: {
+      endpointUsed: PROJECT_DETAIL_ENDPOINT,
+      broadFitterhoursEndpointUsed: false,
+      fitterhoursQueryEndpointUsed: false,
+      writesToFitterHourEnabled: false,
+      materializerEnabled: false,
+      assignmentsFromFitterhoursEnabled: false,
+      failureIsolation: true,
+    },
+  };
+}
+
+async function refreshUserProjectsFitterhours(client, {
+  tenantConfig,
+  userId = null,
+  userCode = null,
+  limit = 500,
+  triggerType = 'maintenance',
+  triggeredByUserId = null,
+}) {
+  const plan = await preCheckUserProjectsFitterhoursRefresh(client, {
+    tenantConfig,
+    userId,
+    userCode,
+    limit,
+  });
+  const results = [];
+
+  for (const item of plan.results) {
+    if (item.status !== 'ready') {
+      results.push({ ...item, applied: false });
+      continue;
+    }
+    try {
+      const applied = await refreshProjectFitterhours(client, {
+        tenantConfig,
+        projectId: item.projectId,
+        triggerType,
+        triggeredByUserId,
+      });
+      results.push({ ...item, status: applied.status, applied: true, applyResult: applied.applyResult });
+    } catch (error) {
+      results.push({ ...item, status: 'failed', applied: false, error: String(error.message || 'apply_failed') });
+    }
+  }
+
+  return {
+    ...plan,
+    results,
+    summary: summarizeMultiProjectRefresh(results),
+    safety: {
+      ...plan.safety,
+      writesToFitterHourEnabled: true,
+      materializerEnabled: true,
+      assignmentsFromFitterhoursEnabled: false,
+    },
+  };
+}
+
 async function refreshProjectFitterhours(client, {
   tenantConfig,
   ekProjectId = null,
@@ -1066,6 +1294,10 @@ module.exports = {
   classifyRefreshVolume,
   safeUpsertFitterHoursForProject,
   refreshProjectFitterhours,
+  resolveRefreshUser,
+  listRefreshProjectsForUser,
+  preCheckUserProjectsFitterhoursRefresh,
+  refreshUserProjectsFitterhours,
   recordRefreshRun,
   updateRefreshStatus,
 };

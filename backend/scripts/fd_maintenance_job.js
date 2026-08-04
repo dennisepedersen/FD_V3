@@ -44,6 +44,14 @@ const JOBS = {
     acceptsProjectId: true,
     confirmTarget: 'project',
   },
+  'user-project-fitterhours-refresh': {
+    script: 'scripts/user_project_fitterhours_refresh.js',
+    modes: new Set(['dry-run', 'apply']),
+    requiresEkProjectId: false,
+    acceptsUserCode: true,
+    acceptsUserId: true,
+    confirmTarget: 'user',
+  },
   'project-activity-materialize': {
     script: 'scripts/materialize_project_activity_from_fitter_hour.js',
     modes: new Set(['status-only', 'dry-run', 'apply']),
@@ -68,6 +76,8 @@ function usage() {
     '  node scripts/fd_maintenance_job.js --job project-targeted-fitterhours-refresh-dry-run --mode dry-run --tenant hoyrup-clemmensen --ek-project-id 25000 --project-ref 10889-005',
     '  node scripts/fd_maintenance_job.js --job project-targeted-fitterhours-refresh-admin --mode dry-run --tenant hoyrup-clemmensen --project-ref 13838',
     '  node scripts/fd_maintenance_job.js --job project-targeted-fitterhours-refresh-admin --mode apply --tenant hoyrup-clemmensen --project-ref 13838 --confirm APPLY:project-targeted-fitterhours-refresh-admin:hoyrup-clemmensen:13838',
+    '  node scripts/fd_maintenance_job.js --job user-project-fitterhours-refresh --mode dry-run --tenant hoyrup-clemmensen --user-code DEP',
+    '  node scripts/fd_maintenance_job.js --job user-project-fitterhours-refresh --mode apply --tenant hoyrup-clemmensen --user-code DEP --confirm APPLY:user-project-fitterhours-refresh:hoyrup-clemmensen:DEP',
     '  node scripts/fd_maintenance_job.js --job project-activity-materialize --mode dry-run --tenant hoyrup-clemmensen',
     '  node scripts/fd_maintenance_job.js --job project-activity-materialize --mode apply --tenant hoyrup-clemmensen --confirm APPLY:project-activity-materialize:hoyrup-clemmensen',
     '',
@@ -77,6 +87,7 @@ function usage() {
     '  project-targeted-fitterhours-refresh-v4',
     '  project-targeted-fitterhours-refresh-dry-run',
     '  project-targeted-fitterhours-refresh-admin',
+    '  user-project-fitterhours-refresh',
     '  project-activity-materialize',
     '',
     'Allowed modes:',
@@ -113,6 +124,10 @@ function parseArgs(argv) {
       args.projectRef = argv[++i] || null;
     } else if (arg === '--project-id') {
       args.projectId = argv[++i] || null;
+    } else if (arg === '--user-code') {
+      args.userCode = argv[++i] || null;
+    } else if (arg === '--user-id') {
+      args.userId = argv[++i] || null;
     } else if (arg === '--confirm') {
       args.confirm = argv[++i] || null;
     } else if (arg === '--actor') {
@@ -133,6 +148,13 @@ function confirmTargetFor(job, args) {
     const target = args.projectRef || args.projectId;
     if (!target) {
       throw new Error(`${args.job} apply requires --project-ref or --project-id.`);
+    }
+    return target;
+  }
+  if (job.confirmTarget === 'user') {
+    const target = args.userCode || args.userId;
+    if (!target) {
+      throw new Error(`${args.job} apply requires --user-code or --user-id.`);
     }
     return target;
   }
@@ -214,6 +236,12 @@ function childArgsFor({ job, args }) {
   }
   if (job.acceptsProjectId && args.projectId) {
     childArgs.push('--project-id', args.projectId);
+  }
+  if (job.acceptsUserCode && args.userCode) {
+    childArgs.push('--user-code', args.userCode);
+  }
+  if (job.acceptsUserId && args.userId) {
+    childArgs.push('--user-id', args.userId);
   }
 
   if (args.mode === 'status-only') {

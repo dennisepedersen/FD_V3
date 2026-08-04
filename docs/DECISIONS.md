@@ -43,6 +43,7 @@ Scope: links to decisions; does not duplicate full decisions
 | EK v4 fitterhours query/search endpoints are not verified as ProjectID-scoped filters and must not be used for project-scoped reads yet | `backend/docs/integrations/ek/fitterhours.md` |
 | Manual fitterhours Batch 8+ is stopped as the main track; future model separates historical EK backfill, delta/incremental refresh, on-demand project refresh, and tenant onboarding history choices | `backend/docs/integrations/ek/fitterhours.md`, `backend/docs/integrations/ek/fitterhours_refresh_register.md` |
 | EK v4 purchase invoice lines, purchase orders, financial posts, and worksheets have verified ProjectID-filtered read behavior, but are discovery findings until mapped/governed | `backend/docs/integrations/ek/project_materials_finance_v4.md` |
+| Worksheet-backed project access uses `project_assignment_source` with 30 days retention after worksheet completion/close; fitterhours/calendar/resource groups never grant access | `backend/docs/integrations/ek/worksheets_project_access.md` |
 
 ## Operations Decisions
 

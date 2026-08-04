@@ -4,6 +4,11 @@ const { withTransaction } = require("../db/tx");
 const syncJobQueries = require("../db/queries/syncJob");
 const env = require("../config/env");
 const { materializeProjectActivityFromFitterHours } = require("./projectActivityMaterializer");
+const {
+  pruneExpiredWorksheetSources,
+  reconcileMissingWorksheetSources,
+  upsertWorksheetAssignments,
+} = require("./worksheetAssignmentService");
 
 const POLL_INTERVAL_MS = 12_000;
 const PAGE_SIZE = 200;
@@ -70,10 +75,10 @@ const ENDPOINT_STRATEGY = {
   users: { supportsDelta: false, strategy: SYNC_STRATEGIES.RECONCILE_SCAN, materialized: false },
   fitters: { supportsDelta: false, strategy: SYNC_STRATEGIES.RECONCILE_SCAN, materialized: true },
   fittercategories: { supportsDelta: false, strategy: SYNC_STRATEGIES.RECONCILE_SCAN, materialized: true },
-  fitterhours: { supportsDelta: false, strategy: SYNC_STRATEGIES.RECONCILE_SCAN, materialized: true },
+  fitterhours: { supportsDelta: true, strategy: SYNC_STRATEGIES.DELTA_SUPPORTED, materialized: true },
   invoices: { supportsDelta: false, strategy: SYNC_STRATEGIES.RECONCILE_SCAN, materialized: false },
   purchaseinvoices: { supportsDelta: false, strategy: SYNC_STRATEGIES.RECONCILE_SCAN, materialized: false },
-  worksheets: { supportsDelta: false, strategy: SYNC_STRATEGIES.RECONCILE_SCAN, materialized: false },
+  worksheets: { supportsDelta: true, strategy: SYNC_STRATEGIES.DELTA_SUPPORTED, materialized: true },
 };
 
 let started = false;
@@ -2929,6 +2934,7 @@ async function runReadOnlyEndpoint({ job, cfg, endpointKey, mode, cutoffContext 
   const isFitterCategories = endpointKey === "fittercategories";
   const isFitters = endpointKey === "fitters";
   const isFitterHours = endpointKey === "fitterhours";
+  const isWorksheets = endpointKey === "worksheets";
   if (isFitters) {
     return runFittersFullListEndpoint({
       job,
@@ -3072,6 +3078,16 @@ async function runReadOnlyEndpoint({ job, cfg, endpointKey, mode, cutoffContext 
                 tenantId: job.tenant_id,
                 projectIds: mappedRows.map((row) => row.projectId),
               });
+            });
+          } else if (isWorksheets) {
+            await withTransaction(async (client) => {
+              const worksheetResult = await upsertWorksheetAssignments(client, {
+                tenantId: job.tenant_id,
+                rawRows: parsed.rows,
+                reconciliationId: normalizedMode === SYNC_MODES.DELTA ? null : job.id,
+              });
+              await pruneExpiredWorksheetSources(client, { tenantId: job.tenant_id });
+              rowsPersisted = worksheetResult.persisted;
             });
           }
         }
@@ -3256,6 +3272,20 @@ async function runReadOnlyEndpoint({ job, cfg, endpointKey, mode, cutoffContext 
       [job.tenant_id, endpointKey]
     );
     const backlogCounts = rows[0] || { pending_count: 0, failed_count: 0 };
+
+    if (isWorksheets) {
+      await pruneExpiredWorksheetSources(client, { tenantId: job.tenant_id });
+      if (
+        normalizedMode !== SYNC_MODES.DELTA
+        && Number(backlogCounts.pending_count || 0) === 0
+        && Number(backlogCounts.failed_count || 0) === 0
+      ) {
+        await reconcileMissingWorksheetSources(client, {
+          tenantId: job.tenant_id,
+          reconciliationId: job.id,
+        });
+      }
+    }
 
     await markEndpointState(client, {
       tenantId: job.tenant_id,
@@ -4190,6 +4220,7 @@ async function runReadOnlyBacklogRetryRound({ job, cfg, endpointKey }) {
   const isFitterCategories = endpointKey === "fittercategories";
   const isFitters = endpointKey === "fitters";
   const isFitterHours = endpointKey === "fitterhours";
+  const isWorksheets = endpointKey === "worksheets";
   const readEndpointPrimaryPageSize = (isFitterCategories || isFitters || isFitterHours)
     ? FITTER_PAGE_SIZE_PRIMARY
     : PAGE_SIZE;
@@ -4268,36 +4299,46 @@ async function runReadOnlyBacklogRetryRound({ job, cfg, endpointKey }) {
       }
 
       let rowsPersisted = 0;
-      if (parsed.rows.length > 0 && (isFitterCategories || isFitters || isFitterHours)) {
+      if (parsed.rows.length > 0 && (isFitterCategories || isFitters || isFitterHours || isWorksheets)) {
         const mappedRows = isFitterCategories
           ? parsed.rows.map((row) => mapFitterCategoryRow(row)).filter(Boolean)
           : isFitters
             ? parsed.rows.map((row) => mapFitterRow(row)).filter(Boolean)
-            : parsed.rows.map((row) => mapFitterHourRow(row, {
-              activeProjectReferenceKeys,
-              cutoffIso: fitterhoursCutoffIso,
-            })).filter(Boolean);
+            : isFitterHours
+              ? parsed.rows.map((row) => mapFitterHourRow(row, {
+                activeProjectReferenceKeys,
+                cutoffIso: fitterhoursCutoffIso,
+              })).filter(Boolean)
+              : [];
 
         await withTransaction(async (client) => {
-          rowsPersisted = isFitterCategories
-            ? await upsertFitterCategoryBatch(client, {
+          if (isFitterCategories) {
+            rowsPersisted = await upsertFitterCategoryBatch(client, {
               tenantId: job.tenant_id,
               mappedRows,
-            })
-            : isFitters
-              ? await upsertFitterBatch(client, {
-                tenantId: job.tenant_id,
-                mappedRows,
-              })
-              : await upsertFitterHourBatch(client, {
-                tenantId: job.tenant_id,
-                mappedRows,
-              });
-          if (isFitterHours) {
+            });
+          } else if (isFitters) {
+            rowsPersisted = await upsertFitterBatch(client, {
+              tenantId: job.tenant_id,
+              mappedRows,
+            });
+          } else if (isFitterHours) {
+            rowsPersisted = await upsertFitterHourBatch(client, {
+              tenantId: job.tenant_id,
+              mappedRows,
+            });
             await materializeProjectActivityFromFitterHours(client, {
               tenantId: job.tenant_id,
               projectIds: mappedRows.map((row) => row.projectId),
             });
+          } else if (isWorksheets) {
+            const worksheetResult = await upsertWorksheetAssignments(client, {
+              tenantId: job.tenant_id,
+              rawRows: parsed.rows,
+              reconciliationId: null,
+            });
+            await pruneExpiredWorksheetSources(client, { tenantId: job.tenant_id });
+            rowsPersisted = worksheetResult.persisted;
           }
         });
       }
@@ -4319,7 +4360,7 @@ async function runReadOnlyBacklogRetryRound({ job, cfg, endpointKey }) {
           rowsFetched: parsed.rows.length,
           rowsPersisted,
           httpStatus: 200,
-          errorMessage: (isFitterCategories || isFitters || isFitterHours) ? null : "persist_skipped:no_supported_table",
+          errorMessage: (isFitterCategories || isFitters || isFitterHours || isWorksheets) ? null : "persist_skipped:no_supported_table",
           retryCount: Math.max(0, nextAttempt - 1),
           startedAt: nowIso(),
           finishedAt: nowIso(),

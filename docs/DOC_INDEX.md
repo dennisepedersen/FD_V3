@@ -63,6 +63,7 @@ Scope: points to docs; does not replace them
 | `backend/docs/integrations/ek/fitterhours.md` | Fitterhours integration contract | Current |
 | `backend/docs/integrations/ek/fitterhours_retention_model.md` | Verified fitterhours retention/scope model and pending implementation plan | Verified decision / implementation pending |
 | `backend/docs/integrations/ek/project_materials_finance_v4.md` | Verified v4 project-scoped materials, purchasing, finance, worksheets, and write-side candidates | Verified discovery / no write implementation |
+| `backend/docs/integrations/ek/worksheets_project_access.md` | Worksheet-backed project access policy and source materialization strategy | Implemented policy / pending migration apply |
 | `backend/docs/integrations/ek/users.md` | E-Komplet users integration notes | Current |
 | `backend/docs/integrations/solar/solar_product_data.md` | Solar product data notes | New/unclear until reviewed |
 

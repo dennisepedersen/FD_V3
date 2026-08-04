@@ -22,6 +22,13 @@ const JOBS = {
     acceptsProjectRef: true,
     acceptsProjectId: true,
   },
+  'user-project-fitterhours-refresh': {
+    modes: new Set(['dry-run', 'apply']),
+    requiresEkProjectId: false,
+    acceptsUserCode: true,
+    acceptsUserId: true,
+    confirmTarget: 'user',
+  },
   'project-targeted-fitterhours-refresh-admin': {
     modes: new Set(['dry-run', 'apply']),
     requiresEkProjectId: false,
@@ -47,6 +54,7 @@ function usage() {
     '  node tools/render_maintenance_job.js --job project-targeted-fitterhours-refresh-v4 --mode dry-run --tenant <tenant> --ek-project-id <id> [--project-ref <ref>] [--actor <actor>]',
     '  node tools/render_maintenance_job.js --job project-targeted-fitterhours-refresh-v4 --mode apply --tenant <tenant> --ek-project-id <id> --confirm APPLY:project-targeted-fitterhours-refresh-v4:<tenant>:<id> [--project-ref <ref>] [--actor <actor>]',
     '  node tools/render_maintenance_job.js --job project-targeted-fitterhours-refresh-dry-run --mode dry-run --tenant <tenant> [--ek-project-id <id>] [--project-ref <ref>] [--actor <actor>]',
+    '  node tools/render_maintenance_job.js --job user-project-fitterhours-refresh --mode dry-run --tenant <tenant> --user-code DEP [--actor <actor>]',
     '  node tools/render_maintenance_job.js --job project-targeted-fitterhours-refresh-admin --mode dry-run --tenant <tenant> [--ek-project-id <id>] --project-ref <ref> [--actor <actor>]',
     '  node tools/render_maintenance_job.js --job project-targeted-fitterhours-refresh-admin --mode apply --tenant <tenant> --project-ref <ref> --confirm APPLY:project-targeted-fitterhours-refresh-admin:<tenant>:<ref> [--actor <actor>]',
     '',
@@ -63,6 +71,8 @@ function parseArgs(argv) {
     actor: process.env.FD_MAINTENANCE_ACTOR || process.env.USERNAME || process.env.USER || 'unknown',
     serviceId: process.env.FIELD_DESK_RENDER_SERVICE_ID || process.env.RENDER_SERVICE_ID || '',
     remoteWorkdir: process.env.FD_RENDER_JOB_WORKDIR || '',
+    userCode: null,
+    userId: null,
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -89,6 +99,8 @@ function parseArgs(argv) {
     else if (key === 'ek-project-id') args.ekProjectId = value;
     else if (key === 'project-ref') args.projectRef = value;
     else if (key === 'project-id') args.projectId = value;
+    else if (key === 'user-code') args.userCode = value;
+    else if (key === 'user-id') args.userId = value;
     else if (key === 'confirm') args.confirm = value;
     else if (key === 'actor') args.actor = value;
     else if (key === 'service-id') args.serviceId = value;
@@ -104,6 +116,13 @@ function confirmTargetFor(job, args) {
     const target = args.projectRef || args.projectId;
     if (!target) {
       throw new Error(`${args.job} apply requires --project-ref or --project-id.`);
+    }
+    return target;
+  }
+  if (job.confirmTarget === 'user') {
+    const target = args.userCode || args.userId;
+    if (!target) {
+      throw new Error(`${args.job} apply requires --user-code or --user-id.`);
     }
     return target;
   }
@@ -207,6 +226,12 @@ function buildRenderCommand(args) {
   }
   if (JOBS[args.job].acceptsProjectId && args.projectId) {
     remoteArgs.push('--project-id', args.projectId);
+  }
+  if (JOBS[args.job].acceptsUserCode && args.userCode) {
+    remoteArgs.push('--user-code', args.userCode);
+  }
+  if (JOBS[args.job].acceptsUserId && args.userId) {
+    remoteArgs.push('--user-id', args.userId);
   }
 
   if (args.mode === 'apply') {

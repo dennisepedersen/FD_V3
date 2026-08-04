@@ -315,10 +315,11 @@ test('project owner, responsible and team leader access conditions remain alongs
   assert.match(source, /pa\.tenant_user_id = \$2/);
 });
 
-test('repository uses existing project_assignment table without migrations', () => {
+test('repository writes manual project access through assignment sources', () => {
   const source = fs.readFileSync(path.join(__dirname, '../backend/src/modules/tenantAdmin/tenantAdmin.repository.js'), 'utf8');
-  assert.match(source, /INSERT INTO project_assignment/);
-  assert.match(source, /ON CONFLICT \(project_id, tenant_user_id\)/);
-  assert.match(source, /DELETE FROM project_assignment/);
+  assert.match(source, /upsertAssignmentSource/);
+  assert.match(source, /sourceType: "manual"/);
+  assert.match(source, /DELETE FROM project_assignment_source/);
+  assert.match(source, /deleteEffectiveAssignmentIfNoActiveSources/);
   assert.doesNotMatch(source, /ALTER TABLE|CREATE TABLE|CREATE INDEX/i);
 });

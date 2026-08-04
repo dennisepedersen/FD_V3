@@ -1,3 +1,8 @@
+const {
+  deleteEffectiveAssignmentIfNoActiveSources,
+  materializeEffectiveAssignment,
+  upsertAssignmentSource,
+} = require("../../services/worksheetAssignmentService");
 async function listUsers(client, { tenantId, search }) {
   const normalizedSearch = search ? `%${String(search).trim().toLowerCase()}%` : null;
   const { rows } = await client.query(
@@ -739,42 +744,68 @@ async function listProjectAssignments(client, { tenantId, projectId }) {
 }
 
 async function upsertProjectAssignment(client, { tenantId, projectId, userId, assignmentRole }) {
-  const { rows } = await client.query(
-    `
-      INSERT INTO project_assignment (tenant_id, project_id, tenant_user_id, assignment_role)
-      VALUES ($1, $2, $3, $4)
-      ON CONFLICT (project_id, tenant_user_id)
-      DO UPDATE SET
-        assignment_role = EXCLUDED.assignment_role,
-        updated_at = now()
-      WHERE project_assignment.tenant_id = EXCLUDED.tenant_id
-      RETURNING
-        id,
-        tenant_id,
-        project_id,
-        tenant_user_id,
-        assignment_role,
-        created_at,
-        updated_at,
-        (xmax = 0) AS inserted
-    `,
-    [tenantId, projectId, userId, assignmentRole]
-  );
-  return rows[0] || null;
+  return upsertAssignmentSource(client, {
+    tenantId,
+    projectId,
+    userId,
+    sourceType: "manual",
+    sourceKey: `manual:${projectId}:${userId}`,
+    assignmentRole,
+    validUntil: null,
+    payload: {
+      source: "tenant_admin_manual_assignment",
+      project_id: projectId,
+      tenant_user_id: userId,
+      assignment_role: assignmentRole,
+    },
+  });
 }
 
 async function deleteProjectAssignment(client, { tenantId, projectId, userId }) {
-  const { rows } = await client.query(
+  const existing = await client.query(
     `
-      DELETE FROM project_assignment
+      SELECT id, tenant_id, project_id, tenant_user_id, assignment_role, created_at, updated_at
+      FROM project_assignment
       WHERE tenant_id = $1
         AND project_id = $2
         AND tenant_user_id = $3
-      RETURNING id, tenant_id, project_id, tenant_user_id, assignment_role, created_at, updated_at
+      LIMIT 1
     `,
     [tenantId, projectId, userId]
   );
-  return rows[0] || null;
+  const assignment = existing.rows[0] || null;
+  if (!assignment) return null;
+
+  await client.query(
+    `
+      DELETE FROM project_assignment_source
+      WHERE tenant_id = $1
+        AND project_id = $2
+        AND tenant_user_id = $3
+        AND source_type = 'manual'
+    `,
+    [tenantId, projectId, userId]
+  );
+
+  const deleted = await deleteEffectiveAssignmentIfNoActiveSources(client, {
+    tenantId,
+    projectId,
+    userId,
+  });
+
+  if (!deleted) {
+    await materializeEffectiveAssignment(client, {
+      tenantId,
+      projectId,
+      userId,
+      assignmentRole: assignment.assignment_role,
+    });
+  }
+
+  return {
+    ...assignment,
+    effective_assignment_removed: Boolean(deleted),
+  };
 }
 module.exports = {
   acquireTenantLifecycleLock,
