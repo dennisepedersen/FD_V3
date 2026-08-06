@@ -44,6 +44,15 @@ GitHub Actions installs root and backend lockfiles, then runs `npm run check`. N
 
 `check:whitespace` runs in local working-tree mode by default, using `git diff --check` and `git diff --cached --check` for tracked unstaged and staged changes; untracked files are checked after they are staged. In GitHub Actions pull requests, the workflow passes `CHECK_BASE_SHA` and `CHECK_HEAD_SHA`; the script then runs `git diff --check <base>...<head>` so committed whitespace changes in a clean checkout fail the build. If those refs are unavailable, the script falls back to clean working-tree checks and prints that mode explicitly. Newline-at-EOF is covered when Git reports it through `git diff --check` for the diffed files.
 
+## Calendar / Absence Focused Tests
+
+For absence request backend slices, the focused Node tests are:
+
+- `node --test test/absenceRequestFoundation.test.js`
+- `node --test test/absenceRequestEmployeeBackend.test.js`
+- `node --test test/notificationOutboxFoundation.test.js`
+
+These cover PR2 schema/static contracts, PR3 employee-own request flows, PR4 notification/outbox foundation, and PR5 manager pending/detail/approve/reject behavior. They are unit/static tests and do not connect to production, run migrations, call Render, or send mail.
 ## Failure Fixture Checks
 
 Use temporary directories outside the repo, for example under `C:\tmp` or `/tmp`, when testing failure behavior:

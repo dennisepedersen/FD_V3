@@ -354,3 +354,98 @@ test("processor status-only and dry-run are read-only repository calls", async (
   assert.equal(previewCount, 1);
   assert.equal(client.calls.filter((sql) => sql === "COMMIT").length, 2);
 });
+test("migration 0043 seeds manager decision employee templates with constrained variables", () => {
+  const migration = read("migrations/0043_absence_manager_decision_email_templates.sql");
+  const schema = read("schema.sql");
+
+  for (const source of [migration, schema]) {
+    assert.match(source, /absence_request\.approved\.employee/);
+    assert.match(source, /absence_request\.rejected\.employee/);
+    assert.match(source, /"employee_name"/);
+    assert.match(source, /"manager_name"/);
+    assert.match(source, /"absence_type"/);
+    assert.match(source, /"start_date"/);
+    assert.match(source, /"end_date"/);
+    assert.match(source, /"action_url"/);
+    assert.match(source, /"tenant_name"/);
+    assert.match(source, /ON CONFLICT DO NOTHING/);
+  }
+  assert.match(migration, /absence_request\.approved\.employee[\s\S]+"start_time","end_time","action_url","tenant_name"/);
+  assert.doesNotMatch(migration, /absence_request\.approved\.employee[\s\S]+"decision_reason"[\s\S]+absence_request\.rejected\.employee/);
+  assert.match(migration, /absence_request\.rejected\.employee[\s\S]+"decision_reason"/);
+});
+
+test("approved and rejected employee notifications use neutral bodies and rejection reason only in email variables", async () => {
+  const calls = [];
+  await withPatches([
+    [internalNotificationService, "createInternalNotification", async (_client, args) => {
+      calls.push({ notification: args });
+      return { id: uuid(80) };
+    }],
+    [emailOutboxService, "enqueueEmail", async (_client, args) => {
+      calls.push({ email: args });
+      return { id: uuid(81), status: "queued" };
+    }],
+  ], async () => {
+    await absenceNotificationService.enqueueAbsenceApproved(createClient(), {
+      tenantId: uuid(1),
+      actorId: uuid(5),
+      requestContext: {
+        id: uuid(10),
+        tenant_slug: "hoyrup-clemmensen",
+        tenant_name: "Hoyrup Clemmensen",
+        tenant_domain: "app.example.test",
+        employee_tenant_user_id: uuid(2),
+        employee_name: "Anne",
+        employee_email: "anne@example.test",
+        employee_status: "active",
+        employee_login_status: "active",
+        assigned_manager_tenant_user_id: uuid(5),
+        assigned_manager_name: "Mads",
+        manager_email: "mads@example.test",
+        manager_status: "active",
+        manager_login_status: "active",
+        absence_type_name: "Ferie",
+        duration_type: "full_days",
+        start_date: "2026-08-10",
+        end_date: "2026-08-11",
+      },
+    });
+    await absenceNotificationService.enqueueAbsenceRejected(createClient(), {
+      tenantId: uuid(1),
+      actorId: uuid(5),
+      decisionReason: "Ikke muligt i perioden",
+      requestContext: {
+        id: uuid(10),
+        tenant_slug: "hoyrup-clemmensen",
+        tenant_name: "Hoyrup Clemmensen",
+        tenant_domain: "app.example.test",
+        employee_tenant_user_id: uuid(2),
+        employee_name: "Anne",
+        employee_email: "anne@example.test",
+        employee_status: "active",
+        employee_login_status: "active",
+        assigned_manager_tenant_user_id: uuid(5),
+        assigned_manager_name: "Mads",
+        manager_email: "mads@example.test",
+        manager_status: "active",
+        manager_login_status: "active",
+        absence_type_name: "Ferie",
+        duration_type: "full_days",
+        start_date: "2026-08-10",
+        end_date: "2026-08-11",
+      },
+    });
+  });
+
+  const approvedNotification = calls.find((call) => call.notification?.eventKey === "absence_request.approved.employee").notification;
+  const rejectedNotification = calls.find((call) => call.notification?.eventKey === "absence_request.rejected.employee").notification;
+  const rejectedEmail = calls.find((call) => call.email?.templateKey === "absence_request.rejected.employee").email;
+
+  assert.equal(approvedNotification.title, "Fravaersanmodning godkendt");
+  assert.equal(rejectedNotification.title, "Fravaersanmodning afvist");
+  assert.doesNotMatch(rejectedNotification.body, /Ikke muligt/);
+  assert.equal(rejectedEmail.variables.decision_reason, "Ikke muligt i perioden");
+  assert.equal(rejectedEmail.payload.decision_reason, undefined);
+  assert.equal(rejectedEmail.idempotencyKey, `${rejectedEmail.templateKey}:${uuid(10)}:${uuid(2)}`);
+});

@@ -1,6 +1,6 @@
 # PR4 - Fravaersnotifikationer og email outbox
 
-Status: implemented locally, not released.
+Status: PR4 released; PR5 manager decision extensions implemented locally.
 
 ## Scope
 
@@ -12,8 +12,10 @@ Implemented:
 - `email_template` med systemtemplates og fremtidig tenant override.
 - `email_outbox` med `queued`, `processing`, `sent`, `retry` og `dead_letter`.
 - Systemtemplates for submit og cancel i `da-DK`.
+- PR5 adds systemtemplates for manager approve/reject employee mails in `da-DK`.
 - Template rendering med eksplicit variable allowlist og HTML escaping.
 - Atomisk enqueue ved `absence_request.submitted` og `absence_request.cancelled`.
+- PR5 adds atomic employee notification/outbox enqueue for `absence_request.approved` and `absence_request.rejected`.
 - Whitelisted, manuelt aktiveret maintenance job `email-outbox-process`.
 
 Not implemented in PR4:
@@ -94,3 +96,21 @@ Recommended next PR:
 - Notification/outbox side effects for approval outcomes.
 - No calendar materialization.
 - No notification UI in the same PR.
+## PR5 Manager Decision Notifications
+
+PR5 reuses the PR4 notification/outbox foundation for manager decisions. Approve and reject create employee-facing internal notifications and email outbox rows inside the same absence-request transaction as the status update, request event, and audit event.
+
+Template keys:
+
+- `absence_request.approved.employee`
+- `absence_request.rejected.employee`
+
+Allowed variables are limited to `employee_name`, `manager_name`, `absence_type`, `start_date`, `end_date`, `start_time`, `end_time`, `action_url`, `tenant_name`, and, for rejection only, `decision_reason`. Tenant overrides still cannot expand the systemtemplate allowlist.
+
+Rejection reason policy:
+
+- The full reason is stored in `absence_request_event.reason`.
+- The full reason is allowed in the employee rejection email body because it is the intended message content.
+- The full reason is not copied to internal notification body, notification payload, outbox payload, audit metadata, route logs, or processor logs.
+
+PR5 still does not activate automatic outbox `apply`, send production mail, create notification UI, or materialize calendar/resource absence rows.

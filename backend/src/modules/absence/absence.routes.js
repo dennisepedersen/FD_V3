@@ -96,6 +96,52 @@ router.get("/api/calendar/absence-requests/mine", requireTenantHost, requireAuth
   }
 });
 
+router.get("/api/calendar/absence-requests/manager/pending", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  try {
+    const { tenantId, userId } = getTenantContext(req);
+    requireAbsenceRequestAccess(req, "read_managed");
+
+    const result = await absenceRequestService.listManagedPending({
+      tenantId,
+      userId,
+      filters: req.query || {},
+    });
+
+    res.status(200).json({
+      success: true,
+      requests: result.requests,
+      statuses: result.statuses,
+      limit: result.limit,
+      offset: result.offset,
+    });
+  } catch (error) {
+    logRouteError("/api/calendar/absence-requests/manager/pending", "GET", req, error);
+    next(error);
+  }
+});
+
+router.get("/api/calendar/absence-requests/manager/:id", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  try {
+    const { tenantId, userId } = getTenantContext(req);
+    requireAbsenceRequestAccess(req, "read_managed");
+
+    const result = await absenceRequestService.getManagedDetail({
+      tenantId,
+      userId,
+      absenceRequestId: req.params.id,
+      includePrivateComment: hasAbsenceRequestAccess(req, "read_private_comment"),
+    });
+
+    res.status(200).json({
+      success: true,
+      request: result.request,
+      events: result.events,
+    });
+  } catch (error) {
+    logRouteError("/api/calendar/absence-requests/manager/:id", "GET", req, error);
+    next(error);
+  }
+});
 router.post("/api/calendar/absence-requests", requireTenantHost, requireAuth("access"), async (req, res, next) => {
   try {
     const { tenantId, userId } = getTenantContext(req);
@@ -186,6 +232,53 @@ router.post("/api/calendar/absence-requests/:id/submit", requireTenantHost, requ
   }
 });
 
+router.post("/api/calendar/absence-requests/:id/approve", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  try {
+    const { tenantId, userId } = getTenantContext(req);
+    requireAbsenceRequestAccess(req, "approve_managed");
+
+    const result = await absenceRequestService.approveManaged({
+      tenantId,
+      userId,
+      absenceRequestId: req.params.id,
+      body: req.body || {},
+      hasBeforeReviewOverride: hasAbsenceRequestAccess(req, "approve_before_review_date"),
+      idempotencyKey: idempotencyKey(req),
+    });
+
+    res.status(200).json({
+      success: true,
+      request: result.request,
+    });
+  } catch (error) {
+    logRouteError("/api/calendar/absence-requests/:id/approve", "POST", req, error);
+    next(error);
+  }
+});
+
+router.post("/api/calendar/absence-requests/:id/reject", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  try {
+    const { tenantId, userId } = getTenantContext(req);
+    requireAbsenceRequestAccess(req, "reject_managed");
+
+    const result = await absenceRequestService.rejectManaged({
+      tenantId,
+      userId,
+      absenceRequestId: req.params.id,
+      body: req.body || {},
+      hasBeforeReviewOverride: hasAbsenceRequestAccess(req, "approve_before_review_date"),
+      idempotencyKey: idempotencyKey(req),
+    });
+
+    res.status(200).json({
+      success: true,
+      request: result.request,
+    });
+  } catch (error) {
+    logRouteError("/api/calendar/absence-requests/:id/reject", "POST", req, error);
+    next(error);
+  }
+});
 router.post("/api/calendar/absence-requests/:id/cancel", requireTenantHost, requireAuth("access"), async (req, res, next) => {
   try {
     const { tenantId, userId } = getTenantContext(req);

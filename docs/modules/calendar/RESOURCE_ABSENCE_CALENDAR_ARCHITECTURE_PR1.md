@@ -92,6 +92,21 @@ events, and resource groups must never grant project access.
 16. Fielddesk supports operational absence and planning. It is not a payroll or
     legal HR master system.
 
+## PR5 Manager Decision Implementation Note
+
+Status: implemented locally in PR5 backend.
+
+verified: Manager pending/detail/approve/reject routes are implemented under `/api/calendar/absence-requests` and use the existing tenant host, access-token, tenant-context match, and `moduleAccessService` pattern.
+
+verified: Manager object scope is the submitted request snapshot `absence_request.assigned_manager_tenant_user_id`. PR5 does not recalculate manager relation during read or decision, and does not grant approval through tenant admin, project leader, resource group manager, project responsible, E-Komplet team leader, or fitter identity.
+
+verified: PR5 transitions are limited to `submitted -> approved`, `submitted -> rejected`, `ready_for_review -> approved`, and `ready_for_review -> rejected`. `under_review`, change proposals, alternate periods, and administrative overrides remain deferred.
+
+verified: Approve/reject require optimistic `version`. A successful decision sets `reviewed_at`, increments `version`, writes `absence_request_event`, writes audit without private employee comment or full rejection reason, and enqueues employee internal notification/email outbox in one transaction.
+
+verified: Special-window approve and reject are blocked before `review_start_date` when `approval_blocked_before_review` applies, unless the actor has `absence_request:approve_before_review_date` and supplies a reason. Override metadata records window id, review date, and override flag; the reason remains in request event reason, not broad audit metadata.
+
+verified: PR5 does not create `resource_absences`, calendar feed rows, automatic mail sending, notification UI, template admin UI, EK sync, worksheet sync, Render changes, or production mail.
 ## Domain Boundaries
 
 ### Absence Request

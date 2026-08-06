@@ -15,11 +15,13 @@ const {
   assertCommentPolicy,
   getChangedFields,
   normalizeActionVersion,
+  normalizeApprovePayload,
   normalizeCreatePayload,
   normalizeLimit,
   normalizeOffset,
   normalizeOptionalText,
   normalizeOptionalUuid,
+  normalizeRejectPayload,
   normalizeUpdatePayload,
   normalizeUuid,
 } = require("./absence.validation");
@@ -28,6 +30,8 @@ const { ABSENCE_REQUEST_STATUSES } = require("./absence.constants");
 const MODULE_KEY = "absence_request";
 const RESOURCE_TYPE = "absence_request";
 const CANCEL_ALLOWED_STATUSES = Object.freeze(["draft", "submitted"]);
+const MANAGER_DECISION_ALLOWED_STATUSES = Object.freeze(["submitted", "ready_for_review"]);
+const MANAGER_PENDING_DEFAULT_STATUSES = Object.freeze(["submitted", "ready_for_review"]);
 const STATUS_SET = new Set(ABSENCE_REQUEST_STATUSES);
 
 async function requireNotificationContext(client, { tenantId, absenceRequestId }) {
@@ -62,6 +66,23 @@ function normalizeStatusFilter(value) {
   return normalized;
 }
 
+function normalizeManagerStatusList(value) {
+  const normalized = normalizeOptionalText(value);
+  if (!normalized) return [...MANAGER_PENDING_DEFAULT_STATUSES];
+  const statuses = normalized.split(",").map((item) => item.trim()).filter(Boolean);
+  if (statuses.length === 0) return [...MANAGER_PENDING_DEFAULT_STATUSES];
+  for (const status of statuses) {
+    if (!STATUS_SET.has(status)) throw createHttpError(400, "invalid_absence_request_status_filter");
+  }
+  return Array.from(new Set(statuses));
+}
+
+function normalizeEmployeeFilter(value) {
+  const normalized = normalizeOptionalText(value);
+  if (!normalized) return null;
+  if (normalized.length > 120) throw createHttpError(400, "invalid_absence_employee_filter");
+  return normalized;
+}
 function normalizeFilterDate(value, errorCode) {
   const normalized = normalizeOptionalText(value);
   if (!normalized) return null;
@@ -142,6 +163,44 @@ function mapRequest(row, { includeComment = true } = {}) {
   return mapped;
 }
 
+function mapEmployee(row) {
+  if (!row?.employee_tenant_user_id) return null;
+  const name = row.employee_name || "Medarbejder";
+  const initials = name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() || "")
+    .join("") || null;
+  return {
+    id: row.employee_tenant_user_id,
+    display_name: name,
+    initials,
+  };
+}
+
+function mapManagerRequest(row, { includeComment = false } = {}) {
+  const request = mapRequest(row, { includeComment: false });
+  request.employee = mapEmployee(row);
+  request.has_private_comment = Boolean(normalizeOptionalText(row.employee_comment));
+  request.reviewed_at = row.reviewed_at || null;
+  if (includeComment) {
+    request.employee_comment = row.employee_comment || null;
+  }
+  return request;
+}
+
+function mapManagerEvent(row) {
+  return {
+    id: row.id,
+    event_type: row.event_type,
+    old_status: row.old_status,
+    new_status: row.new_status,
+    reason: row.reason || null,
+    metadata: row.metadata_json || {},
+    created_at: row.created_at,
+  };
+}
 function mapEvent(row) {
   return {
     id: row.id,
@@ -196,6 +255,54 @@ function validatePayloadAgainstType(absenceType, payload) {
   assertCommentPolicy(absenceType, payload.employeeComment);
 }
 
+function validateManagedRequestType(row) {
+  const absenceType = absenceTypeFromRequestRow(row);
+  if (absenceType.workflow_mode !== "request") {
+    throw createHttpError(400, "absence_type_workflow_not_request");
+  }
+  assertAbsenceTypeAllowsDuration(absenceType, row.duration_type);
+}
+
+function specialWindowStillCoversRequest(row) {
+  if (!row.special_window_id) return true;
+  const start = toDateString(row.start_date);
+  const end = requestEndDateForWindow(row);
+  const windowStart = toDateString(row.special_window_absence_start_date);
+  const windowEnd = toDateString(row.special_window_absence_end_date);
+  return Boolean(windowStart && windowEnd && windowStart <= start && windowEnd >= end);
+}
+
+function validateSpecialWindowForDecision(row, { action, hasBeforeReviewOverride, reason }) {
+  if (!row.special_window_id) return { override: false, metadata: {} };
+  if (!row.special_window_name && !row.special_window_review_start_date) {
+    throw createHttpError(409, "absence_special_window_not_available");
+  }
+  if (row.special_window_is_active !== true && !specialWindowStillCoversRequest(row)) {
+    throw createHttpError(409, "absence_special_window_not_available");
+  }
+
+  const reviewStartDate = toDateString(row.special_window_review_start_date);
+  const approvalBlocked = row.special_window_approval_blocked_before_review !== false;
+  const beforeReview = Boolean(reviewStartDate && todayDate() < reviewStartDate);
+  if (!approvalBlocked || !beforeReview) {
+    return { override: false, metadata: {} };
+  }
+
+  if (!hasBeforeReviewOverride) {
+    throw createHttpError(409, `absence_special_window_${action}_blocked_before_review`);
+  }
+  if (!normalizeOptionalText(reason)) {
+    throw createHttpError(400, "absence_special_window_override_reason_required");
+  }
+  return {
+    override: true,
+    metadata: {
+      special_window_id: row.special_window_id,
+      review_start_date: reviewStartDate,
+      override: true,
+    },
+  };
+}
 async function requireAbsenceType(client, { tenantId, absenceTypeId }) {
   const absenceType = await absenceTypeRepository.findById(client, { tenantId, absenceTypeId });
   if (!absenceType) throw createHttpError(404, "absence_type_not_found");
@@ -330,6 +437,198 @@ async function getMineDetail({ tenantId, userId, absenceRequestId, includeHistor
   }
 }
 
+async function listManagedPending({ tenantId, userId, filters = {} }) {
+  const normalizedTenantId = normalizeUuid(tenantId, "tenant_id_required");
+  const normalizedUserId = normalizeUuid(userId, "tenant_user_id_required");
+  const statuses = normalizeManagerStatusList(filters.status);
+  const dateFrom = normalizeFilterDate(filters.date_from || filters.from, "invalid_absence_request_date_from");
+  const dateTo = normalizeFilterDate(filters.date_to || filters.to, "invalid_absence_request_date_to");
+  const employee = normalizeEmployeeFilter(filters.employee);
+  const absenceTypeId = normalizeOptionalUuid(filters.absence_type || filters.absence_type_id, "invalid_absence_type_id");
+  const specialWindowId = normalizeOptionalUuid(filters.special_window || filters.special_window_id, "invalid_absence_special_window_id");
+  const limit = normalizeLimit(filters.limit);
+  const offset = normalizeOffset(filters.offset);
+  if (dateFrom && dateTo && dateTo < dateFrom) throw createHttpError(400, "absence_request_date_filter_invalid_range");
+
+  const client = await pool.connect();
+  try {
+    const rows = await absenceRequestRepository.listForManager(client, {
+      tenantId: normalizedTenantId,
+      managerTenantUserId: normalizedUserId,
+      statuses,
+      dateFrom,
+      dateTo,
+      employee,
+      absenceTypeId,
+      specialWindowId,
+      limit,
+      offset,
+    });
+    return {
+      requests: rows.map((row) => mapManagerRequest(row, { includeComment: false })),
+      limit,
+      offset,
+      statuses,
+    };
+  } finally {
+    client.release();
+  }
+}
+
+async function getManagedDetail({ tenantId, userId, absenceRequestId, includePrivateComment = false }) {
+  const normalizedTenantId = normalizeUuid(tenantId, "tenant_id_required");
+  const normalizedUserId = normalizeUuid(userId, "tenant_user_id_required");
+  const normalizedRequestId = normalizeUuid(absenceRequestId, "absence_request_id_required");
+
+  const client = await pool.connect();
+  try {
+    const row = await absenceRequestRepository.findByIdForManager(client, {
+      tenantId: normalizedTenantId,
+      managerTenantUserId: normalizedUserId,
+      absenceRequestId: normalizedRequestId,
+    });
+    if (!row) throw createHttpError(404, "absence_request_not_found");
+    const events = await absenceRequestRepository.listEvents(client, {
+      tenantId: normalizedTenantId,
+      absenceRequestId: normalizedRequestId,
+    });
+    return {
+      request: mapManagerRequest(row, { includeComment: includePrivateComment }),
+      events: events.map(mapManagerEvent),
+    };
+  } finally {
+    client.release();
+  }
+}
+
+async function decideManaged({
+  tenantId,
+  userId,
+  absenceRequestId,
+  body,
+  action,
+  hasBeforeReviewOverride = false,
+  idempotencyKey = null,
+}) {
+  const normalizedTenantId = normalizeUuid(tenantId, "tenant_id_required");
+  const normalizedUserId = normalizeUuid(userId, "tenant_user_id_required");
+  const normalizedRequestId = normalizeUuid(absenceRequestId, "absence_request_id_required");
+  const payload = action === "approve" ? normalizeApprovePayload(body || {}) : normalizeRejectPayload(body || {});
+  const normalizedIdempotencyKey = normalizeIdempotencyKey(idempotencyKey);
+  const targetStatus = action === "approve" ? "approved" : "rejected";
+  const eventType = targetStatus;
+
+  return withTransaction(async (client) => {
+    if (normalizedIdempotencyKey) {
+      await absenceRequestRepository.acquireIdempotencyLock(client, {
+        lockKey: `absence:${action}:${normalizedTenantId}:${normalizedUserId}:${normalizedRequestId}:${normalizedIdempotencyKey}`,
+      });
+    }
+
+    const existing = await absenceRequestRepository.findByIdForManager(client, {
+      tenantId: normalizedTenantId,
+      managerTenantUserId: normalizedUserId,
+      absenceRequestId: normalizedRequestId,
+      forUpdate: true,
+    });
+    if (!existing) throw createHttpError(404, "absence_request_not_found");
+
+    if (existing.status === targetStatus && (Number(existing.version) === payload.version || Number(existing.version) === payload.version + 1)) {
+      return { request: mapManagerRequest(existing, { includeComment: false }), idempotent: true };
+    }
+    if (!MANAGER_DECISION_ALLOWED_STATUSES.includes(existing.status)) {
+      throw createHttpError(409, "absence_request_not_reviewable");
+    }
+    if (Number(existing.version) !== payload.version) {
+      throw createHttpError(409, "absence_request_version_conflict");
+    }
+
+    validateManagedRequestType(existing);
+    const specialWindowDecision = validateSpecialWindowForDecision(existing, {
+      action,
+      hasBeforeReviewOverride,
+      reason: payload.reason,
+    });
+
+    const updated = await absenceRequestRepository.updateManagedDecision(client, {
+      tenantId: normalizedTenantId,
+      managerTenantUserId: normalizedUserId,
+      absenceRequestId: normalizedRequestId,
+      expectedVersion: payload.version,
+      fromStatuses: MANAGER_DECISION_ALLOWED_STATUSES,
+      toStatus: targetStatus,
+    });
+    if (!updated) throw createHttpError(409, "absence_request_version_conflict");
+
+    const eventMetadata = {
+      old_version: payload.version,
+      new_version: updated.version,
+      ...specialWindowDecision.metadata,
+    };
+    if (normalizedIdempotencyKey) eventMetadata.idempotency_key = normalizedIdempotencyKey;
+
+    await absenceRequestRepository.insertEvent(client, {
+      tenantId: normalizedTenantId,
+      absenceRequestId: normalizedRequestId,
+      eventType,
+      actorTenantUserId: normalizedUserId,
+      oldStatus: existing.status,
+      newStatus: targetStatus,
+      reason: payload.reason || null,
+      metadata: eventMetadata,
+    });
+    await audit(client, {
+      tenantId: normalizedTenantId,
+      actorId: normalizedUserId,
+      eventType: `absence_request.${targetStatus}`,
+      requestId: normalizedRequestId,
+      metadata: {
+        request_id: normalizedRequestId,
+        employee_tenant_user_id: existing.employee_tenant_user_id,
+        manager_tenant_user_id: normalizedUserId,
+        old_status: existing.status,
+        new_status: targetStatus,
+        old_version: payload.version,
+        new_version: updated.version,
+        special_window_override: specialWindowDecision.override,
+      },
+    });
+
+    const requestContext = await requireNotificationContext(client, {
+      tenantId: normalizedTenantId,
+      absenceRequestId: normalizedRequestId,
+    });
+    if (action === "approve") {
+      await absenceNotificationService.enqueueAbsenceApproved(client, {
+        tenantId: normalizedTenantId,
+        actorId: normalizedUserId,
+        requestContext,
+      });
+    } else {
+      await absenceNotificationService.enqueueAbsenceRejected(client, {
+        tenantId: normalizedTenantId,
+        actorId: normalizedUserId,
+        requestContext,
+        decisionReason: payload.reason,
+      });
+    }
+
+    const row = await absenceRequestRepository.findByIdForManager(client, {
+      tenantId: normalizedTenantId,
+      managerTenantUserId: normalizedUserId,
+      absenceRequestId: normalizedRequestId,
+    });
+    return { request: mapManagerRequest(row, { includeComment: false }), idempotent: false };
+  });
+}
+
+async function approveManaged(args) {
+  return decideManaged({ ...args, action: "approve" });
+}
+
+async function rejectManaged(args) {
+  return decideManaged({ ...args, action: "reject" });
+}
 async function createDraft({ tenantId, userId, body, idempotencyKey }) {
   const normalizedTenantId = normalizeUuid(tenantId, "tenant_id_required");
   const normalizedUserId = normalizeUuid(userId, "tenant_user_id_required");
@@ -659,20 +958,27 @@ async function cancelOwn({ tenantId, userId, absenceRequestId, body }) {
 }
 
 module.exports = {
+  approveManaged,
   cancelOwn,
   createDraft,
+  getManagedDetail,
   getMineDetail,
+  listManagedPending,
   listMine,
   mapEvent,
   mapRequest,
+  rejectManaged,
   submitDraft,
   updateDraft,
   _test: {
     absenceTypeFromRequestRow,
     displayStatus,
+    mapManagerRequest,
     mapRequest,
     normalizeIdempotencyKey,
     resolveSpecialWindow,
+    validateManagedRequestType,
+    validateSpecialWindowForDecision,
     validatePayloadAgainstType,
   },
 };

@@ -2,7 +2,7 @@
 
 const emailOutboxService = require("./emailOutbox.service");
 const internalNotificationService = require("./internalNotification.service");
-const { formatAbsencePeriod } = require("./templateRenderer");
+const { formatAbsencePeriod, formatDateDa } = require("./templateRenderer");
 
 function userIsActive(user) {
   return user?.status === "active" && user?.login_status === "active";
@@ -37,9 +37,12 @@ function buildContext(row) {
     absencePeriod,
     startDate: row.start_date,
     endDate: row.end_date || row.start_date,
+    startTime: row.start_time ? String(row.start_time).slice(0, 5) : "",
+    endTime: row.end_time ? String(row.end_time).slice(0, 5) : "",
     durationType: row.duration_type,
     specialWindowName: row.special_window_name || null,
     tenantSlug: row.tenant_slug,
+    tenantName: row.tenant_name || row.tenant_slug || "Fielddesk",
     tenantDomain: row.tenant_domain || null,
     actionUrl: actionUrlFor({
       absenceRequestId: row.id,
@@ -194,6 +197,58 @@ async function enqueueAbsenceCancelled(client, { tenantId, actorId, requestConte
   return results.filter(Boolean);
 }
 
+async function enqueueAbsenceApproved(client, { tenantId, actorId, requestContext }) {
+  const context = buildContext(requestContext);
+  const result = await enqueueForRecipient(client, {
+    tenantId,
+    actorId,
+    context,
+    recipient: context.employee,
+    eventKey: "absence_request.approved.employee",
+    templateKey: "absence_request.approved.employee",
+    title: "Fravaersanmodning godkendt",
+    body: `Din fravaersanmodning for ${context.absencePeriod} er godkendt.`,
+    variables: {
+      employee_name: context.employee.name,
+      manager_name: context.manager?.name || "din leder",
+      absence_type: context.absenceTypeName,
+      start_date: formatDateDa(context.startDate),
+      end_date: formatDateDa(context.endDate),
+      start_time: context.startTime || "",
+      end_time: context.endTime || "",
+      action_url: context.actionUrl,
+      tenant_name: context.tenantName,
+    },
+  });
+  return result ? [result] : [];
+}
+
+async function enqueueAbsenceRejected(client, { tenantId, actorId, requestContext, decisionReason }) {
+  const context = buildContext(requestContext);
+  const result = await enqueueForRecipient(client, {
+    tenantId,
+    actorId,
+    context,
+    recipient: context.employee,
+    eventKey: "absence_request.rejected.employee",
+    templateKey: "absence_request.rejected.employee",
+    title: "Fravaersanmodning afvist",
+    body: `Din fravaersanmodning for ${context.absencePeriod} er afvist. Begrundelsen kan ses i Fielddesk.`,
+    variables: {
+      employee_name: context.employee.name,
+      manager_name: context.manager?.name || "din leder",
+      absence_type: context.absenceTypeName,
+      start_date: formatDateDa(context.startDate),
+      end_date: formatDateDa(context.endDate),
+      start_time: context.startTime || "",
+      end_time: context.endTime || "",
+      decision_reason: decisionReason,
+      action_url: context.actionUrl,
+      tenant_name: context.tenantName,
+    },
+  });
+  return result ? [result] : [];
+}
 module.exports = {
   _test: {
     actionUrlFor,
@@ -202,6 +257,8 @@ module.exports = {
     userIsActive,
     userIsMailable,
   },
+  enqueueAbsenceApproved,
   enqueueAbsenceCancelled,
+  enqueueAbsenceRejected,
   enqueueAbsenceSubmitted,
 };

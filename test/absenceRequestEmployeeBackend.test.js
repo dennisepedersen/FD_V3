@@ -914,3 +914,319 @@ test("cancel rolls back when notification or outbox enqueue fails", async () => 
   assert.equal(auditCount, 1);
   assert.deepEqual(client.calls.map((call) => call.sql).filter((sql) => ["BEGIN", "COMMIT", "ROLLBACK"].includes(sql)), ["BEGIN", "ROLLBACK"]);
 });
+
+test("manager request validation accepts only version and bounded reason", () => {
+  assert.deepEqual(absenceValidation.normalizeApprovePayload({ version: 3 }), { version: 3, reason: null });
+  assert.deepEqual(absenceValidation.normalizeApprovePayload({ version: 3, reason: "  Tidlig godkendelse  " }), { version: 3, reason: "Tidlig godkendelse" });
+  assert.deepEqual(absenceValidation.normalizeRejectPayload({ version: 3, reason: " Ikke muligt " }), { version: 3, reason: "Ikke muligt" });
+
+  assertHttpError(() => absenceValidation.normalizeRejectPayload({ version: 3 }), 400, "absence_reject_reason_required");
+  assertHttpError(() => absenceValidation.normalizeRejectPayload({ version: 3, reason: "x".repeat(501) }), 400, "absence_manager_reason_too_long");
+  assertHttpError(() => absenceValidation.normalizeApprovePayload({ version: 3, employee_tenant_user_id: uuid(2) }), 400, "absence_request_server_managed_field");
+  assertHttpError(() => absenceValidation.normalizeRejectPayload({ version: 3, reason: "nej", status: "approved" }), 400, "absence_request_server_managed_field");
+});
+
+test("manager repositories scope list, detail and decision updates by tenant and assigned manager", async () => {
+  const client = createClient([{ id: uuid(10), version: 2 }]);
+  await absenceRequestRepository.listForManager(client, {
+    tenantId: uuid(1),
+    managerTenantUserId: uuid(5),
+    statuses: ["submitted", "ready_for_review"],
+    limit: 25,
+    offset: 0,
+  });
+  await absenceRequestRepository.findByIdForManager(client, {
+    tenantId: uuid(1),
+    managerTenantUserId: uuid(5),
+    absenceRequestId: uuid(10),
+    forUpdate: true,
+  });
+  await absenceRequestRepository.updateManagedDecision(client, {
+    tenantId: uuid(1),
+    managerTenantUserId: uuid(5),
+    absenceRequestId: uuid(10),
+    expectedVersion: 2,
+    fromStatuses: ["submitted", "ready_for_review"],
+    toStatus: "approved",
+  });
+
+  assert.match(client.calls[0].sql, /ar\.tenant_id = \$1/);
+  assert.match(client.calls[0].sql, /ar\.assigned_manager_tenant_user_id = \$2/);
+  assert.match(client.calls[0].sql, /ar\.status = ANY\(\$3::text\[\]\)/);
+  assert.match(client.calls[1].sql, /ar\.tenant_id = \$1/);
+  assert.match(client.calls[1].sql, /ar\.assigned_manager_tenant_user_id = \$2/);
+  assert.match(client.calls[1].sql, /FOR UPDATE OF ar/);
+  assert.match(client.calls[2].sql, /assigned_manager_tenant_user_id = \$2/);
+  assert.match(client.calls[2].sql, /version = \$4/);
+  assert.match(client.calls[2].sql, /status = ANY\(\$5::text\[\]\)/);
+});
+
+test("manager routes are permission-gated and expose PR5 endpoints", () => {
+  const routes = read("backend/src/modules/absence/absence.routes.js");
+  assert.match(routes, /\/api\/calendar\/absence-requests\/manager\/pending/);
+  assert.match(routes, /\/api\/calendar\/absence-requests\/manager\/:id/);
+  assert.match(routes, /\/api\/calendar\/absence-requests\/:id\/approve/);
+  assert.match(routes, /\/api\/calendar\/absence-requests\/:id\/reject/);
+  assert.ok(routes.indexOf("/api/calendar/absence-requests/manager/pending") < routes.indexOf("/api/calendar/absence-requests/:id"));
+  assert.ok(routes.indexOf("/api/calendar/absence-requests/manager/:id") < routes.indexOf("/api/calendar/absence-requests/:id"));
+  for (const action of ["read_managed", "approve_managed", "reject_managed", "read_private_comment", "approve_before_review_date"]) {
+    assert.match(routes, new RegExp(`"${action}"`));
+  }
+});
+
+function managerRow(overrides = {}) {
+  return detailRow({
+    employee_tenant_user_id: uuid(2),
+    employee_name: "Anne Medarbejder",
+    employee_status: "active",
+    employee_login_status: "active",
+    status: "submitted",
+    assigned_manager_tenant_user_id: uuid(5),
+    assigned_manager_name: "Mads Leder",
+    submitted_at: "2026-08-06T00:00:00.000Z",
+    version: 4,
+    ...overrides,
+  });
+}
+
+test("manager approve is transactional, versioned, audited and enqueues employee notification once", async () => {
+  const client = createTxClient();
+  let currentRow = managerRow();
+  let updateArgs = null;
+  let eventArgs = null;
+  let auditArgs = null;
+  let notificationCount = 0;
+
+  await withPatches([
+    [pool, "connect", async () => client],
+    [absenceRequestRepository, "acquireIdempotencyLock", async () => {}],
+    [absenceRequestRepository, "findByIdForManager", async () => currentRow],
+    [absenceRequestRepository, "updateManagedDecision", async (_client, args) => {
+      updateArgs = args;
+      currentRow = managerRow({ status: "approved", version: 5, reviewed_at: "2026-08-06T01:00:00.000Z" });
+      return currentRow;
+    }],
+    [absenceRequestRepository, "insertEvent", async (_client, args) => {
+      eventArgs = args;
+      return { id: uuid(20) };
+    }],
+    [auditService, "logAuditEvent", async (args) => {
+      auditArgs = args;
+    }],
+    [absenceRequestRepository, "findNotificationContextById", async () => notificationContextRow({ status: "approved" })],
+    [absenceNotificationService, "enqueueAbsenceApproved", async () => {
+      notificationCount += 1;
+    }],
+  ], async () => {
+    const result = await absenceRequestService.approveManaged({
+      tenantId: uuid(1),
+      userId: uuid(5),
+      absenceRequestId: uuid(10),
+      body: { version: 4 },
+      idempotencyKey: "approve-1",
+    });
+    assert.equal(result.request.status, "approved");
+  });
+
+  assert.deepEqual(updateArgs.fromStatuses, ["submitted", "ready_for_review"]);
+  assert.equal(updateArgs.toStatus, "approved");
+  assert.equal(eventArgs.eventType, "approved");
+  assert.equal(eventArgs.oldStatus, "submitted");
+  assert.equal(eventArgs.newStatus, "approved");
+  assert.equal(eventArgs.reason, null);
+  assert.equal(auditArgs.eventType, "absence_request.approved");
+  assert.equal(auditArgs.metadata.special_window_override, false);
+  assert.equal(notificationCount, 1);
+  assert.deepEqual(client.calls.map((call) => call.sql).filter((sql) => ["BEGIN", "COMMIT", "ROLLBACK"].includes(sql)), ["BEGIN", "COMMIT"]);
+});
+
+test("manager reject stores reason in event but not audit metadata and enqueues employee outbox", async () => {
+  const client = createTxClient();
+  let currentRow = managerRow({ status: "ready_for_review" });
+  let eventArgs = null;
+  let auditArgs = null;
+  let rejectedReason = null;
+
+  await withPatches([
+    [pool, "connect", async () => client],
+    [absenceRequestRepository, "findByIdForManager", async () => currentRow],
+    [absenceRequestRepository, "updateManagedDecision", async () => {
+      currentRow = managerRow({ status: "rejected", version: 5, reviewed_at: "2026-08-06T01:00:00.000Z" });
+      return currentRow;
+    }],
+    [absenceRequestRepository, "insertEvent", async (_client, args) => {
+      eventArgs = args;
+      return { id: uuid(21) };
+    }],
+    [auditService, "logAuditEvent", async (args) => {
+      auditArgs = args;
+    }],
+    [absenceRequestRepository, "findNotificationContextById", async () => notificationContextRow({ status: "rejected" })],
+    [absenceNotificationService, "enqueueAbsenceRejected", async (_client, args) => {
+      rejectedReason = args.decisionReason;
+    }],
+  ], async () => {
+    const result = await absenceRequestService.rejectManaged({
+      tenantId: uuid(1),
+      userId: uuid(5),
+      absenceRequestId: uuid(10),
+      body: { version: 4, reason: "Ikke muligt i perioden" },
+    });
+    assert.equal(result.request.status, "rejected");
+  });
+
+  assert.equal(eventArgs.eventType, "rejected");
+  assert.equal(eventArgs.reason, "Ikke muligt i perioden");
+  assert.equal(auditArgs.eventType, "absence_request.rejected");
+  assert.equal(Object.values(auditArgs.metadata).includes("Ikke muligt i perioden"), false);
+  assert.equal(rejectedReason, "Ikke muligt i perioden");
+});
+
+test("manager decision rejects wrong manager, stale version and repeated terminal states without duplicate side effects", async () => {
+  const client = createTxClient();
+  let updateCount = 0;
+  let eventCount = 0;
+  let auditCount = 0;
+
+  await withPatches([
+    [pool, "connect", async () => client],
+    [absenceRequestRepository, "findByIdForManager", async () => null],
+    [absenceRequestRepository, "updateManagedDecision", async () => { updateCount += 1; }],
+    [absenceRequestRepository, "insertEvent", async () => { eventCount += 1; }],
+    [auditService, "logAuditEvent", async () => { auditCount += 1; }],
+  ], async () => {
+    await assert.rejects(
+      absenceRequestService.approveManaged({ tenantId: uuid(1), userId: uuid(6), absenceRequestId: uuid(10), body: { version: 4 } }),
+      (error) => error.statusCode === 404 && error.message === "absence_request_not_found"
+    );
+  });
+  assert.equal(updateCount, 0);
+  assert.equal(eventCount, 0);
+  assert.equal(auditCount, 0);
+
+  await withPatches([
+    [pool, "connect", async () => createTxClient()],
+    [absenceRequestRepository, "findByIdForManager", async () => managerRow({ version: 5 })],
+  ], async () => {
+    await assert.rejects(
+      absenceRequestService.approveManaged({ tenantId: uuid(1), userId: uuid(5), absenceRequestId: uuid(10), body: { version: 4 } }),
+      (error) => error.statusCode === 409 && error.message === "absence_request_version_conflict"
+    );
+  });
+
+  let duplicateEventCount = 0;
+  await withPatches([
+    [pool, "connect", async () => createTxClient()],
+    [absenceRequestRepository, "findByIdForManager", async () => managerRow({ status: "approved", version: 5 })],
+    [absenceRequestRepository, "insertEvent", async () => { duplicateEventCount += 1; }],
+  ], async () => {
+    const result = await absenceRequestService.approveManaged({ tenantId: uuid(1), userId: uuid(5), absenceRequestId: uuid(10), body: { version: 4 } });
+    assert.equal(result.idempotent, true);
+    assert.equal(result.request.status, "approved");
+  });
+  assert.equal(duplicateEventCount, 0);
+});
+
+test("manager decision rejects non-reviewable and opposite terminal statuses", async () => {
+  for (const [action, status] of [
+    ...["draft", "cancelled", "change_proposed", "under_review", "rejected"].map((status) => ["approve", status]),
+    ...["draft", "cancelled", "change_proposed", "under_review", "approved"].map((status) => ["reject", status]),
+  ]) {
+    let updateCount = 0;
+    await withPatches([
+      [pool, "connect", async () => createTxClient()],
+      [absenceRequestRepository, "findByIdForManager", async () => managerRow({ status })],
+      [absenceRequestRepository, "updateManagedDecision", async () => {
+        updateCount += 1;
+      }],
+    ], async () => {
+      const call = action === "approve"
+        ? absenceRequestService.approveManaged({ tenantId: uuid(1), userId: uuid(5), absenceRequestId: uuid(10), body: { version: 4 } })
+        : absenceRequestService.rejectManaged({ tenantId: uuid(1), userId: uuid(5), absenceRequestId: uuid(10), body: { version: 4, reason: "Ikke muligt" } });
+      await assert.rejects(
+        call,
+        (error) => error.statusCode === 409 && error.message === "absence_request_not_reviewable"
+      );
+    });
+    assert.equal(updateCount, 0);
+  }
+});
+
+test("special-window review date blocks approve and reject unless override permission with reason is present", async () => {
+  const row = managerRow({
+    special_window_id: uuid(40),
+    special_window_name: "Sommerferie",
+    special_window_is_active: true,
+    special_window_review_start_date: "2099-01-01",
+    special_window_approval_blocked_before_review: true,
+    special_window_absence_start_date: "2026-08-01",
+    special_window_absence_end_date: "2026-08-31",
+  });
+
+  assert.throws(
+    () => absenceRequestService._test.validateSpecialWindowForDecision(row, { action: "approve", hasBeforeReviewOverride: false, reason: null }),
+    (error) => error.statusCode === 409 && error.message === "absence_special_window_approve_blocked_before_review"
+  );
+  assert.throws(
+    () => absenceRequestService._test.validateSpecialWindowForDecision(row, { action: "reject", hasBeforeReviewOverride: true, reason: null }),
+    (error) => error.statusCode === 400 && error.message === "absence_special_window_override_reason_required"
+  );
+  const allowed = absenceRequestService._test.validateSpecialWindowForDecision(row, {
+    action: "reject",
+    hasBeforeReviewOverride: true,
+    reason: "Samlet behandling",
+  });
+  assert.equal(allowed.override, true);
+  assert.equal(allowed.metadata.special_window_id, uuid(40));
+
+  const onReviewDate = absenceRequestService._test.validateSpecialWindowForDecision({
+    ...row,
+    special_window_review_start_date: "2000-01-01",
+  }, { action: "approve", hasBeforeReviewOverride: false, reason: null });
+  assert.equal(onReviewDate.override, false);
+});
+
+test("manager decision rolls back when event, audit or notification enqueue fails", async () => {
+  for (const action of ["approve", "reject"]) {
+    for (const failure of ["event", "audit", "notification"]) {
+      const client = createTxClient();
+      let currentRow = managerRow();
+      let eventCount = 0;
+      let auditCount = 0;
+
+      await withPatches([
+        [pool, "connect", async () => client],
+        [absenceRequestRepository, "findByIdForManager", async () => currentRow],
+        [absenceRequestRepository, "updateManagedDecision", async () => {
+          currentRow = managerRow({ status: action === "approve" ? "approved" : "rejected", version: 5 });
+          return currentRow;
+        }],
+        [absenceRequestRepository, "insertEvent", async () => {
+          eventCount += 1;
+          if (failure === "event") throw new Error(`${action}_event_failed`);
+          return { id: uuid(20) };
+        }],
+        [auditService, "logAuditEvent", async () => {
+          auditCount += 1;
+          if (failure === "audit") throw new Error(`${action}_audit_failed`);
+        }],
+        [absenceRequestRepository, "findNotificationContextById", async () => notificationContextRow({ status: action === "approve" ? "approved" : "rejected" })],
+        [absenceNotificationService, "enqueueAbsenceApproved", async () => {
+          if (failure === "notification") throw new Error("approve_notification_failed");
+        }],
+        [absenceNotificationService, "enqueueAbsenceRejected", async () => {
+          if (failure === "notification") throw new Error("reject_notification_failed");
+        }],
+      ], async () => {
+        const call = action === "approve"
+          ? absenceRequestService.approveManaged({ tenantId: uuid(1), userId: uuid(5), absenceRequestId: uuid(10), body: { version: 4 } })
+          : absenceRequestService.rejectManaged({ tenantId: uuid(1), userId: uuid(5), absenceRequestId: uuid(10), body: { version: 4, reason: "Ikke muligt" } });
+        await assert.rejects(call, new RegExp(`${action}_${failure}_failed`));
+      });
+
+      assert.equal(eventCount, 1);
+      assert.equal(auditCount, failure === "event" ? 0 : 1);
+      assert.deepEqual(client.calls.map((call) => call.sql).filter((sql) => ["BEGIN", "COMMIT", "ROLLBACK"].includes(sql)), ["BEGIN", "ROLLBACK"]);
+    }
+  }
+});

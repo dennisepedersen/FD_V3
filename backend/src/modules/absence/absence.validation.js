@@ -29,6 +29,14 @@ const CREATE_ALLOWED_FIELDS = new Set([
   "employee_comment",
 ]);
 const UPDATE_ALLOWED_FIELDS = MUTATION_ALLOWED_FIELDS;
+const APPROVE_ALLOWED_FIELDS = new Set([
+  "version",
+  "reason",
+]);
+const REJECT_ALLOWED_FIELDS = new Set([
+  "version",
+  "reason",
+]);
 const SERVER_MANAGED_FIELDS = new Set([
   "id",
   "tenant_id",
@@ -288,6 +296,39 @@ function normalizeActionVersion(body) {
   return normalizeVersion(body?.version);
 }
 
+function normalizeManagerDecisionReason(value, {
+  required = false,
+  errorCode = "absence_manager_reason_required",
+  maxLength = 500,
+} = {}) {
+  const normalized = normalizeOptionalText(value);
+  if (!normalized) {
+    if (required) throw createHttpError(400, errorCode);
+    return null;
+  }
+  if (normalized.length > maxLength) throw createHttpError(400, "absence_manager_reason_too_long");
+  return normalized;
+}
+
+function normalizeApprovePayload(body) {
+  rejectUnknownFields(body, APPROVE_ALLOWED_FIELDS);
+  return {
+    version: normalizeVersion(body?.version),
+    reason: normalizeManagerDecisionReason(body?.reason),
+  };
+}
+
+function normalizeRejectPayload(body) {
+  rejectUnknownFields(body, REJECT_ALLOWED_FIELDS);
+  return {
+    version: normalizeVersion(body?.version),
+    reason: normalizeManagerDecisionReason(body?.reason, {
+      required: true,
+      errorCode: "absence_reject_reason_required",
+    }),
+  };
+}
+
 function getChangedFields(existing, next) {
   const pairs = [
     ["absence_type_id", existing.absence_type_id, next.absenceTypeId],
@@ -310,11 +351,13 @@ module.exports = {
   assertCommentPolicy,
   getChangedFields,
   normalizeActionVersion,
+  normalizeApprovePayload,
   normalizeCreatePayload,
   normalizeLimit,
   normalizeOffset,
   normalizeOptionalText,
   normalizeOptionalUuid,
+  normalizeRejectPayload,
   normalizeUpdatePayload,
   normalizeUuid,
 };

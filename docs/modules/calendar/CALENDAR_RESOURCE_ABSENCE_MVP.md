@@ -43,6 +43,23 @@ Not part of this PR3 backend:
 - Calendar-feed or `resource_absences` materialization.
 - Full special-window automation or review-ready transitions.
 - New migration, RLS, production deploy, or production data changes.
+## PR5 Manager Absence Request Backend
+
+Implemented local direction:
+- Manager endpoints use `absence_request` and `absence_request_event`, not `resource_absences`.
+- `GET /api/calendar/absence-requests/manager/pending` lists requests assigned to the current `tenant_user` through the submitted request snapshot `assigned_manager_tenant_user_id`.
+- `GET /api/calendar/absence-requests/manager/:id` returns manager-scoped detail and event history. `employee_comment` is returned only with explicit `absence_request:read_private_comment` permission; the response can still expose `has_private_comment`.
+- `POST /api/calendar/absence-requests/:id/approve` and `POST /api/calendar/absence-requests/:id/reject` require explicit managed permissions and optimistic `version`.
+- Allowed PR5 transitions are `submitted -> approved`, `submitted -> rejected`, `ready_for_review -> approved`, and `ready_for_review -> rejected`.
+- The manager is not recalculated during read or decision. The submitted request's snapshot manager is the only normal approver.
+- Special-window approve and reject are blocked before `review_start_date` when `approval_blocked_before_review` applies, unless explicit `absence_request:approve_before_review_date` is present and a reason is supplied.
+- Approve/reject update request status, set `reviewed_at`, increment version, insert request event, write audit, and enqueue employee notification/outbox in one transaction.
+- Rejection reason is stored in `absence_request_event.reason` and employee email content, but not in audit metadata, notification payload/body, outbox payload, or logs.
+
+Not part of PR5:
+- UI.
+- Calendar feed or `resource_absences` materialization.
+- Alternative periods, change proposals, manager overview by vacation window, notification inbox UI, automatic mail apply, production mail, Render, EK sync, or worksheet sync.
 ## PR1 Foundation
 
 Implemented direction:
