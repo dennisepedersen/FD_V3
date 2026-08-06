@@ -34,6 +34,7 @@ Scope: points to docs; does not replace them
 | `docs/modules/qa/QA_V2_DATA_FOUNDATION.md` | QA participants, assignment flag, and per-user read-state foundation | Implemented foundation |
 | `docs/modules/calendar/CALENDAR_RESOURCE_ABSENCE_MVP.md` | Calendar / Resource Absence MVP foundation, backlog, and non-goals | PR1 foundation started |
 | `docs/modules/calendar/RESOURCE_ABSENCE_CALENDAR_ARCHITECTURE_PR1.md` | Resource, absence request, special vacation window, manager relation, outbox, and calendar read-model architecture plus PR2 data foundation | Current decision / PR2 local implementation |
+| `docs/modules/calendar/ABSENCE_NOTIFICATIONS_OUTBOX_PR4.md` | Internal notifications, mail templates, transactional email outbox, retry/dead-letter and PR4 non-goals | PR4 local implementation |
 | `docs/modules/restarbejde/MODULE_DEFINITION.md` | Restarbejde scope, workflows, data model, risks | Draft/proposal, not implementation spec |
 | `docs/modules/restarbejde/BACKEND_MODULE_CONTRACT.md` | Restarbejde backend/module contract for future FD integration | Draft/Proposed module contract |
 

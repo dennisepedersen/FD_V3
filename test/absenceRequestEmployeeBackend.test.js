@@ -12,6 +12,7 @@ process.env.ROOT_DOMAIN = process.env.ROOT_DOMAIN || "fielddesk.test";
 
 const pool = require("../backend/src/db/pool");
 const auditService = require("../backend/src/services/auditService");
+const absenceNotificationService = require("../backend/src/modules/notifications/absenceNotification.service");
 const absenceValidation = require("../backend/src/modules/absence/absence.validation");
 const absenceTypeRepository = require("../backend/src/modules/absence/absenceType.repository");
 const absenceRequestRepository = require("../backend/src/modules/absence/absenceRequest.repository");
@@ -66,6 +67,27 @@ async function withPatches(patches, fn) {
   }
 }
 
+function notificationContextRow(overrides = {}) {
+  return {
+    ...detailRow({
+      status: "submitted",
+      assigned_manager_tenant_user_id: uuid(5),
+      absence_type_name: "Ferie",
+    }),
+    tenant_slug: "hoyrup-clemmensen",
+    tenant_domain: "app.example.test",
+    employee_name: "Medarbejder",
+    employee_email: "medarbejder@example.test",
+    employee_status: "active",
+    employee_login_status: "active",
+    assigned_manager_name: "Leder",
+    manager_email: "leder@example.test",
+    manager_status: "active",
+    manager_login_status: "active",
+    special_window_name: null,
+    ...overrides,
+  };
+}
 function detailRow(overrides = {}) {
   return {
     id: uuid(10),
@@ -549,6 +571,7 @@ test("submit requires exactly one active primary manager and snapshots manager o
     let currentRow = detailRow();
     let eventCount = 0;
     let auditCount = 0;
+    let notificationCount = 0;
 
     await withPatches([
       [pool, "connect", async () => client],
@@ -567,6 +590,10 @@ test("submit requires exactly one active primary manager and snapshots manager o
       [auditService, "logAuditEvent", async () => {
         auditCount += 1;
       }],
+      [absenceRequestRepository, "findNotificationContextById", async () => notificationContextRow({ assigned_manager_tenant_user_id: uuid(5) })],
+      [absenceNotificationService, "enqueueAbsenceSubmitted", async () => {
+        notificationCount += 1;
+      }],
     ], async () => {
       const result = await absenceRequestService.submitDraft({
         tenantId: uuid(1),
@@ -580,6 +607,7 @@ test("submit requires exactly one active primary manager and snapshots manager o
     assert.equal(submitArgs.managerTenantUserId, uuid(5));
     assert.equal(eventCount, 1);
     assert.equal(auditCount, 1);
+    assert.equal(notificationCount, 1);
     assert.deepEqual(client.calls.map((call) => call.sql).filter((sql) => ["BEGIN", "COMMIT", "ROLLBACK"].includes(sql)), ["BEGIN", "COMMIT"]);
   }
 
@@ -713,6 +741,7 @@ test("cancel allows draft and submitted only and rejects approved without event"
     let currentRow = detailRow({ status });
     let eventCount = 0;
     let auditCount = 0;
+    let notificationCount = 0;
     await withPatches([
       [pool, "connect", async () => client],
       [absenceRequestRepository, "findByIdForEmployee", async () => currentRow],
@@ -728,6 +757,10 @@ test("cancel allows draft and submitted only and rejects approved without event"
       [auditService, "logAuditEvent", async () => {
         auditCount += 1;
       }],
+      [absenceRequestRepository, "findNotificationContextById", async () => notificationContextRow({ status: "cancelled" })],
+      [absenceNotificationService, "enqueueAbsenceCancelled", async () => {
+        notificationCount += 1;
+      }],
     ], async () => {
       const result = await absenceRequestService.cancelOwn({ tenantId: uuid(1), userId: uuid(2), absenceRequestId: uuid(10), body: { version: 1 } });
       assert.equal(result.request.status, "cancelled");
@@ -735,6 +768,7 @@ test("cancel allows draft and submitted only and rejects approved without event"
     assert.deepEqual(cancelArgs.allowedStatuses, ["draft", "submitted"]);
     assert.equal(eventCount, 1);
     assert.equal(auditCount, 1);
+    assert.equal(notificationCount, 1);
   }
 
   const client = createTxClient();
@@ -791,4 +825,92 @@ test("special-window matching accepts one exact tenant or user match and rejects
   } finally {
     absenceSpecialWindowRepository.listOverlappingActiveScopedForEmployee = original;
   }
+});
+test("submit rolls back when notification or outbox enqueue fails", async () => {
+  const client = createTxClient();
+  let currentRow = detailRow();
+  let eventCount = 0;
+  let auditCount = 0;
+
+  await withPatches([
+    [pool, "connect", async () => client],
+    [absenceRequestRepository, "findByIdForEmployee", async () => currentRow],
+    [employeeManagerRelationRepository, "findActivePrimaryManagersForEmployee", async () => ([{
+      id: uuid(30),
+      manager_tenant_user_id: uuid(5),
+      manager_status: "active",
+      manager_login_status: "active",
+    }])],
+    [absenceSpecialWindowRepository, "listOverlappingActiveScopedForEmployee", async () => []],
+    [absenceRequestRepository, "submitDraftForEmployee", async () => {
+      currentRow = detailRow({ status: "submitted", version: 2, assigned_manager_tenant_user_id: uuid(5) });
+      return currentRow;
+    }],
+    [absenceRequestRepository, "insertEvent", async () => {
+      eventCount += 1;
+      return { id: uuid(20) };
+    }],
+    [auditService, "logAuditEvent", async () => {
+      auditCount += 1;
+    }],
+    [absenceRequestRepository, "findNotificationContextById", async () => notificationContextRow({ assigned_manager_tenant_user_id: uuid(5) })],
+    [absenceNotificationService, "enqueueAbsenceSubmitted", async () => {
+      throw new Error("notification_enqueue_failed");
+    }],
+  ], async () => {
+    await assert.rejects(
+      absenceRequestService.submitDraft({
+        tenantId: uuid(1),
+        userId: uuid(2),
+        absenceRequestId: uuid(10),
+        body: { version: 1 },
+      }),
+      /notification_enqueue_failed/
+    );
+  });
+
+  assert.equal(eventCount, 1);
+  assert.equal(auditCount, 1);
+  assert.deepEqual(client.calls.map((call) => call.sql).filter((sql) => ["BEGIN", "COMMIT", "ROLLBACK"].includes(sql)), ["BEGIN", "ROLLBACK"]);
+});
+
+test("cancel rolls back when notification or outbox enqueue fails", async () => {
+  const client = createTxClient();
+  let currentRow = detailRow({ status: "submitted" });
+  let eventCount = 0;
+  let auditCount = 0;
+
+  await withPatches([
+    [pool, "connect", async () => client],
+    [absenceRequestRepository, "findByIdForEmployee", async () => currentRow],
+    [absenceRequestRepository, "cancelForEmployee", async () => {
+      currentRow = detailRow({ status: "cancelled", version: 2, assigned_manager_tenant_user_id: uuid(5) });
+      return currentRow;
+    }],
+    [absenceRequestRepository, "insertEvent", async () => {
+      eventCount += 1;
+      return { id: uuid(20) };
+    }],
+    [auditService, "logAuditEvent", async () => {
+      auditCount += 1;
+    }],
+    [absenceRequestRepository, "findNotificationContextById", async () => notificationContextRow({ status: "cancelled", assigned_manager_tenant_user_id: uuid(5) })],
+    [absenceNotificationService, "enqueueAbsenceCancelled", async () => {
+      throw new Error("outbox_enqueue_failed");
+    }],
+  ], async () => {
+    await assert.rejects(
+      absenceRequestService.cancelOwn({
+        tenantId: uuid(1),
+        userId: uuid(2),
+        absenceRequestId: uuid(10),
+        body: { version: 1 },
+      }),
+      /outbox_enqueue_failed/
+    );
+  });
+
+  assert.equal(eventCount, 1);
+  assert.equal(auditCount, 1);
+  assert.deepEqual(client.calls.map((call) => call.sql).filter((sql) => ["BEGIN", "COMMIT", "ROLLBACK"].includes(sql)), ["BEGIN", "ROLLBACK"]);
 });

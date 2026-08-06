@@ -478,6 +478,70 @@ async function cancelForEmployee(client, {
   return rows[0] || null;
 }
 
+async function findNotificationContextById(client, { tenantId, absenceRequestId }) {
+  const { rows } = await client.query(
+    `
+      SELECT
+        ar.id,
+        ar.tenant_id,
+        tenant.slug AS tenant_slug,
+        td.domain AS tenant_domain,
+        ar.employee_tenant_user_id,
+        employee.name AS employee_name,
+        employee.email AS employee_email,
+        employee.status AS employee_status,
+        employee.login_status AS employee_login_status,
+        ar.assigned_manager_tenant_user_id,
+        manager.name AS assigned_manager_name,
+        manager.email AS manager_email,
+        manager.status AS manager_status,
+        manager.login_status AS manager_login_status,
+        at.name AS absence_type_name,
+        ar.duration_type,
+        ar.day_part,
+        ar.start_date,
+        ar.end_date,
+        ar.start_time,
+        ar.end_time,
+        ar.timezone,
+        ar.status,
+        ar.submitted_at,
+        ar.cancelled_at,
+        ar.special_window_id,
+        sw.name AS special_window_name
+      FROM absence_request ar
+      JOIN tenant
+        ON tenant.id = ar.tenant_id
+      JOIN tenant_user employee
+        ON employee.tenant_id = ar.tenant_id
+       AND employee.id = ar.employee_tenant_user_id
+      JOIN absence_type at
+        ON at.tenant_id = ar.tenant_id
+       AND at.id = ar.absence_type_id
+      LEFT JOIN tenant_user manager
+        ON manager.tenant_id = ar.tenant_id
+       AND manager.id = ar.assigned_manager_tenant_user_id
+      LEFT JOIN absence_special_window sw
+        ON sw.tenant_id = ar.tenant_id
+       AND sw.id = ar.special_window_id
+      LEFT JOIN LATERAL (
+        SELECT domain
+        FROM tenant_domain
+        WHERE tenant_id = ar.tenant_id
+          AND active = true
+          AND verified = true
+        ORDER BY created_at DESC
+        LIMIT 1
+      ) td ON true
+      WHERE ar.tenant_id = $1
+        AND ar.id = $2
+      LIMIT 1
+    `,
+    [tenantId, absenceRequestId]
+  );
+
+  return rows[0] || null;
+}
 async function insertEvent(client, {
   tenantId,
   absenceRequestId,
@@ -559,6 +623,7 @@ module.exports = {
   findById,
   findByIdForEmployee,
   findCreatedByIdempotencyKey,
+  findNotificationContextById,
   insertEvent,
   insertRequest,
   listEvents,

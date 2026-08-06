@@ -58,6 +58,13 @@ const JOBS = {
     requiresEkProjectId: false,
     acceptsProjectRef: false,
   },
+  'email-outbox-process': {
+    script: 'backend/scripts/process_email_outbox.js',
+    modes: new Set(['status-only', 'dry-run', 'apply']),
+    requiresEkProjectId: false,
+    acceptsProjectRef: false,
+    acceptsLimit: true,
+  },
 };
 const TENANT_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const ACTOR_PATTERN = /^[a-zA-Z0-9._@-]{1,128}$/;
@@ -80,6 +87,9 @@ function usage() {
     '  node scripts/fd_maintenance_job.js --job user-project-fitterhours-refresh --mode apply --tenant hoyrup-clemmensen --user-code DEP --confirm APPLY:user-project-fitterhours-refresh:hoyrup-clemmensen:DEP',
     '  node scripts/fd_maintenance_job.js --job project-activity-materialize --mode dry-run --tenant hoyrup-clemmensen',
     '  node scripts/fd_maintenance_job.js --job project-activity-materialize --mode apply --tenant hoyrup-clemmensen --confirm APPLY:project-activity-materialize:hoyrup-clemmensen',
+    '  node scripts/fd_maintenance_job.js --job email-outbox-process --mode status-only --tenant hoyrup-clemmensen',
+    '  node scripts/fd_maintenance_job.js --job email-outbox-process --mode dry-run --tenant hoyrup-clemmensen --limit 25',
+    '  node scripts/fd_maintenance_job.js --job email-outbox-process --mode apply --tenant hoyrup-clemmensen --limit 25 --confirm APPLY:email-outbox-process:hoyrup-clemmensen',
     '',
     'Allowed jobs:',
     '  project-v4-is-internal-resync',
@@ -89,6 +99,7 @@ function usage() {
     '  project-targeted-fitterhours-refresh-admin',
     '  user-project-fitterhours-refresh',
     '  project-activity-materialize',
+    '  email-outbox-process',
     '',
     'Allowed modes:',
     '  status-only',
@@ -106,6 +117,7 @@ function parseArgs(argv) {
     ekProjectId: null,
     projectRef: null,
     projectId: null,
+    limit: null,
     confirm: null,
     actor: process.env.FD_MAINTENANCE_ACTOR || 'unknown',
   };
@@ -128,6 +140,8 @@ function parseArgs(argv) {
       args.userCode = argv[++i] || null;
     } else if (arg === '--user-id') {
       args.userId = argv[++i] || null;
+    } else if (arg === '--limit') {
+      args.limit = argv[++i] || null;
     } else if (arg === '--confirm') {
       args.confirm = argv[++i] || null;
     } else if (arg === '--actor') {
@@ -200,6 +214,15 @@ function validateArgs(args) {
   if (args.projectId && !/^[0-9a-fA-F-]{36}$/.test(String(args.projectId))) {
     throw new Error('Project id must be a UUID.');
   }
+  if (args.limit && !job.acceptsLimit) {
+    throw new Error(`${args.job} does not accept --limit.`);
+  }
+  if (args.limit && !/^\d+$/.test(String(args.limit))) {
+    throw new Error('--limit must be numeric.');
+  }
+  if (args.limit && (Number(args.limit) < 1 || Number(args.limit) > 100)) {
+    throw new Error('--limit must be between 1 and 100.');
+  }
   if (args.job === 'project-targeted-fitterhours-refresh-dry-run'
       && !args.ekProjectId
       && !args.projectRef
@@ -242,6 +265,9 @@ function childArgsFor({ job, args }) {
   }
   if (job.acceptsUserId && args.userId) {
     childArgs.push('--user-id', args.userId);
+  }
+  if (job.acceptsLimit && args.limit) {
+    childArgs.push('--limit', args.limit);
   }
 
   if (args.mode === 'status-only') {

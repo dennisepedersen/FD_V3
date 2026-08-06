@@ -25,6 +25,7 @@ apply
 ```
 
 `project-v4-is-internal-resync` supports `status-only`, `dry-run`, and `apply`.
+`email-outbox-process` supports `status-only`, `dry-run`, and explicit confirmed `apply`; it is manual and does not run automatically in the web process.
 
 `project-targeted-fitterhours-backfill` supports `dry-run` and a deliberately narrow `apply` for the verified control case.
 
@@ -36,6 +37,29 @@ refresh model.
 one-project `apply`. It is the phase 2 admin/maintenance command. It is not a
 UI, scheduler, batch, tenant-wide, dashboard, project-list, or onboarding flow.
 
+## Email outbox process
+
+PR4 adds the manual email outbox processor. It is not scheduled, not started by the web process, and not activated by deploy.
+
+Status-only:
+
+```powershell
+node scripts/fd_maintenance_job.js --job email-outbox-process --mode status-only --tenant hoyrup-clemmensen
+```
+
+Dry-run:
+
+```powershell
+node scripts/fd_maintenance_job.js --job email-outbox-process --mode dry-run --tenant hoyrup-clemmensen --limit 25
+```
+
+Apply:
+
+```powershell
+node scripts/fd_maintenance_job.js --job email-outbox-process --mode apply --tenant hoyrup-clemmensen --limit 25 --confirm APPLY:email-outbox-process:hoyrup-clemmensen
+```
+
+`status-only` and `dry-run` are read-only. `apply` claims due rows with `FOR UPDATE SKIP LOCKED`, sends through the configured provider, and marks rows as `sent`, `retry`, or `dead_letter`. No real mail is sent unless the apply command is run deliberately.
 The local trigger is intentionally not a generic shell runner. It can only request whitelisted jobs and whitelisted modes.
 
 The remote dispatcher is also intentionally narrow. It can only dispatch to:

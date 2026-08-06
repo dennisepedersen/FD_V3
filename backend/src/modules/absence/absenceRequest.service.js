@@ -8,6 +8,7 @@ const absenceRequestRepository = require("./absenceRequest.repository");
 const absenceTypeRepository = require("./absenceType.repository");
 const absenceSpecialWindowRepository = require("./absenceSpecialWindow.repository");
 const employeeManagerRelationRepository = require("./employeeManagerRelation.repository");
+const absenceNotificationService = require("../notifications/absenceNotification.service");
 const {
   assertAbsenceTypeAllowsDuration,
   assertAbsenceTypeAllowsEmployeeRequest,
@@ -28,6 +29,12 @@ const MODULE_KEY = "absence_request";
 const RESOURCE_TYPE = "absence_request";
 const CANCEL_ALLOWED_STATUSES = Object.freeze(["draft", "submitted"]);
 const STATUS_SET = new Set(ABSENCE_REQUEST_STATUSES);
+
+async function requireNotificationContext(client, { tenantId, absenceRequestId }) {
+  const context = await absenceRequestRepository.findNotificationContextById(client, { tenantId, absenceRequestId });
+  if (!context) throw new Error("absence_notification_context_not_found");
+  return context;
+}
 
 function toDateString(value) {
   if (!value) return null;
@@ -562,6 +569,14 @@ async function submitDraft({ tenantId, userId, absenceRequestId, body, idempoten
         special_window_id: specialWindow?.id || null,
       },
     });
+    await absenceNotificationService.enqueueAbsenceSubmitted(client, {
+      tenantId: normalizedTenantId,
+      actorId: normalizedUserId,
+      requestContext: await requireNotificationContext(client, {
+        tenantId: normalizedTenantId,
+        absenceRequestId: normalizedRequestId,
+      }),
+    });
     const row = await getDetailRow(client, {
       tenantId: normalizedTenantId,
       employeeTenantUserId: normalizedUserId,
@@ -625,6 +640,14 @@ async function cancelOwn({ tenantId, userId, absenceRequestId, body }) {
         old_version: expectedVersion,
         new_version: cancelled.version,
       },
+    });
+    await absenceNotificationService.enqueueAbsenceCancelled(client, {
+      tenantId: normalizedTenantId,
+      actorId: normalizedUserId,
+      requestContext: await requireNotificationContext(client, {
+        tenantId: normalizedTenantId,
+        absenceRequestId: normalizedRequestId,
+      }),
     });
     const row = await getDetailRow(client, {
       tenantId: normalizedTenantId,

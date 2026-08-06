@@ -52,6 +52,8 @@ async function sendWithFetch({ url, headers, body }) {
     };
     throw error;
   }
+
+  return response.json().catch(() => ({}));
 }
 
 async function sendEmail(input) {
@@ -68,7 +70,7 @@ async function sendEmail(input) {
   }
 
   if (provider === "resend") {
-    await sendWithFetch({
+    const result = await sendWithFetch({
       url: "https://api.resend.com/emails",
       headers: {
         Authorization: `Bearer ${ENV.MAIL_API_KEY}`,
@@ -87,11 +89,11 @@ async function sendEmail(input) {
         ],
       },
     });
-    return { provider, sent: true };
+    return { provider, sent: true, providerMessageId: result?.id || null };
   }
 
   if (provider === "postmark") {
-    await sendWithFetch({
+    const result = await sendWithFetch({
       url: "https://api.postmarkapp.com/email",
       headers: {
         "X-Postmark-Server-Token": ENV.MAIL_API_KEY,
@@ -111,7 +113,7 @@ async function sendEmail(input) {
         },
       },
     });
-    return { provider, sent: true };
+    return { provider, sent: true, providerMessageId: result?.MessageID || null };
   }
 
   throw makeMailError("mail_provider_unsupported", "mail_provider_unsupported", 503);
