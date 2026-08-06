@@ -35,7 +35,7 @@ Current core platform:
 Current modules:
 - QA exists as early backend module code.
 - Restarbejde exists as module definition only.
-- Calendar / Resource Absence has an implemented direct absence/resource group foundation, a PR1 architecture decision, and a local PR2 absence-request data foundation with tenant-user based manager relations.
+- Calendar / Resource Absence has an implemented direct absence/resource group foundation, a PR1 architecture decision, a PR2 absence-request data foundation with tenant-user based manager relations, and a local PR3 employee-own request backend.
 
 Planned modules:
 - Restarbejde.
@@ -52,7 +52,7 @@ Calendar / Resource Absence direction:
 - Special vacation windows are tenant-configurable and not first-come-first-served.
 - Personnel approval requires a Fielddesk-owned manager relation; project responsible, resource group manager, and tenant admin are not automatic approvers.
 - The detailed PR1/PR2 direction is `docs/modules/calendar/RESOURCE_ABSENCE_CALENDAR_ARCHITECTURE_PR1.md`.
-- PR2 adds request foundation tables without routes/UI, mail/outbox, calendar feed, or legacy absence migration.
+- PR2 adds request foundation tables. PR3 adds employee own request backend routes without UI, mail/outbox, calendar feed, leader approval, or legacy absence migration.
 
 ## 3. Frontend Direction
 

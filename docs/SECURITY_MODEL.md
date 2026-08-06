@@ -56,7 +56,7 @@ Current:
 - Verified current tenant admin model: `tenant_admin` is a tenant administrator with selected module/admin rights, not an automatic tenant-wide superuser for project-owned data.
 - Project-owned data still requires explicit project scope unless a route has an explicit tenant-wide capability.
 - QA uses both module permission and project/thread scope. Granting `tenant_admin` or `project_leader` `qa:update` does not by itself broaden project scope.
-- Calendar / Resource Absence PR2 exposes full absence read/create API only to `tenant_admin`; `project_leader` and `technician` are denied until masked visibility/resource-scope policy exists.
+- Calendar / Resource Absence direct `resource_absences` API exposes full absence read/create only to `tenant_admin`; `project_leader` and `technician` are denied until masked visibility/resource-scope policy exists. PR3 absence-request API separately allows authenticated users to manage only their own `absence_request` rows through `absence_request:*_own` permissions.
 
 Planned:
 - Central permission model with route policy: required scope, allowed roles, required entitlements/module permissions.
@@ -230,7 +230,7 @@ Calendar / Resource Absence direction:
 - Later resource group, manager approval, finance visibility, and unavailable-only views must be explicit capabilities, not frontend-only filtering.
 - Audit events for create, update, cancel, approve, reject, and visibility-sensitive access should be added when write routes/actions are introduced.
 - Future absence request workflow must keep request, approved absence, calendar feed, notification state, and audit history separate. Private employee comments require explicit permission and tenant admin is not automatically a private-comment reader. Personnel approval must be based on a Fielddesk-owned manager relation, not project responsible, resource group manager, tenant admin role, or imported `fitter` identity.
-- PR2 absence request tables use composite tenant foreign keys and `tenant_user` identities for employees/managers. `absence_request:read_private_comment` is a separate permission and is not granted to tenant-admin by default. RLS remains a future defense-in-depth gap.
+- PR2 absence request tables use composite tenant foreign keys and `tenant_user` identities for employees/managers. PR3 own-request routes derive employee from auth, reject client-controlled tenant/employee/manager/status fields, require optimistic versioning on mutations, and write events/audit in the same transaction. `absence_request:read_private_comment` is a separate permission and is not granted to tenant-admin by default. RLS remains a future defense-in-depth gap.
 
 ## 9. Known Gaps
 

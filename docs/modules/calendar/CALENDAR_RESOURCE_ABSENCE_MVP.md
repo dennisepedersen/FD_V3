@@ -19,6 +19,30 @@ Implemented local direction:
 - New request workflow data lives in `absence_type`, `absence_request`, `absence_request_event`, `absence_special_window`, `absence_special_window_scope`, and `employee_manager_relation`.
 - Request employee and manager identities are `tenant_user` based. `fitter` is optional metadata through nullable `absence_request.employee_fitter_id`.
 - PR2 adds permissions and audit event keys only; it does not add request routes, UI, approve/reject flow, calendar feed, mail, notification outbox, special-window matching, or legacy data migration.
+
+## PR3 Employee Absence Request Backend
+
+Implemented local direction:
+- Employee own request endpoints use `absence_request`/`absence_request_event`, not `resource_absences`.
+- Tenant and employee identity are server-derived from tenant host/auth; client-supplied tenant, employee, manager, status, actor, timestamps, and special-window fields are rejected.
+- Employees can list own requests, read own detail/history, create draft, update own draft, submit draft, and cancel own unreviewed request.
+- Supported PR3 durations are `full_days` and `time_range`; `partial_day` is rejected with `partial_day is not supported yet`.
+- Submit requires exactly one active primary Fielddesk manager relation to an active/login-active `tenant_user`.
+- Mutations are transactional on one database client, versioned, audited, and evented; private comments are not copied into audit/event metadata. Request event or audit failure rolls back the request mutation.
+
+
+Create retry behavior: when `Idempotency-Key` is supplied, create serializes by tenant/user/key and persists the key in the created request event metadata; a later retry with the same key returns the same draft. Without the header, retrying create can create another draft.
+
+Submit retry behavior: repeated submit of an already submitted draft with the original/resulting version returns the current submitted state without duplicate event/audit or version increment.
+
+Cancel retry behavior: repeated cancel of an already cancelled draft/submitted request returns current cancelled state without duplicate event/audit. PR3 does not allow employee cancel of ready-for-review, under-review, approved, rejected, or change-proposed requests.
+Not part of this PR3 backend:
+- UI.
+- Leader approve/reject or change proposals.
+- Mail/outbox/internal notifications.
+- Calendar-feed or `resource_absences` materialization.
+- Full special-window automation or review-ready transitions.
+- New migration, RLS, production deploy, or production data changes.
 ## PR1 Foundation
 
 Implemented direction:

@@ -40,3 +40,4 @@ Absence requests, approved absence, and calendar feed rows are structured tenant
 
 Employee comments on absence requests are potential private information. They must not be copied into broad calendar feeds, exports, mail payloads, or notifications unless the receiving actor and surface have explicit permission.
 PR2 concretely stores request data in `absence_type`, `absence_request`, `absence_request_event`, `absence_special_window`, `absence_special_window_scope`, and `employee_manager_relation`. Existing `resource_absences` remains legacy/direct absence and is not migrated in PR2.
+PR3 adds employee-own absence-request backend writes against those request tables only. Create idempotency keys are persisted in request event metadata, not in broad calendar data. PR3 does not materialize calendar feed rows, create `resource_absences`, send mail/notifications, or copy private employee comments into audit/event metadata.

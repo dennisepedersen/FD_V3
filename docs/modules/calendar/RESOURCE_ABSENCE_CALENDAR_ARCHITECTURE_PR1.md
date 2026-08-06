@@ -1048,3 +1048,30 @@ and audit.
 Scope: proposals, employee accept/reject, history.
 Tests: proposal lifecycle, original request immutability, accepted proposal
 approval flow, notification events.
+
+## PR3 Employee Own Request Backend
+
+Status: implemented locally in PR3, pending review and commit. No new migration is introduced; PR3 uses the PR2/0041 tables.
+
+verified: PR3 adds tenant-authenticated backend endpoints for the employee's own absence requests under the calendar namespace:
+
+- `GET /api/calendar/absence-requests/mine`
+- `POST /api/calendar/absence-requests`
+- `GET /api/calendar/absence-requests/:id`
+- `PATCH /api/calendar/absence-requests/:id`
+- `POST /api/calendar/absence-requests/:id/submit`
+- `POST /api/calendar/absence-requests/:id/cancel`
+
+verified: all endpoints derive tenant and employee identity from tenant host/auth context. Client-supplied tenant, employee, manager, status, actor, timestamps, and special-window links are rejected. Mutating endpoints use optimistic `version`. Create supports `Idempotency-Key` by combining a transaction-scoped advisory lock with persisted `absence_request_event.metadata_json.idempotency_key`; a sequential retry with the same key returns the originally created draft after the first transaction has committed. Without an idempotency key, a retried create request can create another draft. Submit uses `version` plus optional advisory lock; a repeated submit for the already-submitted version returns existing submitted state without another status update, event, audit, manager reassignment, or version increment.
+
+verified: supported PR3 durations are `full_days` and `time_range`. `partial_day` remains in the schema foundation but the PR3 backend rejects it with `partial_day is not supported yet` until the UI/product flow is designed.
+
+verified: submit assigns a manager only from exactly one active Fielddesk `employee_manager_relation` with `relation_type = 'primary'` and an active/login-active manager `tenant_user`. Project responsible, tenant admin role, resource group manager, E-Komplet fitter, and resource groups are not fallback approvers.
+
+verified: PR3 writes `absence_request_event` rows and audit events inside the same service transaction and database client for create, draft update, submit, and cancel. If request event or audit insertion fails, the request/status/version mutation rolls back. Private employee comment text is not copied into event/audit metadata; update metadata records only that the private comment changed.
+
+verified: special-window matching is conservative. Non-eligible absence types do not receive a special window. Fully containing tenant/user scoped active windows can be linked. Resource-group scoped or partial-overlap windows are rejected in PR3 as unclear until a safe employee-resource-group resolver and full special-window workflow are added.
+
+verified: PR3 does not implement leader approve/reject, change proposals, automatic review-ready transitions, mail/outbox, internal notifications, calendar-feed materialization, `resource_absences` materialization, frontend UI, payroll/vacation calculation, RLS, or deployment.
+
+Cancel retry behavior: draft and submitted requests can be cancelled in PR3. Repeating cancel against an already-cancelled request with the original or resulting version returns the existing cancelled state without duplicate event/audit. eady_for_review, under_review, pproved, ejected, and change_proposed are not cancellable by the PR3 employee endpoint.
