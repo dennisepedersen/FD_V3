@@ -9,6 +9,7 @@ const absenceTypeRepository = require("./absenceType.repository");
 const absenceSpecialWindowRepository = require("./absenceSpecialWindow.repository");
 const employeeManagerRelationRepository = require("./employeeManagerRelation.repository");
 const absenceNotificationService = require("../notifications/absenceNotification.service");
+const approvedAbsenceService = require("../calendar/approvedAbsence.service");
 const {
   assertAbsenceTypeAllowsDuration,
   assertAbsenceTypeAllowsEmployeeRequest,
@@ -234,6 +235,33 @@ async function audit(client, {
     outcome: "success",
     reason,
     metadata: metadata || {},
+  });
+}
+
+async function auditApprovedAbsenceCreated(client, {
+  tenantId,
+  actorId,
+  approvedAbsence,
+  absenceRequest,
+}) {
+  await auditService.logAuditEvent({
+    client,
+    tenantId,
+    actorId,
+    actorType: "tenant_user",
+    actorScope: "tenant",
+    moduleKey: "calendar_event",
+    eventType: "approved_absence.created",
+    resourceType: "approved_absence",
+    resourceId: approvedAbsence.id,
+    outcome: "success",
+    metadata: {
+      approved_absence_id: approvedAbsence.id,
+      absence_request_id: absenceRequest.id,
+      employee_tenant_user_id: absenceRequest.employee_tenant_user_id,
+      source_type: approvedAbsence.source_type,
+      source_id: approvedAbsence.source_id,
+    },
   });
 }
 
@@ -560,11 +588,25 @@ async function decideManaged({
     });
     if (!updated) throw createHttpError(409, "absence_request_version_conflict");
 
+    let approvedAbsenceResult = null;
+    if (action === "approve") {
+      approvedAbsenceResult = await approvedAbsenceService.materializeFromApprovedRequest(client, {
+        tenantId: normalizedTenantId,
+        absenceRequest: {
+          ...existing,
+          ...updated,
+          absence_type_visibility_policy: existing.absence_type_visibility_policy,
+        },
+        approvedByTenantUserId: normalizedUserId,
+      });
+    }
+
     const eventMetadata = {
       old_version: payload.version,
       new_version: updated.version,
       ...specialWindowDecision.metadata,
     };
+    if (approvedAbsenceResult?.approvedAbsence?.id) eventMetadata.approved_absence_id = approvedAbsenceResult.approvedAbsence.id;
     if (normalizedIdempotencyKey) eventMetadata.idempotency_key = normalizedIdempotencyKey;
 
     await absenceRequestRepository.insertEvent(client, {
@@ -591,8 +633,17 @@ async function decideManaged({
         old_version: payload.version,
         new_version: updated.version,
         special_window_override: specialWindowDecision.override,
+        approved_absence_id: approvedAbsenceResult?.approvedAbsence?.id || null,
       },
     });
+    if (approvedAbsenceResult?.created) {
+      await auditApprovedAbsenceCreated(client, {
+        tenantId: normalizedTenantId,
+        actorId: normalizedUserId,
+        approvedAbsence: approvedAbsenceResult.approvedAbsence,
+        absenceRequest: updated,
+      });
+    }
 
     const requestContext = await requireNotificationContext(client, {
       tenantId: normalizedTenantId,

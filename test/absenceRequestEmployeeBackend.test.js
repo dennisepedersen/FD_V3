@@ -13,6 +13,7 @@ process.env.ROOT_DOMAIN = process.env.ROOT_DOMAIN || "fielddesk.test";
 const pool = require("../backend/src/db/pool");
 const auditService = require("../backend/src/services/auditService");
 const absenceNotificationService = require("../backend/src/modules/notifications/absenceNotification.service");
+const approvedAbsenceService = require("../backend/src/modules/calendar/approvedAbsence.service");
 const absenceValidation = require("../backend/src/modules/absence/absence.validation");
 const absenceTypeRepository = require("../backend/src/modules/absence/absenceType.repository");
 const absenceRequestRepository = require("../backend/src/modules/absence/absenceRequest.repository");
@@ -96,7 +97,7 @@ function detailRow(overrides = {}) {
     absence_type_name: "Ferie",
     absence_type_workflow_mode: "request",
     absence_type_comment_policy: "optional",
-    absence_type_visibility_policy: "normal",
+    absence_type_visibility_policy: "private",
     absence_type_allowed_duration_types: ["full_days", "time_range"],
     absence_type_special_window_eligible: false,
     absence_type_is_active: true,
@@ -994,7 +995,8 @@ test("manager approve is transactional, versioned, audited and enqueues employee
   let currentRow = managerRow();
   let updateArgs = null;
   let eventArgs = null;
-  let auditArgs = null;
+  const auditEvents = [];
+  let materializeArgs = null;
   let notificationCount = 0;
 
   await withPatches([
@@ -1006,12 +1008,23 @@ test("manager approve is transactional, versioned, audited and enqueues employee
       currentRow = managerRow({ status: "approved", version: 5, reviewed_at: "2026-08-06T01:00:00.000Z" });
       return currentRow;
     }],
+    [approvedAbsenceService, "materializeFromApprovedRequest", async (_client, args) => {
+      materializeArgs = args;
+      return {
+        approvedAbsence: {
+          id: uuid(70),
+          source_type: "absence_request",
+          source_id: uuid(10),
+        },
+        created: true,
+      };
+    }],
     [absenceRequestRepository, "insertEvent", async (_client, args) => {
       eventArgs = args;
       return { id: uuid(20) };
     }],
     [auditService, "logAuditEvent", async (args) => {
-      auditArgs = args;
+      auditEvents.push(args);
     }],
     [absenceRequestRepository, "findNotificationContextById", async () => notificationContextRow({ status: "approved" })],
     [absenceNotificationService, "enqueueAbsenceApproved", async () => {
@@ -1034,8 +1047,13 @@ test("manager approve is transactional, versioned, audited and enqueues employee
   assert.equal(eventArgs.oldStatus, "submitted");
   assert.equal(eventArgs.newStatus, "approved");
   assert.equal(eventArgs.reason, null);
-  assert.equal(auditArgs.eventType, "absence_request.approved");
-  assert.equal(auditArgs.metadata.special_window_override, false);
+  assert.equal(eventArgs.metadata.approved_absence_id, uuid(70));
+  assert.equal(materializeArgs.absenceRequest.status, "approved");
+  assert.equal(materializeArgs.absenceRequest.absence_type_visibility_policy, "private");
+  assert.equal(auditEvents[0].eventType, "absence_request.approved");
+  assert.equal(auditEvents[0].metadata.special_window_override, false);
+  assert.equal(auditEvents[1].eventType, "approved_absence.created");
+  assert.equal(auditEvents[1].resourceType, "approved_absence");
   assert.equal(notificationCount, 1);
   assert.deepEqual(client.calls.map((call) => call.sql).filter((sql) => ["BEGIN", "COMMIT", "ROLLBACK"].includes(sql)), ["BEGIN", "COMMIT"]);
 });
@@ -1186,6 +1204,44 @@ test("special-window review date blocks approve and reject unless override permi
   assert.equal(onReviewDate.override, false);
 });
 
+test("manager approve rolls back before event, audit and notification when approved absence materialization fails", async () => {
+  const client = createTxClient();
+  let currentRow = managerRow();
+  let eventCount = 0;
+  let auditCount = 0;
+  let notificationCount = 0;
+
+  await withPatches([
+    [pool, "connect", async () => client],
+    [absenceRequestRepository, "findByIdForManager", async () => currentRow],
+    [absenceRequestRepository, "updateManagedDecision", async () => {
+      currentRow = managerRow({ status: "approved", version: 5, reviewed_at: "2026-08-06T01:00:00.000Z" });
+      return currentRow;
+    }],
+    [approvedAbsenceService, "materializeFromApprovedRequest", async () => {
+      throw new Error("approved_absence_materialization_failed");
+    }],
+    [absenceRequestRepository, "insertEvent", async () => {
+      eventCount += 1;
+    }],
+    [auditService, "logAuditEvent", async () => {
+      auditCount += 1;
+    }],
+    [absenceNotificationService, "enqueueAbsenceApproved", async () => {
+      notificationCount += 1;
+    }],
+  ], async () => {
+    await assert.rejects(
+      absenceRequestService.approveManaged({ tenantId: uuid(1), userId: uuid(5), absenceRequestId: uuid(10), body: { version: 4 } }),
+      /approved_absence_materialization_failed/
+    );
+  });
+
+  assert.equal(eventCount, 0);
+  assert.equal(auditCount, 0);
+  assert.equal(notificationCount, 0);
+  assert.deepEqual(client.calls.map((call) => call.sql).filter((sql) => ["BEGIN", "COMMIT", "ROLLBACK"].includes(sql)), ["BEGIN", "ROLLBACK"]);
+});
 test("manager decision rolls back when event, audit or notification enqueue fails", async () => {
   for (const action of ["approve", "reject"]) {
     for (const failure of ["event", "audit", "notification"]) {
@@ -1198,9 +1254,13 @@ test("manager decision rolls back when event, audit or notification enqueue fail
         [pool, "connect", async () => client],
         [absenceRequestRepository, "findByIdForManager", async () => currentRow],
         [absenceRequestRepository, "updateManagedDecision", async () => {
-          currentRow = managerRow({ status: action === "approve" ? "approved" : "rejected", version: 5 });
+          currentRow = managerRow({ status: action === "approve" ? "approved" : "rejected", version: 5, reviewed_at: "2026-08-06T01:00:00.000Z" });
           return currentRow;
         }],
+        [approvedAbsenceService, "materializeFromApprovedRequest", async () => ({
+          approvedAbsence: { id: uuid(70), source_type: "absence_request", source_id: uuid(10) },
+          created: true,
+        })],
         [absenceRequestRepository, "insertEvent", async () => {
           eventCount += 1;
           if (failure === "event") throw new Error(`${action}_event_failed`);
@@ -1225,7 +1285,8 @@ test("manager decision rolls back when event, audit or notification enqueue fail
       });
 
       assert.equal(eventCount, 1);
-      assert.equal(auditCount, failure === "event" ? 0 : 1);
+      const expectedAuditCount = failure === "event" ? 0 : failure === "audit" ? 1 : action === "approve" ? 2 : 1;
+      assert.equal(auditCount, expectedAuditCount);
       assert.deepEqual(client.calls.map((call) => call.sql).filter((sql) => ["BEGIN", "COMMIT", "ROLLBACK"].includes(sql)), ["BEGIN", "ROLLBACK"]);
     }
   }

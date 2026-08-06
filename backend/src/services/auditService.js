@@ -78,6 +78,7 @@ const ALLOWED_EVENT_TYPES = Object.freeze([
   "absence_request.approved",
   "absence_request.rejected",
   "absence_request.change_proposed",
+  "approved_absence.created",
   "absence_special_window.created",
   "absence_special_window.updated",
   "absence_special_window.archived",

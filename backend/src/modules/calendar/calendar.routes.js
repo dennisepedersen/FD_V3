@@ -4,6 +4,7 @@ const requireAuth = require("../../middleware/requireAuth");
 const { createHttpError } = require("../../middleware/errorHandler");
 const moduleAccessService = require("../../services/moduleAccessService");
 const resourceAbsenceService = require("./resourceAbsence.service");
+const calendarFeedService = require("./calendarFeed.service");
 
 const router = express.Router();
 
@@ -45,6 +46,88 @@ function requireCalendarAbsenceAccess(req, action) {
 function isIncludeInactiveRequested(value) {
   return String(value || "").trim().toLowerCase() === "true";
 }
+
+function requireCalendarEventAccess(req, action) {
+  try {
+    return moduleAccessService.requireModuleAccess({
+      tenant: req.context.tenant,
+      auth: req.auth,
+      moduleKey: "calendar_event",
+      action,
+    });
+  } catch (error) {
+    if (error && error.statusCode === 403) {
+      throw createHttpError(403, "calendar_event_access_denied");
+    }
+    throw error;
+  }
+}
+
+router.get("/api/calendar/events/mine", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  try {
+    const { tenantId, userId } = getTenantContext(req);
+    requireCalendarEventAccess(req, "read_own");
+
+    const result = await calendarFeedService.listMine({
+      tenantId,
+      userId,
+      filters: req.query || {},
+    });
+
+    res.status(200).json({
+      success: true,
+      scope: "mine",
+      event_type: result.event_type,
+      limit: result.limit,
+      offset: result.offset,
+      events: result.events,
+    });
+  } catch (error) {
+    console.error("[calendar.routes] request_failed", {
+      route: "/api/calendar/events/mine",
+      method: "GET",
+      tenant_id: req.context?.tenant?.id || req.auth?.tenant_id || null,
+      user_id: req.auth?.sub || null,
+      role: req.auth?.role || null,
+      error_message: error?.message || null,
+      error_stack: error?.stack || null,
+    });
+    next(error);
+  }
+});
+
+router.get("/api/calendar/events/team", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  try {
+    const { tenantId, userId } = getTenantContext(req);
+    requireCalendarEventAccess(req, "read_managed");
+
+    const result = await calendarFeedService.listTeam({
+      tenantId,
+      userId,
+      filters: req.query || {},
+    });
+
+    res.status(200).json({
+      success: true,
+      scope: "team",
+      event_type: result.event_type,
+      limit: result.limit,
+      offset: result.offset,
+      events: result.events,
+    });
+  } catch (error) {
+    console.error("[calendar.routes] request_failed", {
+      route: "/api/calendar/events/team",
+      method: "GET",
+      tenant_id: req.context?.tenant?.id || req.auth?.tenant_id || null,
+      user_id: req.auth?.sub || null,
+      role: req.auth?.role || null,
+      error_message: error?.message || null,
+      error_stack: error?.stack || null,
+    });
+    next(error);
+  }
+});
 
 router.get("/api/calendar/absences", requireTenantHost, requireAuth("access"), async (req, res, next) => {
   try {

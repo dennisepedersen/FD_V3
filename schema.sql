@@ -510,6 +510,7 @@ CREATE TABLE audit_event (
       'absence_request.approved',
       'absence_request.rejected',
       'absence_request.change_proposed',
+      'approved_absence.created',
       'absence_special_window.created',
       'absence_special_window.updated',
       'absence_special_window.archived',
@@ -2427,7 +2428,82 @@ CREATE INDEX ix_absence_request_event_request_created
 
 CREATE INDEX ix_absence_request_event_type_created
   ON absence_request_event (tenant_id, event_type, created_at DESC);
+-- ============================================================================
+-- 33) approved_absence calendar event source
+-- ============================================================================
 
+CREATE TABLE approved_absence (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id uuid NOT NULL,
+  employee_tenant_user_id uuid NOT NULL,
+  employee_fitter_id text NULL,
+  source_type text NOT NULL,
+  source_id uuid NOT NULL,
+  absence_request_id uuid NULL,
+  absence_type_id uuid NOT NULL,
+  duration_type text NOT NULL,
+  start_date date NOT NULL,
+  end_date date NULL,
+  start_time time without time zone NULL,
+  end_time time without time zone NULL,
+  timezone text NOT NULL DEFAULT 'Europe/Copenhagen',
+  status text NOT NULL DEFAULT 'active',
+  visibility_policy text NOT NULL,
+  approved_by_tenant_user_id uuid NOT NULL,
+  approved_at timestamptz NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  version integer NOT NULL DEFAULT 1,
+  CONSTRAINT fk_approved_absence_tenant FOREIGN KEY (tenant_id) REFERENCES tenant(id) ON DELETE CASCADE,
+  CONSTRAINT fk_approved_absence_employee_user FOREIGN KEY (employee_tenant_user_id, tenant_id) REFERENCES tenant_user(id, tenant_id) ON DELETE RESTRICT,
+  CONSTRAINT fk_approved_absence_employee_fitter FOREIGN KEY (tenant_id, employee_fitter_id) REFERENCES fitter(tenant_id, fitter_id) ON DELETE SET NULL (employee_fitter_id),
+  CONSTRAINT fk_approved_absence_request FOREIGN KEY (absence_request_id, tenant_id) REFERENCES absence_request(id, tenant_id) ON DELETE RESTRICT,
+  CONSTRAINT fk_approved_absence_type FOREIGN KEY (absence_type_id, tenant_id) REFERENCES absence_type(id, tenant_id) ON DELETE RESTRICT,
+  CONSTRAINT fk_approved_absence_approved_by_user FOREIGN KEY (approved_by_tenant_user_id, tenant_id) REFERENCES tenant_user(id, tenant_id) ON DELETE RESTRICT,
+  CONSTRAINT uq_approved_absence_id_tenant UNIQUE (id, tenant_id),
+  CONSTRAINT uq_approved_absence_source UNIQUE (tenant_id, source_type, source_id),
+  CONSTRAINT ck_approved_absence_source_type CHECK (source_type IN ('absence_request', 'direct_registration', 'legacy_resource_absence', 'administrative')),
+  CONSTRAINT ck_approved_absence_source_shape CHECK (
+    (source_type = 'absence_request' AND absence_request_id IS NOT NULL AND source_id = absence_request_id)
+    OR (source_type <> 'absence_request' AND source_id IS NOT NULL)
+  ),
+  CONSTRAINT ck_approved_absence_duration_type CHECK (duration_type IN ('full_days', 'time_range')),
+  CONSTRAINT ck_approved_absence_status CHECK (status IN ('active', 'cancelled', 'superseded')),
+  CONSTRAINT ck_approved_absence_visibility_policy CHECK (visibility_policy IN ('private', 'manager_visible', 'neutral_shared')),
+  CONSTRAINT ck_approved_absence_timezone_not_blank CHECK (btrim(timezone) <> ''),
+  CONSTRAINT ck_approved_absence_version CHECK (version >= 1),
+  CONSTRAINT ck_approved_absence_full_days_shape CHECK (
+    duration_type <> 'full_days'
+    OR (
+      end_date IS NOT NULL
+      AND end_date >= start_date
+      AND start_time IS NULL
+      AND end_time IS NULL
+    )
+  ),
+  CONSTRAINT ck_approved_absence_time_range_shape CHECK (
+    duration_type <> 'time_range'
+    OR (
+      end_date IS NULL
+      AND start_time IS NOT NULL
+      AND end_time IS NOT NULL
+      AND end_time > start_time
+    )
+  )
+);
+
+CREATE UNIQUE INDEX uq_approved_absence_active_request
+  ON approved_absence (tenant_id, absence_request_id)
+  WHERE source_type = 'absence_request' AND status = 'active';
+
+CREATE INDEX ix_approved_absence_employee_active_range
+  ON approved_absence (tenant_id, employee_tenant_user_id, status, start_date, end_date);
+
+CREATE INDEX ix_approved_absence_tenant_active_range
+  ON approved_absence (tenant_id, status, start_date, end_date);
+
+CREATE INDEX ix_approved_absence_tenant_type_status
+  ON approved_absence (tenant_id, absence_type_id, status);
 CREATE TABLE absence_special_window_scope (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id uuid NOT NULL,
@@ -2555,6 +2631,36 @@ BEFORE DELETE ON absence_request_event
 FOR EACH ROW
 EXECUTE FUNCTION prevent_update_delete_append_only();
 
+DROP TRIGGER IF EXISTS trg_approved_absence_set_updated_at ON approved_absence;
+CREATE TRIGGER trg_approved_absence_set_updated_at
+BEFORE UPDATE ON approved_absence
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_approved_absence_prevent_immutable_update ON approved_absence;
+CREATE TRIGGER trg_approved_absence_prevent_immutable_update
+BEFORE UPDATE ON approved_absence
+FOR EACH ROW
+EXECUTE FUNCTION prevent_immutable_update(
+  'id',
+  'tenant_id',
+  'employee_tenant_user_id',
+  'employee_fitter_id',
+  'source_type',
+  'source_id',
+  'absence_request_id',
+  'absence_type_id',
+  'duration_type',
+  'start_date',
+  'end_date',
+  'start_time',
+  'end_time',
+  'timezone',
+  'visibility_policy',
+  'approved_by_tenant_user_id',
+  'approved_at',
+  'created_at'
+);
 DROP TRIGGER IF EXISTS trg_employee_manager_relation_set_updated_at ON employee_manager_relation;
 CREATE TRIGGER trg_employee_manager_relation_set_updated_at
 BEFORE UPDATE ON employee_manager_relation

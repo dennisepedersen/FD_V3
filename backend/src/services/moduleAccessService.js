@@ -36,6 +36,11 @@ const ABSENCE_REQUEST_ACTIONS = Object.freeze([
   "read_audit",
 ]);
 
+const CALENDAR_EVENT_ACTIONS = Object.freeze([
+  "read_own",
+  "read_managed",
+]);
+
 const MODULE_REGISTRY = Object.freeze({
   qa: Object.freeze({
     key: "qa",
@@ -51,6 +56,11 @@ const MODULE_REGISTRY = Object.freeze({
     key: "absence_request",
     enabled: true,
     actions: ABSENCE_REQUEST_ACTIONS,
+  }),
+  calendar_event: Object.freeze({
+    key: "calendar_event",
+    enabled: true,
+    actions: CALENDAR_EVENT_ACTIONS,
   }),
   absence_type: Object.freeze({
     key: "absence_type",
@@ -98,6 +108,10 @@ const OWN_ABSENCE_REQUEST_PERMISSIONS = Object.freeze([
   "absence_request:read_own_history",
 ]);
 
+const OWN_CALENDAR_EVENT_PERMISSIONS = Object.freeze([
+  "calendar_event:read_own",
+]);
+
 const ROLE_PERMISSIONS = Object.freeze({
   tenant_admin: Object.freeze([
     "qa:read",
@@ -105,6 +119,7 @@ const ROLE_PERMISSIONS = Object.freeze({
     "qa:update",
     "calendar_absence:read",
     "calendar_absence:create",
+    ...OWN_CALENDAR_EVENT_PERMISSIONS,
     ...OWN_ABSENCE_REQUEST_PERMISSIONS,
     "absence_request:administrative_override",
     "absence_request:approve_before_review_date",
@@ -132,6 +147,7 @@ const ROLE_PERMISSIONS = Object.freeze({
     "qa:read",
     "qa:create",
     "qa:update",
+    ...OWN_CALENDAR_EVENT_PERMISSIONS,
     ...OWN_ABSENCE_REQUEST_PERMISSIONS,
     "project_equipment_beta:read",
     "project_equipment_beta:create",
@@ -143,6 +159,7 @@ const ROLE_PERMISSIONS = Object.freeze({
   technician: Object.freeze([
     "qa:read",
     "qa:create",
+    ...OWN_CALENDAR_EVENT_PERMISSIONS,
     ...OWN_ABSENCE_REQUEST_PERMISSIONS,
     "project_equipment_beta:read",
     "project_equipment_beta:create",

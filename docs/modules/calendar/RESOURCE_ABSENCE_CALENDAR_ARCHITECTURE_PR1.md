@@ -1089,4 +1089,17 @@ verified: special-window matching is conservative. Non-eligible absence types do
 
 verified: PR3 does not implement leader approve/reject, change proposals, automatic review-ready transitions, mail/outbox, internal notifications, calendar-feed materialization, `resource_absences` materialization, frontend UI, payroll/vacation calculation, RLS, or deployment.
 
-Cancel retry behavior: draft and submitted requests can be cancelled in PR3. Repeating cancel against an already-cancelled request with the original or resulting version returns the existing cancelled state without duplicate event/audit. eady_for_review, under_review, pproved, ejected, and change_proposed are not cancellable by the PR3 employee endpoint.
+Cancel retry behavior: draft and submitted requests can be cancelled in PR3. Repeating cancel against an already-cancelled request with the original or resulting version returns the existing cancelled state without duplicate event/audit.
+ready_for_review, under_review, approved, rejected, and change_proposed are not cancellable by the PR3 employee endpoint.
+
+## PR6 Approved Absence Calendar Feeds Status
+
+verified: PR6 implements Model B from the approved product decision: a new tenant-owned `approved_absence` read/source model. It does not modify or migrate `resource_absences` because legacy rows cannot safely prove a current `tenant_user`, approved request source, manager scope, or PR6 visibility policy.
+
+verified: approved absence is materialized inside the manager approve transaction before request event, audit, notification, and email outbox enqueue. If materialization fails, the approval transaction rolls back. Reject does not create approved absence.
+
+verified: personal calendar feed is `GET /api/calendar/events/mine` with `calendar_event:read_own`. Default tenant roles receive own-feed read only.
+
+verified: manager team calendar feed is `GET /api/calendar/events/team` with explicit `calendar_event:read_managed` plus active primary `employee_manager_relation` object scope. Role alone, tenant admin status, project leader status, and resource group manager metadata do not grant team feed rows.
+
+verified: private and neutral-shared team events use neutral title `Ikke til stede`; manager-visible events may show the absence type. Feeds do not expose employee comments, rejection reasons, event metadata, email/outbox data, or audit details.

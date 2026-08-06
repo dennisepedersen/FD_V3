@@ -35,6 +35,7 @@ Scope: points to docs; does not replace them
 | `docs/modules/calendar/CALENDAR_RESOURCE_ABSENCE_MVP.md` | Calendar / Resource Absence MVP foundation, backlog, and non-goals | PR1 foundation started |
 | `docs/modules/calendar/RESOURCE_ABSENCE_CALENDAR_ARCHITECTURE_PR1.md` | Resource, absence request, special vacation window, manager relation, outbox, and calendar read-model architecture plus PR2 data foundation | Current decision / PR2 local implementation |
 | `docs/modules/calendar/ABSENCE_NOTIFICATIONS_OUTBOX_PR4.md` | Internal notifications, mail templates, transactional email outbox, retry/dead-letter, PR5 decision templates, and mail non-goals | PR4 released / PR5 local extension |
+| `docs/modules/calendar/APPROVED_ABSENCE_CALENDAR_FEEDS_PR6.md` | Approved absence materialization, personal/team calendar feeds, visibility redaction, and legacy absence non-goals | PR6 local implementation |
 | `docs/modules/restarbejde/MODULE_DEFINITION.md` | Restarbejde scope, workflows, data model, risks | Draft/proposal, not implementation spec |
 | `docs/modules/restarbejde/BACKEND_MODULE_CONTRACT.md` | Restarbejde backend/module contract for future FD integration | Draft/Proposed module contract |
 
