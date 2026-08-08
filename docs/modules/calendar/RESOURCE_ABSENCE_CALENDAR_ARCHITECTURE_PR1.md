@@ -865,7 +865,7 @@ No frontend code is implemented in PR1.
 Employee information architecture:
 
 - Min kalender
-- Anmod om fravær
+- Anmod om fravaer
 - Mine anmodninger
 - Afventer
 - Godkendt
@@ -875,19 +875,18 @@ Employee information architecture:
 Manager information architecture:
 
 - Afventer behandling
-- Afventer fælles behandling
+- Afventer faelles behandling
 - Klar til behandling
 - Teamkalender
 - Overlap
-- Særlige ferieperioder
+- Saerlige ferieperioder
 
 Administration:
 
-- Fraværstyper
-- Ferieønskeperioder
+- Fravaerstyper
+- Ferieonskeperioder
 - Lederrelationer
 - Permissions
-
 Form behavior:
 
 - Whole days show start date and end date.
@@ -1085,13 +1084,29 @@ verified: submit assigns a manager only from exactly one active Fielddesk `emplo
 
 verified: PR3 writes `absence_request_event` rows and audit events inside the same service transaction and database client for create, draft update, submit, and cancel. If request event or audit insertion fails, the request/status/version mutation rolls back. Private employee comment text is not copied into event/audit metadata; update metadata records only that the private comment changed.
 
-verified: special-window matching is conservative. Non-eligible absence types do not receive a special window. Fully containing tenant/user scoped active windows can be linked. Resource-group scoped or partial-overlap windows are rejected in PR3 as unclear until a safe employee-resource-group resolver and full special-window workflow are added.
+verified: PR3 special-window matching was conservative. PR7 now allows fully containing tenant, tenant-user, and tenant-scoped resource-group windows when resource-group membership resolves through `fitter.tenant_user_id`. Partial overlaps still require split/manual handling.
 
 verified: PR3 does not implement leader approve/reject, change proposals, automatic review-ready transitions, mail/outbox, internal notifications, calendar-feed materialization, `resource_absences` materialization, frontend UI, payroll/vacation calculation, RLS, or deployment.
 
 Cancel retry behavior: draft and submitted requests can be cancelled in PR3. Repeating cancel against an already-cancelled request with the original or resulting version returns the existing cancelled state without duplicate event/audit.
 ready_for_review, under_review, approved, rejected, and change_proposed are not cancellable by the PR3 employee endpoint.
 
+
+## PR7 Special Vacation Window Administration
+
+Status: implemented locally in PR7 backend. See `docs/modules/calendar/SPECIAL_VACATION_WINDOWS_PR7.md` for the operational contract.
+
+verified: PR7 adds tenant-authenticated special-window administration and review-overview endpoints under `/api/calendar/special-windows`. It reuses `absence_special_window_scope`; no parallel scope table is introduced.
+
+verified: `absence_special_window.version` supports optimistic locking for update/archive. Changes to dates, scope, active state, and late policy are blocked once non-draft requests exist for the window; text-only edits remain possible.
+
+verified: Resource-group scoped special windows are now valid when membership can be resolved through tenant-scoped `resource_group_members` and `fitter.tenant_user_id`. Resource groups still do not grant approval rights or project access.
+
+verified: Employee submit is blocked before `submission_open_date`, blocked after `submission_deadline` when late policy is `blocked`, and marked as late for `manual_review` or `allowed`. Late submit writes `absence_request.late_submitted` audit metadata.
+
+verified: Review overview redacts `employee_comment` unless the actor has explicit `absence_request:read_private_comment`. Tenant admin role alone still does not grant private-comment access.
+
+verified: PR7 does not implement frontend UI, alternative periods, automatic decisions, calendar drag/drop, production mail, outbox apply, EK sync, worksheet sync, Render changes, push, deploy, or production migration.
 ## PR6 Approved Absence Calendar Feeds Status
 
 verified: PR6 implements Model B from the approved product decision: a new tenant-owned `approved_absence` read/source model. It does not modify or migrate `resource_absences` because legacy rows cannot safely prove a current `tenant_user`, approved request source, manager scope, or PR6 visibility policy.

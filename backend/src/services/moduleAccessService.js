@@ -70,7 +70,7 @@ const MODULE_REGISTRY = Object.freeze({
   absence_special_window: Object.freeze({
     key: "absence_special_window",
     enabled: true,
-    actions: Object.freeze(["manage"]),
+    actions: Object.freeze(["manage", "review"]),
   }),
   employee_manager_relation: Object.freeze({
     key: "employee_manager_relation",

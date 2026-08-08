@@ -154,9 +154,42 @@ test("absence notification context omits comments and derives tenant action urls
     end_date: "2026-08-11",
     duration_type: "full_days",
     special_window_name: null,
+    special_window_submission_deadline: null,
+    special_window_review_start_date: null,
   });
 });
 
+test("special-window submitted notifications use collective-review templates and safe variables", () => {
+  const context = absenceNotificationService._test.buildContext({
+    id: uuid(10),
+    tenant_slug: "hoyrup-clemmensen",
+    employee_tenant_user_id: uuid(2),
+    employee_name: "Anne",
+    employee_email: "anne@example.test",
+    employee_status: "active",
+    employee_login_status: "active",
+    assigned_manager_tenant_user_id: uuid(3),
+    assigned_manager_name: "Leder",
+    manager_email: "leder@example.test",
+    manager_status: "active",
+    manager_login_status: "active",
+    absence_type_name: "Ferie",
+    duration_type: "full_days",
+    start_date: "2026-07-01",
+    end_date: "2026-07-07",
+    special_window_name: "Sommerferie",
+    special_window_submission_deadline: "2026-03-01",
+    special_window_review_start_date: "2026-03-15",
+    special_window_receipt_text: "Vi samler onskerne efter fristen.",
+  });
+
+  const variables = absenceNotificationService._test.submittedVariables(context);
+  assert.equal(variables.special_window_name, "Sommerferie");
+  assert.equal(variables.submission_deadline, "01.03.2026");
+  assert.equal(variables.review_start_date, "15.03.2026");
+  assert.equal(variables.receipt_text, "Vi samler onskerne efter fristen.");
+  assert.deepEqual(absenceNotificationService._test.safePayload(context).special_window_name, "Sommerferie");
+});
 test("email enqueue renders template, writes dead-letter for missing recipient email and audits queue result", async () => {
   const calls = [];
   await withPatches([

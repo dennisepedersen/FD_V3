@@ -21,6 +21,8 @@ function safePayload(context) {
     end_date: context.endDate,
     duration_type: context.durationType,
     special_window_name: context.specialWindowName || null,
+    special_window_submission_deadline: context.specialWindowSubmissionDeadline || null,
+    special_window_review_start_date: context.specialWindowReviewStartDate || null,
   };
 }
 
@@ -29,8 +31,17 @@ function actionUrlFor(context) {
   return `https://${domain}/login#absence-request-${context.absenceRequestId}`;
 }
 
+function toDateString(value) {
+  if (!value) return null;
+  if (typeof value === "string") return value.slice(0, 10);
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  return String(value).slice(0, 10);
+}
+
 function buildContext(row) {
   const absencePeriod = formatAbsencePeriod(row);
+  const deadline = toDateString(row.special_window_submission_deadline);
+  const reviewStart = toDateString(row.special_window_review_start_date);
   return {
     absenceRequestId: row.id,
     absenceTypeName: row.absence_type_name,
@@ -41,6 +52,9 @@ function buildContext(row) {
     endTime: row.end_time ? String(row.end_time).slice(0, 5) : "",
     durationType: row.duration_type,
     specialWindowName: row.special_window_name || null,
+    specialWindowSubmissionDeadline: deadline,
+    specialWindowReviewStartDate: reviewStart,
+    specialWindowReceiptText: row.special_window_receipt_text || null,
     tenantSlug: row.tenant_slug,
     tenantName: row.tenant_name || row.tenant_slug || "Fielddesk",
     tenantDomain: row.tenant_domain || null,
@@ -116,24 +130,41 @@ async function enqueueForRecipient(client, {
   return { notification, email };
 }
 
+function submittedVariables(context) {
+  return {
+    employee_name: context.employee.name,
+    manager_name: context.manager?.name || "din leder",
+    absence_period: context.absencePeriod,
+    special_window_name: context.specialWindowName || "",
+    submission_deadline: context.specialWindowSubmissionDeadline ? formatDateDa(context.specialWindowSubmissionDeadline) : "",
+    review_start_date: context.specialWindowReviewStartDate ? formatDateDa(context.specialWindowReviewStartDate) : "",
+    receipt_text: context.specialWindowReceiptText || "",
+    action_url: context.actionUrl,
+    tenant_name: context.tenantName,
+  };
+}
+
 async function enqueueAbsenceSubmitted(client, { tenantId, actorId, requestContext }) {
   const context = buildContext(requestContext);
+  const isSpecialWindow = Boolean(context.specialWindowName);
+  const employeeTemplateKey = isSpecialWindow ? "absence_request.submitted_special_window.employee" : "absence_request.submitted.employee";
+  const managerTemplateKey = isSpecialWindow ? "absence_request.submitted_special_window.manager" : "absence_request.submitted.manager";
+  const employeeEventKey = employeeTemplateKey;
+  const managerEventKey = managerTemplateKey;
   const results = [];
+
   results.push(await enqueueForRecipient(client, {
     tenantId,
     actorId,
     context,
     recipient: context.employee,
-    eventKey: "absence_request.submitted.employee",
-    templateKey: "absence_request.submitted.employee",
-    title: "Fravaersanmodning sendt",
-    body: `Din fravaersanmodning for ${context.absencePeriod} er sendt til ${context.manager?.name || "din leder"}.`,
-    variables: {
-      employee_name: context.employee.name,
-      manager_name: context.manager?.name || "din leder",
-      absence_period: context.absencePeriod,
-      action_url: context.actionUrl,
-    },
+    eventKey: employeeEventKey,
+    templateKey: employeeTemplateKey,
+    title: isSpecialWindow ? "Ferieonske modtaget" : "Fravaersanmodning sendt",
+    body: isSpecialWindow
+      ? `Dit ferieonske for ${context.absencePeriod} er modtaget til samlet behandling.`
+      : `Din fravaersanmodning for ${context.absencePeriod} er sendt til ${context.manager?.name || "din leder"}.`,
+    variables: submittedVariables(context),
   }));
 
   if (context.manager) {
@@ -142,16 +173,13 @@ async function enqueueAbsenceSubmitted(client, { tenantId, actorId, requestConte
       actorId,
       context,
       recipient: context.manager,
-      eventKey: "absence_request.submitted.manager",
-      templateKey: "absence_request.submitted.manager",
-      title: "Ny fravaersanmodning",
-      body: `${context.employee.name} har sendt en fravaersanmodning for ${context.absencePeriod}.`,
-      variables: {
-        employee_name: context.employee.name,
-        manager_name: context.manager.name,
-        absence_period: context.absencePeriod,
-        action_url: context.actionUrl,
-      },
+      eventKey: managerEventKey,
+      templateKey: managerTemplateKey,
+      title: isSpecialWindow ? "Nyt ferieonske" : "Ny fravaersanmodning",
+      body: isSpecialWindow
+        ? `${context.employee.name} har sendt et ferieonske for ${context.absencePeriod} til samlet behandling.`
+        : `${context.employee.name} har sendt en fravaersanmodning for ${context.absencePeriod}.`,
+      variables: submittedVariables(context),
     }));
   }
   return results.filter(Boolean);
@@ -249,11 +277,13 @@ async function enqueueAbsenceRejected(client, { tenantId, actorId, requestContex
   });
   return result ? [result] : [];
 }
+
 module.exports = {
   _test: {
     actionUrlFor,
     buildContext,
     safePayload,
+    submittedVariables,
     userIsActive,
     userIsMailable,
   },

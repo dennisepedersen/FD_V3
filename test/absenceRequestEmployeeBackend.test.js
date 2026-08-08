@@ -291,7 +291,7 @@ test("manager auto assignment only considers one active primary Fielddesk manage
   assert.match(client.calls[0].sql, /emr\.employee_tenant_user_id = \$2/);
 });
 
-test("special-window matching rejects resource-group and partial overlaps in PR3", async () => {
+test("special-window matching accepts tenant-scoped resource-group matches and rejects partial overlaps", async () => {
   const original = absenceSpecialWindowRepository.listOverlappingActiveScopedForEmployee;
   const type = requestType({ special_window_eligible: true });
   try {
@@ -300,19 +300,17 @@ test("special-window matching rejects resource-group and partial overlaps in PR3
       scope_type: "resource_group",
       fully_contains_request: true,
     }]);
-    await assert.rejects(
-      absenceRequestService._test.resolveSpecialWindow({
-        query: async () => ({ rows: [] }),
-      }, {
-        tenantId: uuid(1),
-        employeeTenantUserId: uuid(2),
-        absenceType: type,
-        absenceTypeId: uuid(3),
-        startDate: "2026-08-10",
-        endDate: "2026-08-12",
-      }),
-      (error) => error.statusCode === 409 && error.message === "absence_special_window_scope_unclear"
-    );
+    const groupMatch = await absenceRequestService._test.resolveSpecialWindow({
+      query: async () => ({ rows: [] }),
+    }, {
+      tenantId: uuid(1),
+      employeeTenantUserId: uuid(2),
+      absenceType: type,
+      absenceTypeId: uuid(3),
+      startDate: "2026-08-10",
+      endDate: "2026-08-12",
+    });
+    assert.equal(groupMatch.id, uuid(30));
 
     absenceSpecialWindowRepository.listOverlappingActiveScopedForEmployee = async () => ([{
       id: uuid(31),
@@ -361,6 +359,7 @@ test("employee request service keeps mutations transactional and avoids private 
   assert.match(source, /absence_request\.created/);
   assert.match(source, /absence_request\.updated/);
   assert.match(source, /absence_request\.submitted/);
+  assert.match(source, /absence_request\.late_submitted/);
   assert.match(source, /absence_request\.cancelled/);
   assert.match(source, /private_comment_changed/);
   assert.doesNotMatch(source, /employee_comment:\s*payload\.employeeComment/);
@@ -789,6 +788,31 @@ test("cancel allows draft and submitted only and rejects approved without event"
   assert.equal(eventCount, 0);
 });
 
+test("special-window submit timing enforces open date and late policy", () => {
+  const base = {
+    id: uuid(50),
+    name: "Sommerferie",
+    submission_open_date: "2026-01-10",
+    submission_deadline: "2026-01-20",
+  };
+
+  assert.throws(
+    () => absenceRequestService._test.validateSpecialWindowSubmissionTiming(base, { asOfDate: "2026-01-09" }),
+    (error) => error.statusCode === 409 && error.message === "absence_special_window_not_open"
+  );
+  assert.throws(
+    () => absenceRequestService._test.validateSpecialWindowSubmissionTiming({ ...base, late_submission_policy: "blocked" }, { asOfDate: "2026-01-21" }),
+    (error) => error.statusCode === 409 && error.message === "absence_special_window_deadline_passed"
+  );
+
+  const manual = absenceRequestService._test.validateSpecialWindowSubmissionTiming({ ...base, late_submission_policy: "manual_review" }, { asOfDate: "2026-01-21" });
+  assert.equal(manual.submittedAfterDeadline, true);
+  assert.equal(manual.metadata.late_submission_requires_manual_review, true);
+
+  const allowed = absenceRequestService._test.validateSpecialWindowSubmissionTiming({ ...base, late_submission_policy: "allowed" }, { asOfDate: "2026-01-21" });
+  assert.equal(allowed.submittedAfterDeadline, true);
+  assert.equal(allowed.metadata.late_submission_requires_manual_review, false);
+});
 test("special-window matching accepts one exact tenant or user match and rejects multiple matches", async () => {
   const original = absenceSpecialWindowRepository.listOverlappingActiveScopedForEmployee;
   const type = requestType({ special_window_eligible: true });

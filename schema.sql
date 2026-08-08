@@ -506,6 +506,7 @@ CREATE TABLE audit_event (
       'absence_request.created',
       'absence_request.updated',
       'absence_request.submitted',
+      'absence_request.late_submitted',
       'absence_request.cancelled',
       'absence_request.approved',
       'absence_request.rejected',
@@ -513,6 +514,7 @@ CREATE TABLE audit_event (
       'approved_absence.created',
       'absence_special_window.created',
       'absence_special_window.updated',
+      'absence_special_window.scope_changed',
       'absence_special_window.archived',
       'employee_manager_relation.created',
       'employee_manager_relation.updated',
@@ -2249,6 +2251,7 @@ CREATE TABLE absence_type (
   updated_by_tenant_user_id uuid NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
+  version integer NOT NULL DEFAULT 1,
   CONSTRAINT fk_absence_type_tenant FOREIGN KEY (tenant_id) REFERENCES tenant(id) ON DELETE CASCADE,
   CONSTRAINT fk_absence_type_created_by_user FOREIGN KEY (created_by_tenant_user_id, tenant_id) REFERENCES tenant_user(id, tenant_id) ON DELETE SET NULL (created_by_tenant_user_id),
   CONSTRAINT fk_absence_type_updated_by_user FOREIGN KEY (updated_by_tenant_user_id, tenant_id) REFERENCES tenant_user(id, tenant_id) ON DELETE SET NULL (updated_by_tenant_user_id),
@@ -2295,6 +2298,7 @@ CREATE TABLE absence_special_window (
   updated_by_tenant_user_id uuid NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
+  version integer NOT NULL DEFAULT 1,
   CONSTRAINT fk_absence_special_window_tenant FOREIGN KEY (tenant_id) REFERENCES tenant(id) ON DELETE CASCADE,
   CONSTRAINT fk_absence_special_window_created_by_user FOREIGN KEY (created_by_tenant_user_id, tenant_id) REFERENCES tenant_user(id, tenant_id) ON DELETE SET NULL (created_by_tenant_user_id),
   CONSTRAINT fk_absence_special_window_updated_by_user FOREIGN KEY (updated_by_tenant_user_id, tenant_id) REFERENCES tenant_user(id, tenant_id) ON DELETE SET NULL (updated_by_tenant_user_id),
@@ -2306,7 +2310,8 @@ CREATE TABLE absence_special_window (
   CONSTRAINT ck_absence_special_window_late_policy CHECK (late_submission_policy IN ('blocked', 'manual_review', 'allowed')),
   CONSTRAINT ck_absence_special_window_absence_range CHECK (absence_end_date >= absence_start_date),
   CONSTRAINT ck_absence_special_window_submission_range CHECK (submission_deadline >= submission_open_date),
-  CONSTRAINT ck_absence_special_window_review_after_deadline CHECK (review_start_date >= submission_deadline)
+  CONSTRAINT ck_absence_special_window_review_after_deadline CHECK (review_start_date >= submission_deadline),
+  CONSTRAINT ck_absence_special_window_version CHECK (version >= 1)
 );
 
 CREATE UNIQUE INDEX uq_absence_special_window_tenant_key_ci
@@ -2562,6 +2567,7 @@ CREATE TABLE employee_manager_relation (
   updated_by_tenant_user_id uuid NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
+  version integer NOT NULL DEFAULT 1,
   CONSTRAINT fk_employee_manager_relation_tenant FOREIGN KEY (tenant_id) REFERENCES tenant(id) ON DELETE CASCADE,
   CONSTRAINT fk_employee_manager_relation_employee FOREIGN KEY (employee_tenant_user_id, tenant_id) REFERENCES tenant_user(id, tenant_id) ON DELETE CASCADE,
   CONSTRAINT fk_employee_manager_relation_manager FOREIGN KEY (manager_tenant_user_id, tenant_id) REFERENCES tenant_user(id, tenant_id) ON DELETE CASCADE,
@@ -2916,6 +2922,47 @@ VALUES
     '<p>Hej {{employee_name}}</p><p>Din fravaersanmodning om {{absence_type}} fra {{start_date}} til {{end_date}} er afvist af {{manager_name}}.</p><p>Begrundelse: {{decision_reason}}</p><p><a href="{{action_url}}">Aabn Fielddesk</a></p><p>{{tenant_name}}</p>',
     'Hej {{employee_name}}\n\nDin fravaersanmodning om {{absence_type}} fra {{start_date}} til {{end_date}} er afvist af {{manager_name}}.\n\nBegrundelse: {{decision_reason}}\n\nAabn Fielddesk: {{action_url}}\n\n{{tenant_name}}',
     '["employee_name","manager_name","absence_type","start_date","end_date","start_time","end_time","decision_reason","action_url","tenant_name"]'::jsonb
+  )
+ON CONFLICT DO NOTHING;
+INSERT INTO email_template (
+  template_key,
+  locale,
+  version,
+  subject_template,
+  html_template,
+  text_template,
+  allowed_variables_json
+)
+VALUES
+  (
+    'absence_request.submitted_special_window.employee',
+    'da-DK',
+    1,
+    'Dit ferieonske er modtaget',
+    '<p>Hej {{employee_name}}</p><p>Dit ferieonske for {{absence_period}} er modtaget til samlet behandling i {{special_window_name}}.</p><p>Det er ikke godkendt endnu, og det er ikke foerst til moelle.</p><p>Frist: {{submission_deadline}}. Behandling starter: {{review_start_date}}.</p><p>{{receipt_text}}</p><p><a href="{{action_url}}">Se onsket i Fielddesk</a></p>',
+    'Hej {{employee_name}}
+
+Dit ferieonske for {{absence_period}} er modtaget til samlet behandling i {{special_window_name}}.
+Det er ikke godkendt endnu, og det er ikke foerst til moelle.
+Frist: {{submission_deadline}}. Behandling starter: {{review_start_date}}.
+{{receipt_text}}
+
+Se onsket i Fielddesk: {{action_url}}',
+    '["employee_name","manager_name","absence_period","special_window_name","submission_deadline","review_start_date","receipt_text","action_url","tenant_name"]'::jsonb
+  ),
+  (
+    'absence_request.submitted_special_window.manager',
+    'da-DK',
+    1,
+    'Nyt ferieonske til samlet behandling',
+    '<p>Hej {{manager_name}}</p><p>{{employee_name}} har sendt et ferieonske for {{absence_period}}, som afventer faelles behandling i {{special_window_name}}.</p><p>Frist: {{submission_deadline}}. Behandling aabner: {{review_start_date}}.</p><p><a href="{{action_url}}">Se onsket i Fielddesk</a></p>',
+    'Hej {{manager_name}}
+
+{{employee_name}} har sendt et ferieonske for {{absence_period}}, som afventer faelles behandling i {{special_window_name}}.
+Frist: {{submission_deadline}}. Behandling aabner: {{review_start_date}}.
+
+Se onsket i Fielddesk: {{action_url}}',
+    '["employee_name","manager_name","absence_period","special_window_name","submission_deadline","review_start_date","receipt_text","action_url","tenant_name"]'::jsonb
   )
 ON CONFLICT DO NOTHING;
 COMMIT;

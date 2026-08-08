@@ -133,6 +133,7 @@ test('permission matrix grants own requests but not managed/private actions by r
 test('admin foundation permissions are explicit and do not include private comments', () => {
   assert.equal(requireAccess('tenant_admin', 'absence_type', 'manage').permission, 'absence_type:manage');
   assert.equal(requireAccess('tenant_admin', 'absence_special_window', 'manage').permission, 'absence_special_window:manage');
+  assertDenied(() => requireAccess('tenant_admin', 'absence_special_window', 'review'));
   assert.equal(requireAccess('tenant_admin', 'employee_manager_relation', 'manage').permission, 'employee_manager_relation:manage');
   assert.equal(requireAccess('tenant_admin', 'absence_request', 'administrative_override').permission, 'absence_request:administrative_override');
   assertDenied(() => requireAccess('tenant_admin', 'absence_request', 'read_private_comment'));
@@ -146,6 +147,10 @@ test('separate private-comment and managed actions can be granted explicitly and
   assert.equal(
     requireAccess('project_leader', 'absence_request', 'approve_managed', ['absence_request:approve_managed']).permission,
     'absence_request:approve_managed'
+  );
+  assert.equal(
+    requireAccess('project_leader', 'absence_special_window', 'review', ['absence_special_window:review']).permission,
+    'absence_special_window:review'
   );
   assertDenied(() => moduleAccessService.requireModuleAccess({
     tenant: { id: uuid(10) },
@@ -163,8 +168,14 @@ test('resource group manager role does not grant absence approval', () => {
 
 test('audit service and migration include PR2 audit keys', () => {
   const sql = migration();
+  const pr2EventTypes = ABSENCE_AUDIT_EVENT_TYPES.filter((eventType) => ![
+    'absence_request.late_submitted',
+    'absence_special_window.scope_changed',
+  ].includes(eventType));
   for (const eventType of ABSENCE_AUDIT_EVENT_TYPES) {
     assert.equal(auditService.ALLOWED_EVENT_TYPES.includes(eventType), true, eventType);
+  }
+  for (const eventType of pr2EventTypes) {
     assert.match(sql, new RegExp(eventType.replace(/[.]/g, '\\.')));
   }
 });

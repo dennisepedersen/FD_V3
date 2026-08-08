@@ -51,8 +51,8 @@ Calendar / Resource Absence direction:
 - Calendar is primarily a combined feed/read-model; source domains keep ownership.
 - Special vacation windows are tenant-configurable and not first-come-first-served.
 - Personnel approval requires a Fielddesk-owned manager relation; project responsible, resource group manager, and tenant admin are not automatic approvers.
-- The detailed PR1/PR2 direction is `docs/modules/calendar/RESOURCE_ABSENCE_CALENDAR_ARCHITECTURE_PR1.md`.
-- PR2 adds request foundation tables. PR3 adds employee own request backend routes. PR4 adds notification/outbox foundation. PR5 adds manager pending/detail/approve/reject backend routes using snapshot-manager object scope, optimistic versioning, request events, audit, and employee notification/outbox side effects. PR5 still has no UI, calendar feed, approved-absence materialization, automatic mail sending, or legacy absence migration.
+- The detailed calendar/absence direction is in `docs/modules/calendar/RESOURCE_ABSENCE_CALENDAR_ARCHITECTURE_PR1.md`, `docs/modules/calendar/APPROVED_ABSENCE_CALENDAR_FEEDS_PR6.md`, and `docs/modules/calendar/SPECIAL_VACATION_WINDOWS_PR7.md`.
+- PR2 adds request foundation tables. PR3 adds employee own request backend routes. PR4 adds notification/outbox foundation. PR5 adds manager pending/detail/approve/reject backend routes using snapshot-manager object scope, optimistic versioning, request events, audit, and employee notification/outbox side effects. PR6 adds approved-absence calendar feeds. PR7 adds special vacation window administration, deadline enforcement, and review overview under `/api/calendar/special-windows`. PR7 still has no UI, alternative-period workflow, automatic mail sending, outbox apply, Render change, or production migration.
 
 ## 3. Frontend Direction
 

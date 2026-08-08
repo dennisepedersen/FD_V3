@@ -376,15 +376,12 @@ async function resolveSpecialWindow(client, {
     endDate,
   });
   if (overlaps.length === 0) return null;
-  if (overlaps.some((row) => row.scope_type === "resource_group")) {
-    throw createHttpError(409, "absence_special_window_scope_unclear");
-  }
   if (overlaps.some((row) => row.fully_contains_request !== true)) {
     throw createHttpError(409, "absence_special_window_partial_overlap");
   }
   const safeMatches = new Map();
   for (const row of overlaps) {
-    if (row.scope_type === "tenant" || row.scope_type === "tenant_user") {
+    if (row.scope_type === "tenant" || row.scope_type === "tenant_user" || row.scope_type === "resource_group") {
       safeMatches.set(String(row.id), row);
     }
   }
@@ -395,6 +392,38 @@ async function resolveSpecialWindow(client, {
     throw createHttpError(409, "absence_special_window_conflict");
   }
   return Array.from(safeMatches.values())[0];
+}
+
+function validateSpecialWindowSubmissionTiming(specialWindow, { asOfDate = todayDate() } = {}) {
+  if (!specialWindow) return { submittedAfterDeadline: false, metadata: {} };
+  const openDate = toDateString(specialWindow.submission_open_date);
+  const deadline = toDateString(specialWindow.submission_deadline);
+  if (openDate && asOfDate < openDate) {
+    throw createHttpError(409, "absence_special_window_not_open", {
+      special_window_id: specialWindow.id,
+      special_window_name: specialWindow.name || null,
+      submission_open_date: openDate,
+    });
+  }
+  if (!deadline || asOfDate <= deadline) return { submittedAfterDeadline: false, metadata: {} };
+
+  const policy = specialWindow.late_submission_policy || "blocked";
+  if (policy === "blocked") {
+    throw createHttpError(409, "absence_special_window_deadline_passed", {
+      special_window_id: specialWindow.id,
+      special_window_name: specialWindow.name || null,
+      submission_deadline: deadline,
+    });
+  }
+  return {
+    submittedAfterDeadline: true,
+    metadata: {
+      submitted_after_deadline: true,
+      late_submission_policy: policy,
+      late_submission_requires_manual_review: policy === "manual_review",
+      special_window_submission_deadline: deadline,
+    },
+  };
 }
 
 async function getDetailRow(client, { tenantId, employeeTenantUserId, absenceRequestId }) {
@@ -879,6 +908,7 @@ async function submitDraft({ tenantId, userId, absenceRequestId, body, idempoten
       startDate: toDateString(existing.start_date),
       endDate: requestEndDateForWindow(existing),
     });
+    const specialWindowSubmission = validateSpecialWindowSubmissionTiming(specialWindow);
 
     const submitted = await absenceRequestRepository.submitDraftForEmployee(client, {
       tenantId: normalizedTenantId,
@@ -903,6 +933,7 @@ async function submitDraft({ tenantId, userId, absenceRequestId, body, idempoten
         special_window_id: specialWindow?.id || null,
         duration_type: existing.duration_type,
         idempotency_key: normalizedIdempotencyKey,
+        ...specialWindowSubmission.metadata,
       },
     });
     await audit(client, {
@@ -917,8 +948,22 @@ async function submitDraft({ tenantId, userId, absenceRequestId, body, idempoten
         new_version: submitted.version,
         assigned_manager_tenant_user_id: manager.manager_tenant_user_id,
         special_window_id: specialWindow?.id || null,
+        ...specialWindowSubmission.metadata,
       },
     });
+    if (specialWindowSubmission.submittedAfterDeadline) {
+      await audit(client, {
+        tenantId: normalizedTenantId,
+        actorId: normalizedUserId,
+        eventType: "absence_request.late_submitted",
+        requestId: normalizedRequestId,
+        metadata: {
+          special_window_id: specialWindow?.id || null,
+          special_window_name: specialWindow?.name || null,
+          ...specialWindowSubmission.metadata,
+        },
+      });
+    }
     await absenceNotificationService.enqueueAbsenceSubmitted(client, {
       tenantId: normalizedTenantId,
       actorId: normalizedUserId,
@@ -1030,6 +1075,7 @@ module.exports = {
     resolveSpecialWindow,
     validateManagedRequestType,
     validateSpecialWindowForDecision,
+    validateSpecialWindowSubmissionTiming,
     validatePayloadAgainstType,
   },
 };

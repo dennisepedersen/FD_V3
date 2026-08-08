@@ -114,3 +114,16 @@ Rejection reason policy:
 - The full reason is not copied to internal notification body, notification payload, outbox payload, audit metadata, route logs, or processor logs.
 
 PR5 still does not activate automatic outbox `apply`, send production mail, create notification UI, or materialize calendar/resource absence rows.
+
+## PR7 Special-Window Submit Templates
+
+PR7 reuses the PR4 outbox foundation for special vacation window submit receipts. It adds system template keys:
+
+- `absence_request.submitted_special_window.employee`
+- `absence_request.submitted_special_window.manager`
+
+Allowed variables are limited to `employee_name`, `manager_name`, `absence_period`, `special_window_name`, `submission_deadline`, `review_start_date`, `receipt_text`, `action_url`, and `tenant_name`.
+
+The special-window submit notification confirms receipt for collective review. It must not imply approval, priority, first-come-first-served handling, or a final calendar absence. Employee comments remain excluded from internal notification payloads, outbox payloads, rendered special-window submit templates, audit metadata, and processor logs.
+
+PR7 still does not activate outbox `apply`, send real mail, create notification UI, or make Render/service configuration changes.

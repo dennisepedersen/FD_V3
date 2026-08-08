@@ -72,3 +72,12 @@ The repository has a historical applied duplicate migration number `0002`:
 - `0002_username_login.sql`
 
 The migration checker has an exact legacy allowlist for those two filenames only. Any new duplicate migration number fails.
+## Focused Calendar / Absence Checks
+
+For special vacation window backend changes, run:
+
+```bash
+node --test test/specialWindowAdmin.test.js
+node --test test/absenceRequestEmployeeBackend.test.js
+node --test test/notificationOutboxFoundation.test.js
+```

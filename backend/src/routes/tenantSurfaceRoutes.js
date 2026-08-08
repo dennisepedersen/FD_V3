@@ -12,6 +12,7 @@ const projectAccessService = require("../services/projectAccessService");
 const qaRoutes = require("../modules/qa/qa.routes");
 const calendarRoutes = require("../modules/calendar/calendar.routes");
 const absenceRoutes = require("../modules/absence/absence.routes");
+const specialWindowRoutes = require("../modules/absence/specialWindow.routes");
 const resourceGroupRoutes = require("../modules/resourceGroups/resourceGroup.routes");
 const tenantAdminRoutes = require("../modules/tenantAdmin/tenantAdmin.routes");
 const projectEquipmentRoutes = require("../modules/projectEquipment/projectEquipment.routes");
@@ -144,6 +145,7 @@ router.get("/tenant/vendor/pdf.worker.mjs", requireTenantHost, (req, res) => {
 router.use(qaRoutes);
 router.use(calendarRoutes);
 router.use(absenceRoutes);
+router.use(specialWindowRoutes);
 router.use(resourceGroupRoutes);
 router.use(tenantAdminRoutes);
 router.use(projectEquipmentRoutes);
