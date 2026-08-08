@@ -6,6 +6,7 @@ const requireAuth = require("../../middleware/requireAuth");
 const { createHttpError } = require("../../middleware/errorHandler");
 const moduleAccessService = require("../../services/moduleAccessService");
 const absenceRequestService = require("./absenceRequest.service");
+const absenceTypeService = require("./absenceType.service");
 
 const router = express.Router();
 const MODULE_KEY = "absence_request";
@@ -92,6 +93,23 @@ router.get("/api/calendar/absence-requests/mine", requireTenantHost, requireAuth
     });
   } catch (error) {
     logRouteError("/api/calendar/absence-requests/mine", "GET", req, error);
+    next(error);
+  }
+});
+
+router.get("/api/calendar/absence-types/request-options", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  try {
+    const { tenantId } = getTenantContext(req);
+    requireAbsenceRequestAccess(req, "create_own");
+
+    const result = await absenceTypeService.listRequestOptions({ tenantId });
+
+    res.status(200).json({
+      success: true,
+      items: result.items,
+    });
+  } catch (error) {
+    logRouteError("/api/calendar/absence-types/request-options", "GET", req, error);
     next(error);
   }
 });

@@ -16,6 +16,7 @@ const absenceNotificationService = require("../backend/src/modules/notifications
 const approvedAbsenceService = require("../backend/src/modules/calendar/approvedAbsence.service");
 const absenceValidation = require("../backend/src/modules/absence/absence.validation");
 const absenceTypeRepository = require("../backend/src/modules/absence/absenceType.repository");
+const absenceTypeService = require("../backend/src/modules/absence/absenceType.service");
 const absenceRequestRepository = require("../backend/src/modules/absence/absenceRequest.repository");
 const absenceSpecialWindowRepository = require("../backend/src/modules/absence/absenceSpecialWindow.repository");
 const employeeManagerRelationRepository = require("../backend/src/modules/absence/employeeManagerRelation.repository");
@@ -346,11 +347,68 @@ test("employee absence request routes are tenant-authenticated, permission-gated
   assert.match(routes, /requireAuth\("access"\)/);
   assert.match(routes, /tenant_context_mismatch/);
   assert.match(routes, /Idempotency-Key/);
+  assert.match(routes, /\/api\/calendar\/absence-types\/request-options/);
+  assert.match(routes, /absenceTypeService\.listRequestOptions/);
   assert.match(routes, /\/api\/calendar\/absence-requests\/mine/);
   assert.match(routes, /\/api\/calendar\/absence-requests\/:id\/submit/);
   assert.match(routes, /\/api\/calendar\/absence-requests\/:id\/cancel/);
+  assert.ok(routes.indexOf("/api/calendar/absence-types/request-options") < routes.indexOf("/api/calendar/absence-requests/:id"));
   assert.match(tenantSurfaceRoutes, /absenceRoutes/);
   assert.match(tenantSurfaceRoutes, /router\.use\(absenceRoutes\)/);
+});
+
+test("absence request type options are request-only, ordered and safe for UI", async () => {
+  const rows = [
+    {
+      id: uuid(3),
+      tenant_id: uuid(99),
+      key: "vacation",
+      name: "Ferie",
+      workflow_mode: "request",
+      comment_policy: "optional",
+      visibility_policy: "private",
+      allowed_duration_types: ["full_days"],
+      special_window_eligible: true,
+      sort_order: 10,
+      created_by_tenant_user_id: uuid(7),
+      updated_by_tenant_user_id: uuid(8),
+    },
+  ];
+  let listArgs = null;
+
+  await withPatches([
+    [absenceTypeRepository, "listActive", async (_client, args) => {
+      listArgs = args;
+      return rows;
+    }],
+  ], async () => {
+    const result = await absenceTypeService.listRequestOptions({ tenantId: uuid(1) });
+
+    assert.deepEqual(listArgs, { tenantId: uuid(1), workflowMode: "request" });
+    assert.deepEqual(result, {
+      items: [{
+        id: uuid(3),
+        key: "vacation",
+        name: "Ferie",
+        comment_policy: "optional",
+        allowed_duration_types: ["full_days"],
+        special_window_eligible: true,
+        sort_order: 10,
+      }],
+    });
+    assert.equal(Object.hasOwn(result.items[0], "tenant_id"), false);
+    assert.equal(Object.hasOwn(result.items[0], "visibility_policy"), false);
+    assert.equal(Object.hasOwn(result.items[0], "created_by_tenant_user_id"), false);
+    assert.equal(Object.hasOwn(result.items[0], "updated_by_tenant_user_id"), false);
+  });
+});
+
+test("absence request type options return a valid empty list", async () => {
+  await withPatches([
+    [absenceTypeRepository, "listActive", async () => []],
+  ], async () => {
+    assert.deepEqual(await absenceTypeService.listRequestOptions({ tenantId: uuid(1) }), { items: [] });
+  });
 });
 
 test("employee request service keeps mutations transactional and avoids private comments in audit metadata", () => {

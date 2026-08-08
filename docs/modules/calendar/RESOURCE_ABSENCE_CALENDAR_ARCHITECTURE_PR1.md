@@ -1070,6 +1070,7 @@ Status: implemented locally in PR3, pending review and commit. No new migration 
 verified: PR3 adds tenant-authenticated backend endpoints for the employee's own absence requests under the calendar namespace:
 
 - `GET /api/calendar/absence-requests/mine`
+- `GET /api/calendar/absence-types/request-options`
 - `POST /api/calendar/absence-requests`
 - `GET /api/calendar/absence-requests/:id`
 - `PATCH /api/calendar/absence-requests/:id`

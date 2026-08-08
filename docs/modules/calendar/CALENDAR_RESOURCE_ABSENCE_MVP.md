@@ -24,6 +24,7 @@ Implemented local direction:
 
 Implemented local direction:
 - Employee own request endpoints use `absence_request`/`absence_request_event`, not `resource_absences`.
+- `GET /api/calendar/absence-types/request-options` returns active `workflow_mode = 'request'` absence type options for the employee request UI.
 - Tenant and employee identity are server-derived from tenant host/auth; client-supplied tenant, employee, manager, status, actor, timestamps, and special-window fields are rejected.
 - Employees can list own requests, read own detail/history, create draft, update own draft, submit draft, and cancel own unreviewed request.
 - Supported PR3 durations are `full_days` and `time_range`; `partial_day` is rejected with `partial_day is not supported yet`.
@@ -36,6 +37,14 @@ Create retry behavior: when `Idempotency-Key` is supplied, create serializes by 
 Submit retry behavior: repeated submit of an already submitted draft with the original/resulting version returns the current submitted state without duplicate event/audit or version increment.
 
 Cancel retry behavior: repeated cancel of an already cancelled draft/submitted request returns current cancelled state without duplicate event/audit. PR3 does not allow employee cancel of ready-for-review, under-review, approved, rejected, or change-proposed requests.
+
+Request type options:
+- `GET /api/calendar/absence-types/request-options` requires tenant host, access token, tenant/auth context match, and `absence_request:create_own`.
+- The endpoint is read-only and is made specifically for the employee request UI.
+- It derives tenant and current user server-side and does not accept tenant, employee, manager, or user identifiers from the client.
+- It returns only UI-relevant fields: `id`, `key`, `name`, `comment_policy`, `allowed_duration_types`, `special_window_eligible`, and `sort_order`.
+- Backend create/update/submit validation remains authoritative; the UI options are convenience data, not permission or policy truth.
+
 Not part of this PR3 backend:
 - UI.
 - Leader approve/reject or change proposals.

@@ -192,6 +192,7 @@ test('absence repositories scope find and list queries by tenant', async () => {
   const client = createClient([]);
   await absenceTypeRepository.findById(client, { tenantId: uuid(1), absenceTypeId: uuid(2) });
   await absenceTypeRepository.listActive(client, { tenantId: uuid(1) });
+  await absenceTypeRepository.listActive(client, { tenantId: uuid(1), workflowMode: 'request' });
   await absenceRequestRepository.findById(client, { tenantId: uuid(1), absenceRequestId: uuid(3) });
   await absenceRequestRepository.listForEmployee(client, { tenantId: uuid(1), employeeTenantUserId: uuid(4) });
   await absenceSpecialWindowRepository.findById(client, { tenantId: uuid(1), specialWindowId: uuid(5) });
@@ -201,6 +202,9 @@ test('absence repositories scope find and list queries by tenant', async () => {
     assert.match(call.sql, /tenant_id = \$1/);
     assert.equal(call.params[0], uuid(1));
   }
+  assert.match(client.calls[2].sql, /workflow_mode = \$2::text/);
+  assert.deepEqual(client.calls[2].params, [uuid(1), 'request']);
+  assert.match(client.calls[2].sql, /ORDER BY sort_order ASC, name ASC, id ASC/);
 });
 
 test('request event history is returned chronologically', async () => {

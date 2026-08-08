@@ -31,7 +31,7 @@ async function findById(client, { tenantId, absenceTypeId }) {
   return rows[0] || null;
 }
 
-async function listActive(client, { tenantId }) {
+async function listActive(client, { tenantId, workflowMode = null }) {
   const { rows } = await client.query(
     `
       SELECT
@@ -48,9 +48,10 @@ async function listActive(client, { tenantId }) {
       FROM absence_type
       WHERE tenant_id = $1
         AND is_active = true
-      ORDER BY sort_order ASC, name ASC, key ASC
+        AND ($2::text IS NULL OR workflow_mode = $2::text)
+      ORDER BY sort_order ASC, name ASC, id ASC
     `,
-    [tenantId]
+    [tenantId, workflowMode]
   );
 
   return rows;
