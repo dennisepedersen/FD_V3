@@ -99,3 +99,34 @@ test('tenant lifecycle service protects deactivation and reactivation invariants
   assert.match(ui, /Gensend genaktiveringslink/);
   assert.match(ui, /Begrundelse er paakraevet/);
 });
+
+test('tenant absence UI uses request backend contracts instead of legacy hardcoded types', () => {
+  const html = read('backend/src/public/tenant/app.html');
+  const auth = read('backend/src/public/tenant/auth.js');
+  assert.match(html, /data-calendar-tab="requests"/);
+  assert.match(html, /id="absenceRequestTypeSelect"/);
+  assert.match(html, /id="absenceManagerPanel"/);
+  assert.match(html, /id="specialWindowsPanel"/);
+  const requestForm = html.slice(html.indexOf('id="absenceRequestForm"'), html.indexOf('id="absenceAgendaPanel"'));
+  assert.doesNotMatch(requestForm, /option value="vacation"|option value="sickness"|option value="course"/);
+  assert.match(auth, /\/api\/calendar\/absence-types\/request-options/);
+  assert.match(auth, /\/api\/calendar\/absence-requests\/mine/);
+  assert.match(auth, /\/api\/calendar\/absence-requests\/manager\/pending/);
+  assert.match(auth, /\/api\/calendar\/events\/mine/);
+  assert.match(auth, /\/api\/calendar\/events\/team/);
+  assert.match(auth, /\/api\/calendar\/special-windows/);
+  assert.match(auth, /"Idempotency-Key"/);
+  assert.match(auth, /getAbsenceDomainErrorMessage/);
+  assert.match(auth, /requestDraftSaving/);
+  assert.match(auth, /requestSubmitting/);
+  assert.match(auth, /setAbsenceRequestActionPending\(true\)/);
+  assert.match(auth, /setAbsenceRequestActionPending\(false\)/);
+  assert.match(auth, /managerDecisionSubmitting/);
+  assert.match(auth, /setManagerDecisionPending\(true\)/);
+  assert.match(auth, /dataset\.managerDecisionAction/);
+  assert.match(auth, /label\.setAttribute\("for", reasonId\)/);
+  assert.match(auth, /textarea\.maxLength = 500/);
+  assert.match(auth, /textarea\.setAttribute\("aria-describedby", counterId\)/);
+  assert.match(auth, /String\(textarea && textarea\.value \|\| ""\)\.length\} \/ 500/);
+  assert.doesNotMatch(auth, /outbox apply|sendRealMail|worksheet-sync|EK-sync/i);
+});

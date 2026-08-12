@@ -4,6 +4,7 @@ const { withTransaction } = require("../../db/tx");
 const { createHttpError } = require("../../middleware/errorHandler");
 const { hashPassword } = require("../../services/passwordService");
 const auditService = require("../../services/auditService");
+const employeeManagerRelationRepository = require("../absence/employeeManagerRelation.repository");
 const repository = require("./tenantAdmin.repository");
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -55,6 +56,14 @@ function normalizeRole(value, fallback = "technician") {
     throw createHttpError(400, "invalid_role");
   }
   return role;
+}
+
+function todayDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function isActiveLoginUser(user) {
+  return user && user.status === "active" && user.login_status === "active";
 }
 
 
@@ -115,7 +124,7 @@ async function audit(client, input) {
     actorId: input.actorId,
     actorType: "tenant_user",
     actorScope: "tenant",
-    moduleKey: "tenant_admin",
+    moduleKey: input.moduleKey || "tenant_admin",
     eventType: input.eventType,
     resourceType: input.resourceType,
     resourceId: input.resourceId || null,
@@ -238,6 +247,10 @@ async function updateManualUser(input) {
   }
 
   return withTransaction(async (client) => {
+    if (patch.role) {
+      await repository.acquireTenantLifecycleLock(client, { tenantId });
+    }
+
     const existing = await repository.findTenantUser(client, { tenantId, userId });
     if (!existing) {
       throw createHttpError(404, "tenant_user_not_found");
@@ -246,6 +259,13 @@ async function updateManualUser(input) {
       currentStatus: existing.status,
       requestedStatus: patch.status,
     });
+
+    if (patch.role && existing.role === "tenant_admin" && patch.role !== "tenant_admin" && isActiveLoginUser(existing)) {
+      const activeAdminCount = await repository.countActiveTenantAdmins(client, { tenantId });
+      if (activeAdminCount <= 1) {
+        throw createHttpError(409, "last_active_tenant_admin");
+      }
+    }
 
     const user = await repository.updateManualTenantUser(client, {
       tenantId,
@@ -257,6 +277,21 @@ async function updateManualUser(input) {
       userId,
       ...patch,
     });
+
+    if (patch.role && patch.role !== existing.role) {
+      await audit(client, {
+        tenantId,
+        actorId,
+        eventType: "role_changed",
+        resourceType: "tenant_user",
+        resourceId: userId,
+        metadata: {
+          target_user_id: userId,
+          old_role: existing.role,
+          new_role: patch.role,
+        },
+      });
+    }
 
     await audit(client, {
       tenantId,
@@ -270,6 +305,91 @@ async function updateManualUser(input) {
     });
 
     return { user };
+  });
+}
+
+async function setPrimaryManager(input) {
+  const tenantId = normalizeUuid(input?.tenantId, "tenant_id_required");
+  const actorId = normalizeUuid(input?.actorId, "actor_id_required");
+  const employeeUserId = normalizeUuid(input?.employeeUserId || input?.employee_user_id || input?.userId, "employee_tenant_user_id_required");
+  const managerUserId = normalizeUuid(input?.managerUserId || input?.manager_tenant_user_id || input?.manager_user_id, "manager_tenant_user_id_required");
+
+  if (employeeUserId === managerUserId) {
+    throw createHttpError(400, "employee_manager_relation_self_manager_not_allowed");
+  }
+
+  return withTransaction(async (client) => {
+    const employee = await repository.findTenantUser(client, { tenantId, userId: employeeUserId });
+    if (!employee) {
+      throw createHttpError(404, "employee_tenant_user_not_found");
+    }
+
+    const manager = await repository.findTenantUser(client, { tenantId, userId: managerUserId });
+    if (!manager) {
+      throw createHttpError(404, "manager_tenant_user_not_found");
+    }
+    if (!isActiveLoginUser(manager)) {
+      throw createHttpError(409, "manager_tenant_user_not_active_login");
+    }
+
+    const current = await employeeManagerRelationRepository.findCurrentPrimaryForEmployee(client, {
+      tenantId,
+      employeeTenantUserId: employeeUserId,
+      asOfDate: todayDate(),
+    });
+
+    if (current && String(current.manager_tenant_user_id) === managerUserId) {
+      return { employee, manager, relation: current, changed: false, ended: [] };
+    }
+
+    const ended = await employeeManagerRelationRepository.endActivePrimaryRelationsForEmployee(client, {
+      tenantId,
+      employeeTenantUserId: employeeUserId,
+      actorUserId: actorId,
+      validTo: todayDate(),
+    });
+
+    const relation = await employeeManagerRelationRepository.insertRelation(client, {
+      tenantId,
+      employeeTenantUserId: employeeUserId,
+      managerTenantUserId: managerUserId,
+      relationType: "primary",
+      validFrom: todayDate(),
+      validTo: null,
+      actorUserId: actorId,
+    });
+
+    for (const oldRelation of ended) {
+      await audit(client, {
+        tenantId,
+        actorId,
+        moduleKey: "employee_manager_relation",
+        eventType: "employee_manager_relation.ended",
+        resourceType: "employee_manager_relation",
+        resourceId: oldRelation.id,
+        metadata: {
+          employee_tenant_user_id: employeeUserId,
+          manager_tenant_user_id: oldRelation.manager_tenant_user_id,
+          relation_type: oldRelation.relation_type,
+        },
+      });
+    }
+
+    await audit(client, {
+      tenantId,
+      actorId,
+      moduleKey: "employee_manager_relation",
+      eventType: "employee_manager_relation.created",
+      resourceType: "employee_manager_relation",
+      resourceId: relation.id,
+      metadata: {
+        employee_tenant_user_id: employeeUserId,
+        manager_tenant_user_id: managerUserId,
+        relation_type: "primary",
+      },
+    });
+
+    return { employee, manager, relation, changed: true, ended };
   });
 }
 
@@ -599,6 +719,7 @@ module.exports = {
   listUsers,
   requestSync,
   removeProjectUserAssignment,
+  setPrimaryManager,
   updateManualUser,
   _test: {
     assertManualStatusPatchAllowed,

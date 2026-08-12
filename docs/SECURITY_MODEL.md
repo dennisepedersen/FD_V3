@@ -57,6 +57,7 @@ Current:
 - Project-owned data still requires explicit project scope unless a route has an explicit tenant-wide capability.
 - QA uses both module permission and project/thread scope. Granting `tenant_admin` or `project_leader` `qa:update` does not by itself broaden project scope.
 - Calendar / Resource Absence direct `resource_absences` API exposes full absence read/create only to `tenant_admin`; `project_leader` and `technician` are denied until masked visibility/resource-scope policy exists. PR3 absence-request API separately allows authenticated users to manage only their own `absence_request` rows through `absence_request:*_own` permissions. PR5 manager routes require explicit managed permissions and the concrete request must have `assigned_manager_tenant_user_id` equal to the current tenant user; tenant admin, project leader, resource group manager, and imported fitter identities are not automatic approvers.
+- Tenant admin user administration can update an existing `tenant_user.role` using the existing role set, and can manage the active primary `employee_manager_relation`. Fielddesk role and personnel manager relation are separate: `project_leader` is not automatically a personnel approver, and a `technician` can be a personnel manager only through an explicit tenant-scoped relation.
 
 Planned:
 - Central permission model with route policy: required scope, allowed roles, required entitlements/module permissions.

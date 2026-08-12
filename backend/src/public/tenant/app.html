@@ -1042,6 +1042,73 @@
       line-height: 1.45;
     }
 
+    .absenceWorkspaceTabs {
+      width: 100%;
+      flex-wrap: wrap;
+    }
+
+    .absenceWorkspacePanel,
+    .absenceDetailPanel,
+    .absenceEditorPanel,
+    .absenceSubsection,
+    .absenceInfoBox {
+      display: grid;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .absenceDetailPanel,
+    .absenceEditorPanel,
+    .absenceInfoBox,
+    .absenceSubsection {
+      padding: 12px;
+      border: 1px solid rgba(191, 212, 234, 0.14);
+      border-radius: 12px;
+      background: rgba(4, 10, 22, 0.22);
+    }
+
+    .absenceDurationGroup,
+    .absenceScopeBox {
+      border: 1px solid rgba(191, 212, 234, 0.14);
+      border-radius: 12px;
+      padding: 10px 11px;
+      background: rgba(4, 10, 22, 0.2);
+    }
+
+    .absenceDurationGroup legend,
+    .absenceScopeBox legend {
+      padding: 0 4px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .absenceInlineChoice {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-right: 14px;
+      color: var(--text);
+      font-size: 13px;
+    }
+
+    .absenceInlineChoice input {
+      width: 16px;
+      min-height: 16px;
+      accent-color: var(--accent);
+    }
+
+    .absenceReviewReason {
+      width: 100%;
+      min-height: 84px;
+      border: 1px solid rgba(191, 212, 234, 0.18);
+      border-radius: 12px;
+      padding: 9px 11px;
+      font: inherit;
+      background: rgba(4, 10, 22, 0.38);
+      color: var(--text);
+      resize: vertical;
+    }
+
     .metaRow,
     .projectLineTwo {
       display: flex;
@@ -3476,124 +3543,330 @@
           <section class="panel headerPanel">
             <div class="titleRow">
               <div>
-                <h1>Kalender</h1>
-                <p class="subtitle">Opgaver og fravær i samme overblik</p>
+                <h1>Fravaer / Planlaegning</h1>
+                <p class="subtitle">Anmodninger, lederbehandling og saerlige ferieonskeperioder.</p>
               </div>
               <a class="btn btnCompact" href="#dashboard" data-view-link="dashboard">Dashboard</a>
             </div>
           </section>
 
           <section class="panel calendarPanel">
-            <div class="calendarTabs" role="tablist" aria-label="Kalender">
+            <div class="calendarTabs absenceWorkspaceTabs" role="tablist" aria-label="Fravaer og planlaegning">
+              <button class="calendarTab active" type="button" role="tab" data-calendar-tab="requests" aria-selected="true">Mine anmodninger</button>
+              <button class="calendarTab" type="button" role="tab" data-calendar-tab="new-request" aria-selected="false">Anmod om fravaer</button>
+              <button class="calendarTab" type="button" role="tab" data-calendar-tab="agenda" aria-selected="false">Min kalender</button>
+              <button class="calendarTab" type="button" role="tab" data-calendar-tab="manager" aria-selected="false" data-absence-manager-tab hidden>Afventer behandling</button>
+              <button class="calendarTab" type="button" role="tab" data-calendar-tab="windows" aria-selected="false" data-special-window-tab hidden>Ferieonskeperioder</button>
+              <button class="calendarTab" type="button" role="tab" data-calendar-tab="absences" aria-selected="false" data-legacy-absence-tab hidden>Direkte fravaer</button>
               <button class="calendarTab" type="button" role="tab" data-calendar-tab="tasks" aria-selected="false">Opgaver</button>
-              <button class="calendarTab active" type="button" role="tab" data-calendar-tab="absences" aria-selected="true">Fravær</button>
             </div>
 
             <div id="calendarTasksPanel" data-calendar-panel="tasks" hidden>
               <p class="calendarMessage">Kommer senere.</p>
             </div>
 
-            <div id="calendarAbsencesPanel" data-calendar-panel="absences">
-              <p id="calendarAccessNotice" class="calendarAccessNotice" hidden>Du har ikke adgang til fraværsdata endnu.</p>
-            </div>
-          </section>
-
-          <section id="absenceOverviewSection" class="calendarOverviewGrid" aria-label="Hurtigt overblik">
-            <article class="statCard">
-              <p class="infoLabel">I dag</p>
-              <p id="absenceTodayCount" class="statValue">-</p>
-              <p id="absenceTodayHint" class="infoHint">Indlæser...</p>
-            </article>
-            <article class="statCard">
-              <p class="infoLabel">Resten af ugen</p>
-              <p id="absenceRestWeekCount" class="statValue">-</p>
-              <p id="absenceRestWeekHint" class="infoHint">Indlæser...</p>
-            </article>
-            <article class="statCard">
-              <p class="infoLabel">Næste uge</p>
-              <p id="absenceNextWeekCount" class="statValue">-</p>
-              <p id="absenceNextWeekHint" class="infoHint">Indlæser...</p>
-            </article>
-          </section>
-
-          <section id="absenceRangeSection" class="panel toolbar">
-            <label class="toolbarControl">
-              <span>Fra dato:</span>
-              <input id="absenceFromInput" class="sortSelect" type="date">
-            </label>
-            <label class="toolbarControl">
-              <span>Til dato:</span>
-              <input id="absenceToInput" class="sortSelect" type="date">
-            </label>
-            <button id="absenceRefreshBtn" class="btn btnCompact" type="button">Hent/opdater</button>
-            <div id="absenceRangeStatus" class="metaRow">Vælg periode.</div>
-          </section>
-
-          <section id="absenceListSection" class="panel calendarPanel">
-            <div class="sectionHeader">
-              <div>
-                <h2>Fraværsliste</h2>
-                <p id="absenceListMeta" class="subtitle">Indlæser fravær...</p>
+            <div id="absenceRequestsPanel" class="absenceWorkspacePanel" data-calendar-panel="requests">
+              <div class="sectionHeader">
+                <div>
+                  <h2>Mine anmodninger</h2>
+                  <p id="absenceRequestListMeta" class="subtitle">Indlaeser anmodninger...</p>
+                </div>
+                <button id="absenceRequestsRefreshBtn" class="btn btnCompact" type="button">Opdater</button>
               </div>
+              <div id="absenceRequestList" class="absenceList" aria-live="polite"></div>
+              <div id="absenceRequestDetail" class="absenceDetailPanel" aria-live="polite" hidden></div>
             </div>
-            <div id="absenceList" class="absenceList" aria-live="polite"></div>
-          </section>
 
-          <section id="absenceCreateSection" class="panel calendarPanel">
-            <div class="sectionHeader">
-              <div>
-                <h2>Opret fravær</h2>
-                <p class="subtitle">Gemmes som godkendt i PR3.</p>
+            <div id="absenceRequestFormPanel" class="absenceWorkspacePanel" data-calendar-panel="new-request" hidden>
+              <div class="sectionHeader">
+                <div>
+                  <h2>Anmod om fravaer</h2>
+                  <p id="absenceTypeOptionsStatus" class="subtitle">Indlaeser fravaerstyper...</p>
+                </div>
               </div>
+              <form id="absenceRequestForm" class="calendarFormGrid" novalidate>
+                <label class="calendarField calendarFieldWide">
+                  Fravaersaarsag
+                  <select id="absenceRequestTypeSelect" required></select>
+                </label>
+                <fieldset class="calendarField calendarFieldWide absenceDurationGroup">
+                  <legend>Varighed</legend>
+                  <label class="absenceInlineChoice"><input id="absenceDurationFullDays" name="absenceDurationType" type="radio" value="full_days"> Hele dage</label>
+                  <label class="absenceInlineChoice"><input id="absenceDurationTimeRange" name="absenceDurationType" type="radio" value="time_range"> Bestemt tidsrum</label>
+                </fieldset>
+                <div id="absenceFullDaysFields" class="calendarFormGrid calendarFieldWide">
+                  <label class="calendarField">
+                    Fra dato
+                    <input id="absenceRequestStartDateInput" type="date">
+                  </label>
+                  <label class="calendarField">
+                    Til dato
+                    <input id="absenceRequestEndDateInput" type="date">
+                  </label>
+                </div>
+                <div id="absenceTimeRangeFields" class="calendarFormGrid calendarFieldWide" hidden>
+                  <label class="calendarField">
+                    Dato
+                    <input id="absenceRequestTimeDateInput" type="date">
+                  </label>
+                  <label class="calendarField">
+                    Fra klokkeslaet
+                    <input id="absenceRequestStartTimeInput" type="time">
+                  </label>
+                  <label class="calendarField">
+                    Til klokkeslaet
+                    <input id="absenceRequestEndTimeInput" type="time">
+                  </label>
+                </div>
+                <label id="absenceCommentField" class="calendarField calendarFieldWide">
+                  Kommentar
+                  <textarea id="absenceRequestCommentInput" maxlength="250"></textarea>
+                  <span id="absenceCommentPolicyHint" class="calendarFormStatus">Valgfri kommentar</span>
+                  <span id="absenceCommentCounter" class="calendarFormStatus">0 / 250</span>
+                </label>
+                <p id="absenceRequestFormStatus" class="calendarFormStatus calendarFieldWide" role="status"></p>
+                <div id="absenceRequestSummary" class="absenceInfoBox calendarFieldWide" hidden></div>
+                <div class="calendarFormActions calendarFieldWide">
+                  <button id="absenceRequestContinueBtn" class="btn btnPrimary" type="submit">Fortsaet</button>
+                  <button id="absenceRequestBackBtn" class="btn btnCompact" type="button" hidden>Tilbage</button>
+                  <button id="absenceRequestSubmitBtn" class="btn btnPrimary" type="button" hidden>Send anmodning</button>
+                </div>
+              </form>
             </div>
-            <form id="absenceCreateForm" class="calendarFormGrid">
-              <label class="calendarField calendarFieldWide">
-                Medarbejder
-                <select id="absenceFitterSelect" required>
-                  <option value="">Vælg medarbejder</option>
-                </select>
-                <span id="absenceResourceStatus" class="calendarFormStatus">Indlæser medarbejdere...</span>
-              </label>
-              <label class="calendarField">
-                Fraværstype
-                <select id="absenceTypeSelect" required>
-                  <option value="vacation">Ferie</option>
-                  <option value="vacation_free">Feriefri</option>
-                  <option value="course">Kursus</option>
-                  <option value="sickness">Sygdom</option>
-                  <option value="other">Andet</option>
-                </select>
-              </label>
-              <label class="calendarField">
-                Synlighed
-                <select id="absenceVisibilitySelect">
-                  <option value="tenant_admin_only">Kun tenant admin</option>
-                  <option value="limited_availability">Begrænset tilgængelighed</option>
-                  <option value="manager_full">Leder fuld visning</option>
-                  <option value="finance_relevant">Økonomirelevant</option>
-                  <option value="custom">Custom</option>
-                </select>
-              </label>
-              <label class="calendarField">
-                Startdato
-                <input id="absenceStartDateInput" type="date" required>
-              </label>
-              <label class="calendarField">
-                Slutdato
-                <input id="absenceEndDateInput" type="date" required>
-              </label>
-              <label class="calendarField calendarFieldWide">
-                Note
-                <textarea id="absenceNoteInput" maxlength="1000"></textarea>
-              </label>
-              <div class="calendarFormActions calendarFieldWide">
-                <button id="absenceCreateBtn" class="btn btnPrimary" type="submit">Gem fravær</button>
-                <p id="absenceFormStatus" class="calendarFormStatus"></p>
+
+            <div id="absenceAgendaPanel" class="absenceWorkspacePanel" data-calendar-panel="agenda" hidden>
+              <div class="sectionHeader">
+                <div>
+                  <h2>Min kalender</h2>
+                  <p id="absenceAgendaMeta" class="subtitle">Indlaeser kalender...</p>
+                </div>
+                <button id="absenceAgendaRefreshBtn" class="btn btnCompact" type="button">Opdater</button>
               </div>
-            </form>
+              <div id="absenceAgendaList" class="absenceList" aria-live="polite"></div>
+            </div>
+
+            <div id="absenceManagerPanel" class="absenceWorkspacePanel" data-calendar-panel="manager" hidden>
+              <div class="sectionHeader">
+                <div>
+                  <h2>Afventer behandling</h2>
+                  <p id="absenceManagerListMeta" class="subtitle">Indlaeser anmodninger...</p>
+                </div>
+                <button id="absenceManagerRefreshBtn" class="btn btnCompact" type="button">Opdater</button>
+              </div>
+              <div id="absenceManagerList" class="absenceList" aria-live="polite"></div>
+              <div id="absenceManagerDetail" class="absenceDetailPanel" aria-live="polite" hidden></div>
+              <section id="absenceTeamAgendaSection" class="absenceSubsection" hidden>
+                <div class="sectionHeader">
+                  <div>
+                    <h3>Team-agenda</h3>
+                    <p id="absenceTeamAgendaMeta" class="subtitle">Indlaeser teamkalender...</p>
+                  </div>
+                </div>
+                <div id="absenceTeamAgendaList" class="absenceList" aria-live="polite"></div>
+              </section>
+            </div>
+
+            <div id="specialWindowsPanel" class="absenceWorkspacePanel" data-calendar-panel="windows" hidden>
+              <div class="sectionHeader">
+                <div>
+                  <h2>Saerlige ferieonskeperioder</h2>
+                  <p id="specialWindowListMeta" class="subtitle">Indlaeser perioder...</p>
+                </div>
+                <div class="resourceGroupActions">
+                  <button id="specialWindowRefreshBtn" class="btn btnCompact" type="button">Opdater</button>
+                  <button id="specialWindowNewBtn" class="btn btnPrimary" type="button">Opret ferieonskeperiode</button>
+                </div>
+              </div>
+              <div id="specialWindowList" class="absenceList" aria-live="polite"></div>
+              <section id="specialWindowEditor" class="absenceEditorPanel" hidden>
+                <div class="sectionHeader">
+                  <div>
+                    <h3 id="specialWindowEditorTitle">Opret ferieonskeperiode</h3>
+                    <p id="specialWindowEditorHint" class="subtitle">Perioden gaelder for medarbejdere, der matcher mindst et personscope, og for de valgte fravaerstyper.</p>
+                  </div>
+                </div>
+                <form id="specialWindowForm" class="resourceGroupFormGrid" novalidate>
+                  <label class="resourceGroupField">
+                    Navn
+                    <input id="specialWindowNameInput" maxlength="160" required>
+                  </label>
+                  <label class="resourceGroupField">
+                    Key
+                    <input id="specialWindowKeyInput" maxlength="64" required>
+                  </label>
+                  <label class="resourceGroupField resourceGroupFieldWide">
+                    Beskrivelse
+                    <textarea id="specialWindowDescriptionInput" maxlength="1000"></textarea>
+                  </label>
+                  <label class="resourceGroupField">
+                    Ferieperiode fra
+                    <input id="specialWindowAbsenceStartInput" type="date" required>
+                  </label>
+                  <label class="resourceGroupField">
+                    Ferieperiode til
+                    <input id="specialWindowAbsenceEndInput" type="date" required>
+                  </label>
+                  <label class="resourceGroupField">
+                    Aaben for oensker fra
+                    <input id="specialWindowOpenInput" type="date" required>
+                  </label>
+                  <label class="resourceGroupField">
+                    Deadline
+                    <input id="specialWindowDeadlineInput" type="date" required>
+                  </label>
+                  <label class="resourceGroupField">
+                    Behandling starter
+                    <input id="specialWindowReviewStartInput" type="date" required>
+                  </label>
+                  <label class="resourceGroupField">
+                    Sen indmelding
+                    <select id="specialWindowLatePolicySelect">
+                      <option value="blocked">Afvis efter fristen</option>
+                      <option value="manual_review">Tillad som sen indmelding</option>
+                      <option value="allowed">Tillad efter fristen</option>
+                    </select>
+                    <span id="specialWindowLatePolicyHint" class="resourceGroupFormStatus"></span>
+                  </label>
+                  <label class="resourceGroupCheckField resourceGroupFieldWide" for="specialWindowCollectiveInput">
+                    <input id="specialWindowCollectiveInput" type="checkbox" checked>
+                    <span>Oensker behandles samlet. Ingen foerst-til-moelle-logik.</span>
+                  </label>
+                  <label class="resourceGroupCheckField resourceGroupFieldWide" for="specialWindowBlockBeforeReviewInput">
+                    <input id="specialWindowBlockBeforeReviewInput" type="checkbox" checked>
+                    <span>Bloker godkendelse foer review-start.</span>
+                  </label>
+                  <label class="resourceGroupField resourceGroupFieldWide">
+                    Kvitteringstekst
+                    <textarea id="specialWindowReceiptTextInput" maxlength="2000"></textarea>
+                  </label>
+                  <fieldset class="resourceGroupField resourceGroupFieldWide absenceScopeBox">
+                    <legend>Personscope</legend>
+                    <label class="absenceInlineChoice"><input id="specialWindowTenantScopeInput" type="checkbox" checked> Hele virksomheden</label>
+                    <label class="resourceGroupField">
+                      Konkrete medarbejdere
+                      <select id="specialWindowUserScopeSelect" multiple size="6"></select>
+                    </label>
+                    <label class="resourceGroupField">
+                      Ressourcegrupper
+                      <select id="specialWindowGroupScopeSelect" multiple size="6"></select>
+                    </label>
+                    <span class="resourceGroupFormStatus">Personscopes kombineres med OR. Fravaerstype-scope anvendes derudover.</span>
+                  </fieldset>
+                  <label class="resourceGroupField resourceGroupFieldWide">
+                    Fravaerstype-scope
+                    <select id="specialWindowTypeScopeSelect" multiple size="5"></select>
+                    <span id="specialWindowTypeScopeHint" class="resourceGroupFormStatus">Ingen valgte typer betyder alle eligible typer.</span>
+                  </label>
+                  <p id="specialWindowFormStatus" class="resourceGroupFormStatus resourceGroupFieldWide" role="status"></p>
+                  <div class="fdModalActions resourceGroupFieldWide">
+                    <button id="specialWindowCancelEditBtn" class="btn btnCompact" type="button">Annuller</button>
+                    <button id="specialWindowSaveBtn" class="btn btnPrimary" type="submit">Gem periode</button>
+                  </div>
+                </form>
+              </section>
+              <section id="specialWindowReviewPanel" class="absenceDetailPanel" hidden></section>
+            </div>
+
+            <div id="calendarAbsencesPanel" data-calendar-panel="absences" hidden>
+              <p id="calendarAccessNotice" class="calendarAccessNotice" hidden>Du har ikke adgang til direkte fravaersdata endnu.</p>
+
+              <section id="absenceOverviewSection" class="calendarOverviewGrid" aria-label="Hurtigt overblik">
+                <article class="statCard">
+                  <p class="infoLabel">I dag</p>
+                  <p id="absenceTodayCount" class="statValue">-</p>
+                  <p id="absenceTodayHint" class="infoHint">Indlaeser...</p>
+                </article>
+                <article class="statCard">
+                  <p class="infoLabel">Resten af ugen</p>
+                  <p id="absenceRestWeekCount" class="statValue">-</p>
+                  <p id="absenceRestWeekHint" class="infoHint">Indlaeser...</p>
+                </article>
+                <article class="statCard">
+                  <p class="infoLabel">Naeste uge</p>
+                  <p id="absenceNextWeekCount" class="statValue">-</p>
+                  <p id="absenceNextWeekHint" class="infoHint">Indlaeser...</p>
+                </article>
+              </section>
+
+              <section id="absenceRangeSection" class="panel toolbar">
+                <label class="toolbarControl">
+                  <span>Fra dato:</span>
+                  <input id="absenceFromInput" class="sortSelect" type="date">
+                </label>
+                <label class="toolbarControl">
+                  <span>Til dato:</span>
+                  <input id="absenceToInput" class="sortSelect" type="date">
+                </label>
+                <button id="absenceRefreshBtn" class="btn btnCompact" type="button">Hent/opdater</button>
+                <div id="absenceRangeStatus" class="metaRow">Vaelg periode.</div>
+              </section>
+
+              <section id="absenceListSection" class="panel calendarPanel">
+                <div class="sectionHeader">
+                  <div>
+                    <h2>Direkte fravaersliste</h2>
+                    <p id="absenceListMeta" class="subtitle">Indlaeser fravaer...</p>
+                  </div>
+                </div>
+                <div id="absenceList" class="absenceList" aria-live="polite"></div>
+              </section>
+
+              <section id="absenceCreateSection" class="panel calendarPanel">
+                <div class="sectionHeader">
+                  <div>
+                    <h2>Opret direkte fravaer</h2>
+                    <p class="subtitle">Legacy tenant-admin flow. Brug ikke til medarbejderens anmodninger.</p>
+                  </div>
+                </div>
+                <form id="absenceCreateForm" class="calendarFormGrid">
+                  <label class="calendarField calendarFieldWide">
+                    Medarbejder
+                    <select id="absenceFitterSelect" required>
+                      <option value="">Vaelg medarbejder</option>
+                    </select>
+                    <span id="absenceResourceStatus" class="calendarFormStatus">Indlaeser medarbejdere...</span>
+                  </label>
+                  <label class="calendarField">
+                    Fravaerstype
+                    <select id="absenceTypeSelect" required>
+                      <option value="vacation">Ferie</option>
+                      <option value="vacation_free">Feriefri</option>
+                      <option value="course">Kursus</option>
+                      <option value="sickness">Sygdom</option>
+                      <option value="other">Andet</option>
+                    </select>
+                  </label>
+                  <label class="calendarField">
+                    Synlighed
+                    <select id="absenceVisibilitySelect">
+                      <option value="tenant_admin_only">Kun tenant admin</option>
+                      <option value="limited_availability">Begraenset tilgaengelighed</option>
+                      <option value="manager_full">Leder fuld visning</option>
+                      <option value="finance_relevant">Oekonomirelevant</option>
+                      <option value="custom">Custom</option>
+                    </select>
+                  </label>
+                  <label class="calendarField">
+                    Startdato
+                    <input id="absenceStartDateInput" type="date" required>
+                  </label>
+                  <label class="calendarField">
+                    Slutdato
+                    <input id="absenceEndDateInput" type="date" required>
+                  </label>
+                  <label class="calendarField calendarFieldWide">
+                    Note
+                    <textarea id="absenceNoteInput" maxlength="1000"></textarea>
+                  </label>
+                  <div class="calendarFormActions calendarFieldWide">
+                    <button id="absenceCreateBtn" class="btn btnPrimary" type="submit">Gem direkte fravaer</button>
+                    <p id="absenceFormStatus" class="calendarFormStatus"></p>
+                  </div>
+                </form>
+              </section>
+            </div>
           </section>
         </section>
-
         <section id="projectsView" class="view fdCaseView" data-view="projects" hidden>
           <div class="fdCaseSurface">
 

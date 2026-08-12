@@ -46,6 +46,22 @@ function requireTenantAdmin(req, action) {
   }
 }
 
+function requireEmployeeManagerRelationManage(req) {
+  try {
+    moduleAccessService.requireModuleAccess({
+      tenant: req.context.tenant,
+      auth: req.auth,
+      moduleKey: "employee_manager_relation",
+      action: "manage",
+    });
+  } catch (error) {
+    if (error && error.statusCode === 403) {
+      throw createHttpError(403, "employee_manager_relation_access_denied");
+    }
+    throw error;
+  }
+}
+
 function logRouteError(req, route, method, error) {
   console.error("[tenantAdmin.routes] request_failed", {
     route,
@@ -165,6 +181,24 @@ router.patch("/api/tenant/admin/users/:userId", requireTenantHost, requireAuth("
     res.status(200).json({ success: true, user: result.user });
   } catch (error) {
     logRouteError(req, "/api/tenant/admin/users/:userId", "PATCH", error);
+    next(error);
+  }
+});
+
+router.patch("/api/tenant/admin/users/:userId/primary-manager", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  try {
+    const { tenantId, userId: actorId } = getTenantContext(req);
+    requireTenantAdmin(req, "update");
+    requireEmployeeManagerRelationManage(req);
+    const result = await tenantAdminService.setPrimaryManager({
+      tenantId,
+      actorId,
+      employeeUserId: req.params.userId,
+      managerUserId: req.body?.manager_tenant_user_id || req.body?.manager_user_id || req.body?.tenant_user_id,
+    });
+    res.status(200).json({ success: true, employee: result.employee, manager: result.manager, relation: result.relation, changed: result.changed === true });
+  } catch (error) {
+    logRouteError(req, "/api/tenant/admin/users/:userId/primary-manager", "PATCH", error);
     next(error);
   }
 });

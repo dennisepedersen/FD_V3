@@ -17,6 +17,7 @@ const projectQueries = require('../backend/src/db/queries/project');
 const projectAccessService = require('../backend/src/services/projectAccessService');
 const tenantAdminRepository = require('../backend/src/modules/tenantAdmin/tenantAdmin.repository');
 const tenantAdminService = require('../backend/src/modules/tenantAdmin/tenantAdmin.service');
+const employeeManagerRelationRepository = require('../backend/src/modules/absence/employeeManagerRelation.repository');
 
 function uuid(n) {
   return `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -198,6 +199,230 @@ test('remove project assignment deletes direct access and writes audit', async (
   }
 });
 
+test('tenant admin can update existing user role and audit role change', async () => {
+  const tenantId = uuid(101);
+  const actorId = uuid(102);
+  const userId = uuid(103);
+  const poolMock = installPool();
+  const audits = [];
+  const original = {
+    audit: auditService.logAuditEvent,
+    lock: tenantAdminRepository.acquireTenantLifecycleLock,
+    findTenantUser: tenantAdminRepository.findTenantUser,
+    updateTenantUser: tenantAdminRepository.updateManualTenantUser,
+    updateFitter: tenantAdminRepository.updateManualFitterForTenantUser,
+  };
+
+  auditService.logAuditEvent = async (event) => audits.push(event);
+  tenantAdminRepository.acquireTenantLifecycleLock = async (_client, input) => assert.deepEqual(input, { tenantId });
+  tenantAdminRepository.findTenantUser = async (_client, input) => {
+    assert.deepEqual(input, { tenantId, userId });
+    return { id: userId, tenant_id: tenantId, email: 'tbt@example.test', name: 'TBT', role: 'project_leader', status: 'active', login_status: 'active' };
+  };
+  tenantAdminRepository.updateManualTenantUser = async (_client, input) => {
+    assert.equal(input.tenantId, tenantId);
+    assert.equal(input.userId, userId);
+    assert.equal(input.role, 'technician');
+    return { id: userId, tenant_id: tenantId, email: 'tbt@example.test', name: 'TBT', role: input.role, status: 'active', login_status: 'active' };
+  };
+  tenantAdminRepository.updateManualFitterForTenantUser = async (_client, input) => {
+    assert.equal(input.tenantId, tenantId);
+    assert.equal(input.userId, userId);
+    assert.equal(input.role, 'technician');
+    return null;
+  };
+
+  try {
+    const result = await tenantAdminService.updateManualUser({ tenantId, actorId, userId, role: 'technician' });
+    assert.equal(result.user.role, 'technician');
+    assert.equal(audits.length, 2);
+    assert.equal(audits[0].eventType, 'role_changed');
+    assert.equal(audits[0].resourceType, 'tenant_user');
+    assert.deepEqual(audits[0].metadata, { target_user_id: userId, old_role: 'project_leader', new_role: 'technician' });
+    assert.equal(audits[1].eventType, 'tenant_user_updated');
+    assert.deepEqual(audits[1].metadata.fields, ['role']);
+    assert.equal(poolMock.queries.some((query) => /^\s*BEGIN\s*$/i.test(query.sql)), true);
+  } finally {
+    auditService.logAuditEvent = original.audit;
+    tenantAdminRepository.acquireTenantLifecycleLock = original.lock;
+    tenantAdminRepository.findTenantUser = original.findTenantUser;
+    tenantAdminRepository.updateManualTenantUser = original.updateTenantUser;
+    tenantAdminRepository.updateManualFitterForTenantUser = original.updateFitter;
+    poolMock.restore();
+  }
+});
+
+test('role update blocks invalid roles and last active tenant admin downgrade', async () => {
+  const tenantId = uuid(111);
+  const actorId = uuid(112);
+  const userId = uuid(113);
+
+  await assert.rejects(
+    tenantAdminService.updateManualUser({ tenantId, actorId, userId, role: 'owner' }),
+    (error) => error.statusCode === 400 && error.message === 'invalid_role'
+  );
+
+  const poolMock = installPool();
+  const original = {
+    lock: tenantAdminRepository.acquireTenantLifecycleLock,
+    findTenantUser: tenantAdminRepository.findTenantUser,
+    countAdmins: tenantAdminRepository.countActiveTenantAdmins,
+    updateTenantUser: tenantAdminRepository.updateManualTenantUser,
+  };
+
+  tenantAdminRepository.acquireTenantLifecycleLock = async () => {};
+  tenantAdminRepository.findTenantUser = async () => ({ id: userId, tenant_id: tenantId, role: 'tenant_admin', status: 'active', login_status: 'active' });
+  tenantAdminRepository.countActiveTenantAdmins = async () => 1;
+  tenantAdminRepository.updateManualTenantUser = async () => { throw new Error('should_not_update_last_admin'); };
+
+  try {
+    await assert.rejects(
+      tenantAdminService.updateManualUser({ tenantId, actorId, userId, role: 'technician' }),
+      (error) => error.statusCode === 409 && error.message === 'last_active_tenant_admin'
+    );
+  } finally {
+    tenantAdminRepository.acquireTenantLifecycleLock = original.lock;
+    tenantAdminRepository.findTenantUser = original.findTenantUser;
+    tenantAdminRepository.countActiveTenantAdmins = original.countAdmins;
+    tenantAdminRepository.updateManualTenantUser = original.updateTenantUser;
+    poolMock.restore();
+  }
+});
+
+test('role update does not change primary manager relation', async () => {
+  const tenantId = uuid(121);
+  const actorId = uuid(122);
+  const userId = uuid(123);
+  const poolMock = installPool();
+  const original = {
+    audit: auditService.logAuditEvent,
+    lock: tenantAdminRepository.acquireTenantLifecycleLock,
+    findTenantUser: tenantAdminRepository.findTenantUser,
+    updateTenantUser: tenantAdminRepository.updateManualTenantUser,
+    updateFitter: tenantAdminRepository.updateManualFitterForTenantUser,
+    findCurrent: employeeManagerRelationRepository.findCurrentPrimaryForEmployee,
+    endPrimary: employeeManagerRelationRepository.endActivePrimaryRelationsForEmployee,
+    insertRelation: employeeManagerRelationRepository.insertRelation,
+  };
+
+  auditService.logAuditEvent = async () => {};
+  tenantAdminRepository.acquireTenantLifecycleLock = async () => {};
+  tenantAdminRepository.findTenantUser = async () => ({ id: userId, tenant_id: tenantId, role: 'technician', status: 'active', login_status: 'active' });
+  tenantAdminRepository.updateManualTenantUser = async () => ({ id: userId, tenant_id: tenantId, role: 'project_leader', status: 'active', login_status: 'active' });
+  tenantAdminRepository.updateManualFitterForTenantUser = async () => null;
+  employeeManagerRelationRepository.findCurrentPrimaryForEmployee = async () => { throw new Error('role_update_must_not_read_manager_relation'); };
+  employeeManagerRelationRepository.endActivePrimaryRelationsForEmployee = async () => { throw new Error('role_update_must_not_end_manager_relation'); };
+  employeeManagerRelationRepository.insertRelation = async () => { throw new Error('role_update_must_not_insert_manager_relation'); };
+
+  try {
+    const result = await tenantAdminService.updateManualUser({ tenantId, actorId, userId, role: 'project_leader' });
+    assert.equal(result.user.role, 'project_leader');
+  } finally {
+    auditService.logAuditEvent = original.audit;
+    tenantAdminRepository.acquireTenantLifecycleLock = original.lock;
+    tenantAdminRepository.findTenantUser = original.findTenantUser;
+    tenantAdminRepository.updateManualTenantUser = original.updateTenantUser;
+    tenantAdminRepository.updateManualFitterForTenantUser = original.updateFitter;
+    employeeManagerRelationRepository.findCurrentPrimaryForEmployee = original.findCurrent;
+    employeeManagerRelationRepository.endActivePrimaryRelationsForEmployee = original.endPrimary;
+    employeeManagerRelationRepository.insertRelation = original.insertRelation;
+    poolMock.restore();
+  }
+});
+
+test('tenant admin can set primary manager for technician employee without role coupling', async () => {
+  const tenantId = uuid(131);
+  const actorId = uuid(132);
+  const employeeId = uuid(133);
+  const managerId = uuid(134);
+  const relationId = uuid(135);
+  const poolMock = installPool();
+  const audits = [];
+  const original = {
+    audit: auditService.logAuditEvent,
+    findTenantUser: tenantAdminRepository.findTenantUser,
+    findCurrent: employeeManagerRelationRepository.findCurrentPrimaryForEmployee,
+    endPrimary: employeeManagerRelationRepository.endActivePrimaryRelationsForEmployee,
+    insertRelation: employeeManagerRelationRepository.insertRelation,
+  };
+
+  auditService.logAuditEvent = async (event) => audits.push(event);
+  tenantAdminRepository.findTenantUser = async (_client, input) => {
+    assert.equal(input.tenantId, tenantId);
+    if (input.userId === employeeId) return { id: employeeId, tenant_id: tenantId, role: 'technician', status: 'active', login_status: 'active', name: 'TBT' };
+    if (input.userId === managerId) return { id: managerId, tenant_id: tenantId, role: 'technician', status: 'active', login_status: 'active', name: 'DEP' };
+    return null;
+  };
+  employeeManagerRelationRepository.findCurrentPrimaryForEmployee = async (_client, input) => {
+    assert.equal(input.tenantId, tenantId);
+    assert.equal(input.employeeTenantUserId, employeeId);
+    assert.match(input.asOfDate, /^\d{4}-\d{2}-\d{2}$/);
+    return null;
+  };
+  employeeManagerRelationRepository.endActivePrimaryRelationsForEmployee = async (_client, input) => {
+    assert.equal(input.tenantId, tenantId);
+    assert.equal(input.employeeTenantUserId, employeeId);
+    assert.equal(input.actorUserId, actorId);
+    assert.match(input.validTo, /^\d{4}-\d{2}-\d{2}$/);
+    return [];
+  };
+  employeeManagerRelationRepository.insertRelation = async (_client, input) => {
+    assert.equal(input.tenantId, tenantId);
+    assert.equal(input.employeeTenantUserId, employeeId);
+    assert.equal(input.managerTenantUserId, managerId);
+    assert.equal(input.relationType, 'primary');
+    assert.equal(input.actorUserId, actorId);
+    return { id: relationId, tenant_id: tenantId, employee_tenant_user_id: employeeId, manager_tenant_user_id: managerId, relation_type: 'primary', valid_from: input.validFrom, valid_to: null, is_active: true };
+  };
+
+  try {
+    const result = await tenantAdminService.setPrimaryManager({ tenantId, actorId, employeeUserId: employeeId, managerUserId: managerId });
+    assert.equal(result.employee.role, 'technician');
+    assert.equal(result.manager.role, 'technician');
+    assert.equal(result.relation.id, relationId);
+    assert.equal(result.changed, true);
+    assert.equal(audits.length, 1);
+    assert.equal(audits[0].moduleKey, 'employee_manager_relation');
+    assert.equal(audits[0].eventType, 'employee_manager_relation.created');
+    assert.deepEqual(audits[0].metadata, { employee_tenant_user_id: employeeId, manager_tenant_user_id: managerId, relation_type: 'primary' });
+  } finally {
+    auditService.logAuditEvent = original.audit;
+    tenantAdminRepository.findTenantUser = original.findTenantUser;
+    employeeManagerRelationRepository.findCurrentPrimaryForEmployee = original.findCurrent;
+    employeeManagerRelationRepository.endActivePrimaryRelationsForEmployee = original.endPrimary;
+    employeeManagerRelationRepository.insertRelation = original.insertRelation;
+    poolMock.restore();
+  }
+});
+
+test('primary manager rejects self-manager and cross-tenant manager lookup', async () => {
+  const tenantId = uuid(141);
+  const actorId = uuid(142);
+  const employeeId = uuid(143);
+  const managerId = uuid(144);
+
+  await assert.rejects(
+    tenantAdminService.setPrimaryManager({ tenantId, actorId, employeeUserId: employeeId, managerUserId: employeeId }),
+    (error) => error.statusCode === 400 && error.message === 'employee_manager_relation_self_manager_not_allowed'
+  );
+
+  const poolMock = installPool();
+  const original = { findTenantUser: tenantAdminRepository.findTenantUser };
+  tenantAdminRepository.findTenantUser = async (_client, input) => {
+    if (input.userId === employeeId) return { id: employeeId, tenant_id: tenantId, role: 'technician', status: 'active', login_status: 'active' };
+    return null;
+  };
+
+  try {
+    await assert.rejects(
+      tenantAdminService.setPrimaryManager({ tenantId, actorId, employeeUserId: employeeId, managerUserId: managerId }),
+      (error) => error.statusCode === 404 && error.message === 'manager_tenant_user_not_found'
+    );
+  } finally {
+    tenantAdminRepository.findTenantUser = original.findTenantUser;
+    poolMock.restore();
+  }
+});
 test('tenant_admin module permissions deny project_leader and technician assignment writes', () => {
   const tenantId = uuid(41);
   const actorId = uuid(42);
@@ -209,10 +434,21 @@ test('tenant_admin module permissions deny project_leader and technician assignm
     moduleKey: 'tenant_admin',
     action: 'update',
   }));
+  assert.doesNotThrow(() => moduleAccessService.requireModuleAccess({
+    tenant,
+    auth: createAuth('tenant_admin', tenantId, actorId),
+    moduleKey: 'employee_manager_relation',
+    action: 'manage',
+  }));
   for (const role of ['project_leader', 'technician']) {
     assert.throws(
       () => moduleAccessService.requireModuleAccess({ tenant, auth: createAuth(role, tenantId, actorId), moduleKey: 'tenant_admin', action: 'update' }),
       (error) => error.statusCode === 403
+    );
+    assert.throws(
+      () => moduleAccessService.requireModuleAccess({ tenant, auth: createAuth(role, tenantId, actorId), moduleKey: 'employee_manager_relation', action: 'manage' }),
+      (error) => error.statusCode === 403,
+      'employee_manager_relation manage access must remain tenant-admin only by role'
     );
   }
 });
@@ -223,6 +459,11 @@ test('routes protect assignment mutations with tenant_admin update access', () =
   assert.match(routeSource, /router\.delete\("\/api\/tenant\/admin\/projects\/:projectId\/assignments\/:userId"[\s\S]+?requireTenantAdmin\(req, "update"\)/);
 });
 
+test('routes protect user role and primary manager changes', () => {
+  const routeSource = fs.readFileSync(path.join(__dirname, '../backend/src/modules/tenantAdmin/tenantAdmin.routes.js'), 'utf8');
+  assert.match(routeSource, /router\.patch\("\/api\/tenant\/admin\/users\/:userId"[\s\S]+?requireTenantAdmin\(req, "update"\)/);
+  assert.match(routeSource, /router\.patch\("\/api\/tenant\/admin\/users\/:userId\/primary-manager"[\s\S]+?requireTenantAdmin\(req, "update"\)[\s\S]+?requireEmployeeManagerRelationManage\(req\)/);
+});
 test('project list route forwards q to tenant admin service', () => {
   const routeSource = fs.readFileSync(path.join(__dirname, '../backend/src/modules/tenantAdmin/tenantAdmin.routes.js'), 'utf8');
   assert.match(routeSource, /router\.get\("\/api\/tenant\/admin\/projects"[\s\S]+?search: req\.query\?\.q/);
@@ -250,6 +491,25 @@ test('project repository searches project ref, name, responsible and team leader
   assert.match(queries[0].sql, /LIMIT 250/);
 });
 
+test('tenant admin users UI exposes role and primary manager controls separately', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../backend/src/public/tenant/auth.js'), 'utf8');
+
+  assert.match(source, /TENANT_ADMIN_ROLE_OPTIONS/);
+  assert.match(source, /Tekniker/);
+  assert.match(source, /Projektleder/);
+  assert.match(source, /Tenant-administrator/);
+  assert.match(source, /Rolle i Fielddesk/);
+  assert.match(source, /Personaleleder/);
+  assert.match(source, /roleUpdating: new Set\(\)/);
+  assert.match(source, /managerUpdating: new Set\(\)/);
+  assert.match(source, /updateTenantAdminUserRole/);
+  assert.match(source, /apiFetch\(`\/api\/tenant\/admin\/users\/\$\{encodeURIComponent\(userId\)\}`/);
+  assert.match(source, /updateTenantAdminUserPrimaryManager/);
+  assert.match(source, /\/primary-manager`/);
+  assert.match(source, /manager_tenant_user_id: normalizedManagerId/);
+  assert.match(source, /candidate\.tenant_user_id\) === employeeUserId/);
+  assert.match(source, /status === "active" && loginStatus === "active"/);
+});
 test('tenant admin project assignment UI has project search and no role selector', () => {
   const html = fs.readFileSync(path.join(__dirname, '../backend/src/public/tenant/app.html'), 'utf8');
   const section = html.slice(html.indexOf('tenantAdminProjectAssignmentsSection'), html.indexOf('resourceGroupToolbarSection'));
@@ -315,6 +575,15 @@ test('project owner, responsible and team leader access conditions remain alongs
   assert.match(source, /pa\.tenant_user_id = \$2/);
 });
 
+test('repository lists current primary manager tenant-scoped for tenant admin users', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../backend/src/modules/tenantAdmin/tenantAdmin.repository.js'), 'utf8');
+  assert.match(source, /current_primary_manager AS/);
+  assert.match(source, /FROM employee_manager_relation emr/);
+  assert.match(source, /manager\.tenant_id = emr\.tenant_id/);
+  assert.match(source, /cpm\.employee_tenant_user_id = tu\.id/);
+  assert.match(source, /primary_manager_tenant_user_id/);
+  assert.match(source, /primary_manager_login_status/);
+});
 test('repository writes manual project access through assignment sources', () => {
   const source = fs.readFileSync(path.join(__dirname, '../backend/src/modules/tenantAdmin/tenantAdmin.repository.js'), 'utf8');
   assert.match(source, /upsertAssignmentSource/);

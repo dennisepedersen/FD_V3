@@ -41,6 +41,30 @@ async function listUsers(client, { tenantId, search }) {
           AND purpose = 'account_setup'
         ORDER BY tenant_id, tenant_user_id, created_at DESC
       ),
+      current_primary_manager AS (
+        SELECT DISTINCT ON (emr.tenant_id, emr.employee_tenant_user_id)
+          emr.id,
+          emr.tenant_id,
+          emr.employee_tenant_user_id,
+          emr.manager_tenant_user_id,
+          manager.name AS manager_name,
+          manager.email AS manager_email,
+          manager.role AS manager_role,
+          manager.status AS manager_status,
+          manager.login_status AS manager_login_status,
+          emr.valid_from,
+          emr.updated_at
+        FROM employee_manager_relation emr
+        JOIN tenant_user manager
+          ON manager.tenant_id = emr.tenant_id
+         AND manager.id = emr.manager_tenant_user_id
+        WHERE emr.tenant_id = $1
+          AND emr.relation_type = 'primary'
+          AND emr.is_active = true
+          AND emr.valid_from <= CURRENT_DATE
+          AND (emr.valid_to IS NULL OR emr.valid_to >= CURRENT_DATE)
+        ORDER BY emr.tenant_id, emr.employee_tenant_user_id, emr.valid_from DESC, emr.created_at ASC
+      ),
       people AS (
         SELECT
           COALESCE(f.tenant_user_id::text, f.id::text) AS id,
@@ -77,6 +101,14 @@ async function listUsers(client, { tenantId, search }) {
           li.sent_at AS invitation_sent_at,
           li.send_error AS invitation_send_error,
           tu.role,
+          cpm.id AS primary_manager_relation_id,
+          cpm.manager_tenant_user_id AS primary_manager_tenant_user_id,
+          cpm.manager_name AS primary_manager_name,
+          cpm.manager_email AS primary_manager_email,
+          cpm.manager_role AS primary_manager_role,
+          cpm.manager_status AS primary_manager_status,
+          cpm.manager_login_status AS primary_manager_login_status,
+          cpm.valid_from AS primary_manager_valid_from,
           f.is_active_derived,
           f.is_plannable,
           f.end_date,
@@ -104,6 +136,9 @@ async function listUsers(client, { tenantId, search }) {
         LEFT JOIN latest_invitations li
           ON li.tenant_id = f.tenant_id
          AND li.tenant_user_id = tu.id
+        LEFT JOIN current_primary_manager cpm
+          ON cpm.tenant_id = f.tenant_id
+         AND cpm.employee_tenant_user_id = tu.id
         WHERE f.tenant_id = $1
 
         UNION ALL
@@ -134,6 +169,14 @@ async function listUsers(client, { tenantId, search }) {
           li.sent_at AS invitation_sent_at,
           li.send_error AS invitation_send_error,
           tu.role,
+          cpm.id AS primary_manager_relation_id,
+          cpm.manager_tenant_user_id AS primary_manager_tenant_user_id,
+          cpm.manager_name AS primary_manager_name,
+          cpm.manager_email AS primary_manager_email,
+          cpm.manager_role AS primary_manager_role,
+          cpm.manager_status AS primary_manager_status,
+          cpm.manager_login_status AS primary_manager_login_status,
+          cpm.valid_from AS primary_manager_valid_from,
           NULL::boolean AS is_active_derived,
           NULL::boolean AS is_plannable,
           NULL::timestamptz AS end_date,
@@ -153,6 +196,9 @@ async function listUsers(client, { tenantId, search }) {
         LEFT JOIN latest_invitations li
           ON li.tenant_id = tu.tenant_id
          AND li.tenant_user_id = tu.id
+        LEFT JOIN current_primary_manager cpm
+          ON cpm.tenant_id = tu.tenant_id
+         AND cpm.employee_tenant_user_id = tu.id
         WHERE tu.tenant_id = $1
           AND NOT EXISTS (
             SELECT 1

@@ -840,7 +840,7 @@
       projectLoadError: "",
       expandedProjectRefs: new Set(),
       calendar: {
-        activeTab: "absences",
+        activeTab: "requests",
         resourceScope: "mine",
         absences: [],
         from: "",
@@ -852,6 +852,40 @@
         resourcesLoaded: false,
         resourcesLoadedScope: "",
         resourcesLoading: false,
+        requestTypes: [],
+        requestTypesLoaded: false,
+        requestTypesLoading: false,
+        requestDraft: null,
+        requestDraftIdempotencyKey: "",
+        requestSubmitIdempotencyKey: "",
+        requestDraftSaving: false,
+        requestSubmitting: false,
+        mineRequests: [],
+        mineLoaded: false,
+        mineLoading: false,
+        activeRequestId: "",
+        managerRequests: [],
+        managerLoaded: false,
+        managerLoading: false,
+        managerDecisionSubmitting: false,
+        managerAccessDenied: true,
+        activeManagerRequestId: "",
+        agendaEvents: [],
+        agendaLoaded: false,
+        agendaLoading: false,
+        teamEvents: [],
+        teamAgendaLoaded: false,
+        teamAgendaLoading: false,
+        specialWindows: [],
+        specialWindowsLoaded: false,
+        specialWindowsLoading: false,
+        specialWindowAccessDenied: true,
+        activeSpecialWindowId: "",
+        specialWindowEditorMode: "create",
+        specialWindowEditVersion: null,
+        specialWindowDetail: null,
+        specialWindowReviewRequests: [],
+        specialWindowReviewLoaded: false,
       },
       tenantAdmin: {
         users: [],
@@ -861,6 +895,8 @@
         syncLoading: false,
         inviteSending: new Set(),
         reactivationSending: new Set(),
+        roleUpdating: new Set(),
+        managerUpdating: new Set(),
         deactivationSubmitting: false,
         deactivationTarget: null,
         userCreateSubmitting: false,
@@ -930,6 +966,11 @@
         endpoint: null,
       }),
     });
+    const TENANT_ADMIN_ROLE_OPTIONS = Object.freeze([
+      Object.freeze({ value: "technician", label: "Tekniker" }),
+      Object.freeze({ value: "project_leader", label: "Projektleder" }),
+      Object.freeze({ value: "tenant_admin", label: "Tenant-administrator" }),
+    ]);
 
     function setText(node, value) {
       if (node) {
@@ -1595,6 +1636,53 @@
       const groupLabel = groups.map((group) => group.external_id || group.short_code || group.name).filter(Boolean).slice(0, 2).join(", ");
       return groupLabel ? `${name} | ${code} | ${groupLabel}` : `${name} | ${code}`;
     }
+    function getTenantAdminRoleLabel(role) {
+      const normalized = String(role || "technician").trim().toLowerCase();
+      const option = TENANT_ADMIN_ROLE_OPTIONS.find((item) => item.value === normalized);
+      return option ? option.label : "Tekniker";
+    }
+
+    function getTenantAdminNameEmailLabel(user) {
+      if (!user) return "Ukendt medarbejder";
+      const name = user.name ? String(user.name) : "Ukendt medarbejder";
+      return user.email ? `${name} (${user.email})` : name;
+    }
+
+    function getTenantAdminManagerLabel(user) {
+      if (!user || !(user.primary_manager_name || user.primary_manager_email)) return "Ingen personaleleder";
+      const name = user.primary_manager_name || user.primary_manager_email;
+      const email = user.primary_manager_email && user.primary_manager_email !== name ? ` (${user.primary_manager_email})` : "";
+      return `${name}${email}`;
+    }
+
+    function getTenantAdminFieldId(prefix, user) {
+      const id = String(user && (user.tenant_user_id || user.fitter_row_id) ? (user.tenant_user_id || user.fitter_row_id) : "unknown");
+      return `${prefix}${id.replace(/[^a-zA-Z0-9_-]/g, "")}`;
+    }
+
+    function getTenantAdminManagerCandidates(employee) {
+      const employeeUserId = employee && employee.tenant_user_id ? String(employee.tenant_user_id) : "";
+      const users = Array.isArray(state.tenantAdmin.users) ? state.tenantAdmin.users : [];
+      return users.filter((candidate) => {
+        if (!candidate || !candidate.tenant_user_id) return false;
+        if (String(candidate.tenant_user_id) === employeeUserId) return false;
+        const status = String(candidate.status || "").toLowerCase();
+        const loginStatus = String(candidate.login_status || "").toLowerCase();
+        return status === "active" && loginStatus === "active";
+      }).sort((a, b) => getTenantAdminUserLabel(a).localeCompare(getTenantAdminUserLabel(b), "da"));
+    }
+
+    function getTenantAdminUserAdminErrorMessage(error, fallback) {
+      const message = getErrorMessage(error, fallback);
+      if (message === "invalid_role") return "Rollen er ikke gyldig.";
+      if (message === "last_active_tenant_admin") return "Den sidste aktive tenant-administrator kan ikke nedgraderes.";
+      if (message === "employee_manager_relation_self_manager_not_allowed") return "En medarbejder kan ikke være sin egen personaleleder.";
+      if (message === "manager_tenant_user_not_found") return "Den valgte personaleleder findes ikke i denne tenant.";
+      if (message === "manager_tenant_user_not_active_login") return "Personalelederen skal have en aktiv Fielddesk-loginbruger.";
+      if (message === "employee_manager_relation_access_denied") return "Du har ikke adgang til at ændre personaleleder.";
+      if (message === "tenant_admin_access_denied") return "Du har ikke adgang til at ændre brugeren.";
+      return message;
+    }
 
     function formatTenantAdminDate(value) {
       if (!value) return "-";
@@ -1757,6 +1845,7 @@
         loginMeta.className = "resourceGroupMeta";
         loginMeta.textContent = getTenantAdminLoginLine(user);
         card.append(header, meta, loginMeta);
+        renderTenantAdminUserAccessFields(card, user);
         if (user && (user.deactivated_reason || user.deactivated_at || user.reactivation_requested_at)) {
           const lifecycleMeta = document.createElement("p");
           lifecycleMeta.className = "resourceGroupMeta";
@@ -1816,6 +1905,87 @@
         card.appendChild(actions);
         tenantAdminUsersList.appendChild(card);
       });
+    }
+    function renderTenantAdminUserAccessFields(card, user) {
+      const tenantUserId = user && user.tenant_user_id ? String(user.tenant_user_id) : "";
+      if (!tenantUserId) {
+        const noLogin = document.createElement("p");
+        noLogin.className = "resourceGroupMeta";
+        noLogin.textContent = "Rolle i Fielddesk og personaleleder kan først ændres, når medarbejderen har en entydig Fielddesk-loginbruger.";
+        card.appendChild(noLogin);
+        return;
+      }
+
+      const fields = document.createElement("div");
+      fields.className = "resourceGroupFormGrid";
+
+      const roleField = document.createElement("label");
+      roleField.className = "resourceGroupField";
+      const roleSelectId = getTenantAdminFieldId("tenantAdminRoleSelect", user);
+      roleField.setAttribute("for", roleSelectId);
+      const roleLabel = document.createElement("span");
+      roleLabel.textContent = "Rolle i Fielddesk";
+      const roleSelect = document.createElement("select");
+      roleSelect.id = roleSelectId;
+      roleSelect.className = "sortSelect";
+      TENANT_ADMIN_ROLE_OPTIONS.forEach((option) => {
+        const node = document.createElement("option");
+        node.value = option.value;
+        node.textContent = option.label;
+        roleSelect.appendChild(node);
+      });
+      roleSelect.value = String(user.role || "technician").toLowerCase();
+      const rolePending = state.tenantAdmin.roleUpdating.has(tenantUserId);
+      roleSelect.disabled = rolePending;
+      roleSelect.setAttribute("aria-disabled", roleSelect.disabled ? "true" : "false");
+      roleSelect.addEventListener("change", () => updateTenantAdminUserRole(user, roleSelect.value));
+      roleField.append(roleLabel, roleSelect);
+      fields.appendChild(roleField);
+
+      const managerField = document.createElement("label");
+      managerField.className = "resourceGroupField";
+      const managerSelectId = getTenantAdminFieldId("tenantAdminPrimaryManagerSelect", user);
+      managerField.setAttribute("for", managerSelectId);
+      const managerLabel = document.createElement("span");
+      managerLabel.textContent = "Personaleleder";
+      const managerSelect = document.createElement("select");
+      managerSelect.id = managerSelectId;
+      managerSelect.className = "sortSelect";
+      const currentManagerId = user.primary_manager_tenant_user_id ? String(user.primary_manager_tenant_user_id) : "";
+      if (!currentManagerId) {
+        const empty = document.createElement("option");
+        empty.value = "";
+        empty.textContent = "Ingen personaleleder valgt";
+        managerSelect.appendChild(empty);
+      }
+      const managerCandidates = getTenantAdminManagerCandidates(user);
+      const hasCurrentCandidate = currentManagerId && managerCandidates.some((candidate) => String(candidate.tenant_user_id) === currentManagerId);
+      if (currentManagerId && !hasCurrentCandidate) {
+        const current = document.createElement("option");
+        current.value = currentManagerId;
+        current.textContent = `${getTenantAdminManagerLabel(user)} (ikke aktiv login)`;
+        current.disabled = true;
+        managerSelect.appendChild(current);
+      }
+      managerCandidates.forEach((candidate) => {
+        const node = document.createElement("option");
+        node.value = String(candidate.tenant_user_id);
+        node.textContent = `${getTenantAdminNameEmailLabel(candidate)} | ${getTenantAdminRoleLabel(candidate.role)}`;
+        managerSelect.appendChild(node);
+      });
+      managerSelect.value = currentManagerId || "";
+      const managerPending = state.tenantAdmin.managerUpdating.has(tenantUserId);
+      managerSelect.disabled = managerPending || (!managerCandidates.length && !currentManagerId);
+      managerSelect.setAttribute("aria-disabled", managerSelect.disabled ? "true" : "false");
+      managerSelect.addEventListener("change", () => updateTenantAdminUserPrimaryManager(user, managerSelect.value));
+      managerField.append(managerLabel, managerSelect);
+      fields.appendChild(managerField);
+
+      const managerMeta = document.createElement("p");
+      managerMeta.className = "resourceGroupMeta resourceGroupFieldWide";
+      managerMeta.textContent = `Nuværende personaleleder: ${getTenantAdminManagerLabel(user)}`;
+      fields.appendChild(managerMeta);
+      card.appendChild(fields);
     }
 
     function getTenantAdminProjectLabel(project) {
@@ -2179,6 +2349,62 @@
       } finally {
         state.tenantAdmin.reactivationSending.delete(userId);
         await loadTenantAdminUsers({ force: true });
+      }
+    }
+    async function updateTenantAdminUserRole(user, role) {
+      if (!user || !user.tenant_user_id) return;
+      const userId = String(user.tenant_user_id);
+      const normalizedRole = String(role || "technician").trim().toLowerCase();
+      const currentRole = String(user.role || "technician").trim().toLowerCase();
+      if (!normalizedRole || normalizedRole === currentRole || state.tenantAdmin.roleUpdating.has(userId)) return;
+      state.tenantAdmin.roleUpdating.add(userId);
+      renderTenantAdminUsers();
+      setText(tenantAdminUsersMeta, `Opdaterer rolle for ${user.name || user.email || "brugeren"}...`);
+      try {
+        await apiFetch(`/api/tenant/admin/users/${encodeURIComponent(userId)}`, {
+          method: "PATCH",
+          body: JSON.stringify({ role: normalizedRole }),
+        });
+        setText(tenantAdminUsersMeta, `Rolle opdateret til ${getTenantAdminRoleLabel(normalizedRole)}.`);
+        await loadTenantAdminUsers({ force: true });
+      } catch (error) {
+        if (handleResourceGroupForbidden(error, tenantAdminUsersMeta)) return;
+        if (handleAuthFailure(error)) return;
+        setText(tenantAdminUsersMeta, `Kunne ikke ændre rolle: ${getTenantAdminUserAdminErrorMessage(error, "request_failed")}`);
+      } finally {
+        state.tenantAdmin.roleUpdating.delete(userId);
+        renderTenantAdminUsers();
+      }
+    }
+
+    async function updateTenantAdminUserPrimaryManager(user, managerUserId) {
+      if (!user || !user.tenant_user_id) return;
+      const userId = String(user.tenant_user_id);
+      const normalizedManagerId = String(managerUserId || "").trim();
+      const currentManagerId = user.primary_manager_tenant_user_id ? String(user.primary_manager_tenant_user_id) : "";
+      if (!normalizedManagerId) {
+        setText(tenantAdminUsersMeta, "Vælg en aktiv Fielddesk-loginbruger som personaleleder.");
+        renderTenantAdminUsers();
+        return;
+      }
+      if (normalizedManagerId === currentManagerId || state.tenantAdmin.managerUpdating.has(userId)) return;
+      state.tenantAdmin.managerUpdating.add(userId);
+      renderTenantAdminUsers();
+      setText(tenantAdminUsersMeta, `Opdaterer personaleleder for ${user.name || user.email || "brugeren"}...`);
+      try {
+        await apiFetch(`/api/tenant/admin/users/${encodeURIComponent(userId)}/primary-manager`, {
+          method: "PATCH",
+          body: JSON.stringify({ manager_tenant_user_id: normalizedManagerId }),
+        });
+        setText(tenantAdminUsersMeta, "Personaleleder er opdateret.");
+        await loadTenantAdminUsers({ force: true });
+      } catch (error) {
+        if (handleResourceGroupForbidden(error, tenantAdminUsersMeta)) return;
+        if (handleAuthFailure(error)) return;
+        setText(tenantAdminUsersMeta, `Kunne ikke ændre personaleleder: ${getTenantAdminUserAdminErrorMessage(error, "request_failed")}`);
+      } finally {
+        state.tenantAdmin.managerUpdating.delete(userId);
+        renderTenantAdminUsers();
       }
     }
 
@@ -2892,13 +3118,999 @@
       });
     }
 
+    function byId(id) {
+      return document.getElementById(id);
+    }
+
+    function createClientActionKey(prefix) {
+      const safePrefix = String(prefix || "action").replace(/[^a-z0-9_-]/gi, "").slice(0, 32) || "action";
+      if (window.crypto && typeof window.crypto.randomUUID === "function") return `${safePrefix}-${window.crypto.randomUUID()}`;
+      return `${safePrefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    }
+
+    function appendText(parent, tag, className, text) {
+      const node = document.createElement(tag || "p");
+      if (className) node.className = className;
+      node.textContent = text || "";
+      parent.appendChild(node);
+      return node;
+    }
+
+    function appendButton(parent, label, className, onClick) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = className || "btn btnCompact";
+      button.textContent = label;
+      if (onClick) button.addEventListener("click", onClick);
+      parent.appendChild(button);
+      return button;
+    }
+
+    function formatDisplayDate(value) { return formatShortDate(value); }
+    function formatDateRange(start, end) {
+      const left = formatDisplayDate(start);
+      const right = formatDisplayDate(end || start);
+      return left === right ? left : `${left} til ${right}`;
+    }
+    function formatTime(value) { return String(value || "").trim().slice(0, 5); }
+    function dateInputFromValue(value) { return String(value || "").slice(0, 10); }
+    function formatRequestPeriod(request) {
+      if (!request) return "-";
+      if (String(request.duration_type || "") === "time_range") return `${formatDisplayDate(request.start_date)} ${formatTime(request.start_time)}-${formatTime(request.end_time)}`;
+      return formatDateRange(request.start_date, request.end_date);
+    }
+    function formatSubmitted(value) {
+      if (!value) return "Ikke sendt";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return String(value);
+      try { return new Intl.DateTimeFormat("da-DK", { dateStyle: "short", timeStyle: "short" }).format(date); }
+      catch (_error) { return date.toISOString().slice(0, 16).replace("T", " "); }
+    }
+
+    function getRequestTypeName(type) {
+      return String(type && type.name ? type.name : type && type.key ? type.key : "Fravaer");
+    }
+    function getRequestTypeById(id) {
+      const value = String(id || "");
+      return (state.calendar.requestTypes || []).find((type) => String(type && type.id) === value) || null;
+    }
+    function requestCardTitle(request) {
+      return String(request && request.absence_type && request.absence_type.name ? request.absence_type.name : request && request.absence_type_name ? request.absence_type_name : "Fravaer");
+    }
+
+    function renderRequestEvents(parent, events) {
+      const items = Array.isArray(events) ? events : [];
+      if (!parent || items.length === 0) return;
+      const section = document.createElement("section");
+      section.className = "absenceInfoBox";
+      appendText(section, "p", "absenceName", "Historik");
+      items.forEach((item) => {
+        const status = item.new_status ? ` - ${getRequestStatusLabel(item.new_status, null)}` : "";
+        const reason = item.reason ? ` (${item.reason})` : "";
+        appendText(section, "p", "absenceMeta", `${String(item.event_type || "Haendelse")}${status} - ${formatSubmitted(item.created_at)}${reason}`);
+      });
+      parent.appendChild(section);
+    }
+    function getRequestStatusLabel(status, request) {
+      const normalized = String(status || "").toLowerCase();
+      if (normalized === "submitted" && request && request.special_window) return "Afventer faelles behandling";
+      const labels = { draft: "Kladde", submitted: "Modtaget", ready_for_review: "Klar til behandling", under_review: "Under behandling", approved: "Godkendt", rejected: "Afvist", cancelled: "Annulleret", change_proposed: "Aendringsforslag" };
+      return labels[normalized] || String(status || "Ukendt");
+    }
+    function getSpecialWindowStatusLabel(status) {
+      const labels = { draft: "Kladde", scheduled: "Planlagt", open: "Aaben", closed_waiting_review: "Lukket - afventer behandling", review_open: "Behandling aaben", ended: "Afsluttet", archived: "Arkiveret" };
+      return labels[String(status || "").toLowerCase()] || String(status || "Ukendt");
+    }
+    function getLatePolicyLabel(value) {
+      const labels = { blocked: "Blokeret efter frist", manual_review: "Sen indmelding til manuel vurdering", allowed: "Tilladt efter frist" };
+      return labels[String(value || "")] || "Ukendt politik";
+    }
+    function getLatePolicyHint(value) {
+      if (value === "blocked") return "Efter deadline kan medarbejdere ikke sende nye oensker.";
+      if (value === "manual_review") return "Efter deadline markeres oensker som sene og kraever vurdering.";
+      if (value === "allowed") return "Efter deadline kan oensker stadig sendes, men markeres ikke som foerst-til-moelle.";
+      return "";
+    }
+    function getAbsenceDomainErrorMessage(error) {
+      const code = error && error.code ? String(error.code) : "";
+      const details = error && error.details ? error.details : {};
+      if (code === "absence_special_window_not_open") return details.special_window_submission_open ? `Der kan soeges ferie i denne periode fra ${formatDisplayDate(details.special_window_submission_open)}.` : "Der er ikke aabent for oensker i denne periode endnu.";
+      if (code === "absence_special_window_deadline_passed") return "Deadline for denne ferieonskeperiode er passeret.";
+      if (code === "absence_special_window_partial_overlap") return "Oensket overlapper kun delvist med en ferieonskeperiode og kan derfor ikke sendes.";
+      if (code === "absence_special_window_multiple_matches" || code === "absence_special_window_scope_unclear" || code === "absence_special_window_conflict") return "Oensket matcher flere ferieonskeperioder. Kontakt administrator.";
+      if (code === "absence_manager_not_found" || code === "absence_primary_manager_not_found" || code === "absence_manager_relation_not_found") return "Der mangler en entydig lederrelation for medarbejderen.";
+      if (code === "absence_manager_ambiguous" || code === "absence_primary_manager_ambiguous") return "Der er mere end en mulig leder. Kontakt administrator.";
+      if (code === "absence_special_window_approve_blocked_before_review") return "Anmodningen kan behandles fra review-start.";
+      if (code === "special_window_has_requests_protected_fields") return "Perioden har anmodninger. Datoer, scope og deadline-politik kan ikke aendres nu.";
+      if (code === "absence_type_inactive" || code === "absence_type_not_found") return "Fravaerstypen kan ikke bruges til nye anmodninger.";
+      if (code === "version_conflict") return "Data er aendret af en anden handling. Opdater og proev igen.";
+      if (code === "calendar_event_access_denied" || code === "absence_special_window_access_denied" || code === "absence_request_access_denied") return "Du har ikke adgang til denne visning.";
+      return getErrorMessage(error, "Der opstod en fejl. Proev igen.");
+    }
+
+    function setCalendarTabVisibility(selector, visible) {
+      document.querySelectorAll(selector).forEach((node) => { node.hidden = !visible; });
+    }
+    function renderOptionalCalendarTabs() {
+      setCalendarTabVisibility("[data-absence-manager-tab]", !state.calendar.managerAccessDenied);
+      setCalendarTabVisibility("[data-special-window-tab]", !state.calendar.specialWindowAccessDenied);
+      setCalendarTabVisibility("[data-legacy-absence-tab]", isTenantAdmin(state.me));
+    }
+    function setAbsenceRequestActionPending(pending) {
+      const disabled = Boolean(pending);
+      ["absenceRequestContinueBtn", "absenceRequestSubmitBtn", "absenceRequestBackBtn"].forEach((id) => {
+        const button = byId(id);
+        if (button) button.disabled = disabled;
+      });
+    }
+    function setManagerDecisionPending(pending) {
+      state.calendar.managerDecisionSubmitting = Boolean(pending);
+      document.querySelectorAll("[data-manager-decision-action]").forEach((button) => {
+        button.disabled = state.calendar.managerDecisionSubmitting;
+      });
+    }
+    function updateRejectReasonCounter(textarea, counter) {
+      if (counter) counter.textContent = `${String(textarea && textarea.value || "").length} / 500`;
+    }
+    function resetAbsenceRequestForm() {
+      state.calendar.requestDraft = null;
+      state.calendar.requestDraftIdempotencyKey = "";
+      state.calendar.requestSubmitIdempotencyKey = "";
+      state.calendar.requestDraftSaving = false;
+      state.calendar.requestSubmitting = false;
+      setAbsenceRequestActionPending(false);
+      if (byId("absenceRequestForm")) byId("absenceRequestForm").reset();
+      if (byId("absenceRequestStartDateInput")) byId("absenceRequestStartDateInput").value = state.calendar.from;
+      if (byId("absenceRequestEndDateInput")) byId("absenceRequestEndDateInput").value = state.calendar.from;
+      if (byId("absenceRequestTimeDateInput")) byId("absenceRequestTimeDateInput").value = state.calendar.from;
+      setAbsenceRequestReviewMode(false);
+      updateAbsenceDurationOptions();
+      updateAbsenceCommentPolicy();
+      setText(byId("absenceRequestFormStatus"), "");
+    }
+
+    function renderAbsenceRequestTypeOptions() {
+      const select = byId("absenceRequestTypeSelect");
+      if (!select) return;
+      const previous = select.value;
+      select.replaceChildren();
+      const types = Array.isArray(state.calendar.requestTypes) ? state.calendar.requestTypes : [];
+      types.forEach((type) => {
+        const option = document.createElement("option");
+        option.value = String(type.id || "");
+        option.textContent = getRequestTypeName(type);
+        select.appendChild(option);
+      });
+      if (previous && types.some((type) => String(type.id) === previous)) select.value = previous;
+      select.disabled = state.calendar.requestTypesLoading || types.length === 0;
+      if (state.calendar.requestTypesLoading) setText(byId("absenceTypeOptionsStatus"), "Indlaeser fravaerstyper...");
+      else if (types.length === 0 && state.calendar.requestTypesLoaded) setText(byId("absenceTypeOptionsStatus"), "Der er ingen fravaerstyper tilgaengelige. Kontakt din administrator.");
+      else setText(byId("absenceTypeOptionsStatus"), types.length === 1 ? "1 fravaerstype tilgaengelig." : `${types.length} fravaerstyper tilgaengelige.`);
+      updateAbsenceDurationOptions();
+      updateAbsenceCommentPolicy();
+    }
+
+    async function loadAbsenceRequestTypes(options) {
+      if (!(options && options.force) && state.calendar.requestTypesLoaded) {
+        renderAbsenceRequestTypeOptions();
+        return;
+      }
+      state.calendar.requestTypesLoading = true;
+      renderAbsenceRequestTypeOptions();
+      try {
+        const response = await apiFetch("/api/calendar/absence-types/request-options", { method: "GET" });
+        const items = response && Array.isArray(response.absence_types) ? response.absence_types : response && Array.isArray(response.types) ? response.types : [];
+        state.calendar.requestTypes = items.filter((type) => Array.isArray(type.allowed_duration_types) && type.allowed_duration_types.some((item) => item === "full_days" || item === "time_range"));
+        state.calendar.requestTypesLoaded = true;
+      } catch (error) {
+        if (error && error.status === 403) {
+          state.calendar.requestTypes = [];
+          state.calendar.requestTypesLoaded = true;
+          setText(byId("absenceTypeOptionsStatus"), "Du har ikke adgang til at oprette fravaersanmodninger.");
+          return;
+        }
+        if (handleAuthFailure(error)) return;
+        setText(byId("absenceTypeOptionsStatus"), `Kunne ikke hente fravaerstyper: ${getAbsenceDomainErrorMessage(error)}`);
+      } finally {
+        state.calendar.requestTypesLoading = false;
+        renderAbsenceRequestTypeOptions();
+      }
+    }
+
+    function getSelectedRequestType() {
+      return getRequestTypeById(byId("absenceRequestTypeSelect") ? byId("absenceRequestTypeSelect").value : "");
+    }
+
+    function updateAbsenceDurationOptions() {
+      const type = getSelectedRequestType();
+      const allowed = new Set(Array.isArray(type && type.allowed_duration_types) ? type.allowed_duration_types : []);
+      const full = byId("absenceDurationFullDays");
+      const time = byId("absenceDurationTimeRange");
+      if (full) {
+        full.disabled = !allowed.has("full_days");
+        if (full.closest("label")) full.closest("label").hidden = !allowed.has("full_days");
+      }
+      if (time) {
+        time.disabled = !allowed.has("time_range");
+        if (time.closest("label")) time.closest("label").hidden = !allowed.has("time_range");
+      }
+      const checked = document.querySelector("input[name='absenceDurationType']:checked");
+      if (full && allowed.has("full_days") && (!checked || checked.disabled)) full.checked = true;
+      else if (time && allowed.has("time_range") && (!checked || checked.disabled)) time.checked = true;
+      const selected = document.querySelector("input[name='absenceDurationType']:checked");
+      const duration = selected ? selected.value : "";
+      if (byId("absenceFullDaysFields")) byId("absenceFullDaysFields").hidden = duration !== "full_days";
+      if (byId("absenceTimeRangeFields")) byId("absenceTimeRangeFields").hidden = duration !== "time_range";
+      if (byId("absenceRequestContinueBtn")) byId("absenceRequestContinueBtn").disabled = !type || (!allowed.has("full_days") && !allowed.has("time_range"));
+    }
+
+    function updateAbsenceCommentPolicy() {
+      const type = getSelectedRequestType();
+      const policy = String(type && type.comment_policy ? type.comment_policy : "optional");
+      const input = byId("absenceRequestCommentInput");
+      const field = byId("absenceCommentField");
+      if (field) field.hidden = policy === "disabled";
+      if (input) {
+        input.disabled = policy === "disabled";
+        input.required = policy === "required";
+        if (policy === "disabled") input.value = "";
+      }
+      if (policy === "required") setText(byId("absenceCommentPolicyHint"), "Kommentar er paakraevet for denne type.");
+      else if (policy === "disabled") setText(byId("absenceCommentPolicyHint"), "Kommentar bruges ikke for denne type.");
+      else setText(byId("absenceCommentPolicyHint"), "Valgfri kommentar.");
+      setText(byId("absenceCommentCounter"), `${policy === "disabled" || !input ? 0 : String(input.value || "").length} / 250`);
+    }
+
+    function validateAbsenceRequestForm() {
+      const type = getSelectedRequestType();
+      if (!type) return { error: "Vaelg fravaersaarsag." };
+      const durationNode = document.querySelector("input[name='absenceDurationType']:checked");
+      const durationType = durationNode ? durationNode.value : "";
+      const allowed = new Set(Array.isArray(type.allowed_duration_types) ? type.allowed_duration_types : []);
+      if (!allowed.has(durationType)) return { error: "Vaelg en gyldig varighed." };
+      const payload = { absence_type_id: type.id, duration_type: durationType };
+      if (durationType === "full_days") {
+        const startDate = String(byId("absenceRequestStartDateInput") && byId("absenceRequestStartDateInput").value || "").trim();
+        const endDate = String(byId("absenceRequestEndDateInput") && byId("absenceRequestEndDateInput").value || "").trim();
+        const start = parseDateInput(startDate);
+        const end = parseDateInput(endDate);
+        if (!start || !end) return { error: "Vaelg fra- og til-dato." };
+        if (end < start) return { error: "Til dato maa ikke vaere foer fra dato." };
+        payload.start_date = startDate;
+        payload.end_date = endDate;
+      } else if (durationType === "time_range") {
+        const date = String(byId("absenceRequestTimeDateInput") && byId("absenceRequestTimeDateInput").value || "").trim();
+        const startTime = String(byId("absenceRequestStartTimeInput") && byId("absenceRequestStartTimeInput").value || "").trim();
+        const endTime = String(byId("absenceRequestEndTimeInput") && byId("absenceRequestEndTimeInput").value || "").trim();
+        if (!parseDateInput(date)) return { error: "Vaelg dato." };
+        if (!/^\d{2}:\d{2}$/.test(startTime) || !/^\d{2}:\d{2}$/.test(endTime)) return { error: "Vaelg fra- og til-klokkeslaet." };
+        if (endTime <= startTime) return { error: "Til klokkeslaet skal vaere efter fra klokkeslaet." };
+        payload.start_date = date;
+        payload.start_time = startTime;
+        payload.end_time = endTime;
+      }
+      const policy = String(type.comment_policy || "optional");
+      const comment = String(byId("absenceRequestCommentInput") && byId("absenceRequestCommentInput").value || "").trim();
+      if (policy === "required" && !comment) return { error: "Kommentar er paakraevet." };
+      if (comment.length > 250) return { error: "Kommentar maa hoejst vaere 250 tegn." };
+      if (policy !== "disabled" && comment) payload.employee_comment = comment;
+      return { payload, type };
+    }
+
+    function renderAbsenceRequestSummary(payload, type) {
+      const box = byId("absenceRequestSummary");
+      if (!box) return;
+      box.replaceChildren();
+      appendText(box, "p", "absenceName", "Gennemse anmodningen");
+      appendText(box, "p", "absenceMeta", `${getRequestTypeName(type)} - ${payload.duration_type === "time_range" ? `${formatDisplayDate(payload.start_date)} ${payload.start_time}-${payload.end_time}` : formatDateRange(payload.start_date, payload.end_date)}`);
+      if (payload.employee_comment) appendText(box, "p", "absenceNote", payload.employee_comment);
+      box.hidden = false;
+    }
+
+    function setAbsenceRequestReviewMode(enabled) {
+      const summary = byId("absenceRequestSummary");
+      if (summary) summary.hidden = !enabled;
+      if (byId("absenceRequestContinueBtn")) byId("absenceRequestContinueBtn").hidden = enabled;
+      if (byId("absenceRequestBackBtn")) byId("absenceRequestBackBtn").hidden = !enabled;
+      if (byId("absenceRequestSubmitBtn")) byId("absenceRequestSubmitBtn").hidden = !enabled;
+      ["absenceRequestTypeSelect", "absenceDurationFullDays", "absenceDurationTimeRange", "absenceRequestStartDateInput", "absenceRequestEndDateInput", "absenceRequestTimeDateInput", "absenceRequestStartTimeInput", "absenceRequestEndTimeInput", "absenceRequestCommentInput"].forEach((id) => {
+        const node = byId(id);
+        if (node) node.disabled = Boolean(enabled);
+      });
+      if (!enabled) renderAbsenceRequestTypeOptions();
+    }
+
+    async function saveAbsenceRequestDraft(event) {
+      if (event) event.preventDefault();
+      if (state.calendar.requestDraftSaving || state.calendar.requestSubmitting) return;
+      const result = validateAbsenceRequestForm();
+      if (result.error) {
+        setText(byId("absenceRequestFormStatus"), result.error);
+        return;
+      }
+      const existing = state.calendar.requestDraft;
+      setText(byId("absenceRequestFormStatus"), existing ? "Opdaterer kladde..." : "Gemmer kladde...");
+      try {
+        state.calendar.requestDraftSaving = true;
+        setAbsenceRequestActionPending(true);
+        let response;
+        if (existing && existing.id) {
+          response = await apiFetch(`/api/calendar/absence-requests/${encodeURIComponent(existing.id)}`, {
+            method: "PATCH",
+            body: JSON.stringify({ ...result.payload, version: existing.version }),
+          });
+        } else {
+          if (!state.calendar.requestDraftIdempotencyKey) state.calendar.requestDraftIdempotencyKey = createClientActionKey("absence-create");
+          response = await apiFetch("/api/calendar/absence-requests", {
+            method: "POST",
+            headers: { "Idempotency-Key": state.calendar.requestDraftIdempotencyKey },
+            body: JSON.stringify(result.payload),
+          });
+        }
+        state.calendar.requestDraft = response && response.request ? response.request : response;
+        renderAbsenceRequestSummary(result.payload, result.type);
+        setAbsenceRequestReviewMode(true);
+        setText(byId("absenceRequestFormStatus"), "Kladde gemt. Send anmodningen, naar den ser rigtig ud.");
+      } catch (error) {
+        if (handleAuthFailure(error)) return;
+        setText(byId("absenceRequestFormStatus"), getAbsenceDomainErrorMessage(error));
+      } finally {
+        state.calendar.requestDraftSaving = false;
+        setAbsenceRequestActionPending(false);
+      }
+    }
+
+    async function submitAbsenceRequestDraft() {
+      if (state.calendar.requestSubmitting || state.calendar.requestDraftSaving) return;
+      const draft = state.calendar.requestDraft;
+      if (!draft || !draft.id) {
+        setText(byId("absenceRequestFormStatus"), "Gem kladden foerst.");
+        return;
+      }
+      if (!state.calendar.requestSubmitIdempotencyKey) state.calendar.requestSubmitIdempotencyKey = createClientActionKey("absence-submit");
+      setText(byId("absenceRequestFormStatus"), "Sender anmodning...");
+      try {
+        state.calendar.requestSubmitting = true;
+        setAbsenceRequestActionPending(true);
+        const response = await apiFetch(`/api/calendar/absence-requests/${encodeURIComponent(draft.id)}/submit`, {
+          method: "POST",
+          headers: { "Idempotency-Key": state.calendar.requestSubmitIdempotencyKey },
+          body: JSON.stringify({ version: draft.version }),
+        });
+        state.calendar.requestDraft = null;
+        state.calendar.requestDraftIdempotencyKey = "";
+        state.calendar.requestSubmitIdempotencyKey = "";
+        state.calendar.mineLoaded = false;
+        resetAbsenceRequestForm();
+        setCalendarTab("requests");
+        await loadMineAbsenceRequests({ force: true });
+        renderAbsenceRequestDetail(response && response.request ? response.request : null);
+      } catch (error) {
+        if (handleAuthFailure(error)) return;
+        setText(byId("absenceRequestFormStatus"), getAbsenceDomainErrorMessage(error));
+      } finally {
+        state.calendar.requestSubmitting = false;
+        setAbsenceRequestActionPending(false);
+      }
+    }
+
+    function renderMineAbsenceRequests() {
+      const list = byId("absenceRequestList");
+      if (!list) return;
+      list.replaceChildren();
+      const requests = Array.isArray(state.calendar.mineRequests) ? state.calendar.mineRequests : [];
+      setText(byId("absenceRequestListMeta"), state.calendar.mineLoading ? "Indlaeser anmodninger..." : requests.length === 1 ? "1 anmodning." : `${requests.length} anmodninger.`);
+      if (!state.calendar.mineLoading && requests.length === 0) {
+        appendText(list, "p", "calendarMessage", "Du har ingen fravaersanmodninger endnu.");
+        return;
+      }
+      requests.forEach((request) => {
+        const card = document.createElement("article");
+        card.className = "absenceCard";
+        const header = document.createElement("div");
+        header.className = "absenceCardHeader";
+        appendText(header, "p", "absenceName", requestCardTitle(request));
+        appendText(header, "span", "statusPill", getRequestStatusLabel(request.status, request));
+        card.appendChild(header);
+        appendText(card, "p", "absenceMeta", `${formatRequestPeriod(request)} - sendt ${formatSubmitted(request.submitted_at)}`);
+        if (request.special_window) appendText(card, "p", "absenceNote", `Ferieonskeperiode: ${request.special_window.name || request.special_window.key || "-"}. Ikke foerst til moelle.`);
+        const actions = document.createElement("div");
+        actions.className = "resourceGroupActions";
+        appendButton(actions, "Vis", "btn btnCompact", () => loadMineAbsenceRequestDetail(request.id));
+        if (String(request.status) === "draft") appendButton(actions, "Rediger", "btn btnCompact", () => editMineAbsenceRequest(request));
+        if (String(request.status) === "draft" || String(request.status) === "submitted") appendButton(actions, "Annuller", "btn btnCompact", () => cancelMineAbsenceRequest(request));
+        card.appendChild(actions);
+        list.appendChild(card);
+      });
+    }
+
+    async function loadMineAbsenceRequests(options) {
+      if (!(options && options.force) && state.calendar.mineLoaded) {
+        renderMineAbsenceRequests();
+        return;
+      }
+      state.calendar.mineLoading = true;
+      renderMineAbsenceRequests();
+      try {
+        const response = await apiFetch("/api/calendar/absence-requests/mine", { method: "GET" });
+        state.calendar.mineRequests = response && Array.isArray(response.requests) ? response.requests : [];
+        state.calendar.mineLoaded = true;
+      } catch (error) {
+        if (error && error.status === 403) {
+          state.calendar.mineRequests = [];
+          state.calendar.mineLoaded = true;
+          setText(byId("absenceRequestListMeta"), "Du har ikke adgang til fravaersanmodninger.");
+          return;
+        }
+        if (handleAuthFailure(error)) return;
+        setText(byId("absenceRequestListMeta"), `Kunne ikke hente anmodninger: ${getAbsenceDomainErrorMessage(error)}`);
+      } finally {
+        state.calendar.mineLoading = false;
+        renderMineAbsenceRequests();
+      }
+    }
+
+    function renderAbsenceRequestDetail(request) {
+      const detail = byId("absenceRequestDetail");
+      if (!detail || !request) return;
+      detail.replaceChildren();
+      detail.hidden = false;
+      appendText(detail, "h3", "absenceName", requestCardTitle(request));
+      appendText(detail, "p", "absenceMeta", `${getRequestStatusLabel(request.status, request)} - ${formatRequestPeriod(request)}`);
+      if (request.special_window) appendText(detail, "p", "absenceNote", `Behandles samlet i ${request.special_window.name || "ferieonskeperiode"}. Ikke foerst til moelle.`);
+      if (request.employee_comment) appendText(detail, "p", "absenceNote", request.employee_comment);
+      renderRequestEvents(detail, request.events);
+    }
+
+    async function loadMineAbsenceRequestDetail(id) {
+      const detail = byId("absenceRequestDetail");
+      if (detail) {
+        detail.hidden = false;
+        detail.textContent = "Indlaeser anmodning...";
+      }
+      try {
+        const response = await apiFetch(`/api/calendar/absence-requests/${encodeURIComponent(id)}`, { method: "GET" });
+        renderAbsenceRequestDetail(response && response.request ? response.request : response);
+      } catch (error) {
+        if (handleAuthFailure(error)) return;
+        if (detail) detail.textContent = getAbsenceDomainErrorMessage(error);
+      }
+    }
+
+    function editMineAbsenceRequest(request) {
+      state.calendar.requestDraft = request;
+      state.calendar.requestDraftIdempotencyKey = "";
+      state.calendar.requestSubmitIdempotencyKey = "";
+      setCalendarTab("new-request");
+      loadAbsenceRequestTypes().then(() => {
+        if (byId("absenceRequestTypeSelect") && request.absence_type && request.absence_type.id) byId("absenceRequestTypeSelect").value = request.absence_type.id;
+        const duration = String(request.duration_type || "full_days");
+        const durationNode = document.querySelector(`input[name='absenceDurationType'][value='${duration}']`);
+        if (durationNode) durationNode.checked = true;
+        updateAbsenceDurationOptions();
+        if (duration === "time_range") {
+          if (byId("absenceRequestTimeDateInput")) byId("absenceRequestTimeDateInput").value = dateInputFromValue(request.start_date);
+          if (byId("absenceRequestStartTimeInput")) byId("absenceRequestStartTimeInput").value = formatTime(request.start_time);
+          if (byId("absenceRequestEndTimeInput")) byId("absenceRequestEndTimeInput").value = formatTime(request.end_time);
+        } else {
+          if (byId("absenceRequestStartDateInput")) byId("absenceRequestStartDateInput").value = dateInputFromValue(request.start_date);
+          if (byId("absenceRequestEndDateInput")) byId("absenceRequestEndDateInput").value = dateInputFromValue(request.end_date || request.start_date);
+        }
+        if (byId("absenceRequestCommentInput")) byId("absenceRequestCommentInput").value = request.employee_comment || "";
+        updateAbsenceCommentPolicy();
+        setAbsenceRequestReviewMode(false);
+      });
+    }
+
+    async function cancelMineAbsenceRequest(request) {
+      if (!window.confirm("Vil du annullere denne fravaersanmodning?")) return;
+      try {
+        await apiFetch(`/api/calendar/absence-requests/${encodeURIComponent(request.id)}/cancel`, {
+          method: "POST",
+          body: JSON.stringify({ version: request.version }),
+        });
+        state.calendar.mineLoaded = false;
+        await loadMineAbsenceRequests({ force: true });
+      } catch (error) {
+        if (handleAuthFailure(error)) return;
+        setText(byId("absenceRequestListMeta"), getAbsenceDomainErrorMessage(error));
+      }
+    }
+
+    function renderCalendarEvents(targetId, metaId, events, loading, emptyText) {
+      const list = byId(targetId);
+      if (!list) return;
+      list.replaceChildren();
+      setText(byId(metaId), loading ? "Indlaeser kalender..." : events.length === 1 ? "1 kalenderpost." : `${events.length} kalenderposter.`);
+      if (!loading && events.length === 0) {
+        appendText(list, "p", "calendarMessage", emptyText);
+        return;
+      }
+      events.forEach((event) => {
+        const card = document.createElement("article");
+        card.className = "absenceCard";
+        appendText(card, "p", "absenceName", event.title || "Fravaer");
+        const employee = event.employee && event.employee.display_name ? ` - ${event.employee.display_name}` : "";
+        appendText(card, "p", "absenceMeta", `${formatDateRange(event.start_date, event.end_date)}${employee}`);
+        if (event.visibility && event.visibility.reason_visible) appendText(card, "p", "absenceNote", event.visibility.reason_visible);
+        list.appendChild(card);
+      });
+    }
+
+    async function loadAbsenceAgenda(options) {
+      ensureCalendarDefaults();
+      if (!(options && options.force) && state.calendar.agendaLoaded) {
+        renderCalendarEvents("absenceAgendaList", "absenceAgendaMeta", state.calendar.agendaEvents, false, "Ingen godkendt fravaer i perioden.");
+        return;
+      }
+      state.calendar.agendaLoading = true;
+      renderCalendarEvents("absenceAgendaList", "absenceAgendaMeta", state.calendar.agendaEvents, true, "");
+      try {
+        const response = await apiFetch(`/api/calendar/events/mine?from=${encodeURIComponent(state.calendar.from)}&to=${encodeURIComponent(state.calendar.to)}`, { method: "GET" });
+        state.calendar.agendaEvents = response && Array.isArray(response.events) ? response.events : [];
+        state.calendar.agendaLoaded = true;
+      } catch (error) {
+        if (error && error.status === 403) {
+          setText(byId("absenceAgendaMeta"), "Du har ikke adgang til kalenderfeed.");
+          state.calendar.agendaEvents = [];
+          return;
+        }
+        if (handleAuthFailure(error)) return;
+        setText(byId("absenceAgendaMeta"), getAbsenceDomainErrorMessage(error));
+      } finally {
+        state.calendar.agendaLoading = false;
+        renderCalendarEvents("absenceAgendaList", "absenceAgendaMeta", state.calendar.agendaEvents, false, "Ingen godkendt fravaer i perioden.");
+      }
+    }
+
+    async function loadTeamAbsenceAgenda(options) {
+      ensureCalendarDefaults();
+      if (!(options && options.force) && state.calendar.teamAgendaLoaded) {
+        renderCalendarEvents("absenceTeamAgendaList", "absenceTeamAgendaMeta", state.calendar.teamEvents, false, "Ingen teamfravaer i perioden.");
+        return;
+      }
+      state.calendar.teamAgendaLoading = true;
+      renderCalendarEvents("absenceTeamAgendaList", "absenceTeamAgendaMeta", state.calendar.teamEvents, true, "");
+      try {
+        const response = await apiFetch(`/api/calendar/events/team?from=${encodeURIComponent(state.calendar.from)}&to=${encodeURIComponent(state.calendar.to)}`, { method: "GET" });
+        state.calendar.teamEvents = response && Array.isArray(response.events) ? response.events : [];
+        state.calendar.teamAgendaLoaded = true;
+        if (byId("absenceTeamAgendaSection")) byId("absenceTeamAgendaSection").hidden = false;
+      } catch (error) {
+        if (error && error.status === 403) {
+          if (byId("absenceTeamAgendaSection")) byId("absenceTeamAgendaSection").hidden = true;
+          return;
+        }
+        if (handleAuthFailure(error)) return;
+        setText(byId("absenceTeamAgendaMeta"), getAbsenceDomainErrorMessage(error));
+      } finally {
+        state.calendar.teamAgendaLoading = false;
+        renderCalendarEvents("absenceTeamAgendaList", "absenceTeamAgendaMeta", state.calendar.teamEvents, false, "Ingen teamfravaer i perioden.");
+      }
+    }
+
+    function renderManagerRequests() {
+      const list = byId("absenceManagerList");
+      if (!list) return;
+      list.replaceChildren();
+      const requests = Array.isArray(state.calendar.managerRequests) ? state.calendar.managerRequests : [];
+      setText(byId("absenceManagerListMeta"), state.calendar.managerLoading ? "Indlaeser anmodninger..." : requests.length === 1 ? "1 anmodning afventer." : `${requests.length} anmodninger afventer.`);
+      if (!state.calendar.managerLoading && requests.length === 0) appendText(list, "p", "calendarMessage", "Ingen anmodninger afventer behandling.");
+      requests.forEach((request) => {
+        const card = document.createElement("article");
+        card.className = "absenceCard";
+        appendText(card, "p", "absenceName", `${request.employee && request.employee.display_name ? request.employee.display_name : "Medarbejder"} - ${requestCardTitle(request)}`);
+        appendText(card, "p", "absenceMeta", `${formatRequestPeriod(request)} - ${getRequestStatusLabel(request.status, request)}`);
+        if (request.has_private_comment && !request.employee_comment) appendText(card, "p", "absenceNote", "Privat kommentar findes, men kraever saerskilt adgang.");
+        appendButton(card, "Behandl", "btn btnCompact", () => loadManagerRequestDetail(request.id));
+        list.appendChild(card);
+      });
+    }
+
+    async function loadManagerRequests(options) {
+      if (!(options && options.force) && state.calendar.managerLoaded) {
+        renderManagerRequests();
+        return;
+      }
+      state.calendar.managerLoading = true;
+      renderManagerRequests();
+      try {
+        const response = await apiFetch("/api/calendar/absence-requests/manager/pending", { method: "GET" });
+        state.calendar.managerRequests = response && Array.isArray(response.requests) ? response.requests : [];
+        state.calendar.managerAccessDenied = false;
+        state.calendar.managerLoaded = true;
+      } catch (error) {
+        if (error && error.status === 403) {
+          state.calendar.managerAccessDenied = true;
+          state.calendar.managerRequests = [];
+          renderOptionalCalendarTabs();
+          return;
+        }
+        if (handleAuthFailure(error)) return;
+        setText(byId("absenceManagerListMeta"), getAbsenceDomainErrorMessage(error));
+      } finally {
+        state.calendar.managerLoading = false;
+        renderOptionalCalendarTabs();
+        renderManagerRequests();
+      }
+    }
+
+    function renderManagerRequestDetail(request) {
+      const detail = byId("absenceManagerDetail");
+      if (!detail || !request) return;
+      detail.replaceChildren();
+      detail.hidden = false;
+      appendText(detail, "h3", "absenceName", `${request.employee && request.employee.display_name ? request.employee.display_name : "Medarbejder"} - ${requestCardTitle(request)}`);
+      appendText(detail, "p", "absenceMeta", `${formatRequestPeriod(request)} - ${getRequestStatusLabel(request.status, request)}`);
+      if (request.employee_comment) appendText(detail, "p", "absenceNote", request.employee_comment);
+      else if (request.has_private_comment) appendText(detail, "p", "absenceNote", "Privat kommentar er skjult, fordi din rolle ikke har adgang til den.");
+      renderRequestEvents(detail, request.events);
+      const reasonId = `absenceManagerRejectReason-${String(request.id || "current").replace(/[^a-z0-9_-]/gi, "") || "current"}`;
+      const counterId = `${reasonId}-counter`;
+      const label = document.createElement("label");
+      label.className = "calendarField calendarFieldWide";
+      label.setAttribute("for", reasonId);
+      label.textContent = "Begrundelse";
+      const textarea = document.createElement("textarea");
+      textarea.id = reasonId;
+      textarea.className = "absenceReviewReason";
+      textarea.maxLength = 500;
+      textarea.required = true;
+      textarea.placeholder = "Begrundelse ved afvisning";
+      textarea.setAttribute("aria-describedby", counterId);
+      const counter = document.createElement("span");
+      counter.id = counterId;
+      counter.className = "calendarFormStatus";
+      updateRejectReasonCounter(textarea, counter);
+      textarea.addEventListener("input", () => {
+        updateRejectReasonCounter(textarea, counter);
+      });
+      label.append(textarea, counter);
+      const actions = document.createElement("div");
+      actions.className = "calendarFormActions";
+      const approveButton = appendButton(actions, "Godkend", "btn btnPrimary", () => decideManagerRequest(request, "approve", "", textarea));
+      approveButton.dataset.managerDecisionAction = "approve";
+      approveButton.disabled = state.calendar.managerDecisionSubmitting;
+      const rejectButton = appendButton(actions, "Afvis", "btn btnCompact", () => decideManagerRequest(request, "reject", textarea.value, textarea));
+      rejectButton.dataset.managerDecisionAction = "reject";
+      rejectButton.disabled = state.calendar.managerDecisionSubmitting;
+      detail.append(label, actions);
+    }
+
+    async function loadManagerRequestDetail(id) {
+      const detail = byId("absenceManagerDetail");
+      if (detail) {
+        detail.hidden = false;
+        detail.textContent = "Indlaeser anmodning...";
+      }
+      try {
+        const response = await apiFetch(`/api/calendar/absence-requests/manager/${encodeURIComponent(id)}`, { method: "GET" });
+        renderManagerRequestDetail(response && response.request ? response.request : response);
+      } catch (error) {
+        if (handleAuthFailure(error)) return;
+        if (detail) detail.textContent = getAbsenceDomainErrorMessage(error);
+      }
+    }
+
+    async function decideManagerRequest(request, action, reason, reasonInput) {
+      if (state.calendar.managerDecisionSubmitting) return;
+      if (action === "approve" && !window.confirm("Vil du godkende anmodningen?")) return;
+      if (action === "reject" && !String(reason || "").trim()) {
+        setText(byId("absenceManagerListMeta"), "Skriv en begrundelse ved afvisning.");
+        if (reasonInput && typeof reasonInput.focus === "function") reasonInput.focus();
+        return;
+      }
+      try {
+        setManagerDecisionPending(true);
+        await apiFetch(`/api/calendar/absence-requests/${encodeURIComponent(request.id)}/${action}`, {
+          method: "POST",
+          body: JSON.stringify(action === "reject" ? { version: request.version, reason: String(reason).trim() } : { version: request.version }),
+        });
+        state.calendar.managerLoaded = false;
+        state.calendar.teamAgendaLoaded = false;
+        await loadManagerRequests({ force: true });
+        await loadTeamAbsenceAgenda({ force: true });
+        if (byId("absenceManagerDetail")) byId("absenceManagerDetail").hidden = true;
+      } catch (error) {
+        if (handleAuthFailure(error)) return;
+        setText(byId("absenceManagerListMeta"), getAbsenceDomainErrorMessage(error));
+      } finally {
+        setManagerDecisionPending(false);
+      }
+    }
+
+    function renderSpecialWindowList() {
+      const list = byId("specialWindowList");
+      if (!list) return;
+      list.replaceChildren();
+      const windows = Array.isArray(state.calendar.specialWindows) ? state.calendar.specialWindows : [];
+      setText(byId("specialWindowListMeta"), state.calendar.specialWindowsLoading ? "Indlaeser perioder..." : windows.length === 1 ? "1 periode." : `${windows.length} perioder.`);
+      if (!state.calendar.specialWindowsLoading && windows.length === 0) appendText(list, "p", "calendarMessage", "Ingen saerlige ferieonskeperioder.");
+      windows.forEach((item) => {
+        const card = document.createElement("article");
+        card.className = "absenceCard";
+        appendText(card, "p", "absenceName", item.name || item.key || "Ferieonskeperiode");
+        appendText(card, "p", "absenceMeta", `${formatDateRange(item.absence_start_date, item.absence_end_date)} - ${getSpecialWindowStatusLabel(item.derived_status)}`);
+        appendText(card, "p", "absenceNote", `Deadline ${formatDisplayDate(item.submission_deadline)}. Review-start ${formatDisplayDate(item.review_start_date)}. ${getLatePolicyLabel(item.late_submission_policy)}`);
+        const actions = document.createElement("div");
+        actions.className = "resourceGroupActions";
+        appendButton(actions, "Rediger", "btn btnCompact", () => openSpecialWindowEdit(item.id));
+        appendButton(actions, "Review", "btn btnCompact", () => loadSpecialWindowReview(item.id));
+        if (item.is_active !== false) appendButton(actions, "Arkiver", "btn btnCompact", () => archiveSpecialWindow(item));
+        card.appendChild(actions);
+        list.appendChild(card);
+      });
+    }
+
+    async function loadSpecialWindows(options) {
+      if (!(options && options.force) && state.calendar.specialWindowsLoaded) {
+        renderSpecialWindowList();
+        return;
+      }
+      state.calendar.specialWindowsLoading = true;
+      renderSpecialWindowList();
+      try {
+        const response = await apiFetch("/api/calendar/special-windows", { method: "GET" });
+        state.calendar.specialWindows = response && Array.isArray(response.windows) ? response.windows : [];
+        state.calendar.specialWindowsLoaded = true;
+        state.calendar.specialWindowAccessDenied = false;
+      } catch (error) {
+        if (error && error.status === 403) {
+          state.calendar.specialWindowAccessDenied = true;
+          state.calendar.specialWindows = [];
+          renderOptionalCalendarTabs();
+          return;
+        }
+        if (handleAuthFailure(error)) return;
+        setText(byId("specialWindowListMeta"), getAbsenceDomainErrorMessage(error));
+      } finally {
+        state.calendar.specialWindowsLoading = false;
+        renderOptionalCalendarTabs();
+        renderSpecialWindowList();
+      }
+    }
+
+    function setSelectedValues(select, values) {
+      const wanted = new Set((values || []).map((value) => String(value)));
+      Array.from(select ? select.options : []).forEach((option) => { option.selected = wanted.has(String(option.value)); });
+    }
+    function getSelectedValues(select) {
+      return Array.from(select ? select.selectedOptions : []).map((option) => option.value).filter(Boolean);
+    }
+
+    async function renderSpecialWindowSelectors() {
+      const typeSelect = byId("specialWindowTypeScopeSelect");
+      if (typeSelect) {
+        const previous = getSelectedValues(typeSelect);
+        typeSelect.replaceChildren();
+        (state.calendar.requestTypes || []).filter((type) => type.special_window_eligible === true).forEach((type) => {
+          const option = document.createElement("option");
+          option.value = String(type.id || "");
+          option.textContent = getRequestTypeName(type);
+          typeSelect.appendChild(option);
+        });
+        setSelectedValues(typeSelect, previous);
+      }
+      if (isTenantAdmin(state.me)) {
+        if (!state.tenantAdmin.usersLoaded) await loadTenantAdminUsers({ force: true });
+        if (!state.resourceGroups.groupsLoaded) await loadResourceGroups({ force: true });
+      }
+      const userSelect = byId("specialWindowUserScopeSelect");
+      if (userSelect) {
+        const previous = getSelectedValues(userSelect);
+        userSelect.replaceChildren();
+        (state.tenantAdmin.users || []).forEach((user) => {
+          const id = String(user.tenant_user_id || user.id || "");
+          if (!id) return;
+          const option = document.createElement("option");
+          option.value = id;
+          option.textContent = `${user.name || user.email || id}${user.email ? ` (${user.email})` : ""}`;
+          userSelect.appendChild(option);
+        });
+        setSelectedValues(userSelect, previous);
+      }
+      const groupSelect = byId("specialWindowGroupScopeSelect");
+      if (groupSelect) {
+        const previous = getSelectedValues(groupSelect);
+        groupSelect.replaceChildren();
+        (state.resourceGroups.groups || []).forEach((group) => {
+          const id = String(group.id || "");
+          if (!id) return;
+          const option = document.createElement("option");
+          option.value = id;
+          option.textContent = group.name || id;
+          groupSelect.appendChild(option);
+        });
+        setSelectedValues(groupSelect, previous);
+      }
+    }
+
+    function openSpecialWindowCreate() {
+      const editor = byId("specialWindowEditor");
+      if (!editor) return;
+      state.calendar.specialWindowEditorMode = "create";
+      state.calendar.specialWindowEditVersion = null;
+      state.calendar.specialWindowDetail = null;
+      if (byId("specialWindowForm")) byId("specialWindowForm").reset();
+      if (byId("specialWindowCollectiveInput")) byId("specialWindowCollectiveInput").checked = true;
+      if (byId("specialWindowBlockBeforeReviewInput")) byId("specialWindowBlockBeforeReviewInput").checked = true;
+      if (byId("specialWindowTenantScopeInput")) byId("specialWindowTenantScopeInput").checked = true;
+      setText(byId("specialWindowEditorTitle"), "Opret ferieonskeperiode");
+      setText(byId("specialWindowFormStatus"), "");
+      setText(byId("specialWindowLatePolicyHint"), getLatePolicyHint(byId("specialWindowLatePolicySelect") ? byId("specialWindowLatePolicySelect").value : "blocked"));
+      editor.hidden = false;
+      renderSpecialWindowSelectors();
+    }
+
+    async function openSpecialWindowEdit(id) {
+      const editor = byId("specialWindowEditor");
+      if (!editor) return;
+      setText(byId("specialWindowFormStatus"), "Indlaeser periode...");
+      editor.hidden = false;
+      await renderSpecialWindowSelectors();
+      try {
+        const response = await apiFetch(`/api/calendar/special-windows/${encodeURIComponent(id)}`, { method: "GET" });
+        const item = response && response.window ? response.window : response;
+        state.calendar.specialWindowEditorMode = "edit";
+        state.calendar.specialWindowDetail = item;
+        state.calendar.specialWindowEditVersion = item.version;
+        setText(byId("specialWindowEditorTitle"), "Rediger ferieonskeperiode");
+        if (byId("specialWindowNameInput")) byId("specialWindowNameInput").value = item.name || "";
+        if (byId("specialWindowKeyInput")) byId("specialWindowKeyInput").value = item.key || "";
+        if (byId("specialWindowDescriptionInput")) byId("specialWindowDescriptionInput").value = item.description || "";
+        if (byId("specialWindowAbsenceStartInput")) byId("specialWindowAbsenceStartInput").value = dateInputFromValue(item.absence_start_date);
+        if (byId("specialWindowAbsenceEndInput")) byId("specialWindowAbsenceEndInput").value = dateInputFromValue(item.absence_end_date);
+        if (byId("specialWindowOpenInput")) byId("specialWindowOpenInput").value = dateInputFromValue(item.submission_open_date);
+        if (byId("specialWindowDeadlineInput")) byId("specialWindowDeadlineInput").value = dateInputFromValue(item.submission_deadline);
+        if (byId("specialWindowReviewStartInput")) byId("specialWindowReviewStartInput").value = dateInputFromValue(item.review_start_date);
+        if (byId("specialWindowLatePolicySelect")) byId("specialWindowLatePolicySelect").value = item.late_submission_policy || "blocked";
+        if (byId("specialWindowCollectiveInput")) byId("specialWindowCollectiveInput").checked = item.collective_processing !== false;
+        if (byId("specialWindowBlockBeforeReviewInput")) byId("specialWindowBlockBeforeReviewInput").checked = item.approval_blocked_before_review !== false;
+        if (byId("specialWindowReceiptTextInput")) byId("specialWindowReceiptTextInput").value = item.receipt_text || "";
+        const scopes = Array.isArray(item.scopes) ? item.scopes : [];
+        if (byId("specialWindowTenantScopeInput")) byId("specialWindowTenantScopeInput").checked = scopes.some((scope) => scope.scope_type === "tenant");
+        setSelectedValues(byId("specialWindowUserScopeSelect"), scopes.map((scope) => scope.scope_tenant_user_id || scope.tenant_user_id).filter(Boolean));
+        setSelectedValues(byId("specialWindowGroupScopeSelect"), scopes.map((scope) => scope.resource_group_id).filter(Boolean));
+        setSelectedValues(byId("specialWindowTypeScopeSelect"), (item.relevant_absence_types || []).map((type) => type.id));
+        setText(byId("specialWindowLatePolicyHint"), getLatePolicyHint(item.late_submission_policy));
+        setText(byId("specialWindowFormStatus"), "");
+      } catch (error) {
+        if (handleAuthFailure(error)) return;
+        setText(byId("specialWindowFormStatus"), getAbsenceDomainErrorMessage(error));
+      }
+    }
+
+    function validateSpecialWindowForm() {
+      const payload = {
+        name: String(byId("specialWindowNameInput") && byId("specialWindowNameInput").value || "").trim(),
+        key: String(byId("specialWindowKeyInput") && byId("specialWindowKeyInput").value || "").trim(),
+        description: String(byId("specialWindowDescriptionInput") && byId("specialWindowDescriptionInput").value || "").trim() || null,
+        absence_start_date: String(byId("specialWindowAbsenceStartInput") && byId("specialWindowAbsenceStartInput").value || "").trim(),
+        absence_end_date: String(byId("specialWindowAbsenceEndInput") && byId("specialWindowAbsenceEndInput").value || "").trim(),
+        submission_open_date: String(byId("specialWindowOpenInput") && byId("specialWindowOpenInput").value || "").trim(),
+        submission_deadline: String(byId("specialWindowDeadlineInput") && byId("specialWindowDeadlineInput").value || "").trim(),
+        review_start_date: String(byId("specialWindowReviewStartInput") && byId("specialWindowReviewStartInput").value || "").trim(),
+        late_submission_policy: String(byId("specialWindowLatePolicySelect") && byId("specialWindowLatePolicySelect").value || "blocked"),
+        collective_processing: byId("specialWindowCollectiveInput") ? Boolean(byId("specialWindowCollectiveInput").checked) : true,
+        approval_blocked_before_review: byId("specialWindowBlockBeforeReviewInput") ? Boolean(byId("specialWindowBlockBeforeReviewInput").checked) : true,
+        receipt_text: String(byId("specialWindowReceiptTextInput") && byId("specialWindowReceiptTextInput").value || "").trim() || null,
+        scopes: [],
+        absence_type_ids: getSelectedValues(byId("specialWindowTypeScopeSelect")),
+      };
+      if (!payload.name || !payload.key) return { error: "Navn og key er paakraevet." };
+      ["absence_start_date", "absence_end_date", "submission_open_date", "submission_deadline", "review_start_date"].forEach((field) => { if (!parseDateInput(payload[field])) payload._dateError = true; });
+      if (payload._dateError) return { error: "Alle datoer skal udfyldes korrekt." };
+      if (parseDateInput(payload.absence_end_date) < parseDateInput(payload.absence_start_date)) return { error: "Ferieperiodens slutdato maa ikke vaere foer startdato." };
+      if (parseDateInput(payload.submission_deadline) < parseDateInput(payload.submission_open_date)) return { error: "Deadline maa ikke vaere foer aabningsdato." };
+      if (parseDateInput(payload.review_start_date) < parseDateInput(payload.submission_deadline)) return { error: "Review-start maa ikke vaere foer deadline." };
+      if (byId("specialWindowTenantScopeInput") && byId("specialWindowTenantScopeInput").checked) payload.scopes.push({ scope_type: "tenant" });
+      getSelectedValues(byId("specialWindowUserScopeSelect")).forEach((id) => payload.scopes.push({ scope_type: "tenant_user", tenant_user_id: id }));
+      getSelectedValues(byId("specialWindowGroupScopeSelect")).forEach((id) => payload.scopes.push({ scope_type: "resource_group", resource_group_id: id }));
+      if (payload.scopes.length === 0) return { error: "Vaelg mindst et personscope." };
+      delete payload._dateError;
+      return { payload };
+    }
+
+    async function submitSpecialWindowForm(event) {
+      event.preventDefault();
+      const result = validateSpecialWindowForm();
+      if (result.error) {
+        setText(byId("specialWindowFormStatus"), result.error);
+        return;
+      }
+      const mode = state.calendar.specialWindowEditorMode;
+      const detail = state.calendar.specialWindowDetail;
+      const payload = mode === "edit" ? { ...result.payload, version: state.calendar.specialWindowEditVersion } : result.payload;
+      setText(byId("specialWindowFormStatus"), "Gemmer periode...");
+      try {
+        await apiFetch(mode === "edit" && detail ? `/api/calendar/special-windows/${encodeURIComponent(detail.id)}` : "/api/calendar/special-windows", {
+          method: mode === "edit" ? "PATCH" : "POST",
+          body: JSON.stringify(payload),
+        });
+        if (byId("specialWindowEditor")) byId("specialWindowEditor").hidden = true;
+        state.calendar.specialWindowsLoaded = false;
+        await loadSpecialWindows({ force: true });
+      } catch (error) {
+        if (handleAuthFailure(error)) return;
+        setText(byId("specialWindowFormStatus"), getAbsenceDomainErrorMessage(error));
+      }
+    }
+
+    async function archiveSpecialWindow(item) {
+      if (!window.confirm("Vil du arkivere ferieonskeperioden?")) return;
+      try {
+        await apiFetch(`/api/calendar/special-windows/${encodeURIComponent(item.id)}/archive`, {
+          method: "POST",
+          body: JSON.stringify({ version: item.version }),
+        });
+        state.calendar.specialWindowsLoaded = false;
+        await loadSpecialWindows({ force: true });
+      } catch (error) {
+        if (handleAuthFailure(error)) return;
+        setText(byId("specialWindowListMeta"), getAbsenceDomainErrorMessage(error));
+      }
+    }
+
+    async function loadSpecialWindowReview(id) {
+      const panel = byId("specialWindowReviewPanel");
+      if (!panel) return;
+      panel.hidden = false;
+      panel.textContent = "Indlaeser review...";
+      try {
+        const response = await apiFetch(`/api/calendar/special-windows/${encodeURIComponent(id)}/review-overview`, { method: "GET" });
+        const requests = response && Array.isArray(response.requests) ? response.requests : [];
+        panel.replaceChildren();
+        appendText(panel, "h3", "absenceName", response && response.window ? `Review: ${response.window.name}` : "Review");
+        appendText(panel, "p", "absenceMeta", requests.length === 1 ? "1 oenske matcher perioden." : `${requests.length} oensker matcher perioden.`);
+        requests.forEach((request) => {
+          const card = document.createElement("article");
+          card.className = "absenceCard";
+          appendText(card, "p", "absenceName", `${request.employee && request.employee.display_name ? request.employee.display_name : "Medarbejder"} - ${requestCardTitle(request)}`);
+          appendText(card, "p", "absenceMeta", `${formatRequestPeriod(request)} - ${getRequestStatusLabel(request.status, request)}`);
+          if (request.has_private_comment && !request.employee_comment) appendText(card, "p", "absenceNote", "Privat kommentar skjult uden saerskilt adgang.");
+          if (Array.isArray(request.overlap_signals) && request.overlap_signals.length > 0) appendText(card, "p", "absenceNote", `Overlap-signal: ${request.overlap_signals.length} mulig(e) overlap. Ingen automatisk beslutning.`);
+          panel.appendChild(card);
+        });
+      } catch (error) {
+        if (handleAuthFailure(error)) return;
+        panel.textContent = getAbsenceDomainErrorMessage(error);
+      }
+    }
+
+    async function loadCalendarWorkspace(options) {
+      renderOptionalCalendarTabs();
+      const tab = state.calendar.activeTab;
+      if (tab === "requests") {
+        await Promise.all([loadAbsenceRequestTypes(options), loadMineAbsenceRequests(options)]);
+        loadManagerRequests({ silent: true });
+        loadSpecialWindows({ silent: true });
+      } else if (tab === "new-request") {
+        await loadAbsenceRequestTypes(options);
+      } else if (tab === "agenda") {
+        await loadAbsenceAgenda(options);
+      } else if (tab === "manager") {
+        await loadManagerRequests(options);
+        await loadTeamAbsenceAgenda(options);
+      } else if (tab === "windows") {
+        await Promise.all([loadAbsenceRequestTypes(options), loadSpecialWindows(options)]);
+      } else if (tab === "absences") {
+        loadCalendarResources(options);
+        loadCalendarAbsences(options);
+      }
+    }
+
     function setCalendarMessage(message) {
       setText(absenceRangeStatus, message);
       setText(absenceListMeta, message);
     }
 
     function setCalendarTab(tab) {
-      const nextTab = tab === "tasks" ? "tasks" : "absences";
+      const allowedTabs = new Set(["requests", "new-request", "agenda", "manager", "windows", "absences", "tasks"]);
+      const requestedTab = String(tab || "requests");
+      let nextTab = allowedTabs.has(requestedTab) ? requestedTab : "requests";
+      if (nextTab === "absences" && !isTenantAdmin(state.me)) nextTab = "requests";
+      if (nextTab === "manager" && state.calendar.managerAccessDenied) nextTab = "requests";
+      if (nextTab === "windows" && state.calendar.specialWindowAccessDenied) nextTab = "requests";
       state.calendar.activeTab = nextTab;
       calendarTabs.forEach((button) => {
         const active = button.dataset.calendarTab === nextTab;
@@ -2909,10 +4121,7 @@
         panel.hidden = panel.dataset.calendarPanel !== nextTab;
       });
       renderCalendarAccessState();
-      if (nextTab === "absences") {
-        loadCalendarResources();
-        loadCalendarAbsences();
-      }
+      loadCalendarWorkspace();
     }
 
     function renderCalendarAccessState() {
@@ -3202,10 +4411,7 @@
       if (activeView === "calendar") {
         ensureCalendarDefaults();
         renderCalendarAccessState();
-        if (state.calendar.activeTab === "absences") {
-          loadCalendarResources();
-          loadCalendarAbsences();
-        }
+        loadCalendarWorkspace();
       }
       if (activeView === "resource-groups") {
         renderResourceGroupAccessState();
@@ -4762,10 +5968,7 @@
       if (activeView === "calendar") {
         ensureCalendarDefaults();
         renderCalendarAccessState();
-        if (state.calendar.activeTab === "absences") {
-          loadCalendarResources();
-          loadCalendarAbsences();
-        }
+        loadCalendarWorkspace();
       }
       if (activeView === "resource-groups") {
         renderResourceGroupAccessState();
@@ -4925,6 +6128,80 @@
         setCalendarTab(button.dataset.calendarTab);
       });
     });
+
+    if (byId("absenceRequestsRefreshBtn")) {
+      byId("absenceRequestsRefreshBtn").addEventListener("click", () => loadMineAbsenceRequests({ force: true }));
+    }
+    if (byId("absenceRequestForm")) {
+      byId("absenceRequestForm").addEventListener("submit", saveAbsenceRequestDraft);
+    }
+    if (byId("absenceRequestTypeSelect")) {
+      byId("absenceRequestTypeSelect").addEventListener("change", () => {
+        state.calendar.requestDraft = null;
+        updateAbsenceDurationOptions();
+        updateAbsenceCommentPolicy();
+        setAbsenceRequestReviewMode(false);
+      });
+    }
+    ["absenceDurationFullDays", "absenceDurationTimeRange"].forEach((id) => {
+      if (byId(id)) byId(id).addEventListener("change", () => {
+        state.calendar.requestDraft = null;
+        updateAbsenceDurationOptions();
+        setAbsenceRequestReviewMode(false);
+      });
+    });
+    ["absenceRequestStartDateInput", "absenceRequestEndDateInput", "absenceRequestTimeDateInput", "absenceRequestStartTimeInput", "absenceRequestEndTimeInput"].forEach((id) => {
+      if (byId(id)) byId(id).addEventListener("input", () => {
+        state.calendar.requestDraft = null;
+        setAbsenceRequestReviewMode(false);
+      });
+    });
+    if (byId("absenceRequestCommentInput")) {
+      byId("absenceRequestCommentInput").addEventListener("input", () => {
+        state.calendar.requestDraft = null;
+        updateAbsenceCommentPolicy();
+        setAbsenceRequestReviewMode(false);
+      });
+    }
+    if (byId("absenceRequestBackBtn")) {
+      byId("absenceRequestBackBtn").addEventListener("click", () => setAbsenceRequestReviewMode(false));
+    }
+    if (byId("absenceRequestSubmitBtn")) {
+      byId("absenceRequestSubmitBtn").addEventListener("click", submitAbsenceRequestDraft);
+    }
+    if (byId("absenceAgendaRefreshBtn")) {
+      byId("absenceAgendaRefreshBtn").addEventListener("click", () => {
+        state.calendar.agendaLoaded = false;
+        loadAbsenceAgenda({ force: true });
+      });
+    }
+    if (byId("absenceManagerRefreshBtn")) {
+      byId("absenceManagerRefreshBtn").addEventListener("click", () => {
+        state.calendar.managerLoaded = false;
+        state.calendar.teamAgendaLoaded = false;
+        loadManagerRequests({ force: true });
+        loadTeamAbsenceAgenda({ force: true });
+      });
+    }
+    if (byId("specialWindowRefreshBtn")) {
+      byId("specialWindowRefreshBtn").addEventListener("click", () => loadSpecialWindows({ force: true }));
+    }
+    if (byId("specialWindowNewBtn")) {
+      byId("specialWindowNewBtn").addEventListener("click", openSpecialWindowCreate);
+    }
+    if (byId("specialWindowCancelEditBtn")) {
+      byId("specialWindowCancelEditBtn").addEventListener("click", () => {
+        if (byId("specialWindowEditor")) byId("specialWindowEditor").hidden = true;
+      });
+    }
+    if (byId("specialWindowForm")) {
+      byId("specialWindowForm").addEventListener("submit", submitSpecialWindowForm);
+    }
+    if (byId("specialWindowLatePolicySelect")) {
+      byId("specialWindowLatePolicySelect").addEventListener("change", () => {
+        setText(byId("specialWindowLatePolicyHint"), getLatePolicyHint(byId("specialWindowLatePolicySelect").value));
+      });
+    }
 
     if (absenceRefreshBtn) {
       absenceRefreshBtn.addEventListener("click", () => {

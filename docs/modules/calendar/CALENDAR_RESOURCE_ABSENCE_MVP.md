@@ -198,6 +198,26 @@ Not part of PR7a:
 - E-Komplet group import/seed.
 - Approval flow, visibility engine, integrations, PDF, reporting, or tenant-specific rules.
 
+## PR8 Absence Request UI
+
+Implemented local direction:
+- Tenant Kalender now contains a `Fravaer / Planlaegning` workspace with tabs for `Mine anmodninger`, `Anmod om fravaer`, `Min kalender`, permission-gated manager treatment, permission-gated special vacation windows, legacy direct absence, and the existing task placeholder.
+- The employee request form uses `GET /api/calendar/absence-types/request-options` as the only source for request absence types. It does not reuse the legacy `resource_absences` hardcoded type list.
+- The employee flow creates or patches a draft, shows a confirmation summary, and submits with `Idempotency-Key`. The UI supports `full_days` and `time_range`; `partial_day` remains hidden/deferred.
+- Mine/detail/cancel flows use `GET /api/calendar/absence-requests/mine`, `GET /api/calendar/absence-requests/:id`, and `POST /api/calendar/absence-requests/:id/cancel` with server-side tenant/user scope and optimistic versioning.
+- Manager UI probes `GET /api/calendar/absence-requests/manager/pending`; a 403 hides the surface. Detail, approve, and reject use the existing PR5 endpoints and never fetch private comments from any alternate endpoint.
+- Personal and team agenda are list-only feeds using `GET /api/calendar/events/mine` and `GET /api/calendar/events/team`. There is no full calendar grid or drag/drop engine in PR8.
+- Special vacation window UI lists, creates, edits, archives, and opens review overview through the PR7 `/api/calendar/special-windows` endpoints. Scope selectors use existing tenant-user/resource-group/type options instead of hardcoded users or groups.
+- Domain errors are mapped centrally to Danish user text. Unknown errors use a generic retry message.
+
+Security and permission notes:
+- Frontend remains presentation only. It does not send tenant id, employee id, manager id, status, special-window id, or authorization decisions in the employee request payload.
+- Private comments are displayed only when present in the backend response. `has_private_comment` without `employee_comment` renders a redacted message.
+- Reject reasons and private comments are not stored in localStorage/sessionStorage.
+- Legacy direct `resource_absences` remains tenant-admin-only and separate from the request workflow.
+
+Known gaps after PR8:
+- No full calendar UI, month grid, drag/drop, iCal/M365, notification inbox, mail template admin, approved-absence edit/delete, alternative-period workflow, capacity planning, outbox apply, real mail sending, EK sync, worksheet sync, migration, Render change, or production mutation.
 ## Next Backlog Items
 
 - PR7b: group-aware resource listing and default "mine medarbejdere" design, once admin UI usage is verified.
