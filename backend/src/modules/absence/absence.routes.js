@@ -117,8 +117,6 @@ router.get("/api/calendar/absence-types/request-options", requireTenantHost, req
 router.get("/api/calendar/absence-requests/manager/pending", requireTenantHost, requireAuth("access"), async (req, res, next) => {
   try {
     const { tenantId, userId } = getTenantContext(req);
-    requireAbsenceRequestAccess(req, "read_managed");
-
     const result = await absenceRequestService.listManagedPending({
       tenantId,
       userId,
@@ -141,8 +139,6 @@ router.get("/api/calendar/absence-requests/manager/pending", requireTenantHost, 
 router.get("/api/calendar/absence-requests/manager/:id", requireTenantHost, requireAuth("access"), async (req, res, next) => {
   try {
     const { tenantId, userId } = getTenantContext(req);
-    requireAbsenceRequestAccess(req, "read_managed");
-
     const result = await absenceRequestService.getManagedDetail({
       tenantId,
       userId,
@@ -253,8 +249,6 @@ router.post("/api/calendar/absence-requests/:id/submit", requireTenantHost, requ
 router.post("/api/calendar/absence-requests/:id/approve", requireTenantHost, requireAuth("access"), async (req, res, next) => {
   try {
     const { tenantId, userId } = getTenantContext(req);
-    requireAbsenceRequestAccess(req, "approve_managed");
-
     const result = await absenceRequestService.approveManaged({
       tenantId,
       userId,
@@ -277,8 +271,6 @@ router.post("/api/calendar/absence-requests/:id/approve", requireTenantHost, req
 router.post("/api/calendar/absence-requests/:id/reject", requireTenantHost, requireAuth("access"), async (req, res, next) => {
   try {
     const { tenantId, userId } = getTenantContext(req);
-    requireAbsenceRequestAccess(req, "reject_managed");
-
     const result = await absenceRequestService.rejectManaged({
       tenantId,
       userId,

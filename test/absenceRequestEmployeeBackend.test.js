@@ -1044,17 +1044,23 @@ test("manager repositories scope list, detail and decision updates by tenant and
   assert.match(client.calls[2].sql, /status = ANY\(\$5::text\[\]\)/);
 });
 
-test("manager routes are permission-gated and expose PR5 endpoints", () => {
+test("manager routes expose object-scoped PR5 endpoints without role blanket access", () => {
   const routes = read("backend/src/modules/absence/absence.routes.js");
+  const repository = read("backend/src/modules/absence/absenceRequest.repository.js");
   assert.match(routes, /\/api\/calendar\/absence-requests\/manager\/pending/);
   assert.match(routes, /\/api\/calendar\/absence-requests\/manager\/:id/);
   assert.match(routes, /\/api\/calendar\/absence-requests\/:id\/approve/);
   assert.match(routes, /\/api\/calendar\/absence-requests\/:id\/reject/);
   assert.ok(routes.indexOf("/api/calendar/absence-requests/manager/pending") < routes.indexOf("/api/calendar/absence-requests/:id"));
   assert.ok(routes.indexOf("/api/calendar/absence-requests/manager/:id") < routes.indexOf("/api/calendar/absence-requests/:id"));
-  for (const action of ["read_managed", "approve_managed", "reject_managed", "read_private_comment", "approve_before_review_date"]) {
+  assert.doesNotMatch(routes, /manager\/pending[\s\S]{0,500}requireAbsenceRequestAccess\(req, "read_managed"\)/);
+  assert.doesNotMatch(routes, /manager\/:id[\s\S]{0,500}requireAbsenceRequestAccess\(req, "read_managed"\)/);
+  assert.doesNotMatch(routes, /:id\/approve[\s\S]{0,500}requireAbsenceRequestAccess\(req, "approve_managed"\)/);
+  assert.doesNotMatch(routes, /:id\/reject[\s\S]{0,500}requireAbsenceRequestAccess\(req, "reject_managed"\)/);
+  for (const action of ["read_private_comment", "approve_before_review_date"]) {
     assert.match(routes, new RegExp(`"${action}"`));
   }
+  assert.match(repository, /ar\.assigned_manager_tenant_user_id = \$2/);
 });
 
 function managerRow(overrides = {}) {
@@ -1072,6 +1078,57 @@ function managerRow(overrides = {}) {
   });
 }
 
+test("manager object-scope is independent of system role and never grants blanket access", async () => {
+  for (const role of ["technician", "project_leader", "tenant_admin"]) {
+    const client = createTxClient();
+    let listArgs = null;
+    let detailArgs = null;
+    let decisionArgs = null;
+    let currentRow = managerRow({ assigned_manager_tenant_user_id: uuid(5) });
+    await withPatches([
+      [pool, "connect", async () => client],
+      [absenceRequestRepository, "listForManager", async (_client, args) => {
+        listArgs = args;
+        return [currentRow];
+      }],
+      [absenceRequestRepository, "findByIdForManager", async (_client, args) => {
+        detailArgs = args;
+        currentRow = { ...currentRow, assigned_manager_tenant_user_id: args.managerTenantUserId };
+        return currentRow;
+      }],
+      [absenceRequestRepository, "updateManagedDecision", async (_client, args) => {
+        decisionArgs = args;
+        currentRow = { ...currentRow, status: "approved", version: 5, assigned_manager_tenant_user_id: args.managerTenantUserId };
+        return currentRow;
+      }],
+      [approvedAbsenceService, "materializeFromApprovedRequest", async () => ({ approvedAbsence: { id: uuid(70), source_type: "absence_request", source_id: uuid(10) }, created: true })],
+      [absenceRequestRepository, "insertEvent", async () => ({ id: uuid(20) })],
+      [auditService, "logAuditEvent", async () => {}],
+      [absenceRequestRepository, "findNotificationContextById", async () => notificationContextRow({ status: "approved" })],
+      [absenceNotificationService, "enqueueAbsenceApproved", async () => {}],
+    ], async () => {
+      const pending = await absenceRequestService.listManagedPending({ tenantId: uuid(1), userId: uuid(5), filters: {} });
+      assert.equal(pending.requests.length, 1, role);
+      const detail = await absenceRequestService.getManagedDetail({ tenantId: uuid(1), userId: uuid(5), absenceRequestId: uuid(10), includePrivateComment: false });
+      assert.equal(detail.request.assigned_manager.id, uuid(5), role);
+      const decision = await absenceRequestService.approveManaged({ tenantId: uuid(1), userId: uuid(5), absenceRequestId: uuid(10), body: { version: 4 } });
+      assert.equal(decision.request.status, "approved", role);
+    });
+    assert.equal(listArgs.managerTenantUserId, uuid(5));
+    assert.equal(detailArgs.managerTenantUserId, uuid(5));
+    assert.equal(decisionArgs.managerTenantUserId, uuid(5));
+  }
+
+  await withPatches([
+    [pool, "connect", async () => createTxClient()],
+    [absenceRequestRepository, "findByIdForManager", async () => null],
+  ], async () => {
+    await assert.rejects(
+      absenceRequestService.getManagedDetail({ tenantId: uuid(1), userId: uuid(6), absenceRequestId: uuid(10), includePrivateComment: false }),
+      (error) => error.statusCode === 404 && error.message === "absence_request_not_found"
+    );
+  });
+});
 test("manager approve is transactional, versioned, audited and enqueues employee notification once", async () => {
   const client = createTxClient();
   let currentRow = managerRow();

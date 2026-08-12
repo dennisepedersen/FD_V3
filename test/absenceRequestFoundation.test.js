@@ -126,8 +126,11 @@ test('permission matrix grants own requests but not managed/private actions by r
     assertDenied(() => requireAccess(role, 'absence_request', 'read_private_comment'));
   }
 
-  assertDenied(() => requireAccess('project_leader', 'absence_request', 'approve_managed'));
-  assertDenied(() => requireAccess('technician', 'absence_request', 'approve_managed'));
+  for (const role of ['tenant_admin', 'project_leader', 'technician']) {
+    assertDenied(() => requireAccess(role, 'absence_request', 'read_managed'));
+    assertDenied(() => requireAccess(role, 'absence_request', 'approve_managed'));
+    assertDenied(() => requireAccess(role, 'absence_request', 'reject_managed'));
+  }
 });
 
 test('admin foundation permissions are explicit and do not include private comments', () => {
