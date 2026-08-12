@@ -186,6 +186,10 @@ test("calendar feed repositories scope own and team feeds by tenant and active m
     limit: 50,
     offset: 0,
   });
+  await calendarFeedRepository.hasActiveManagedTeamScope(client, {
+    tenantId: uuid(1),
+    managerTenantUserId: uuid(5),
+  });
   await calendarFeedRepository.listManagedApprovedAbsenceEvents(client, {
     tenantId: uuid(1),
     managerTenantUserId: uuid(5),
@@ -199,15 +203,22 @@ test("calendar feed repositories scope own and team feeds by tenant and active m
   assert.match(client.calls[0].sql, /aa\.employee_tenant_user_id = \$2/);
   assert.match(client.calls[0].sql, /aa\.status = 'active'/);
   assert.match(client.calls[0].sql, /COALESCE\(aa\.end_date, aa\.start_date\) >= \$3::date/);
-  assert.match(client.calls[1].sql, /JOIN employee_manager_relation emr/);
-  assert.match(client.calls[1].sql, /emr\.tenant_id = aa\.tenant_id/);
+  assert.match(client.calls[1].sql, /FROM employee_manager_relation emr/);
+  assert.match(client.calls[1].sql, /emr\.tenant_id = \$1/);
   assert.match(client.calls[1].sql, /emr\.manager_tenant_user_id = \$2/);
   assert.match(client.calls[1].sql, /emr\.relation_type = 'primary'/);
   assert.match(client.calls[1].sql, /emr\.is_active = true/);
   assert.match(client.calls[1].sql, /employee\.status = 'active'/);
   assert.match(client.calls[1].sql, /employee\.login_status = 'active'/);
-  assert.doesNotMatch(client.calls[1].sql, /resource_group/);
-  assert.doesNotMatch(client.calls[1].sql, /calendar_absence/);
+  assert.match(client.calls[2].sql, /JOIN employee_manager_relation emr/);
+  assert.match(client.calls[2].sql, /emr\.tenant_id = aa\.tenant_id/);
+  assert.match(client.calls[2].sql, /emr\.manager_tenant_user_id = \$2/);
+  assert.match(client.calls[2].sql, /emr\.relation_type = 'primary'/);
+  assert.match(client.calls[2].sql, /emr\.is_active = true/);
+  assert.match(client.calls[2].sql, /employee\.status = 'active'/);
+  assert.match(client.calls[2].sql, /employee\.login_status = 'active'/);
+  assert.doesNotMatch(client.calls[2].sql, /resource_group/);
+  assert.doesNotMatch(client.calls[2].sql, /calendar_absence/);
 });
 
 function overlapsDateRange({ startDate, endDate }, { from, to }) {
@@ -291,16 +302,47 @@ test("calendar feed service requires bounded date filters and maps repository ro
     assert.equal(result.limit, 25);
     assert.equal(result.offset, 5);
   });
+
+  await withPatches([
+    [pool, "connect", async () => createClient([approvedAbsenceRow()])],
+    [calendarFeedRepository, "hasActiveManagedTeamScope", async (_client, args) => {
+      assert.equal(args.tenantId, uuid(1));
+      assert.equal(args.managerTenantUserId, uuid(5));
+      return true;
+    }],
+  ], async () => {
+    const result = await calendarFeedService.listTeam({
+      tenantId: uuid(1),
+      userId: uuid(5),
+      filters: { from: "2026-08-01", to: "2026-08-31" },
+    });
+    assert.equal(result.events.length, 1);
+    assert.equal(result.events[0].title, "Ikke til stede");
+  });
+
+  await withPatches([
+    [pool, "connect", async () => createClient([])],
+    [calendarFeedRepository, "hasActiveManagedTeamScope", async () => false],
+  ], async () => {
+    await assert.rejects(
+      calendarFeedService.listTeam({ tenantId: uuid(1), userId: uuid(6), filters: { from: "2026-08-01", to: "2026-08-31" } }),
+      (error) => error.statusCode === 403 && error.message === "calendar_event_access_denied"
+    );
+  });
 });
 
 test("calendar feed routes expose PR6 endpoints and do not reuse legacy resource_absences feed", () => {
   const routes = read("backend/src/modules/calendar/calendar.routes.js");
   assert.match(routes, /\/api\/calendar\/events\/mine/);
   assert.match(routes, /\/api\/calendar\/events\/team/);
+  const repository = read("backend/src/modules/calendar/calendarFeed.repository.js");
+  const service = read("backend/src/modules/calendar/calendarFeed.service.js");
   assert.match(routes, /moduleKey: \"calendar_event\"/);
   assert.match(routes, /\"read_own\"/);
-  assert.match(routes, /\"read_managed\"/);
-  assert.match(routes, /calendar_event_access_denied/);
+  assert.doesNotMatch(routes, /events\/team[\s\S]{0,500}requireCalendarEventAccess\(req, "read_managed"\)/);
+  assert.match(repository, /function hasActiveManagedTeamScope/);
+  assert.match(service, /hasActiveManagedTeamScope/);
+  assert.match(service, /calendar_event_access_denied/);
   assert.doesNotMatch(routes, /resourceAbsenceService\.listAbsencesForTenantRange[\s\S]+events\/mine/);
   assert.equal(auditService.ALLOWED_EVENT_TYPES.includes("approved_absence.created"), true);
 });

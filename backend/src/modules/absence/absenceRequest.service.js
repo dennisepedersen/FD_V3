@@ -550,7 +550,7 @@ async function getManagedDetail({ tenantId, userId, absenceRequestId, includePri
       absenceRequestId: normalizedRequestId,
     });
     return {
-      request: mapManagerRequest(row, { includeComment: includePrivateComment }),
+      request: mapManagerRequest(row, { includeComment: includePrivateComment || String(row.assigned_manager_tenant_user_id) === String(normalizedUserId) }),
       events: events.map(mapManagerEvent),
     };
   } finally {

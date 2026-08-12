@@ -105,6 +105,12 @@ async function listTeam({ tenantId, userId, filters = {} }) {
 
   const client = await pool.connect();
   try {
+    const hasManagedScope = await calendarFeedRepository.hasActiveManagedTeamScope(client, {
+      tenantId: normalizedTenantId,
+      managerTenantUserId: normalizedUserId,
+    });
+    if (!hasManagedScope) throw createHttpError(403, "calendar_event_access_denied");
+
     const rows = await calendarFeedRepository.listManagedApprovedAbsenceEvents(client, {
       tenantId: normalizedTenantId,
       managerTenantUserId: normalizedUserId,

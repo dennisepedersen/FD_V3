@@ -107,6 +107,10 @@ test('tenant absence UI uses request backend contracts instead of legacy hardcod
   assert.match(html, /data-calendar-tab="requests"/);
   assert.match(html, /id="absenceRequestTypeSelect"/);
   assert.match(html, /id="absenceManagerPanel"/);
+  assert.match(html, /data-calendar-tab="team"/);
+  assert.match(html, /data-absence-team-tab/);
+  assert.match(html, /id="absenceTeamAgendaPanel"/);
+  assert.match(html, />Teamkalender</);
   assert.match(html, /id="specialWindowsPanel"/);
   const requestForm = html.slice(html.indexOf('id="absenceRequestForm"'), html.indexOf('id="absenceAgendaPanel"'));
   assert.doesNotMatch(requestForm, /option value="vacation"|option value="sickness"|option value="course"/);
@@ -129,6 +133,12 @@ test('tenant absence UI uses request backend contracts instead of legacy hardcod
   assert.match(auth, /\/api\/calendar\/absence-requests\/manager\/pending/);
   assert.match(auth, /\/api\/calendar\/events\/mine/);
   assert.match(auth, /\/api\/calendar\/events\/team/);
+  assert.match(auth, /teamAgendaAccessDenied/);
+  assert.match(auth, /setCalendarTabVisibility\("\[data-absence-team-tab\]", !state\.calendar\.teamAgendaAccessDenied\)/);
+  assert.match(auth, /loadTeamAbsenceAgenda\(\{ silent: true \}\)/);
+  assert.match(auth, /if \(error && error\.status === 403\) \{\s*state\.calendar\.teamAgendaAccessDenied = true;/);
+  assert.match(auth, /appendText\(card, "p", "absenceName", event\.title \|\| "Fravaer"\)/);
+  assert.doesNotMatch(auth, /absenceTeamAgendaSection/);
   assert.match(auth, /\/api\/calendar\/special-windows/);
   assert.match(auth, /"Idempotency-Key"/);
   assert.match(auth, /getAbsenceDomainErrorMessage/);

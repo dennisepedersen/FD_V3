@@ -75,8 +75,7 @@ events, and resource groups must never grant project access.
    hardcoded.
 6. Special vacation windows are not first-come-first-served.
 7. Approval before a special window review date is blocked by default.
-8. Private employee comments require explicit permission and must not appear in
-   broad calendars by default.
+8. Private employee comments are visible to the employee and the concrete assigned approver through request object scope. Broader review surfaces still require explicit permission, and comments must not appear in broad calendars by default.
 9. Tenant admin is not automatically an HR/private-comment reader.
 10. Project responsible, project team leader, resource group manager, and
     tenant admin are not automatically personnel approvers.
@@ -1116,6 +1115,6 @@ verified: approved absence is materialized inside the manager approve transactio
 
 verified: personal calendar feed is `GET /api/calendar/events/mine` with `calendar_event:read_own`. Default tenant roles receive own-feed read only.
 
-verified: manager team calendar feed is `GET /api/calendar/events/team` with explicit `calendar_event:read_managed` plus active primary `employee_manager_relation` object scope. Role alone, tenant admin status, project leader status, and resource group manager metadata do not grant team feed rows.
+verified: manager team calendar feed is `GET /api/calendar/events/team` with active primary `employee_manager_relation` object scope. The endpoint returns 403 when the actor has no active managed-team relation, and returned rows are scoped by that relation. Role alone, tenant admin status, project leader status, and resource group manager metadata do not grant team feed access or rows.
 
 verified: private and neutral-shared team events use neutral title `Ikke til stede`; manager-visible events may show the absence type. Feeds do not expose employee comments, rejection reasons, event metadata, email/outbox data, or audit details.

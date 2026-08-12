@@ -3555,6 +3555,7 @@
               <button class="calendarTab active" type="button" role="tab" data-calendar-tab="requests" aria-selected="true">Mine anmodninger</button>
               <button class="calendarTab" type="button" role="tab" data-calendar-tab="new-request" aria-selected="false">Anmod om fravaer</button>
               <button class="calendarTab" type="button" role="tab" data-calendar-tab="agenda" aria-selected="false">Min kalender</button>
+              <button class="calendarTab" type="button" role="tab" data-calendar-tab="team" aria-selected="false" data-absence-team-tab hidden>Teamkalender</button>
               <button class="calendarTab" type="button" role="tab" data-calendar-tab="manager" aria-selected="false" data-absence-manager-tab hidden>Afventer behandling</button>
               <button class="calendarTab" type="button" role="tab" data-calendar-tab="windows" aria-selected="false" data-special-window-tab hidden>Ferieonskeperioder</button>
               <button class="calendarTab" type="button" role="tab" data-calendar-tab="absences" aria-selected="false" data-legacy-absence-tab hidden>Direkte fravaer</button>
@@ -3645,6 +3646,17 @@
               <div id="absenceAgendaList" class="absenceList" aria-live="polite"></div>
             </div>
 
+            <div id="absenceTeamAgendaPanel" class="absenceWorkspacePanel" data-calendar-panel="team" hidden>
+              <div class="sectionHeader">
+                <div>
+                  <h2>Teamkalender</h2>
+                  <p id="absenceTeamAgendaMeta" class="subtitle">Indlaeser teamkalender...</p>
+                </div>
+                <button id="absenceTeamAgendaRefreshBtn" class="btn btnCompact" type="button">Opdater</button>
+              </div>
+              <div id="absenceTeamAgendaList" class="absenceList" aria-live="polite"></div>
+            </div>
+
             <div id="absenceManagerPanel" class="absenceWorkspacePanel" data-calendar-panel="manager" hidden>
               <div class="sectionHeader">
                 <div>
@@ -3655,15 +3667,6 @@
               </div>
               <div id="absenceManagerList" class="absenceList" aria-live="polite"></div>
               <div id="absenceManagerDetail" class="absenceDetailPanel" aria-live="polite" hidden></div>
-              <section id="absenceTeamAgendaSection" class="absenceSubsection" hidden>
-                <div class="sectionHeader">
-                  <div>
-                    <h3>Team-agenda</h3>
-                    <p id="absenceTeamAgendaMeta" class="subtitle">Indlaeser teamkalender...</p>
-                  </div>
-                </div>
-                <div id="absenceTeamAgendaList" class="absenceList" aria-live="polite"></div>
-              </section>
             </div>
 
             <div id="specialWindowsPanel" class="absenceWorkspacePanel" data-calendar-panel="windows" hidden>

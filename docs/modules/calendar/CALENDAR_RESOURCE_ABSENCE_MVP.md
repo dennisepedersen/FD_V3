@@ -57,8 +57,8 @@ Not part of this PR3 backend:
 Implemented local direction:
 - Manager endpoints use `absence_request` and `absence_request_event`, not `resource_absences`.
 - `GET /api/calendar/absence-requests/manager/pending` lists requests assigned to the current `tenant_user` through the submitted request snapshot `assigned_manager_tenant_user_id`.
-- `GET /api/calendar/absence-requests/manager/:id` returns manager-scoped detail and event history. `employee_comment` is returned only with explicit `absence_request:read_private_comment` permission; the response can still expose `has_private_comment`.
-- `POST /api/calendar/absence-requests/:id/approve` and `POST /api/calendar/absence-requests/:id/reject` require explicit managed permissions and optimistic `version`.
+- `GET /api/calendar/absence-requests/manager/:id` returns manager-scoped detail and event history. `employee_comment` is returned to the concrete assigned manager through the request snapshot object scope, and explicit `absence_request:read_private_comment` can still be retained for exceptional review surfaces. The pending list exposes only `has_private_comment`.
+- `POST /api/calendar/absence-requests/:id/approve` and `POST /api/calendar/absence-requests/:id/reject` use assigned-manager object scope and optimistic `version`.
 - Allowed PR5 transitions are `submitted -> approved`, `submitted -> rejected`, `ready_for_review -> approved`, and `ready_for_review -> rejected`.
 - The manager is not recalculated during read or decision. The submitted request's snapshot manager is the only normal approver.
 - Special-window approve and reject are blocked before `review_start_date` when `approval_blocked_before_review` applies, unless explicit `absence_request:approve_before_review_date` is present and a reason is supplied.
@@ -201,12 +201,12 @@ Not part of PR7a:
 ## PR8 Absence Request UI
 
 Implemented local direction:
-- Tenant Kalender now contains a `Fravaer / Planlaegning` workspace with tabs for `Mine anmodninger`, `Anmod om fravaer`, `Min kalender`, permission-gated manager treatment, permission-gated special vacation windows, legacy direct absence, and the existing task placeholder.
+- Tenant Kalender now contains a `Fravaer / Planlaegning` workspace with tabs for `Mine anmodninger`, `Anmod om fravaer`, `Min kalender`, relation-scoped `Teamkalender`, permission-gated manager treatment, permission-gated special vacation windows, legacy direct absence, and the existing task placeholder.
 - The employee request form uses `GET /api/calendar/absence-types/request-options` as the only source for request absence types. It does not reuse the legacy `resource_absences` hardcoded type list.
 - The employee flow creates or patches a draft, shows a confirmation summary, and submits with `Idempotency-Key`. The UI supports `full_days` and `time_range`; `partial_day` remains hidden/deferred.
 - Mine/detail/cancel flows use `GET /api/calendar/absence-requests/mine`, `GET /api/calendar/absence-requests/:id`, and `POST /api/calendar/absence-requests/:id/cancel` with server-side tenant/user scope and optimistic versioning.
 - Manager UI probes `GET /api/calendar/absence-requests/manager/pending`; a 403 hides the surface. Detail, approve, and reject use the existing PR5 endpoints and never fetch private comments from any alternate endpoint.
-- Personal and team agenda are list-only feeds using `GET /api/calendar/events/mine` and `GET /api/calendar/events/team`. There is no full calendar grid or drag/drop engine in PR8.
+- Personal and team agenda are list-only feeds using `GET /api/calendar/events/mine` and `GET /api/calendar/events/team`. `Teamkalender` is shown only after the team endpoint confirms active manager-relation scope; a tenant-admin role alone does not show or populate it. There is no full calendar grid or drag/drop engine in PR8.
 - Special vacation window UI lists, creates, edits, archives, and opens review overview through the PR7 `/api/calendar/special-windows` endpoints. Scope selectors use existing tenant-user/resource-group/type options instead of hardcoded users or groups.
 - Domain errors are mapped centrally to Danish user text. Unknown errors use a generic retry message.
 

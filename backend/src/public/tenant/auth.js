@@ -877,6 +877,7 @@
         teamEvents: [],
         teamAgendaLoaded: false,
         teamAgendaLoading: false,
+        teamAgendaAccessDenied: true,
         specialWindows: [],
         specialWindowsLoaded: false,
         specialWindowsLoading: false,
@@ -3261,6 +3262,7 @@
     }
     function renderOptionalCalendarTabs() {
       setCalendarTabVisibility("[data-absence-manager-tab]", !state.calendar.managerAccessDenied);
+      setCalendarTabVisibility("[data-absence-team-tab]", !state.calendar.teamAgendaAccessDenied);
       setCalendarTabVisibility("[data-special-window-tab]", !state.calendar.specialWindowAccessDenied);
       setCalendarTabVisibility("[data-legacy-absence-tab]", isTenantAdmin(state.me));
     }
@@ -3694,27 +3696,32 @@
 
     async function loadTeamAbsenceAgenda(options) {
       ensureCalendarDefaults();
+      const silent = Boolean(options && options.silent);
       if (!(options && options.force) && state.calendar.teamAgendaLoaded) {
-        renderCalendarEvents("absenceTeamAgendaList", "absenceTeamAgendaMeta", state.calendar.teamEvents, false, "Ingen teamfravaer i perioden.");
+        if (!silent) renderCalendarEvents("absenceTeamAgendaList", "absenceTeamAgendaMeta", state.calendar.teamEvents, false, "Ingen teamfravaer i perioden.");
         return;
       }
       state.calendar.teamAgendaLoading = true;
-      renderCalendarEvents("absenceTeamAgendaList", "absenceTeamAgendaMeta", state.calendar.teamEvents, true, "");
+      if (!silent) renderCalendarEvents("absenceTeamAgendaList", "absenceTeamAgendaMeta", state.calendar.teamEvents, true, "");
       try {
         const response = await apiFetch(`/api/calendar/events/team?from=${encodeURIComponent(state.calendar.from)}&to=${encodeURIComponent(state.calendar.to)}`, { method: "GET" });
         state.calendar.teamEvents = response && Array.isArray(response.events) ? response.events : [];
         state.calendar.teamAgendaLoaded = true;
-        if (byId("absenceTeamAgendaSection")) byId("absenceTeamAgendaSection").hidden = false;
+        state.calendar.teamAgendaAccessDenied = false;
+        renderOptionalCalendarTabs();
       } catch (error) {
         if (error && error.status === 403) {
-          if (byId("absenceTeamAgendaSection")) byId("absenceTeamAgendaSection").hidden = true;
+          state.calendar.teamAgendaAccessDenied = true;
+          state.calendar.teamAgendaLoaded = false;
+          state.calendar.teamEvents = [];
+          renderOptionalCalendarTabs();
           return;
         }
         if (handleAuthFailure(error)) return;
-        setText(byId("absenceTeamAgendaMeta"), getAbsenceDomainErrorMessage(error));
+        if (!silent) setText(byId("absenceTeamAgendaMeta"), getAbsenceDomainErrorMessage(error));
       } finally {
         state.calendar.teamAgendaLoading = false;
-        renderCalendarEvents("absenceTeamAgendaList", "absenceTeamAgendaMeta", state.calendar.teamEvents, false, "Ingen teamfravaer i perioden.");
+        if (!silent) renderCalendarEvents("absenceTeamAgendaList", "absenceTeamAgendaMeta", state.calendar.teamEvents, false, "Ingen teamfravaer i perioden.");
       }
     }
 
@@ -4112,14 +4119,16 @@
       if (tab === "requests") {
         await Promise.all([loadAbsenceRequestTypes(options), loadMineAbsenceRequests(options)]);
         loadManagerRequests({ silent: true });
+        loadTeamAbsenceAgenda({ silent: true });
         loadSpecialWindows({ silent: true });
       } else if (tab === "new-request") {
         await loadAbsenceRequestTypes(options);
       } else if (tab === "agenda") {
         await loadAbsenceAgenda(options);
+      } else if (tab === "team") {
+        await loadTeamAbsenceAgenda(options);
       } else if (tab === "manager") {
         await loadManagerRequests(options);
-        await loadTeamAbsenceAgenda(options);
       } else if (tab === "windows") {
         await Promise.all([loadAbsenceRequestTypes(options), loadSpecialWindows(options)]);
       } else if (tab === "absences") {
@@ -4134,10 +4143,11 @@
     }
 
     function setCalendarTab(tab) {
-      const allowedTabs = new Set(["requests", "new-request", "agenda", "manager", "windows", "absences", "tasks"]);
+      const allowedTabs = new Set(["requests", "new-request", "agenda", "team", "manager", "windows", "absences", "tasks"]);
       const requestedTab = String(tab || "requests");
       let nextTab = allowedTabs.has(requestedTab) ? requestedTab : "requests";
       if (nextTab === "absences" && !isTenantAdmin(state.me)) nextTab = "requests";
+      if (nextTab === "team" && state.calendar.teamAgendaAccessDenied) nextTab = "requests";
       if (nextTab === "manager" && state.calendar.managerAccessDenied) nextTab = "requests";
       if (nextTab === "windows" && state.calendar.specialWindowAccessDenied) nextTab = "requests";
       state.calendar.activeTab = nextTab;
@@ -6204,12 +6214,18 @@
         loadAbsenceAgenda({ force: true });
       });
     }
+    if (byId("absenceTeamAgendaRefreshBtn")) {
+      byId("absenceTeamAgendaRefreshBtn").addEventListener("click", () => {
+        state.calendar.teamAgendaLoaded = false;
+        loadTeamAbsenceAgenda({ force: true });
+      });
+    }
     if (byId("absenceManagerRefreshBtn")) {
       byId("absenceManagerRefreshBtn").addEventListener("click", () => {
         state.calendar.managerLoaded = false;
         state.calendar.teamAgendaLoaded = false;
         loadManagerRequests({ force: true });
-        loadTeamAbsenceAgenda({ force: true });
+        loadTeamAbsenceAgenda({ silent: true, force: true });
       });
     }
     if (byId("specialWindowRefreshBtn")) {

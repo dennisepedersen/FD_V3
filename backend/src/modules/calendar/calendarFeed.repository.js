@@ -63,6 +63,33 @@ async function listOwnApprovedAbsenceEvents(client, {
   return rows;
 }
 
+async function hasActiveManagedTeamScope(client, {
+  tenantId,
+  managerTenantUserId,
+}) {
+  const { rows } = await client.query(
+    `
+      SELECT 1
+      FROM employee_manager_relation emr
+      JOIN tenant_user employee
+        ON employee.tenant_id = emr.tenant_id
+       AND employee.id = emr.employee_tenant_user_id
+      WHERE emr.tenant_id = $1
+        AND emr.manager_tenant_user_id = $2
+        AND emr.relation_type = 'primary'
+        AND emr.is_active = true
+        AND emr.valid_from <= CURRENT_DATE
+        AND (emr.valid_to IS NULL OR emr.valid_to >= CURRENT_DATE)
+        AND employee.status = 'active'
+        AND employee.login_status = 'active'
+      LIMIT 1
+    `,
+    [tenantId, managerTenantUserId]
+  );
+
+  return rows.length > 0;
+}
+
 async function listManagedApprovedAbsenceEvents(client, {
   tenantId,
   managerTenantUserId,
@@ -98,6 +125,7 @@ async function listManagedApprovedAbsenceEvents(client, {
 }
 
 module.exports = {
+  hasActiveManagedTeamScope,
   listManagedApprovedAbsenceEvents,
   listOwnApprovedAbsenceEvents,
   _test: {

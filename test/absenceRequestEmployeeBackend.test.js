@@ -1084,7 +1084,7 @@ test("manager object-scope is independent of system role and never grants blanke
     let listArgs = null;
     let detailArgs = null;
     let decisionArgs = null;
-    let currentRow = managerRow({ assigned_manager_tenant_user_id: uuid(5) });
+    let currentRow = managerRow({ assigned_manager_tenant_user_id: uuid(5), employee_comment: "Privat kontekst" });
     await withPatches([
       [pool, "connect", async () => client],
       [absenceRequestRepository, "listForManager", async (_client, args) => {
@@ -1109,8 +1109,11 @@ test("manager object-scope is independent of system role and never grants blanke
     ], async () => {
       const pending = await absenceRequestService.listManagedPending({ tenantId: uuid(1), userId: uuid(5), filters: {} });
       assert.equal(pending.requests.length, 1, role);
+      assert.equal(pending.requests[0].has_private_comment, true, role);
+      assert.equal(Object.prototype.hasOwnProperty.call(pending.requests[0], "employee_comment"), false, role);
       const detail = await absenceRequestService.getManagedDetail({ tenantId: uuid(1), userId: uuid(5), absenceRequestId: uuid(10), includePrivateComment: false });
       assert.equal(detail.request.assigned_manager.id, uuid(5), role);
+      assert.equal(detail.request.employee_comment, "Privat kontekst", role);
       const decision = await absenceRequestService.approveManaged({ tenantId: uuid(1), userId: uuid(5), absenceRequestId: uuid(10), body: { version: 4 } });
       assert.equal(decision.request.status, "approved", role);
     });

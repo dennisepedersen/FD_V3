@@ -48,8 +48,8 @@ Personal feed:
 Manager team feed:
 
 - `GET /api/calendar/events/team`
-- Requires explicit `calendar_event:read_managed`.
-- Also requires an active primary `employee_manager_relation` from the employee to the requesting manager in the repository query.
+- Requires an active primary `employee_manager_relation` from at least one employee to the requesting manager before the endpoint returns 200.
+- Returned rows are additionally scoped by the active primary `employee_manager_relation` from the employee to the requesting manager in the repository query.
 - No tenant-admin, project-leader, resource-group-manager or role-only fallback.
 - `private` and `neutral_shared` entries use the neutral title `Ikke til stede`.
 - `manager_visible` entries may show the absence type.

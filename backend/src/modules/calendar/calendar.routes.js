@@ -99,8 +99,6 @@ router.get("/api/calendar/events/mine", requireTenantHost, requireAuth("access")
 router.get("/api/calendar/events/team", requireTenantHost, requireAuth("access"), async (req, res, next) => {
   try {
     const { tenantId, userId } = getTenantContext(req);
-    requireCalendarEventAccess(req, "read_managed");
-
     const result = await calendarFeedService.listTeam({
       tenantId,
       userId,
