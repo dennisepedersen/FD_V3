@@ -855,6 +855,7 @@
         requestTypes: [],
         requestTypesLoaded: false,
         requestTypesLoading: false,
+        requestTypesLoadError: "",
         requestDraft: null,
         requestDraftIdempotencyKey: "",
         requestSubmitIdempotencyKey: "",
@@ -3311,6 +3312,7 @@
       if (previous && types.some((type) => String(type.id) === previous)) select.value = previous;
       select.disabled = state.calendar.requestTypesLoading || types.length === 0;
       if (state.calendar.requestTypesLoading) setText(byId("absenceTypeOptionsStatus"), "Indlaeser fravaerstyper...");
+      else if (state.calendar.requestTypesLoadError) setText(byId("absenceTypeOptionsStatus"), state.calendar.requestTypesLoadError);
       else if (types.length === 0 && state.calendar.requestTypesLoaded) setText(byId("absenceTypeOptionsStatus"), "Der er ingen fravaerstyper tilgaengelige. Kontakt din administrator.");
       else setText(byId("absenceTypeOptionsStatus"), types.length === 1 ? "1 fravaerstype tilgaengelig." : `${types.length} fravaerstyper tilgaengelige.`);
       updateAbsenceDurationOptions();
@@ -3323,21 +3325,21 @@
         return;
       }
       state.calendar.requestTypesLoading = true;
+      state.calendar.requestTypesLoadError = "";
       renderAbsenceRequestTypeOptions();
       try {
         const response = await apiFetch("/api/calendar/absence-types/request-options", { method: "GET" });
-        const items = response && Array.isArray(response.absence_types) ? response.absence_types : response && Array.isArray(response.types) ? response.types : [];
+        const items = response && Array.isArray(response.items) ? response.items : response && Array.isArray(response.absence_types) ? response.absence_types : response && Array.isArray(response.types) ? response.types : [];
         state.calendar.requestTypes = items.filter((type) => Array.isArray(type.allowed_duration_types) && type.allowed_duration_types.some((item) => item === "full_days" || item === "time_range"));
         state.calendar.requestTypesLoaded = true;
+        state.calendar.requestTypesLoadError = "";
       } catch (error) {
         if (error && error.status === 403) {
-          state.calendar.requestTypes = [];
-          state.calendar.requestTypesLoaded = true;
-          setText(byId("absenceTypeOptionsStatus"), "Du har ikke adgang til at oprette fravaersanmodninger.");
+          state.calendar.requestTypesLoadError = "Du har ikke adgang til at oprette fravaersanmodninger.";
           return;
         }
         if (handleAuthFailure(error)) return;
-        setText(byId("absenceTypeOptionsStatus"), `Kunne ikke hente fravaerstyper: ${getAbsenceDomainErrorMessage(error)}`);
+        state.calendar.requestTypesLoadError = "Fravaerstyperne kunne ikke hentes. Proev igen.";
       } finally {
         state.calendar.requestTypesLoading = false;
         renderAbsenceRequestTypeOptions();

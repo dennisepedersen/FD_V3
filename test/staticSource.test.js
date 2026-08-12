@@ -103,6 +103,7 @@ test('tenant lifecycle service protects deactivation and reactivation invariants
 test('tenant absence UI uses request backend contracts instead of legacy hardcoded types', () => {
   const html = read('backend/src/public/tenant/app.html');
   const auth = read('backend/src/public/tenant/auth.js');
+  const routes = read('backend/src/modules/absence/absence.routes.js');
   assert.match(html, /data-calendar-tab="requests"/);
   assert.match(html, /id="absenceRequestTypeSelect"/);
   assert.match(html, /id="absenceManagerPanel"/);
@@ -110,6 +111,20 @@ test('tenant absence UI uses request backend contracts instead of legacy hardcod
   const requestForm = html.slice(html.indexOf('id="absenceRequestForm"'), html.indexOf('id="absenceAgendaPanel"'));
   assert.doesNotMatch(requestForm, /option value="vacation"|option value="sickness"|option value="course"/);
   assert.match(auth, /\/api\/calendar\/absence-types\/request-options/);
+  assert.match(routes, /items: result\.items/);
+  assert.match(auth, /Array\.isArray\(response\.items\)/);
+  assert.match(auth, /requestTypesLoadError/);
+  assert.match(auth, /Fravaerstyperne kunne ikke hentes\. Proev igen\./);
+  assert.match(auth, /Der er ingen fravaerstyper tilgaengelige\. Kontakt din administrator\./);
+  assert.match(auth, /allowed_duration_types\.some\(\(item\) => item === "full_days" \|\| item === "time_range"\)/);
+  assert.match(html, /id="absenceDurationFullDays"[\s\S]*Hele dage/);
+  assert.match(html, /id="absenceDurationTimeRange"[\s\S]*Bestemt tidsrum/);
+  assert.match(auth, /full\.disabled = !allowed\.has\("full_days"\)/);
+  assert.match(auth, /time\.disabled = !allowed\.has\("time_range"\)/);
+  assert.match(auth, /const policy = String\(type && type\.comment_policy \? type\.comment_policy : "optional"\)/);
+  assert.match(auth, /input\.required = policy === "required"/);
+  assert.match(auth, /state\.calendar\.requestTypesLoaded = true;\s*state\.calendar\.requestTypesLoadError = "";/);
+  assert.doesNotMatch(auth, /catch \(error\) \{[\s\S]{0,500}state\.calendar\.requestTypes = \[\]/);
   assert.match(auth, /\/api\/calendar\/absence-requests\/mine/);
   assert.match(auth, /\/api\/calendar\/absence-requests\/manager\/pending/);
   assert.match(auth, /\/api\/calendar\/events\/mine/);
