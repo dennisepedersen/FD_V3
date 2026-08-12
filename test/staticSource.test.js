@@ -130,3 +130,23 @@ test('tenant absence UI uses request backend contracts instead of legacy hardcod
   assert.match(auth, /String\(textarea && textarea\.value \|\| ""\)\.length\} \/ 500/);
   assert.doesNotMatch(auth, /outbox apply|sendRealMail|worksheet-sync|EK-sync/i);
 });
+
+test('tenant admin manager dropdown uses unfiltered active login candidates', () => {
+  const auth = read('backend/src/public/tenant/auth.js');
+  assert.match(auth, /managerCandidateUsers: \[\]/);
+  assert.match(auth, /managerCandidatesLoaded: false/);
+  assert.match(auth, /Array\.isArray\(state\.tenantAdmin\.managerCandidateUsers\)/);
+  assert.match(auth, /state\.tenantAdmin\.managerCandidateUsers = state\.tenantAdmin\.users/);
+  assert.match(auth, /loadTenantAdminManagerCandidateUsers\(\{ force: opts\.refreshManagerCandidates === true \}\)/);
+  assert.match(auth, /apiFetch\("\/api\/tenant\/admin\/users", \{ method: "GET" \}\)/);
+  assert.match(auth, /String\(candidate\.tenant_user_id\) === employeeUserId/);
+});
+
+test('tenant admin current manager inactive label uses backend status fields', () => {
+  const auth = read('backend/src/public/tenant/auth.js');
+  assert.match(auth, /function isTenantAdminCurrentManagerInactive\(user\)/);
+  assert.match(auth, /user\.primary_manager_status/);
+  assert.match(auth, /user\.primary_manager_login_status/);
+  assert.match(auth, /isTenantAdminCurrentManagerInactive\(user\)\s*\? `[\s\S]*\(ikke aktiv login\)`/);
+  assert.doesNotMatch(auth, /current\.textContent = `\$\{getTenantAdminManagerLabel\(user\)\} \(ikke aktiv login\)`/);
+});

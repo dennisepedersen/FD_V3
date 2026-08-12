@@ -889,8 +889,10 @@
       },
       tenantAdmin: {
         users: [],
+        managerCandidateUsers: [],
         syncStatus: null,
         usersLoaded: false,
+        managerCandidatesLoaded: false,
         usersLoading: false,
         syncLoading: false,
         inviteSending: new Set(),
@@ -1662,7 +1664,7 @@
 
     function getTenantAdminManagerCandidates(employee) {
       const employeeUserId = employee && employee.tenant_user_id ? String(employee.tenant_user_id) : "";
-      const users = Array.isArray(state.tenantAdmin.users) ? state.tenantAdmin.users : [];
+      const users = Array.isArray(state.tenantAdmin.managerCandidateUsers) ? state.tenantAdmin.managerCandidateUsers : [];
       return users.filter((candidate) => {
         if (!candidate || !candidate.tenant_user_id) return false;
         if (String(candidate.tenant_user_id) === employeeUserId) return false;
@@ -1670,6 +1672,13 @@
         const loginStatus = String(candidate.login_status || "").toLowerCase();
         return status === "active" && loginStatus === "active";
       }).sort((a, b) => getTenantAdminUserLabel(a).localeCompare(getTenantAdminUserLabel(b), "da"));
+    }
+
+    function isTenantAdminCurrentManagerInactive(user) {
+      if (!user || !user.primary_manager_tenant_user_id) return false;
+      const status = String(user.primary_manager_status || "").toLowerCase();
+      const loginStatus = String(user.primary_manager_login_status || "").toLowerCase();
+      return (status && status !== "active") || (loginStatus && loginStatus !== "active");
     }
 
     function getTenantAdminUserAdminErrorMessage(error, fallback) {
@@ -1963,7 +1972,9 @@
       if (currentManagerId && !hasCurrentCandidate) {
         const current = document.createElement("option");
         current.value = currentManagerId;
-        current.textContent = `${getTenantAdminManagerLabel(user)} (ikke aktiv login)`;
+        current.textContent = isTenantAdminCurrentManagerInactive(user)
+          ? `${getTenantAdminManagerLabel(user)} (ikke aktiv login)`
+          : getTenantAdminManagerLabel(user);
         current.disabled = true;
         managerSelect.appendChild(current);
       }
@@ -2244,6 +2255,7 @@
     }
     async function loadTenantAdminUsers(options) {
       if (!isTenantAdmin(state.me)) return;
+      const opts = options || {};
       state.tenantAdmin.usersLoading = true;
       renderTenantAdminUsers();
       try {
@@ -2252,6 +2264,12 @@
         const response = await apiFetch(`/api/tenant/admin/users${query}`, { method: "GET" });
         state.tenantAdmin.users = response && Array.isArray(response.users) ? response.users : [];
         state.tenantAdmin.usersLoaded = true;
+        if (!q) {
+          state.tenantAdmin.managerCandidateUsers = state.tenantAdmin.users;
+          state.tenantAdmin.managerCandidatesLoaded = true;
+        } else if (!state.tenantAdmin.managerCandidatesLoaded || opts.refreshManagerCandidates === true) {
+          await loadTenantAdminManagerCandidateUsers({ force: opts.refreshManagerCandidates === true });
+        }
       } catch (error) {
         if (handleResourceGroupForbidden(error, tenantAdminUsersMeta)) return;
         if (handleAuthFailure(error)) return;
@@ -2261,6 +2279,15 @@
         renderTenantAdminUsers();
         renderTenantAdminProjectAssignments();
       }
+    }
+
+    async function loadTenantAdminManagerCandidateUsers(options) {
+      if (!isTenantAdmin(state.me)) return;
+      const opts = options || {};
+      if (state.tenantAdmin.managerCandidatesLoaded && !opts.force) return;
+      const response = await apiFetch("/api/tenant/admin/users", { method: "GET" });
+      state.tenantAdmin.managerCandidateUsers = response && Array.isArray(response.users) ? response.users : [];
+      state.tenantAdmin.managerCandidatesLoaded = true;
     }
 
     async function loadTenantAdminSyncStatus() {
