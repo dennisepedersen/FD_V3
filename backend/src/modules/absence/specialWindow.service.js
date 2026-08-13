@@ -147,6 +147,36 @@ function unique(values) {
   return Array.from(new Set(values.filter(Boolean).map(String)));
 }
 
+function slugifySpecialWindowKey(name) {
+  const source = String(name || "").trim().toLowerCase();
+  const normalized = source
+    .replace(/\u00e6/g, "ae")
+    .replace(/\u00f8/g, "oe")
+    .replace(/\u00e5/g, "aa")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+  return (normalized || "ferieonskeperiode").slice(0, 64).replace(/-$/g, "") || "ferieonskeperiode";
+}
+
+function keyWithSuffix(base, suffix) {
+  if (suffix <= 1) return base;
+  const suffixText = `-${suffix}`;
+  return `${base.slice(0, 64 - suffixText.length).replace(/-$/g, "")}${suffixText}`;
+}
+
+async function generateTenantUniqueKey(client, { tenantId, name }) {
+  const base = slugifySpecialWindowKey(name);
+  const existing = new Set((await repository.listKeysByPrefix(client, { tenantId, keyPrefix: base })).map((key) => String(key).toLowerCase()));
+  for (let suffix = 1; suffix < 1000; suffix += 1) {
+    const candidate = keyWithSuffix(base, suffix);
+    if (!existing.has(candidate.toLowerCase())) return candidate;
+  }
+  throw createHttpError(409, "special_window_key_collision");
+}
+
 async function validateScopeReferences(client, { tenantId, scopes }) {
   const tenantUserIds = unique(scopes.map((scope) => scope.tenantUserId));
   const resourceGroupIds = unique(scopes.map((scope) => scope.resourceGroupId));
@@ -224,9 +254,10 @@ async function createSpecialWindow({ tenantId, actorId, body }) {
   try {
     return await withTransaction(async (client) => {
       await validateScopeReferences(client, { tenantId: normalizedTenantId, scopes: payload.scopes });
+      const key = payload.key || await generateTenantUniqueKey(client, { tenantId: normalizedTenantId, name: payload.name });
       const created = await repository.insertWindow(client, {
         tenantId: normalizedTenantId,
-        key: payload.key,
+        key,
         name: payload.name,
         description: payload.description,
         absenceStartDate: payload.absenceStartDate,
@@ -472,9 +503,12 @@ async function getReviewOverview({ tenantId, specialWindowId, filters = {}, incl
 module.exports = {
   _test: {
     buildOverlapSignals,
+    generateTenantUniqueKey,
+    keyWithSuffix,
     mapReviewRequest,
     mapWindow,
     normalizeListFilters,
+    slugifySpecialWindowKey,
     validateScopeReferences,
   },
   archiveSpecialWindow,

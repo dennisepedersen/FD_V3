@@ -28,6 +28,15 @@ const CREATE_ALLOWED_FIELDS = new Set([
   "timezone",
   "employee_comment",
 ]);
+const PREFLIGHT_ALLOWED_FIELDS = new Set([
+  "absence_type_id",
+  "duration_type",
+  "start_date",
+  "end_date",
+  "start_time",
+  "end_time",
+  "timezone",
+]);
 const UPDATE_ALLOWED_FIELDS = MUTATION_ALLOWED_FIELDS;
 const APPROVE_ALLOWED_FIELDS = new Set([
   "version",
@@ -271,6 +280,14 @@ function normalizeCreatePayload(body) {
   };
 }
 
+function normalizePreflightPayload(body) {
+  rejectUnknownFields(body, PREFLIGHT_ALLOWED_FIELDS);
+  return {
+    absenceTypeId: normalizeUuid(body?.absence_type_id, "absence_type_id_required"),
+    ...normalizeDurationPayload(body),
+  };
+}
+
 function normalizeUpdatePayload(body, existing) {
   rejectUnknownFields(body, UPDATE_ALLOWED_FIELDS);
   if (!body || Object.keys(body).length === 0) {
@@ -357,6 +374,7 @@ module.exports = {
   normalizeOffset,
   normalizeOptionalText,
   normalizeOptionalUuid,
+  normalizePreflightPayload,
   normalizeRejectPayload,
   normalizeUpdatePayload,
   normalizeUuid,

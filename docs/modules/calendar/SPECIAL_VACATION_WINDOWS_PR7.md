@@ -34,7 +34,7 @@ Supported scope rows:
 
 Resource-group matching is resolved through tenant-scoped `resource_group_members` plus `fitter.tenant_user_id`. Resource group membership can identify who is in the window scope; it does not grant approval rights and does not expose private comments.
 
-Absence types used in scopes must be active and `special_window_eligible = true`.
+Absence types used in scopes must be active and `special_window_eligible = true`. If no absence-type scope rows are selected, the window applies to all active request types where `special_window_eligible = true`.
 
 ## Derived Status
 
@@ -47,6 +47,10 @@ Persisted window status remains `is_active` plus dates. The API derives:
 - `review_open`: review date has arrived and the absence period has not ended.
 - `ended`: absence period has ended.
 - `archived`: `is_active = false`.
+
+## Create Key Behavior
+
+The admin UI does not require a manual `key` on create. If `key` is omitted, the backend generates a deterministic tenant-unique slug from `name`; existing windows keep their stored key, and renaming a window does not regenerate it.
 
 ## Submit Enforcement
 

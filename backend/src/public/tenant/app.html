@@ -3625,6 +3625,7 @@
                   <span id="absenceCommentPolicyHint" class="calendarFormStatus">Valgfri kommentar</span>
                   <span id="absenceCommentCounter" class="calendarFormStatus">0 / 250</span>
                 </label>
+                <div id="absenceRequestPreflightStatus" class="absenceInfoBox calendarFieldWide" role="status" hidden></div>
                 <p id="absenceRequestFormStatus" class="calendarFormStatus calendarFieldWide" role="status"></p>
                 <div id="absenceRequestSummary" class="absenceInfoBox calendarFieldWide" hidden></div>
                 <div class="calendarFormActions calendarFieldWide">
@@ -3693,9 +3694,9 @@
                     Navn
                     <input id="specialWindowNameInput" maxlength="160" required>
                   </label>
-                  <label class="resourceGroupField">
+                  <label id="specialWindowKeyField" class="resourceGroupField" hidden>
                     Key
-                    <input id="specialWindowKeyInput" maxlength="64" required>
+                    <input id="specialWindowKeyInput" maxlength="64" readonly>
                   </label>
                   <label class="resourceGroupField resourceGroupFieldWide">
                     Beskrivelse
@@ -3748,17 +3749,20 @@
                     <label class="resourceGroupField">
                       Konkrete medarbejdere
                       <select id="specialWindowUserScopeSelect" multiple size="6"></select>
+                      <button id="specialWindowClearUserScopeBtn" class="btn btnCompact" type="button">Ryd valg</button>
                     </label>
                     <label class="resourceGroupField">
                       Ressourcegrupper
                       <select id="specialWindowGroupScopeSelect" multiple size="6"></select>
+                      <button id="specialWindowClearGroupScopeBtn" class="btn btnCompact" type="button">Ryd valg</button>
                     </label>
-                    <span class="resourceGroupFormStatus">Personscopes kombineres med OR. Fravaerstype-scope anvendes derudover.</span>
+                    <span id="specialWindowPersonScopeHint" class="resourceGroupFormStatus">Personscopes kombineres med OR. Fravaerstype-scope anvendes derudover.</span>
                   </fieldset>
                   <label class="resourceGroupField resourceGroupFieldWide">
                     Fravaerstype-scope
                     <select id="specialWindowTypeScopeSelect" multiple size="5"></select>
-                    <span id="specialWindowTypeScopeHint" class="resourceGroupFormStatus">Ingen valgte typer betyder alle eligible typer.</span>
+                    <button id="specialWindowClearTypeScopeBtn" class="btn btnCompact" type="button">Ryd valg</button>
+                    <span id="specialWindowTypeScopeHint" class="resourceGroupFormStatus">Ingen valgte typer betyder alle ferieonskeegnede typer.</span>
                   </label>
                   <p id="specialWindowFormStatus" class="resourceGroupFormStatus resourceGroupFieldWide" role="status"></p>
                   <div class="fdModalActions resourceGroupFieldWide">

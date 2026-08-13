@@ -11,6 +11,7 @@ process.env.JWT_SECRET = process.env.JWT_SECRET || "test-secret";
 process.env.ROOT_DOMAIN = process.env.ROOT_DOMAIN || "fielddesk.test";
 
 const specialWindowService = require("../backend/src/modules/absence/specialWindow.service");
+const absenceSpecialWindowRepository = require("../backend/src/modules/absence/absenceSpecialWindow.repository");
 const specialWindowStatus = require("../backend/src/modules/absence/specialWindow.status");
 const specialWindowValidation = require("../backend/src/modules/absence/specialWindow.validation");
 const moduleAccessService = require("../backend/src/services/moduleAccessService");
@@ -184,4 +185,53 @@ test("special-window repository resolves resource groups through tenant-scoped f
   assert.match(source, /JOIN fitter f[\s\S]+f\.tenant_id = rgm\.tenant_id[\s\S]+f\.tenant_user_id = \$2/);
   assert.match(source, /rg\.status = 'active'/);
   assert.doesNotMatch(source, /absence_special_window_scope_unclear/);
+});
+
+test("special-window create accepts empty type scope and can generate tenant-unique keys", async () => {
+  const payload = specialWindowValidation.normalizeCreatePayload({
+    name: "Sommerferie 2027",
+    absence_start_date: "2027-07-01",
+    absence_end_date: "2027-07-31",
+    submission_open_date: "2027-01-01",
+    submission_deadline: "2027-03-01",
+    review_start_date: "2027-03-15",
+    scopes: [{ scope_type: "tenant" }],
+  });
+
+  assert.equal(payload.key, null);
+  assert.equal(payload.scopes.length, 1);
+  assert.equal(payload.scopes[0].scopeType, "tenant");
+  assert.equal(payload.scopes[0].absenceTypeId, null);
+  assert.equal(specialWindowService._test.slugifySpecialWindowKey("Sommerferie 2027"), "sommerferie-2027");
+  assert.equal(specialWindowService._test.slugifySpecialWindowKey("\u00c5r\u00f8 \u00c6rlige \u00d8nsker!!"), "aaroe-aerlige-oensker");
+  assert.equal(specialWindowService._test.keyWithSuffix("sommerferie-2027", 2), "sommerferie-2027-2");
+
+  const original = absenceSpecialWindowRepository.listKeysByPrefix;
+  try {
+    absenceSpecialWindowRepository.listKeysByPrefix = async (_client, args) => {
+      assert.deepEqual(args, { tenantId: uuid(1), keyPrefix: "sommerferie-2027" });
+      return ["sommerferie-2027", "sommerferie-2027-2"];
+    };
+    assert.equal(
+      await specialWindowService._test.generateTenantUniqueKey({ query: async () => ({ rows: [] }) }, { tenantId: uuid(1), name: "Sommerferie 2027" }),
+      "sommerferie-2027-3"
+    );
+  } finally {
+    absenceSpecialWindowRepository.listKeysByPrefix = original;
+  }
+});
+
+test("special-window update keeps key server-managed on rename", () => {
+  const payload = specialWindowValidation.normalizeUpdatePayload({ version: 2, name: "Nyt navn" }, {
+    key: "sommerferie-2027",
+    name: "Sommerferie 2027",
+    absence_start_date: "2027-07-01",
+    absence_end_date: "2027-07-31",
+    submission_open_date: "2027-01-01",
+    submission_deadline: "2027-03-01",
+    review_start_date: "2027-03-15",
+  });
+
+  assert.equal(Object.prototype.hasOwnProperty.call(payload, "key"), false);
+  assert.deepEqual(payload.changedFields, ["name"]);
 });

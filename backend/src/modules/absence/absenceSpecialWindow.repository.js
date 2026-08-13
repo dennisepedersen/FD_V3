@@ -39,6 +39,22 @@ async function findById(client, { tenantId, specialWindowId, forUpdate = false }
   return rows[0] || null;
 }
 
+async function listKeysByPrefix(client, { tenantId, keyPrefix }) {
+  const { rows } = await client.query(
+    `
+      SELECT key
+      FROM absence_special_window
+      WHERE tenant_id = $1
+        AND (
+          lower(key) = lower($2)
+          OR lower(key) LIKE lower($2 || '-%')
+        )
+    `,
+    [tenantId, keyPrefix]
+  );
+  return rows.map((row) => row.key);
+}
+
 async function listWindows(client, {
   tenantId,
   active = null,
@@ -560,6 +576,7 @@ module.exports = {
   findTenantUsersByIds,
   insertScopes,
   insertWindow,
+  listKeysByPrefix,
   listOverlappingActiveScopedForEmployee,
   listRelevantAbsenceTypes,
   listReviewOverviewRequests,

@@ -156,6 +156,27 @@ router.get("/api/calendar/absence-requests/manager/:id", requireTenantHost, requ
     next(error);
   }
 });
+router.post("/api/calendar/absence-requests/preflight", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  try {
+    const { tenantId, userId } = getTenantContext(req);
+    requireAbsenceRequestAccess(req, "create_own");
+
+    const result = await absenceRequestService.preflightEmployeeRequest({
+      tenantId,
+      userId,
+      body: req.body || {},
+    });
+
+    res.status(200).json({
+      success: true,
+      preflight: result.preflight,
+    });
+  } catch (error) {
+    logRouteError("/api/calendar/absence-requests/preflight", "POST", req, error);
+    next(error);
+  }
+});
+
 router.post("/api/calendar/absence-requests", requireTenantHost, requireAuth("access"), async (req, res, next) => {
   try {
     const { tenantId, userId } = getTenantContext(req);

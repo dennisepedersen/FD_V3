@@ -1490,3 +1490,83 @@ test("manager decision rolls back when event, audit or notification enqueue fail
     }
   }
 });
+
+test("absence request preflight returns special-window states without mutation side effects", async () => {
+  const baseWindow = {
+    id: uuid(70),
+    key: "sommerferie-2027",
+    name: "Sommerferie 2027",
+    absence_start_date: "2027-07-01",
+    absence_end_date: "2027-07-31",
+    submission_open_date: "2027-01-01",
+    submission_deadline: "2027-03-01",
+    review_start_date: "2027-03-02",
+    late_submission_policy: "blocked",
+    collective_processing: true,
+    scope_type: "tenant",
+    fully_contains_request: true,
+  };
+
+  assert.deepEqual(absenceRequestService._test.buildSpecialWindowPreflightResult(null), {
+    state: "no_match",
+    can_submit: true,
+    special_window: null,
+  });
+  assert.equal(absenceRequestService._test.buildSpecialWindowPreflightResult(baseWindow, { asOfDate: "2026-12-31" }).state, "before_open");
+  assert.equal(absenceRequestService._test.buildSpecialWindowPreflightResult(baseWindow, { asOfDate: "2027-02-01" }).state, "open");
+  assert.equal(absenceRequestService._test.buildSpecialWindowPreflightResult(baseWindow, { asOfDate: "2027-03-03" }).state, "after_deadline_blocked");
+  assert.equal(absenceRequestService._test.buildSpecialWindowPreflightResult({ ...baseWindow, late_submission_policy: "manual_review" }, { asOfDate: "2027-03-03" }).state, "after_deadline_manual_review");
+  assert.equal(absenceRequestService._test.buildSpecialWindowPreflightResult({ ...baseWindow, late_submission_policy: "allowed" }, { asOfDate: "2027-03-03" }).state, "after_deadline_allowed");
+
+  const partial = absenceRequestService._test.preflightResultFromSpecialWindowError(Object.assign(new Error("absence_special_window_partial_overlap"), { statusCode: 409 }));
+  assert.deepEqual(partial, { state: "partial_overlap", can_submit: false, reason: "absence_special_window_partial_overlap", special_window: null });
+  const multiple = absenceRequestService._test.preflightResultFromSpecialWindowError(Object.assign(new Error("absence_special_window_conflict"), { statusCode: 409 }));
+  assert.equal(multiple.state, "multiple_matches");
+
+  const client = createTxClient();
+  let eventCount = 0;
+  let auditCount = 0;
+  let notificationCount = 0;
+  await withPatches([
+    [pool, "connect", async () => client],
+    [absenceTypeRepository, "findById", async () => requestType({ special_window_eligible: true })],
+    [absenceSpecialWindowRepository, "listOverlappingActiveScopedForEmployee", async (_client, args) => {
+      assert.equal(args.tenantId, uuid(1));
+      assert.equal(args.employeeTenantUserId, uuid(2));
+      return [baseWindow];
+    }],
+    [absenceRequestRepository, "insertEvent", async () => { eventCount += 1; }],
+    [auditService, "logAuditEvent", async () => { auditCount += 1; }],
+    [absenceNotificationService, "enqueueAbsenceSubmitted", async () => { notificationCount += 1; }],
+  ], async () => {
+    const result = await absenceRequestService.preflightEmployeeRequest({
+      tenantId: uuid(1),
+      userId: uuid(2),
+      asOfDate: "2027-02-01",
+      body: {
+        absence_type_id: uuid(3),
+        duration_type: "full_days",
+        start_date: "2027-07-10",
+        end_date: "2027-07-12",
+      },
+    });
+
+    assert.equal(result.preflight.state, "open");
+    assert.equal(result.preflight.can_submit, true);
+    assert.equal(result.preflight.special_window.id, uuid(70));
+  });
+
+  assert.equal(eventCount, 0);
+  assert.equal(auditCount, 0);
+  assert.equal(notificationCount, 0);
+});
+
+test("absence request preflight route is before id routes and uses create-own permission", () => {
+  const routes = read("backend/src/modules/absence/absence.routes.js");
+  const preflightIndex = routes.indexOf("/api/calendar/absence-requests/preflight");
+  assert.ok(preflightIndex > -1);
+  assert.ok(preflightIndex < routes.indexOf("/api/calendar/absence-requests/:id"));
+  assert.match(routes, /preflightEmployeeRequest/);
+  assert.match(routes, /requireAbsenceRequestAccess\(req, "create_own"\)/);
+  assert.match(routes, /preflight: result\.preflight/);
+});

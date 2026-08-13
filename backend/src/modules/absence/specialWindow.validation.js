@@ -192,7 +192,8 @@ function normalizeCorePayload(body, existing = null, { requireAll = false } = {}
   const source = body || {};
   const get = (wire, current) => Object.prototype.hasOwnProperty.call(source, wire) ? source[wire] : current;
   const payload = {};
-  if (requireAll || Object.prototype.hasOwnProperty.call(source, "key")) payload.key = normalizeKey(get("key", existing?.key));
+  if (Object.prototype.hasOwnProperty.call(source, "key")) payload.key = normalizeKey(get("key", existing?.key));
+  else if (requireAll) payload.key = null;
   if (requireAll || Object.prototype.hasOwnProperty.call(source, "name")) payload.name = normalizeName(get("name", existing?.name));
   if (requireAll || Object.prototype.hasOwnProperty.call(source, "description")) {
     payload.description = normalizeDescription(get("description", existing?.description));

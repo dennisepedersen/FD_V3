@@ -184,3 +184,34 @@ test('tenant admin current manager inactive label uses backend status fields', (
   assert.match(auth, /isTenantAdminCurrentManagerInactive\(user\)\s*\? `[\s\S]*\(ikke aktiv login\)`/);
   assert.doesNotMatch(auth, /current\.textContent = `\$\{getTenantAdminManagerLabel\(user\)\} \(ikke aktiv login\)`/);
 });
+
+test('special-window preflight UI and admin scope controls are wired', () => {
+  const html = read('backend/src/public/tenant/app.html');
+  const auth = read('backend/src/public/tenant/auth.js');
+  const routes = read('backend/src/modules/absence/absence.routes.js');
+
+  assert.match(routes, /\/api\/calendar\/absence-requests\/preflight/);
+  assert.ok(routes.indexOf('/api/calendar/absence-requests/preflight') < routes.indexOf('/api/calendar/absence-requests/:id'));
+  assert.match(auth, /requestPreflightSeq/);
+  assert.match(auth, /requestPreflightSignature/);
+  assert.match(auth, /requestPreflightLoading/);
+  assert.match(auth, /apiFetch\("\/api\/calendar\/absence-requests\/preflight"/);
+  assert.match(auth, /state\.calendar\.requestPreflightSeq !== seq/);
+  assert.match(auth, /Perioden kunne ikke kontrolleres\. Proev igen\./);
+  assert.match(auth, /requestPreflight\.can_submit === false/);
+  assert.match(auth, /button\.disabled = !type[\s\S]+getAbsenceRequestPreflightBlockMessage\(\)/);
+  assert.match(auth, /Ferieonskeperiode: \$\{state\.calendar\.requestPreflight\.special_window\.name/);
+  assert.match(html, /id="absenceRequestPreflightStatus"/);
+  assert.match(html, /id="specialWindowKeyField"[^>]*hidden/);
+  assert.match(html, /id="specialWindowKeyInput" maxlength="64" readonly/);
+  assert.doesNotMatch(html, /id="specialWindowKeyInput"[^>]*required/);
+  assert.match(html, /id="specialWindowClearTypeScopeBtn"[\s\S]*Ryd valg/);
+  assert.match(html, /id="specialWindowClearUserScopeBtn"[\s\S]*Ryd valg/);
+  assert.match(html, /id="specialWindowClearGroupScopeBtn"[\s\S]*Ryd valg/);
+  assert.match(html, /Ingen valgte typer betyder alle ferieonskeegnede typer/);
+  assert.match(auth, /clearSelectedValues\(byId\("specialWindowTypeScopeSelect"\)\)/);
+  assert.match(auth, /clearSelectedValues\(byId\("specialWindowUserScopeSelect"\)\)/);
+  assert.match(auth, /clearSelectedValues\(byId\("specialWindowGroupScopeSelect"\)\)/);
+  assert.match(auth, /payload\.absence_type_ids = typeIds/);
+  assert.doesNotMatch(auth, /key: String\(byId\("specialWindowKeyInput"\)/);
+});

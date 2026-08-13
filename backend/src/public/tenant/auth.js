@@ -861,6 +861,12 @@
         requestSubmitIdempotencyKey: "",
         requestDraftSaving: false,
         requestSubmitting: false,
+        requestPreflight: null,
+        requestPreflightLoading: false,
+        requestPreflightError: "",
+        requestPreflightSeq: 0,
+        requestPreflightSignature: "",
+        requestPreflightTimer: null,
         mineRequests: [],
         mineLoaded: false,
         mineLoading: false,
@@ -3276,6 +3282,7 @@
         const button = byId(id);
         if (button) button.disabled = disabled;
       });
+      if (!disabled) updateAbsenceContinueState();
     }
     function setManagerDecisionPending(pending) {
       state.calendar.managerDecisionSubmitting = Boolean(pending);
@@ -3293,6 +3300,7 @@
       state.calendar.requestDraftSaving = false;
       state.calendar.requestSubmitting = false;
       setAbsenceRequestActionPending(false);
+      resetAbsenceRequestPreflight();
       if (byId("absenceRequestForm")) byId("absenceRequestForm").reset();
       if (byId("absenceRequestStartDateInput")) byId("absenceRequestStartDateInput").value = state.calendar.from;
       if (byId("absenceRequestEndDateInput")) byId("absenceRequestEndDateInput").value = state.calendar.from;
@@ -3376,7 +3384,7 @@
       const duration = selected ? selected.value : "";
       if (byId("absenceFullDaysFields")) byId("absenceFullDaysFields").hidden = duration !== "full_days";
       if (byId("absenceTimeRangeFields")) byId("absenceTimeRangeFields").hidden = duration !== "time_range";
-      if (byId("absenceRequestContinueBtn")) byId("absenceRequestContinueBtn").disabled = !type || (!allowed.has("full_days") && !allowed.has("time_range"));
+      updateAbsenceContinueState();
     }
 
     function updateAbsenceCommentPolicy() {
@@ -3394,9 +3402,133 @@
       else if (policy === "disabled") setText(byId("absenceCommentPolicyHint"), "Kommentar bruges ikke for denne type.");
       else setText(byId("absenceCommentPolicyHint"), "Valgfri kommentar.");
       setText(byId("absenceCommentCounter"), `${policy === "disabled" || !input ? 0 : String(input.value || "").length} / 250`);
+      updateAbsenceContinueState();
     }
 
-    function validateAbsenceRequestForm() {
+    function resetAbsenceRequestPreflight() {
+      window.clearTimeout(state.calendar.requestPreflightTimer);
+      state.calendar.requestPreflight = null;
+      state.calendar.requestPreflightLoading = false;
+      state.calendar.requestPreflightError = "";
+      state.calendar.requestPreflightSignature = "";
+      state.calendar.requestPreflightSeq += 1;
+      renderAbsenceRequestPreflight();
+    }
+
+    function getAbsenceRequestPreflightCandidate() {
+      const result = validateAbsenceRequestForm({ skipCommentPolicy: true });
+      if (result.error) return null;
+      const payload = { ...result.payload };
+      delete payload.employee_comment;
+      const signature = JSON.stringify(payload);
+      return { payload, signature };
+    }
+
+    function getAbsenceRequestPreflightBlockMessage() {
+      const candidate = getAbsenceRequestPreflightCandidate();
+      if (!candidate) return "";
+      if (state.calendar.requestPreflightLoading) return "Perioden kontrolleres. Vent et oejeblik.";
+      if (state.calendar.requestPreflightError) return state.calendar.requestPreflightError;
+      if (state.calendar.requestPreflightSignature !== candidate.signature) return "Perioden skal kontrolleres igen.";
+      if (state.calendar.requestPreflight && state.calendar.requestPreflight.can_submit === false) return "Perioden kan ikke sendes med de valgte oplysninger.";
+      return "";
+    }
+
+    function updateAbsenceContinueState() {
+      const button = byId("absenceRequestContinueBtn");
+      if (!button) return;
+      const type = getSelectedRequestType();
+      const allowed = new Set(Array.isArray(type && type.allowed_duration_types) ? type.allowed_duration_types : []);
+      button.disabled = !type || (!allowed.has("full_days") && !allowed.has("time_range")) || Boolean(getAbsenceRequestPreflightBlockMessage());
+    }
+
+    function appendPreflightLine(box, text) {
+      if (text) appendText(box, "p", "absenceNote", text);
+    }
+
+    function renderAbsenceRequestPreflight() {
+      const box = byId("absenceRequestPreflightStatus");
+      if (!box) return;
+      box.replaceChildren();
+      box.hidden = true;
+      if (state.calendar.requestPreflightLoading) {
+        appendText(box, "p", "absenceMeta", "Kontrollerer ferieonskeperiode...");
+        box.hidden = false;
+      } else if (state.calendar.requestPreflightError) {
+        appendText(box, "p", "absenceNote", state.calendar.requestPreflightError);
+        box.hidden = false;
+      } else if (state.calendar.requestPreflight && state.calendar.requestPreflight.state !== "no_match") {
+        const preflight = state.calendar.requestPreflight;
+        const windowInfo = preflight.special_window || {};
+        appendText(box, "h3", "absenceName", windowInfo.name || "Ferieonskeperiode");
+        if (preflight.state === "before_open") {
+          appendPreflightLine(box, `Denne periode er omfattet af ${windowInfo.name || "ferieonskeperioden"}.`);
+          appendPreflightLine(box, windowInfo.submission_open_date ? `Der kan indsendes ferieonsker fra ${formatDisplayDate(windowInfo.submission_open_date)}.` : "Der er ikke aabent for oensker i denne periode endnu.");
+          appendPreflightLine(box, "Oenskerne behandles samlet og ikke efter foerst-til-moelle-princippet.");
+        } else if (preflight.state === "open") {
+          appendPreflightLine(box, "Din anmodning indgaar i den faelles behandling af ferieonsker.");
+          appendPreflightLine(box, windowInfo.submission_deadline ? `Frist: ${formatDisplayDate(windowInfo.submission_deadline)}.` : "");
+          appendPreflightLine(box, windowInfo.review_start_date ? `Behandlingen starter ${formatDisplayDate(windowInfo.review_start_date)}.` : "");
+          appendPreflightLine(box, "Tidspunktet for din indsendelse giver ikke fortrinsret.");
+        } else if (preflight.state === "after_deadline_manual_review") {
+          appendPreflightLine(box, "Fristen er passeret. Anmodningen kan sendes som sen indmelding til vurdering.");
+        } else if (preflight.state === "after_deadline_allowed") {
+          appendPreflightLine(box, "Fristen er passeret. Anmodningen kan stadig sendes og markeres som sen.");
+        } else if (preflight.state === "after_deadline_blocked") {
+          appendPreflightLine(box, "Deadline for denne ferieonskeperiode er passeret.");
+        } else if (preflight.state === "partial_overlap") {
+          appendPreflightLine(box, "Din valgte periode overlapper kun delvist en ferieonskeperiode. Del anmodningen op i separate perioder.");
+        } else if (preflight.state === "multiple_matches") {
+          appendPreflightLine(box, "Oensket matcher flere ferieonskeperioder. Kontakt administrator.");
+        }
+        box.hidden = false;
+      }
+      updateAbsenceContinueState();
+    }
+
+    function scheduleAbsenceRequestPreflight(options) {
+      window.clearTimeout(state.calendar.requestPreflightTimer);
+      const candidate = getAbsenceRequestPreflightCandidate();
+      if (!candidate) {
+        state.calendar.requestPreflight = null;
+        state.calendar.requestPreflightLoading = false;
+        state.calendar.requestPreflightError = "";
+        state.calendar.requestPreflightSignature = "";
+        renderAbsenceRequestPreflight();
+        return;
+      }
+      const seq = state.calendar.requestPreflightSeq + 1;
+      state.calendar.requestPreflightSeq = seq;
+      state.calendar.requestPreflight = null;
+      state.calendar.requestPreflightLoading = true;
+      state.calendar.requestPreflightError = "";
+      state.calendar.requestPreflightSignature = candidate.signature;
+      renderAbsenceRequestPreflight();
+      const run = async () => {
+        try {
+          const response = await apiFetch("/api/calendar/absence-requests/preflight", {
+            method: "POST",
+            body: JSON.stringify(candidate.payload),
+          });
+          if (state.calendar.requestPreflightSeq !== seq || state.calendar.requestPreflightSignature !== candidate.signature) return;
+          state.calendar.requestPreflight = response && response.preflight ? response.preflight : { state: "no_match", can_submit: true, special_window: null };
+          state.calendar.requestPreflightError = "";
+        } catch (error) {
+          if (handleAuthFailure(error)) return;
+          if (state.calendar.requestPreflightSeq !== seq) return;
+          state.calendar.requestPreflight = null;
+          state.calendar.requestPreflightError = "Perioden kunne ikke kontrolleres. Proev igen.";
+        } finally {
+          if (state.calendar.requestPreflightSeq === seq) {
+            state.calendar.requestPreflightLoading = false;
+            renderAbsenceRequestPreflight();
+          }
+        }
+      };
+      state.calendar.requestPreflightTimer = window.setTimeout(run, options && options.immediate ? 0 : 180);
+    }
+
+    function validateAbsenceRequestForm(options = {}) {
       const type = getSelectedRequestType();
       if (!type) return { error: "Vaelg fravaersaarsag." };
       const durationNode = document.querySelector("input[name='absenceDurationType']:checked");
@@ -3426,9 +3558,10 @@
       }
       const policy = String(type.comment_policy || "optional");
       const comment = String(byId("absenceRequestCommentInput") && byId("absenceRequestCommentInput").value || "").trim();
-      if (policy === "required" && !comment) return { error: "Kommentar er paakraevet." };
+      const skipCommentPolicy = Boolean(options.skipCommentPolicy);
+      if (!skipCommentPolicy && policy === "required" && !comment) return { error: "Kommentar er paakraevet." };
       if (comment.length > 250) return { error: "Kommentar maa hoejst vaere 250 tegn." };
-      if (policy !== "disabled" && comment) payload.employee_comment = comment;
+      if (!skipCommentPolicy && policy !== "disabled" && comment) payload.employee_comment = comment;
       return { payload, type };
     }
 
@@ -3439,6 +3572,7 @@
       appendText(box, "p", "absenceName", "Gennemse anmodningen");
       appendText(box, "p", "absenceMeta", `${getRequestTypeName(type)} - ${payload.duration_type === "time_range" ? `${formatDisplayDate(payload.start_date)} ${payload.start_time}-${payload.end_time}` : formatDateRange(payload.start_date, payload.end_date)}`);
       if (payload.employee_comment) appendText(box, "p", "absenceNote", payload.employee_comment);
+      if (state.calendar.requestPreflight && state.calendar.requestPreflight.special_window) appendText(box, "p", "absenceNote", `Ferieonskeperiode: ${state.calendar.requestPreflight.special_window.name || "-"}. Ikke foerst til moelle.`);
       box.hidden = false;
     }
 
@@ -3461,6 +3595,12 @@
       const result = validateAbsenceRequestForm();
       if (result.error) {
         setText(byId("absenceRequestFormStatus"), result.error);
+        return;
+      }
+      const preflightBlock = getAbsenceRequestPreflightBlockMessage();
+      if (preflightBlock) {
+        setText(byId("absenceRequestFormStatus"), preflightBlock);
+        scheduleAbsenceRequestPreflight({ immediate: true });
         return;
       }
       const existing = state.calendar.requestDraft;
@@ -3634,6 +3774,7 @@
         if (byId("absenceRequestCommentInput")) byId("absenceRequestCommentInput").value = request.employee_comment || "";
         updateAbsenceCommentPolicy();
         setAbsenceRequestReviewMode(false);
+        scheduleAbsenceRequestPreflight();
       });
     }
 
@@ -3920,6 +4061,27 @@
     function getSelectedValues(select) {
       return Array.from(select ? select.selectedOptions : []).map((option) => option.value).filter(Boolean);
     }
+    function clearSelectedValues(select) {
+      Array.from(select ? select.options : []).forEach((option) => { option.selected = false; });
+    }
+    function setSpecialWindowKeyFieldVisible(visible) {
+      const field = byId("specialWindowKeyField");
+      if (field) field.hidden = !visible;
+    }
+    function updateSpecialWindowScopeUi() {
+      const tenantChecked = byId("specialWindowTenantScopeInput") ? Boolean(byId("specialWindowTenantScopeInput").checked) : false;
+      if (tenantChecked) {
+        clearSelectedValues(byId("specialWindowUserScopeSelect"));
+        clearSelectedValues(byId("specialWindowGroupScopeSelect"));
+      }
+      ["specialWindowUserScopeSelect", "specialWindowGroupScopeSelect", "specialWindowClearUserScopeBtn", "specialWindowClearGroupScopeBtn"].forEach((id) => {
+        const node = byId(id);
+        if (node) node.disabled = tenantChecked;
+      });
+      setText(byId("specialWindowPersonScopeHint"), tenantChecked
+        ? "Hele virksomheden er valgt. Konkrete medarbejdere og ressourcegrupper aendrer ikke scope."
+        : "Personscopes kombineres med OR. Fravaerstype-scope anvendes derudover.");
+    }
 
     async function renderSpecialWindowSelectors() {
       const typeSelect = byId("specialWindowTypeScopeSelect");
@@ -3975,6 +4137,8 @@
       state.calendar.specialWindowEditVersion = null;
       state.calendar.specialWindowDetail = null;
       if (byId("specialWindowForm")) byId("specialWindowForm").reset();
+      setSpecialWindowKeyFieldVisible(false);
+      if (byId("specialWindowKeyInput")) byId("specialWindowKeyInput").value = "";
       if (byId("specialWindowCollectiveInput")) byId("specialWindowCollectiveInput").checked = true;
       if (byId("specialWindowBlockBeforeReviewInput")) byId("specialWindowBlockBeforeReviewInput").checked = true;
       if (byId("specialWindowTenantScopeInput")) byId("specialWindowTenantScopeInput").checked = true;
@@ -3982,7 +4146,7 @@
       setText(byId("specialWindowFormStatus"), "");
       setText(byId("specialWindowLatePolicyHint"), getLatePolicyHint(byId("specialWindowLatePolicySelect") ? byId("specialWindowLatePolicySelect").value : "blocked"));
       editor.hidden = false;
-      renderSpecialWindowSelectors();
+      renderSpecialWindowSelectors().then(updateSpecialWindowScopeUi);
     }
 
     async function openSpecialWindowEdit(id) {
@@ -3998,6 +4162,7 @@
         state.calendar.specialWindowDetail = item;
         state.calendar.specialWindowEditVersion = item.version;
         setText(byId("specialWindowEditorTitle"), "Rediger ferieonskeperiode");
+        setSpecialWindowKeyFieldVisible(true);
         if (byId("specialWindowNameInput")) byId("specialWindowNameInput").value = item.name || "";
         if (byId("specialWindowKeyInput")) byId("specialWindowKeyInput").value = item.key || "";
         if (byId("specialWindowDescriptionInput")) byId("specialWindowDescriptionInput").value = item.description || "";
@@ -4014,7 +4179,8 @@
         if (byId("specialWindowTenantScopeInput")) byId("specialWindowTenantScopeInput").checked = scopes.some((scope) => scope.scope_type === "tenant");
         setSelectedValues(byId("specialWindowUserScopeSelect"), scopes.map((scope) => scope.scope_tenant_user_id || scope.tenant_user_id).filter(Boolean));
         setSelectedValues(byId("specialWindowGroupScopeSelect"), scopes.map((scope) => scope.resource_group_id).filter(Boolean));
-        setSelectedValues(byId("specialWindowTypeScopeSelect"), (item.relevant_absence_types || []).map((type) => type.id));
+        setSelectedValues(byId("specialWindowTypeScopeSelect"), (item.relevant_absence_types || []).filter((type) => type.explicitly_scoped === true).map((type) => type.id));
+        updateSpecialWindowScopeUi();
         setText(byId("specialWindowLatePolicyHint"), getLatePolicyHint(item.late_submission_policy));
         setText(byId("specialWindowFormStatus"), "");
       } catch (error) {
@@ -4026,7 +4192,6 @@
     function validateSpecialWindowForm() {
       const payload = {
         name: String(byId("specialWindowNameInput") && byId("specialWindowNameInput").value || "").trim(),
-        key: String(byId("specialWindowKeyInput") && byId("specialWindowKeyInput").value || "").trim(),
         description: String(byId("specialWindowDescriptionInput") && byId("specialWindowDescriptionInput").value || "").trim() || null,
         absence_start_date: String(byId("specialWindowAbsenceStartInput") && byId("specialWindowAbsenceStartInput").value || "").trim(),
         absence_end_date: String(byId("specialWindowAbsenceEndInput") && byId("specialWindowAbsenceEndInput").value || "").trim(),
@@ -4038,17 +4203,21 @@
         approval_blocked_before_review: byId("specialWindowBlockBeforeReviewInput") ? Boolean(byId("specialWindowBlockBeforeReviewInput").checked) : true,
         receipt_text: String(byId("specialWindowReceiptTextInput") && byId("specialWindowReceiptTextInput").value || "").trim() || null,
         scopes: [],
-        absence_type_ids: getSelectedValues(byId("specialWindowTypeScopeSelect")),
+
       };
-      if (!payload.name || !payload.key) return { error: "Navn og key er paakraevet." };
+      if (!payload.name) return { error: "Navn er paakraevet." };
       ["absence_start_date", "absence_end_date", "submission_open_date", "submission_deadline", "review_start_date"].forEach((field) => { if (!parseDateInput(payload[field])) payload._dateError = true; });
       if (payload._dateError) return { error: "Alle datoer skal udfyldes korrekt." };
       if (parseDateInput(payload.absence_end_date) < parseDateInput(payload.absence_start_date)) return { error: "Ferieperiodens slutdato maa ikke vaere foer startdato." };
       if (parseDateInput(payload.submission_deadline) < parseDateInput(payload.submission_open_date)) return { error: "Deadline maa ikke vaere foer aabningsdato." };
       if (parseDateInput(payload.review_start_date) < parseDateInput(payload.submission_deadline)) return { error: "Review-start maa ikke vaere foer deadline." };
+      const typeIds = getSelectedValues(byId("specialWindowTypeScopeSelect"));
+      if (typeIds.length > 0) payload.absence_type_ids = typeIds;
       if (byId("specialWindowTenantScopeInput") && byId("specialWindowTenantScopeInput").checked) payload.scopes.push({ scope_type: "tenant" });
-      getSelectedValues(byId("specialWindowUserScopeSelect")).forEach((id) => payload.scopes.push({ scope_type: "tenant_user", tenant_user_id: id }));
-      getSelectedValues(byId("specialWindowGroupScopeSelect")).forEach((id) => payload.scopes.push({ scope_type: "resource_group", resource_group_id: id }));
+      if (!payload.scopes.some((scope) => scope.scope_type === "tenant")) {
+        getSelectedValues(byId("specialWindowUserScopeSelect")).forEach((id) => payload.scopes.push({ scope_type: "tenant_user", tenant_user_id: id }));
+        getSelectedValues(byId("specialWindowGroupScopeSelect")).forEach((id) => payload.scopes.push({ scope_type: "resource_group", resource_group_id: id }));
+      }
       if (payload.scopes.length === 0) return { error: "Vaelg mindst et personscope." };
       delete payload._dateError;
       return { payload };
@@ -6187,6 +6356,7 @@
         updateAbsenceDurationOptions();
         updateAbsenceCommentPolicy();
         setAbsenceRequestReviewMode(false);
+        scheduleAbsenceRequestPreflight();
       });
     }
     ["absenceDurationFullDays", "absenceDurationTimeRange"].forEach((id) => {
@@ -6194,12 +6364,14 @@
         state.calendar.requestDraft = null;
         updateAbsenceDurationOptions();
         setAbsenceRequestReviewMode(false);
+        scheduleAbsenceRequestPreflight();
       });
     });
     ["absenceRequestStartDateInput", "absenceRequestEndDateInput", "absenceRequestTimeDateInput", "absenceRequestStartTimeInput", "absenceRequestEndTimeInput"].forEach((id) => {
       if (byId(id)) byId(id).addEventListener("input", () => {
         state.calendar.requestDraft = null;
         setAbsenceRequestReviewMode(false);
+        scheduleAbsenceRequestPreflight();
       });
     });
     if (byId("absenceRequestCommentInput")) {
@@ -6253,6 +6425,18 @@
       byId("specialWindowLatePolicySelect").addEventListener("change", () => {
         setText(byId("specialWindowLatePolicyHint"), getLatePolicyHint(byId("specialWindowLatePolicySelect").value));
       });
+    }
+    if (byId("specialWindowTenantScopeInput")) {
+      byId("specialWindowTenantScopeInput").addEventListener("change", updateSpecialWindowScopeUi);
+    }
+    if (byId("specialWindowClearTypeScopeBtn")) {
+      byId("specialWindowClearTypeScopeBtn").addEventListener("click", () => clearSelectedValues(byId("specialWindowTypeScopeSelect")));
+    }
+    if (byId("specialWindowClearUserScopeBtn")) {
+      byId("specialWindowClearUserScopeBtn").addEventListener("click", () => clearSelectedValues(byId("specialWindowUserScopeSelect")));
+    }
+    if (byId("specialWindowClearGroupScopeBtn")) {
+      byId("specialWindowClearGroupScopeBtn").addEventListener("click", () => clearSelectedValues(byId("specialWindowGroupScopeSelect")));
     }
 
     if (absenceRefreshBtn) {

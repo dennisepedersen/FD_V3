@@ -22,6 +22,7 @@ const {
   normalizeOffset,
   normalizeOptionalText,
   normalizeOptionalUuid,
+  normalizePreflightPayload,
   normalizeRejectPayload,
   normalizeUpdatePayload,
   normalizeUuid,
@@ -432,6 +433,48 @@ function validateSpecialWindowSubmissionTiming(specialWindow, { asOfDate = today
       special_window_submission_deadline: deadline,
     },
   };
+}
+
+function mapPreflightWindow(specialWindow) {
+  if (!specialWindow) return null;
+  return {
+    id: specialWindow.id,
+    key: specialWindow.key || null,
+    name: specialWindow.name || null,
+    absence_start_date: toDateString(specialWindow.absence_start_date),
+    absence_end_date: toDateString(specialWindow.absence_end_date),
+    submission_open_date: toDateString(specialWindow.submission_open_date),
+    submission_deadline: toDateString(specialWindow.submission_deadline),
+    review_start_date: toDateString(specialWindow.review_start_date),
+    late_submission_policy: specialWindow.late_submission_policy || "blocked",
+    collective_processing: specialWindow.collective_processing === true,
+  };
+}
+
+function buildSpecialWindowPreflightResult(specialWindow, { asOfDate = todayDate() } = {}) {
+  if (!specialWindow) return { state: "no_match", can_submit: true, special_window: null };
+  const window = mapPreflightWindow(specialWindow);
+  if (window.submission_open_date && asOfDate < window.submission_open_date) {
+    return { state: "before_open", can_submit: false, special_window: window };
+  }
+  if (!window.submission_deadline || asOfDate <= window.submission_deadline) {
+    return { state: "open", can_submit: true, special_window: window };
+  }
+  const policy = window.late_submission_policy || "blocked";
+  if (policy === "blocked") return { state: "after_deadline_blocked", can_submit: false, late: true, late_submission_policy: policy, special_window: window };
+  if (policy === "manual_review") return { state: "after_deadline_manual_review", can_submit: true, late: true, late_submission_policy: policy, special_window: window };
+  return { state: "after_deadline_allowed", can_submit: true, late: true, late_submission_policy: policy, special_window: window };
+}
+
+function preflightResultFromSpecialWindowError(error) {
+  const code = error && error.message ? String(error.message) : "";
+  if (code === "absence_special_window_partial_overlap") {
+    return { state: "partial_overlap", can_submit: false, reason: code, special_window: null };
+  }
+  if (code === "absence_special_window_conflict" || code === "absence_special_window_scope_unclear") {
+    return { state: "multiple_matches", can_submit: false, reason: code, special_window: null };
+  }
+  return null;
 }
 
 async function getDetailRow(client, { tenantId, employeeTenantUserId, absenceRequestId }) {
@@ -870,6 +913,36 @@ async function updateDraft({ tenantId, userId, absenceRequestId, body }) {
   });
 }
 
+async function preflightEmployeeRequest({ tenantId, userId, body, asOfDate = todayDate() }) {
+  const normalizedTenantId = normalizeUuid(tenantId, "tenant_id_required");
+  const normalizedUserId = normalizeUuid(userId, "tenant_user_id_required");
+  const payload = normalizePreflightPayload(body || {});
+
+  const client = await pool.connect();
+  try {
+    const absenceType = await requireAbsenceType(client, { tenantId: normalizedTenantId, absenceTypeId: payload.absenceTypeId });
+    assertAbsenceTypeAllowsEmployeeRequest(absenceType);
+    assertAbsenceTypeAllowsDuration(absenceType, payload.durationType);
+    try {
+      const specialWindow = await resolveSpecialWindow(client, {
+        tenantId: normalizedTenantId,
+        employeeTenantUserId: normalizedUserId,
+        absenceType,
+        absenceTypeId: payload.absenceTypeId,
+        startDate: payload.startDate,
+        endDate: requestEndDateForWindow(payload),
+      });
+      return { preflight: buildSpecialWindowPreflightResult(specialWindow, { asOfDate }) };
+    } catch (error) {
+      const result = preflightResultFromSpecialWindowError(error);
+      if (result) return { preflight: result };
+      throw error;
+    }
+  } finally {
+    client.release();
+  }
+}
+
 async function submitDraft({ tenantId, userId, absenceRequestId, body, idempotencyKey }) {
   const normalizedTenantId = normalizeUuid(tenantId, "tenant_id_required");
   const normalizedUserId = normalizeUuid(userId, "tenant_user_id_required");
@@ -1071,6 +1144,7 @@ module.exports = {
   listMine,
   mapEvent,
   mapRequest,
+  preflightEmployeeRequest,
   rejectManaged,
   submitDraft,
   updateDraft,
@@ -1079,7 +1153,9 @@ module.exports = {
     displayStatus,
     mapManagerRequest,
     mapRequest,
+    buildSpecialWindowPreflightResult,
     normalizeIdempotencyKey,
+    preflightResultFromSpecialWindowError,
     resolveSpecialWindow,
     validateManagedRequestType,
     validateSpecialWindowForDecision,
