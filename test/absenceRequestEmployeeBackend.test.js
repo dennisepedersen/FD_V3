@@ -121,6 +121,23 @@ function detailRow(overrides = {}) {
   };
 }
 
+function requestEventRow(overrides = {}) {
+  return {
+    id: uuid(20),
+    tenant_id: uuid(1),
+    absence_request_id: uuid(10),
+    event_type: "approved",
+    actor_tenant_user_id: uuid(5),
+    actor_name: "Mads Leder",
+    old_status: "submitted",
+    new_status: "approved",
+    reason: "Husk overdragelse inden ferien",
+    metadata_json: {},
+    created_at: "2026-08-06T01:00:00.000Z",
+    ...overrides,
+  };
+}
+
 function assertHttpError(fn, statusCode, message) {
   assert.throws(fn, (error) => error.statusCode === statusCode && error.message === message);
 }
@@ -1000,10 +1017,12 @@ test("cancel rolls back when notification or outbox enqueue fails", async () => 
 
 test("manager request validation accepts only version and bounded reason", () => {
   assert.deepEqual(absenceValidation.normalizeApprovePayload({ version: 3 }), { version: 3, reason: null });
+  assert.deepEqual(absenceValidation.normalizeApprovePayload({ version: 3, reason: "   " }), { version: 3, reason: null });
   assert.deepEqual(absenceValidation.normalizeApprovePayload({ version: 3, reason: "  Tidlig godkendelse  " }), { version: 3, reason: "Tidlig godkendelse" });
   assert.deepEqual(absenceValidation.normalizeRejectPayload({ version: 3, reason: " Ikke muligt " }), { version: 3, reason: "Ikke muligt" });
 
   assertHttpError(() => absenceValidation.normalizeRejectPayload({ version: 3 }), 400, "absence_reject_reason_required");
+  assertHttpError(() => absenceValidation.normalizeApprovePayload({ version: 3, reason: "x".repeat(501) }), 400, "absence_manager_reason_too_long");
   assertHttpError(() => absenceValidation.normalizeRejectPayload({ version: 3, reason: "x".repeat(501) }), 400, "absence_manager_reason_too_long");
   assertHttpError(() => absenceValidation.normalizeApprovePayload({ version: 3, employee_tenant_user_id: uuid(2) }), 400, "absence_request_server_managed_field");
   assertHttpError(() => absenceValidation.normalizeRejectPayload({ version: 3, reason: "nej", status: "approved" }), 400, "absence_request_server_managed_field");
@@ -1042,6 +1061,43 @@ test("manager repositories scope list, detail and decision updates by tenant and
   assert.match(client.calls[2].sql, /assigned_manager_tenant_user_id = \$2/);
   assert.match(client.calls[2].sql, /version = \$4/);
   assert.match(client.calls[2].sql, /status = ANY\(\$5::text\[\]\)/);
+});
+
+test("request history joins actor tenant-safely and maps decision message for employee and assigned manager", async () => {
+  const client = createClient([requestEventRow()]);
+  await absenceRequestRepository.listEvents(client, {
+    tenantId: uuid(1),
+    absenceRequestId: uuid(10),
+  });
+  assert.match(client.calls[0].sql, /LEFT JOIN tenant_user actor/);
+  assert.match(client.calls[0].sql, /actor.tenant_id = are.tenant_id/);
+  assert.match(client.calls[0].sql, /actor.id = are.actor_tenant_user_id/);
+
+  await withPatches([
+    [pool, "connect", async () => createTxClient()],
+    [absenceRequestRepository, "findByIdForEmployee", async () => detailRow({ status: "approved" })],
+    [absenceRequestRepository, "findByIdForManager", async () => managerRow({ status: "approved", employee_comment: "Privat kontekst" })],
+    [absenceRequestRepository, "listEvents", async () => [requestEventRow()]],
+  ], async () => {
+    const mine = await absenceRequestService.getMineDetail({
+      tenantId: uuid(1),
+      userId: uuid(2),
+      absenceRequestId: uuid(10),
+      includeHistory: true,
+    });
+    assert.equal(mine.events[0].reason, "Husk overdragelse inden ferien");
+    assert.equal(mine.events[0].actor.display_name, "Mads Leder");
+
+    const managed = await absenceRequestService.getManagedDetail({
+      tenantId: uuid(1),
+      userId: uuid(5),
+      absenceRequestId: uuid(10),
+      includePrivateComment: false,
+    });
+    assert.equal(managed.request.employee_comment, "Privat kontekst");
+    assert.equal(managed.events[0].reason, "Husk overdragelse inden ferien");
+    assert.equal(managed.events[0].actor.id, uuid(5));
+  });
 });
 
 test("manager routes expose object-scoped PR5 endpoints without role blanket access", () => {
@@ -1177,7 +1233,7 @@ test("manager approve is transactional, versioned, audited and enqueues employee
       tenantId: uuid(1),
       userId: uuid(5),
       absenceRequestId: uuid(10),
-      body: { version: 4 },
+      body: { version: 4, reason: "Husk overdragelse inden ferien" },
       idempotencyKey: "approve-1",
     });
     assert.equal(result.request.status, "approved");
@@ -1188,12 +1244,13 @@ test("manager approve is transactional, versioned, audited and enqueues employee
   assert.equal(eventArgs.eventType, "approved");
   assert.equal(eventArgs.oldStatus, "submitted");
   assert.equal(eventArgs.newStatus, "approved");
-  assert.equal(eventArgs.reason, null);
+  assert.equal(eventArgs.reason, "Husk overdragelse inden ferien");
   assert.equal(eventArgs.metadata.approved_absence_id, uuid(70));
   assert.equal(materializeArgs.absenceRequest.status, "approved");
   assert.equal(materializeArgs.absenceRequest.absence_type_visibility_policy, "private");
   assert.equal(auditEvents[0].eventType, "absence_request.approved");
   assert.equal(auditEvents[0].metadata.special_window_override, false);
+  assert.equal(Object.values(auditEvents[0].metadata).includes("Husk overdragelse inden ferien"), false);
   assert.equal(auditEvents[1].eventType, "approved_absence.created");
   assert.equal(auditEvents[1].resourceType, "approved_absence");
   assert.equal(notificationCount, 1);

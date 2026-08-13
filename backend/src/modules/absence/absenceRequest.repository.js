@@ -803,20 +803,24 @@ async function listEvents(client, { tenantId, absenceRequestId }) {
   const { rows } = await client.query(
     `
       SELECT
-        id,
-        tenant_id,
-        absence_request_id,
-        event_type,
-        actor_tenant_user_id,
-        old_status,
-        new_status,
-        reason,
-        metadata_json,
-        created_at
-      FROM absence_request_event
-      WHERE tenant_id = $1
-        AND absence_request_id = $2
-      ORDER BY created_at ASC, id ASC
+        are.id,
+        are.tenant_id,
+        are.absence_request_id,
+        are.event_type,
+        are.actor_tenant_user_id,
+        actor.name AS actor_name,
+        are.old_status,
+        are.new_status,
+        are.reason,
+        are.metadata_json,
+        are.created_at
+      FROM absence_request_event are
+      LEFT JOIN tenant_user actor
+        ON actor.tenant_id = are.tenant_id
+       AND actor.id = are.actor_tenant_user_id
+      WHERE are.tenant_id = $1
+        AND are.absence_request_id = $2
+      ORDER BY are.created_at ASC, are.id ASC
     `,
     [tenantId, absenceRequestId]
   );

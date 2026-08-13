@@ -113,6 +113,12 @@ Rejection reason policy:
 - The full reason is allowed in the employee rejection email body because it is the intended message content.
 - The full reason is not copied to internal notification body, notification payload, outbox payload, audit metadata, route logs, or processor logs.
 
+Approval message policy:
+
+- An optional manager approval message is stored in `absence_request_event.reason` for the approved event and shown in employee/assigned-manager request history.
+- It is not copied to audit metadata, calendar events, internal notification payload/body, email outbox payload, rendered mail templates, route logs, or processor logs in this slice.
+- Adding the approval message to employee email later requires an explicit email-template allowlist/template migration.
+
 PR5 still does not activate automatic outbox `apply`, send production mail, create notification UI, or materialize calendar/resource absence rows.
 
 ## PR7 Special-Window Submit Templates

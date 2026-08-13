@@ -213,7 +213,9 @@ test('absence repositories scope find and list queries by tenant', async () => {
 test('request event history is returned chronologically', async () => {
   const client = createClient([]);
   await absenceRequestRepository.listEvents(client, { tenantId: uuid(1), absenceRequestId: uuid(2) });
-  assert.match(client.calls[0].sql, /ORDER BY created_at ASC, id ASC/);
+  assert.match(client.calls[0].sql, /LEFT JOIN tenant_user actor/);
+  assert.match(client.calls[0].sql, /actor\.tenant_id = are\.tenant_id/);
+  assert.match(client.calls[0].sql, /ORDER BY are\.created_at ASC, are\.id ASC/);
   assert.deepEqual(client.calls[0].params, [uuid(1), uuid(2)]);
 });
 

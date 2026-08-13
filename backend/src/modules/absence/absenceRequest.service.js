@@ -195,6 +195,10 @@ function mapManagerEvent(row) {
   return {
     id: row.id,
     event_type: row.event_type,
+    actor: row.actor_tenant_user_id ? {
+      id: row.actor_tenant_user_id,
+      display_name: row.actor_name || null,
+    } : null,
     old_status: row.old_status,
     new_status: row.new_status,
     reason: row.reason || null,
@@ -206,6 +210,10 @@ function mapEvent(row) {
   return {
     id: row.id,
     event_type: row.event_type,
+    actor: row.actor_tenant_user_id ? {
+      id: row.actor_tenant_user_id,
+      display_name: row.actor_name || null,
+    } : null,
     old_status: row.old_status,
     new_status: row.new_status,
     reason: row.reason,

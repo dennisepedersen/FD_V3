@@ -3214,9 +3214,13 @@
       section.className = "absenceInfoBox";
       appendText(section, "p", "absenceName", "Historik");
       items.forEach((item) => {
-        const status = item.new_status ? ` - ${getRequestStatusLabel(item.new_status, null)}` : "";
-        const reason = item.reason ? ` (${item.reason})` : "";
-        appendText(section, "p", "absenceMeta", `${String(item.event_type || "Haendelse")}${status} - ${formatSubmitted(item.created_at)}${reason}`);
+        const status = item.new_status ? getRequestStatusLabel(item.new_status, null) : String(item.event_type || "Haendelse");
+        const actor = item.actor && item.actor.display_name ? ` af ${item.actor.display_name}` : "";
+        appendText(section, "p", "absenceMeta", `${status}${actor} - ${formatSubmitted(item.created_at)}`);
+        if (item.reason) {
+          const prefix = String(item.event_type || "").toLowerCase() === "rejected" ? "Begrundelse: " : "";
+          appendText(section, "p", "absenceNote", `${prefix}${item.reason}`);
+        }
       });
       parent.appendChild(section);
     }
@@ -3279,7 +3283,7 @@
         button.disabled = state.calendar.managerDecisionSubmitting;
       });
     }
-    function updateRejectReasonCounter(textarea, counter) {
+    function updateDecisionMessageCounter(textarea, counter) {
       if (counter) counter.textContent = `${String(textarea && textarea.value || "").length} / 500`;
     }
     function resetAbsenceRequestForm() {
@@ -3515,7 +3519,7 @@
         resetAbsenceRequestForm();
         setCalendarTab("requests");
         await loadMineAbsenceRequests({ force: true });
-        renderAbsenceRequestDetail(response && response.request ? response.request : null);
+        renderAbsenceRequestDetail(response && response.request ? { ...response.request, events: response.events || [] } : null);
       } catch (error) {
         if (handleAuthFailure(error)) return;
         setText(byId("absenceRequestFormStatus"), getAbsenceDomainErrorMessage(error));
@@ -3601,7 +3605,7 @@
       }
       try {
         const response = await apiFetch(`/api/calendar/absence-requests/${encodeURIComponent(id)}`, { method: "GET" });
-        renderAbsenceRequestDetail(response && response.request ? response.request : response);
+        renderAbsenceRequestDetail(response && response.request ? { ...response.request, events: response.events || [] } : response);
       } catch (error) {
         if (handleAuthFailure(error)) return;
         if (detail) detail.textContent = getAbsenceDomainErrorMessage(error);
@@ -3737,7 +3741,7 @@
         card.className = "absenceCard";
         appendText(card, "p", "absenceName", `${request.employee && request.employee.display_name ? request.employee.display_name : "Medarbejder"} - ${requestCardTitle(request)}`);
         appendText(card, "p", "absenceMeta", `${formatRequestPeriod(request)} - ${getRequestStatusLabel(request.status, request)}`);
-        if (request.has_private_comment && !request.employee_comment) appendText(card, "p", "absenceNote", "Privat kommentar findes, men kraever saerskilt adgang.");
+        if (request.has_private_comment && !request.employee_comment) appendText(card, "p", "absenceNote", "Privat kommentar vedlagt.");
         appendButton(card, "Behandl", "btn btnCompact", () => loadManagerRequestDetail(request.id));
         list.appendChild(card);
       });
@@ -3786,25 +3790,25 @@
       const label = document.createElement("label");
       label.className = "calendarField calendarFieldWide";
       label.setAttribute("for", reasonId);
-      label.textContent = "Begrundelse";
+      label.textContent = "Besked til medarbejderen";
       const textarea = document.createElement("textarea");
       textarea.id = reasonId;
       textarea.className = "absenceReviewReason";
       textarea.maxLength = 500;
-      textarea.required = true;
-      textarea.placeholder = "Begrundelse ved afvisning";
+      textarea.required = false;
+      textarea.placeholder = "Valgfri besked ved godkendelse eller afvisning";
       textarea.setAttribute("aria-describedby", counterId);
       const counter = document.createElement("span");
       counter.id = counterId;
       counter.className = "calendarFormStatus";
-      updateRejectReasonCounter(textarea, counter);
+      updateDecisionMessageCounter(textarea, counter);
       textarea.addEventListener("input", () => {
-        updateRejectReasonCounter(textarea, counter);
+        updateDecisionMessageCounter(textarea, counter);
       });
       label.append(textarea, counter);
       const actions = document.createElement("div");
       actions.className = "calendarFormActions";
-      const approveButton = appendButton(actions, "Godkend", "btn btnPrimary", () => decideManagerRequest(request, "approve", "", textarea));
+      const approveButton = appendButton(actions, "Godkend", "btn btnPrimary", () => decideManagerRequest(request, "approve", textarea.value, textarea));
       approveButton.dataset.managerDecisionAction = "approve";
       approveButton.disabled = state.calendar.managerDecisionSubmitting;
       const rejectButton = appendButton(actions, "Afvis", "btn btnCompact", () => decideManagerRequest(request, "reject", textarea.value, textarea));
@@ -3821,7 +3825,7 @@
       }
       try {
         const response = await apiFetch(`/api/calendar/absence-requests/manager/${encodeURIComponent(id)}`, { method: "GET" });
-        renderManagerRequestDetail(response && response.request ? response.request : response);
+        renderManagerRequestDetail(response && response.request ? { ...response.request, events: response.events || [] } : response);
       } catch (error) {
         if (handleAuthFailure(error)) return;
         if (detail) detail.textContent = getAbsenceDomainErrorMessage(error);
@@ -3830,17 +3834,20 @@
 
     async function decideManagerRequest(request, action, reason, reasonInput) {
       if (state.calendar.managerDecisionSubmitting) return;
+      const decisionMessage = String(reason || "").trim();
       if (action === "approve" && !window.confirm("Vil du godkende anmodningen?")) return;
-      if (action === "reject" && !String(reason || "").trim()) {
-        setText(byId("absenceManagerListMeta"), "Skriv en begrundelse ved afvisning.");
+      if (action === "reject" && !decisionMessage) {
+        setText(byId("absenceManagerListMeta"), "Skriv en besked ved afvisning.");
         if (reasonInput && typeof reasonInput.focus === "function") reasonInput.focus();
         return;
       }
       try {
         setManagerDecisionPending(true);
+        const payload = { version: request.version };
+        if (decisionMessage) payload.reason = decisionMessage;
         await apiFetch(`/api/calendar/absence-requests/${encodeURIComponent(request.id)}/${action}`, {
           method: "POST",
-          body: JSON.stringify(action === "reject" ? { version: request.version, reason: String(reason).trim() } : { version: request.version }),
+          body: JSON.stringify(payload),
         });
         state.calendar.managerLoaded = false;
         state.calendar.teamAgendaLoaded = false;

@@ -150,9 +150,18 @@ test('tenant absence UI uses request backend contracts instead of legacy hardcod
   assert.match(auth, /setManagerDecisionPending\(true\)/);
   assert.match(auth, /dataset\.managerDecisionAction/);
   assert.match(auth, /label\.setAttribute\("for", reasonId\)/);
+  assert.match(auth, /label\.textContent = "Besked til medarbejderen"/);
   assert.match(auth, /textarea\.maxLength = 500/);
+  assert.match(auth, /textarea\.required = false/);
+  assert.match(auth, /Valgfri besked ved godkendelse eller afvisning/);
   assert.match(auth, /textarea\.setAttribute\("aria-describedby", counterId\)/);
   assert.match(auth, /String\(textarea && textarea\.value \|\| ""\)\.length\} \/ 500/);
+  assert.match(auth, /const decisionMessage = String\(reason \|\| ""\)\.trim\(\)/);
+  assert.match(auth, /if \(decisionMessage\) payload\.reason = decisionMessage/);
+  assert.match(auth, /renderManagerRequestDetail\(response && response\.request \? \{ \.\.\.response\.request, events: response\.events \|\| \[\] \} : response\)/);
+  assert.match(auth, /renderAbsenceRequestDetail\(response && response\.request \? \{ \.\.\.response\.request, events: response\.events \|\| \[\] \} : response\)/);
+  assert.match(auth, /Privat kommentar vedlagt\./);
+  assert.doesNotMatch(auth, /Privat kommentar findes, men kraever saerskilt adgang\./);
   assert.doesNotMatch(auth, /outbox apply|sendRealMail|worksheet-sync|EK-sync/i);
 });
 
