@@ -1588,3 +1588,156 @@ test("absence request preflight route is before id routes and uses create-own pe
   assert.match(routes, /requireAbsenceRequestAccess\(req, "create_own"\)/);
   assert.match(routes, /preflight: result\.preflight/);
 });
+
+test("split submit validates all segments before creating drafts", async () => {
+  const client = createTxClient();
+  let insertCount = 0;
+  let submitCount = 0;
+  let eventCount = 0;
+  const windowRow = {
+    id: uuid(40),
+    key: "summer-2099",
+    name: "Sommerferie 2099",
+    absence_start_date: "2099-07-01",
+    absence_end_date: "2099-07-31",
+    submission_open_date: "2099-06-01",
+    submission_deadline: "2099-06-15",
+    review_start_date: "2099-06-20",
+    late_submission_policy: "blocked",
+    collective_processing: true,
+    scope_type: "tenant",
+    fully_contains_request: true,
+  };
+
+  await withPatches([
+    [pool, "connect", async () => client],
+    [absenceRequestRepository, "acquireIdempotencyLock", async () => {}],
+    [absenceRequestRepository, "findCreatedBySplitIdempotencyKey", async () => []],
+    [employeeManagerRelationRepository, "findActivePrimaryManagersForEmployee", async () => [{ id: uuid(30), manager_tenant_user_id: uuid(5), manager_status: "active", manager_login_status: "active" }]],
+    [absenceTypeRepository, "findById", async () => requestType({ special_window_eligible: true })],
+    [absenceSpecialWindowRepository, "listOverlappingActiveScopedForEmployee", async (_client, args) => args.startDate === "2099-07-01" ? [windowRow] : []],
+    [absenceRequestRepository, "insertRequest", async () => { insertCount += 1; return { id: uuid(10), version: 1 }; }],
+    [absenceRequestRepository, "submitDraftForEmployee", async () => { submitCount += 1; return detailRow({ status: "submitted", version: 2 }); }],
+    [absenceRequestRepository, "insertEvent", async () => { eventCount += 1; return { id: uuid(20) }; }],
+    [auditService, "logAuditEvent", async () => {}],
+    [absenceNotificationService, "enqueueAbsenceSubmitted", async () => {}],
+  ], async () => {
+    await assert.rejects(
+      absenceRequestService.submitSplitSegments({
+        tenantId: uuid(1),
+        userId: uuid(2),
+        idempotencyKey: "split-1",
+        body: {
+          segments: [
+            { absence_type_id: uuid(1), duration_type: "full_days", start_date: "2099-03-01", end_date: "2099-04-30" },
+            { absence_type_id: uuid(1), duration_type: "full_days", start_date: "2099-07-01", end_date: "2099-07-20" },
+          ],
+        },
+      }),
+      (error) => {
+        assert.equal(error.statusCode, 409);
+        assert.equal(error.message, "absence_split_segment_failed");
+        assert.equal(error.details.segment_index, 2);
+        assert.equal(error.details.cause_code, "absence_special_window_not_open");
+        return true;
+      }
+    );
+  });
+
+  assert.equal(insertCount, 0);
+  assert.equal(submitCount, 0);
+  assert.equal(eventCount, 0);
+  assert.deepEqual(client.calls.map((call) => call.sql).filter((sql) => ["BEGIN", "COMMIT", "ROLLBACK"].includes(sql)), ["BEGIN", "ROLLBACK"]);
+});
+
+test("split submit creates and submits all segments atomically with idempotency metadata", async () => {
+  const client = createTxClient();
+  const insertedIds = [uuid(101), uuid(102)];
+  let insertCount = 0;
+  let submitCount = 0;
+  const events = [];
+  let auditCount = 0;
+  let notificationCount = 0;
+
+  await withPatches([
+    [pool, "connect", async () => client],
+    [absenceRequestRepository, "acquireIdempotencyLock", async () => {}],
+    [absenceRequestRepository, "findCreatedBySplitIdempotencyKey", async () => []],
+    [employeeManagerRelationRepository, "findActivePrimaryManagersForEmployee", async () => [{ id: uuid(30), manager_tenant_user_id: uuid(5), manager_status: "active", manager_login_status: "active" }]],
+    [absenceTypeRepository, "findById", async () => requestType({ special_window_eligible: false })],
+    [absenceSpecialWindowRepository, "listOverlappingActiveScopedForEmployee", async () => []],
+    [absenceRequestRepository, "insertRequest", async (_client, args) => {
+      const id = insertedIds[insertCount];
+      insertCount += 1;
+      return { ...detailRow({ id, start_date: args.startDate, end_date: args.endDate }), version: 1 };
+    }],
+    [absenceRequestRepository, "submitDraftForEmployee", async (_client, args) => {
+      submitCount += 1;
+      return detailRow({ id: args.absenceRequestId, status: "submitted", version: 2, assigned_manager_tenant_user_id: args.managerTenantUserId, submitted_at: "2026-08-06T01:00:00.000Z" });
+    }],
+    [absenceRequestRepository, "insertEvent", async (_client, event) => { events.push(event); return { id: uuid(20 + events.length) }; }],
+    [auditService, "logAuditEvent", async () => { auditCount += 1; }],
+    [absenceRequestRepository, "findNotificationContextById", async (_client, args) => notificationContextRow({ id: args.absenceRequestId, status: "submitted" })],
+    [absenceNotificationService, "enqueueAbsenceSubmitted", async () => { notificationCount += 1; }],
+    [absenceRequestRepository, "findByIdForEmployee", async (_client, args) => detailRow({ id: args.absenceRequestId, status: "submitted", version: 2, assigned_manager_tenant_user_id: uuid(5), submitted_at: "2026-08-06T01:00:00.000Z" })],
+  ], async () => {
+    const result = await absenceRequestService.submitSplitSegments({
+      tenantId: uuid(1),
+      userId: uuid(2),
+      idempotencyKey: "split-2",
+      body: {
+        segments: [
+          { absence_type_id: uuid(1), duration_type: "full_days", start_date: "2027-03-01", end_date: "2027-04-30" },
+          { absence_type_id: uuid(1), duration_type: "full_days", start_date: "2027-05-01", end_date: "2027-07-20" },
+        ],
+      },
+    });
+    assert.equal(result.idempotent, false);
+    assert.equal(result.requests.length, 2);
+    assert.deepEqual(result.requests.map((item) => item.status), ["submitted", "submitted"]);
+  });
+
+  assert.equal(insertCount, 2);
+  assert.equal(submitCount, 2);
+  assert.equal(events.length, 4);
+  assert.deepEqual(events.filter((event) => event.eventType === "created").map((event) => event.metadata.split_segment_index), [1, 2]);
+  assert.deepEqual(events.filter((event) => event.eventType === "submitted").map((event) => event.metadata.split_idempotency_key), ["split-2", "split-2"]);
+  assert.equal(auditCount, 4);
+  assert.equal(notificationCount, 2);
+  assert.deepEqual(client.calls.map((call) => call.sql).filter((sql) => ["BEGIN", "COMMIT", "ROLLBACK"].includes(sql)), ["BEGIN", "COMMIT"]);
+});
+
+test("split submit idempotent retry returns existing submitted segments without duplicate writes", async () => {
+  const client = createTxClient();
+  let insertCount = 0;
+  let submitCount = 0;
+
+  await withPatches([
+    [pool, "connect", async () => client],
+    [absenceRequestRepository, "acquireIdempotencyLock", async () => {}],
+    [absenceRequestRepository, "findCreatedBySplitIdempotencyKey", async () => [
+      detailRow({ id: uuid(101), status: "submitted", version: 2, submitted_at: "2026-08-06T01:00:00.000Z" }),
+      detailRow({ id: uuid(102), status: "submitted", version: 2, submitted_at: "2026-08-06T01:00:00.000Z" }),
+    ]],
+    [absenceRequestRepository, "insertRequest", async () => { insertCount += 1; return { id: uuid(10), version: 1 }; }],
+    [absenceRequestRepository, "submitDraftForEmployee", async () => { submitCount += 1; return null; }],
+  ], async () => {
+    const result = await absenceRequestService.submitSplitSegments({
+      tenantId: uuid(1),
+      userId: uuid(2),
+      idempotencyKey: "split-2",
+      body: {
+        segments: [
+          { absence_type_id: uuid(1), duration_type: "full_days", start_date: "2027-03-01", end_date: "2027-04-30" },
+          { absence_type_id: uuid(1), duration_type: "full_days", start_date: "2027-05-01", end_date: "2027-07-20" },
+        ],
+      },
+    });
+    assert.equal(result.idempotent, true);
+    assert.equal(result.requests.length, 2);
+  });
+
+  assert.equal(insertCount, 0);
+  assert.equal(submitCount, 0);
+  assert.deepEqual(client.calls.map((call) => call.sql).filter((sql) => ["BEGIN", "COMMIT", "ROLLBACK"].includes(sql)), ["BEGIN", "COMMIT"]);
+});

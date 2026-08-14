@@ -296,6 +296,68 @@ async function findCreatedByIdempotencyKey(client, {
   return rows[0] || null;
 }
 
+async function findCreatedBySplitIdempotencyKey(client, {
+  tenantId,
+  employeeTenantUserId,
+  splitIdempotencyKey,
+}) {
+  const { rows } = await client.query(
+    `
+      SELECT
+        ar.id,
+        ar.absence_type_id,
+        at.key AS absence_type_key,
+        at.name AS absence_type_name,
+        at.workflow_mode AS absence_type_workflow_mode,
+        at.comment_policy AS absence_type_comment_policy,
+        at.visibility_policy AS absence_type_visibility_policy,
+        ar.duration_type,
+        ar.day_part,
+        ar.start_date,
+        ar.end_date,
+        ar.start_time,
+        ar.end_time,
+        ar.timezone,
+        ar.status,
+        ar.assigned_manager_tenant_user_id,
+        manager.name AS assigned_manager_name,
+        ar.special_window_id,
+        sw.key AS special_window_key,
+        sw.name AS special_window_name,
+        sw.submission_deadline AS special_window_submission_deadline,
+        sw.review_start_date AS special_window_review_start_date,
+        ar.submitted_at,
+        ar.reviewed_at,
+        ar.cancelled_at,
+        ar.version,
+        ar.created_at,
+        ar.updated_at,
+        (are.metadata_json->>'split_segment_index')::integer AS split_segment_index
+      FROM absence_request_event are
+      JOIN absence_request ar
+        ON ar.tenant_id = are.tenant_id
+       AND ar.id = are.absence_request_id
+      JOIN absence_type at
+        ON at.tenant_id = ar.tenant_id
+       AND at.id = ar.absence_type_id
+      LEFT JOIN tenant_user manager
+        ON manager.tenant_id = ar.tenant_id
+       AND manager.id = ar.assigned_manager_tenant_user_id
+      LEFT JOIN absence_special_window sw
+        ON sw.tenant_id = ar.tenant_id
+       AND sw.id = ar.special_window_id
+      WHERE are.tenant_id = $1
+        AND ar.employee_tenant_user_id = $2
+        AND are.event_type = 'created'
+        AND are.metadata_json->>'split_idempotency_key' = $3
+      ORDER BY split_segment_index ASC, are.created_at ASC, ar.id ASC
+    `,
+    [tenantId, employeeTenantUserId, splitIdempotencyKey]
+  );
+
+  return rows;
+}
+
 async function updateDraftForEmployee(client, {
   tenantId,
   employeeTenantUserId,
@@ -835,6 +897,7 @@ module.exports = {
   findByIdForEmployee,
   findByIdForManager,
   findCreatedByIdempotencyKey,
+  findCreatedBySplitIdempotencyKey,
   findNotificationContextById,
   insertEvent,
   insertRequest,

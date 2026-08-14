@@ -35,6 +35,7 @@ const CANCEL_ALLOWED_STATUSES = Object.freeze(["draft", "submitted"]);
 const MANAGER_DECISION_ALLOWED_STATUSES = Object.freeze(["submitted", "ready_for_review"]);
 const MANAGER_PENDING_DEFAULT_STATUSES = Object.freeze(["submitted", "ready_for_review"]);
 const STATUS_SET = new Set(ABSENCE_REQUEST_STATUSES);
+const MAX_SPLIT_SEGMENTS = 6;
 
 async function requireNotificationContext(client, { tenantId, absenceRequestId }) {
   const context = await absenceRequestRepository.findNotificationContextById(client, { tenantId, absenceRequestId });
@@ -504,6 +505,72 @@ function buildSpecialWindowPreflightResult(specialWindow, { asOfDate = todayDate
   if (policy === "blocked") return { state: "after_deadline_blocked", can_submit: false, late: true, late_submission_policy: policy, special_window: window };
   if (policy === "manual_review") return { state: "after_deadline_manual_review", can_submit: true, late: true, late_submission_policy: policy, special_window: window };
   return { state: "after_deadline_allowed", can_submit: true, late: true, late_submission_policy: policy, special_window: window };
+}
+
+function summarizeSplitPayload(payload) {
+  if (!payload) return null;
+  return {
+    absence_type_id: payload.absenceTypeId || payload.absence_type_id || null,
+    duration_type: payload.durationType || payload.duration_type || null,
+    start_date: payload.startDate || payload.start_date || null,
+    end_date: payload.endDate || payload.end_date || payload.startDate || payload.start_date || null,
+  };
+}
+
+function segmentErrorDetails(error, index, payload) {
+  return {
+    segment_index: index + 1,
+    segment: summarizeSplitPayload(payload),
+    cause_code: error && error.message ? String(error.message) : "absence_split_segment_failed",
+    cause_details: error && error.details ? error.details : null,
+  };
+}
+
+function throwSplitSegmentError(error, index, payload) {
+  throw createHttpError(error && error.statusCode ? error.statusCode : 409, "absence_split_segment_failed", segmentErrorDetails(error, index, payload));
+}
+
+function normalizeSplitSegmentsPayload(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) throw createHttpError(400, "absence_split_segments_required");
+  for (const key of Object.keys(body)) {
+    if (key !== "segments") throw createHttpError(400, "absence_split_unknown_field");
+  }
+  if (!Array.isArray(body.segments) || body.segments.length < 2) throw createHttpError(400, "absence_split_segments_required");
+  if (body.segments.length > MAX_SPLIT_SEGMENTS) throw createHttpError(400, "absence_split_too_many_segments");
+  return body.segments.map((segment, index) => {
+    try {
+      const payload = normalizeCreatePayload(segment || {});
+      if (payload.durationType !== "full_days") throw createHttpError(400, "absence_split_full_days_only");
+      return payload;
+    } catch (error) {
+      throwSplitSegmentError(error, index, segment);
+    }
+  });
+}
+
+async function validateSplitSegmentsForSubmit(client, { tenantId, employeeTenantUserId, segments }) {
+  const manager = await resolvePrimaryManager(client, { tenantId, employeeTenantUserId });
+  const validated = [];
+  for (let index = 0; index < segments.length; index += 1) {
+    const payload = segments[index];
+    try {
+      const absenceType = await requireAbsenceType(client, { tenantId, absenceTypeId: payload.absenceTypeId });
+      validatePayloadAgainstType(absenceType, payload);
+      const specialWindow = await resolveSpecialWindow(client, {
+        tenantId,
+        employeeTenantUserId,
+        absenceType,
+        absenceTypeId: payload.absenceTypeId,
+        startDate: payload.startDate,
+        endDate: requestEndDateForWindow(payload),
+      });
+      const specialWindowSubmission = validateSpecialWindowSubmissionTiming(specialWindow);
+      validated.push({ payload, absenceType, specialWindow, specialWindowSubmission });
+    } catch (error) {
+      throwSplitSegmentError(error, index, payload);
+    }
+  }
+  return { manager, validated };
 }
 
 function preflightResultFromSpecialWindowError(error) {
@@ -1118,6 +1185,163 @@ async function submitDraft({ tenantId, userId, absenceRequestId, body, idempoten
   });
 }
 
+async function submitSplitSegments({ tenantId, userId, body, idempotencyKey }) {
+  const normalizedTenantId = normalizeUuid(tenantId, "tenant_id_required");
+  const normalizedUserId = normalizeUuid(userId, "tenant_user_id_required");
+  const segments = normalizeSplitSegmentsPayload(body || {});
+  const normalizedIdempotencyKey = normalizeIdempotencyKey(idempotencyKey);
+
+  return withTransaction(async (client) => {
+    if (normalizedIdempotencyKey) {
+      await absenceRequestRepository.acquireIdempotencyLock(client, {
+        lockKey: `absence:split-submit:${normalizedTenantId}:${normalizedUserId}:${normalizedIdempotencyKey}`,
+      });
+      const existing = await absenceRequestRepository.findCreatedBySplitIdempotencyKey(client, {
+        tenantId: normalizedTenantId,
+        employeeTenantUserId: normalizedUserId,
+        splitIdempotencyKey: normalizedIdempotencyKey,
+      });
+      if (existing.length === segments.length) {
+        return { requests: existing.map((row) => mapRequest(row)), idempotent: true };
+      }
+      if (existing.length > 0) {
+        throw createHttpError(409, "absence_split_idempotency_partial", { expected_segments: segments.length, existing_segments: existing.length });
+      }
+    }
+
+    const { manager, validated } = await validateSplitSegmentsForSubmit(client, {
+      tenantId: normalizedTenantId,
+      employeeTenantUserId: normalizedUserId,
+      segments,
+    });
+
+    const requests = [];
+    for (let index = 0; index < validated.length; index += 1) {
+      const { payload, specialWindow, specialWindowSubmission } = validated[index];
+      const request = await absenceRequestRepository.insertRequest(client, {
+        tenantId: normalizedTenantId,
+        employeeTenantUserId: normalizedUserId,
+        absenceTypeId: payload.absenceTypeId,
+        durationType: payload.durationType,
+        dayPart: payload.dayPart,
+        startDate: payload.startDate,
+        endDate: payload.endDate,
+        startTime: payload.startTime,
+        endTime: payload.endTime,
+        timezone: payload.timezone,
+        employeeComment: payload.employeeComment,
+        status: "draft",
+      });
+      await absenceRequestRepository.insertEvent(client, {
+        tenantId: normalizedTenantId,
+        absenceRequestId: request.id,
+        eventType: "created",
+        actorTenantUserId: normalizedUserId,
+        oldStatus: null,
+        newStatus: "draft",
+        metadata: {
+          duration_type: payload.durationType,
+          idempotency_key: normalizedIdempotencyKey ? `${normalizedIdempotencyKey}:create:${index + 1}` : null,
+          split_idempotency_key: normalizedIdempotencyKey,
+          split_segment_index: index + 1,
+          split_segment_count: validated.length,
+        },
+      });
+      await audit(client, {
+        tenantId: normalizedTenantId,
+        actorId: normalizedUserId,
+        eventType: "absence_request.created",
+        requestId: request.id,
+        metadata: {
+          duration_type: payload.durationType,
+          start_date: payload.startDate,
+          end_date: payload.endDate,
+          split_segment_index: index + 1,
+          split_segment_count: validated.length,
+        },
+      });
+
+      const submitted = await absenceRequestRepository.submitDraftForEmployee(client, {
+        tenantId: normalizedTenantId,
+        employeeTenantUserId: normalizedUserId,
+        absenceRequestId: request.id,
+        expectedVersion: Number(request.version),
+        managerTenantUserId: manager.manager_tenant_user_id,
+        specialWindowId: specialWindow?.id || null,
+      });
+      if (!submitted) throw createHttpError(409, "absence_request_version_conflict");
+
+      await absenceRequestRepository.insertEvent(client, {
+        tenantId: normalizedTenantId,
+        absenceRequestId: request.id,
+        eventType: "submitted",
+        actorTenantUserId: normalizedUserId,
+        oldStatus: "draft",
+        newStatus: "submitted",
+        metadata: {
+          manager_relation_id: manager.id,
+          assigned_manager_tenant_user_id: manager.manager_tenant_user_id,
+          special_window_id: specialWindow?.id || null,
+          duration_type: payload.durationType,
+          idempotency_key: normalizedIdempotencyKey ? `${normalizedIdempotencyKey}:submit:${index + 1}` : null,
+          split_idempotency_key: normalizedIdempotencyKey,
+          split_segment_index: index + 1,
+          split_segment_count: validated.length,
+          ...specialWindowSubmission.metadata,
+        },
+      });
+      await audit(client, {
+        tenantId: normalizedTenantId,
+        actorId: normalizedUserId,
+        eventType: "absence_request.submitted",
+        requestId: request.id,
+        metadata: {
+          old_status: "draft",
+          new_status: "submitted",
+          old_version: Number(request.version),
+          new_version: submitted.version,
+          assigned_manager_tenant_user_id: manager.manager_tenant_user_id,
+          special_window_id: specialWindow?.id || null,
+          split_segment_index: index + 1,
+          split_segment_count: validated.length,
+          ...specialWindowSubmission.metadata,
+        },
+      });
+      if (specialWindowSubmission.submittedAfterDeadline) {
+        await audit(client, {
+          tenantId: normalizedTenantId,
+          actorId: normalizedUserId,
+          eventType: "absence_request.late_submitted",
+          requestId: request.id,
+          metadata: {
+            special_window_id: specialWindow?.id || null,
+            special_window_name: specialWindow?.name || null,
+            split_segment_index: index + 1,
+            split_segment_count: validated.length,
+            ...specialWindowSubmission.metadata,
+          },
+        });
+      }
+      await absenceNotificationService.enqueueAbsenceSubmitted(client, {
+        tenantId: normalizedTenantId,
+        actorId: normalizedUserId,
+        requestContext: await requireNotificationContext(client, {
+          tenantId: normalizedTenantId,
+          absenceRequestId: request.id,
+        }),
+      });
+      const row = await getDetailRow(client, {
+        tenantId: normalizedTenantId,
+        employeeTenantUserId: normalizedUserId,
+        absenceRequestId: request.id,
+      });
+      requests.push(mapRequest(row));
+    }
+
+    return { requests, idempotent: false };
+  });
+}
+
 async function cancelOwn({ tenantId, userId, absenceRequestId, body }) {
   const normalizedTenantId = normalizeUuid(tenantId, "tenant_id_required");
   const normalizedUserId = normalizeUuid(userId, "tenant_user_id_required");
@@ -1203,6 +1427,7 @@ module.exports = {
   preflightEmployeeRequest,
   rejectManaged,
   submitDraft,
+  submitSplitSegments,
   updateDraft,
   _test: {
     absenceTypeFromRequestRow,
@@ -1212,8 +1437,10 @@ module.exports = {
     buildSpecialWindowOverlapDetails,
     buildSpecialWindowPreflightResult,
     normalizeIdempotencyKey,
+    normalizeSplitSegmentsPayload,
     preflightResultFromSpecialWindowError,
     resolveSpecialWindow,
+    segmentErrorDetails,
     validateManagedRequestType,
     validateSpecialWindowForDecision,
     validateSpecialWindowSubmissionTiming,

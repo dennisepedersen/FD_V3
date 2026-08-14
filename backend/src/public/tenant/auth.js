@@ -868,7 +868,12 @@
         requestDraftSaving: false,
         requestSubmitting: false,
         requestSplitSubmitting: false,
+        requestSplitIdempotencyKey: "",
         requestPreflight: null,
+        requestPreflightModalKey: "",
+        calendarAutoRefreshAt: 0,
+        calendarAutoRefreshInFlight: false,
+        calendarHiddenAt: 0,
         requestPreflightLoading: false,
         requestPreflightError: "",
         requestPreflightSeq: 0,
@@ -3335,6 +3340,24 @@
       catch (_error) { return date.toISOString().slice(0, 16).replace("T", " "); }
     }
 
+    function formatRequestLifecycleText(request) {
+      const status = String(request && request.status || "").toLowerCase();
+      if (status === "draft") return "Ikke sendt";
+      if (status === "submitted" || status === "ready_for_review" || status === "under_review") return request && request.submitted_at ? `Sendt ${formatSubmitted(request.submitted_at)}` : "Sendt";
+      if (status === "approved") return request && request.reviewed_at ? `Godkendt ${formatSubmitted(request.reviewed_at)}` : "Godkendt";
+      if (status === "rejected") return request && request.reviewed_at ? `Afvist ${formatSubmitted(request.reviewed_at)}` : "Afvist";
+      if (status === "cancelled") return request && request.cancelled_at ? `Annulleret ${formatSubmitted(request.cancelled_at)}` : "Annulleret";
+      return request && request.submitted_at ? `Sendt ${formatSubmitted(request.submitted_at)}` : "Ikke sendt";
+    }
+
+    function appendSpecialWindowRequestHelp(parent, request) {
+      const windowInfo = request && request.special_window ? request.special_window : null;
+      if (!parent || !windowInfo) return;
+      appendText(parent, "p", "absenceNote", `Anmodning i ${windowInfo.name || windowInfo.key || "ferieønskeperiode"}.`);
+      if (windowInfo.review_start_date) appendText(parent, "p", "absenceNote", `Afventer fælles behandling efter ${formatDisplayDate(windowInfo.review_start_date)}.`);
+      else if (windowInfo.submission_deadline) appendText(parent, "p", "absenceNote", `Fælles behandling efter fristen ${formatDisplayDate(windowInfo.submission_deadline)}.`);
+    }
+
     function getRequestTypeName(type) {
       return String(type && type.name ? type.name : type && type.key ? type.key : "Fravær");
     }
@@ -3447,6 +3470,7 @@
       state.calendar.requestSubmitIdempotencyKey = "";
       state.calendar.requestDraftSaving = false;
       state.calendar.requestSubmitting = false;
+      state.calendar.requestSplitIdempotencyKey = "";
       setAbsenceRequestActionPending(false);
       resetAbsenceRequestPreflight();
       if (byId("absenceRequestForm")) byId("absenceRequestForm").reset();
@@ -3559,6 +3583,7 @@
       state.calendar.requestPreflightLoading = false;
       state.calendar.requestPreflightError = "";
       state.calendar.requestPreflightSignature = "";
+      state.calendar.requestPreflightModalKey = "";
       state.calendar.requestPreflightSeq += 1;
       renderAbsenceRequestPreflight();
     }
@@ -3649,6 +3674,17 @@
       }
     }
 
+    function getPreflightModalKey(preflight) {
+      if (!preflight) return "";
+      return JSON.stringify({
+        signature: state.calendar.requestPreflightSignature,
+        state: preflight.state || "",
+        reason: preflight.reason || "",
+        message: preflight.error_message || "",
+        windows: (preflight.special_windows || []).map((item) => item && item.id).filter(Boolean),
+      });
+    }
+
     function showAbsencePreflightFeedback(preflight, trigger) {
       if (!preflight || preflight.can_submit !== false) return;
       const body = getAbsenceActionBody("feedback", trigger, "");
@@ -3657,11 +3693,21 @@
         : preflight.state === "after_deadline_blocked" ? "Deadline er overskredet"
           : preflight.state === "partial_overlap" ? "Perioden skal deles"
             : preflight.state === "multiple_matches" ? "Flere ferieønskeperioder"
-              : "Anmodningen kan ikke sendes";
+              : preflight.state === "technical_error" ? "Kontrollen fejlede"
+                : "Anmodningen kan ikke sendes";
       setText(absenceActionModalTitle, title);
       setText(absenceActionModalSubtitle, "Fielddesk har kontrolleret perioden server-side.");
       body.replaceChildren();
-      appendSpecialWindowPreflightDetails(body, preflight, { interactive: true });
+      if (preflight.state === "technical_error") appendText(body, "p", "absenceNote", preflight.error_message || "Perioden kunne ikke kontrolleres. Prøv igen.");
+      else appendSpecialWindowPreflightDetails(body, preflight, { interactive: true });
+    }
+
+    function maybeShowAbsencePreflightModal(preflight, trigger) {
+      if (!preflight || preflight.can_submit !== false) return;
+      const key = getPreflightModalKey(preflight);
+      if (!key || state.calendar.requestPreflightModalKey === key) return;
+      state.calendar.requestPreflightModalKey = key;
+      showAbsencePreflightFeedback(preflight, trigger);
     }
 
     function renderAbsenceRequestPreflight() {
@@ -3669,18 +3715,17 @@
       if (!box) return;
       box.replaceChildren();
       box.hidden = true;
-      if (state.calendar.requestPreflightLoading) {
-        appendText(box, "p", "absenceMeta", "Kontrollerer ferieønskeperiode...");
-        box.hidden = false;
-      } else if (state.calendar.requestPreflightError) {
-        appendText(box, "p", "absenceNote", state.calendar.requestPreflightError);
-        box.hidden = false;
-      } else if (state.calendar.requestPreflight && state.calendar.requestPreflight.state !== "no_match") {
+      if (state.calendar.requestPreflight && state.calendar.requestPreflight.state !== "no_match") {
         const preflight = state.calendar.requestPreflight;
         const windowInfo = preflight.special_window || {};
-        appendText(box, "h3", "absenceName", windowInfo.name || "Ferieønskeperiode");
-        appendSpecialWindowPreflightDetails(box, preflight, { interactive: true });
-        if (preflight.can_submit === false) appendButton(box, "Se forklaring", "btn btnCompact", (event) => showAbsencePreflightFeedback(preflight, event.currentTarget));
+        box.className = `absencePreflightNotice calendarFieldWide${preflight.can_submit === false ? " absencePreflightNoticeBlock" : ""}`;
+        appendText(box, "h3", "absenceName", windowInfo.name || (preflight.can_submit === false ? "Ferieønskeperioden skal håndteres" : "Ferieønskeperiode"));
+        if (preflight.can_submit === false) {
+          appendText(box, "p", "absenceNote", "Perioden kan ikke sendes med de valgte oplysninger.");
+          appendButton(box, "Se forklaring", "btn btnCompact", (event) => showAbsencePreflightFeedback(preflight, event.currentTarget));
+        } else {
+          appendSpecialWindowPreflightDetails(box, preflight, { interactive: false });
+        }
         box.hidden = false;
       }
       updateAbsenceContinueState();
@@ -3722,6 +3767,11 @@
           if (state.calendar.requestPreflightSeq === seq) {
             state.calendar.requestPreflightLoading = false;
             renderAbsenceRequestPreflight();
+            if (state.calendar.requestPreflight && state.calendar.requestPreflightSignature === candidate.signature) {
+              maybeShowAbsencePreflightModal(state.calendar.requestPreflight, byId("absenceRequestContinueBtn"));
+            } else if (state.calendar.requestPreflightError && state.calendar.requestPreflightSignature === candidate.signature) {
+              maybeShowAbsencePreflightModal({ state: "technical_error", can_submit: false, error_message: state.calendar.requestPreflightError }, byId("absenceRequestContinueBtn"));
+            }
           }
         }
       };
@@ -3800,6 +3850,33 @@
       });
     }
 
+    function getSplitFailureMessage(error) {
+      const details = error && error.details ? error.details : {};
+      if (details.segment_index) {
+        const segment = details.segment || {};
+        const cause = getAbsenceDomainErrorMessage({ code: details.cause_code, details: details.cause_details || {} });
+        const range = segment.start_date ? ` (${formatDateRange(segment.start_date, segment.end_date)})` : "";
+        return `Segment ${details.segment_index}${range}: ${cause}`;
+      }
+      return getAbsenceDomainErrorMessage(error);
+    }
+
+    function showAbsenceSplitResultFeedback(title, requests, trigger) {
+      const body = getAbsenceActionBody("feedback", trigger, "");
+      if (!body) return;
+      setText(absenceActionModalTitle, title);
+      setText(absenceActionModalSubtitle, "Anmodningerne er oprettet og sendt til behandling.");
+      body.replaceChildren();
+      (requests || []).forEach((request) => {
+        const card = document.createElement("article");
+        card.className = "absenceCard";
+        appendText(card, "p", "absenceName", requestCardTitle(request));
+        appendText(card, "p", "absenceMeta", `${formatRequestPeriod(request)} - ${formatRequestLifecycleText(request)}`);
+        appendSpecialWindowRequestHelp(card, request);
+        body.appendChild(card);
+      });
+    }
+
     async function submitAbsenceSplitSuggestion(trigger) {
       if (state.calendar.requestSplitSubmitting || state.calendar.requestDraftSaving || state.calendar.requestSubmitting) return;
       const result = validateAbsenceRequestForm();
@@ -3816,35 +3893,33 @@
       const confirmed = await confirmAbsenceSplitSuggestion(preflight, trigger);
       if (!confirmed) return;
       state.calendar.requestSplitSubmitting = true;
+      if (!state.calendar.requestSplitIdempotencyKey) state.calendar.requestSplitIdempotencyKey = createClientActionKey("absence-split-submit");
       setAbsenceRequestActionPending(true);
       setText(byId("absenceRequestFormStatus"), `Opretter ${segments.length} anmodninger...`);
       try {
-        const submitted = [];
-        for (let index = 0; index < segments.length; index += 1) {
-          const payload = buildSplitSegmentPayload(result.payload, segments[index]);
-          const createResponse = await apiFetch("/api/calendar/absence-requests", {
-            method: "POST",
-            headers: { "Idempotency-Key": createClientActionKey(`absence-split-create-${index + 1}`) },
-            body: JSON.stringify(payload),
-          });
-          const draft = createResponse && createResponse.request ? createResponse.request : createResponse;
-          const submitResponse = await apiFetch(`/api/calendar/absence-requests/${encodeURIComponent(draft.id)}/submit`, {
-            method: "POST",
-            headers: { "Idempotency-Key": createClientActionKey(`absence-split-submit-${index + 1}`) },
-            body: JSON.stringify({ version: draft.version }),
-          });
-          submitted.push(submitResponse && submitResponse.request ? submitResponse.request : submitResponse);
-        }
+        const splitPayload = { segments: segments.map((segment) => buildSplitSegmentPayload(result.payload, segment)) };
+        const response = await apiFetch("/api/calendar/absence-requests/split-submit", {
+          method: "POST",
+          headers: { "Idempotency-Key": state.calendar.requestSplitIdempotencyKey },
+          body: JSON.stringify(splitPayload),
+        });
+        const submitted = response && Array.isArray(response.requests) ? response.requests : [];
         state.calendar.mineLoaded = false;
+        state.calendar.requestSplitIdempotencyKey = "";
         resetAbsenceRequestForm();
-        setCalendarTab("requests");
-        await loadMineAbsenceRequests({ force: true });
-        showAbsenceActionFeedback("Anmodninger sendt", `${submitted.length} anmodninger er oprettet og sendt til normal server-side behandling.`, trigger);
+        await setCalendarTab("requests");
+        showAbsenceSplitResultFeedback(`${submitted.length} anmodninger oprettet`, submitted, trigger);
       } catch (error) {
         if (handleAuthFailure(error)) return;
-        const message = getAbsenceDomainErrorMessage(error);
+        const message = getSplitFailureMessage(error);
         setText(byId("absenceRequestFormStatus"), message);
-        showAbsenceActionFeedback("Noget gik galt", "En eller flere anmodninger blev ikke sendt. Prøv igen.", trigger);
+        const body = getAbsenceActionBody("feedback", trigger, "");
+        if (body) {
+          setText(absenceActionModalTitle, "Split kunne ikke gennemføres");
+          setText(absenceActionModalSubtitle, "Der er ikke oprettet nye split-anmodninger, hvis serveren afviste valideringen.");
+          body.replaceChildren();
+          appendText(body, "p", "absenceNote", message);
+        }
       } finally {
         state.calendar.requestSplitSubmitting = false;
         setAbsenceRequestActionPending(false);
@@ -3943,8 +4018,7 @@
         state.calendar.requestSubmitIdempotencyKey = "";
         state.calendar.mineLoaded = false;
         resetAbsenceRequestForm();
-        setCalendarTab("requests");
-        await loadMineAbsenceRequests({ force: true });
+        await setCalendarTab("requests");
         const detailBody = getAbsenceActionBody("mine", null, "");
         setText(absenceActionModalTitle, "Anmodning sendt");
         setText(absenceActionModalSubtitle, "Anmodningen er sendt til behandling.");
@@ -3976,8 +4050,8 @@
         appendText(header, "p", "absenceName", requestCardTitle(request));
         appendRequestStatusBadge(header, request);
         card.appendChild(header);
-        appendText(card, "p", "absenceMeta", `${formatRequestPeriod(request)} - sendt ${formatSubmitted(request.submitted_at)}`);
-        if (request.special_window) appendText(card, "p", "absenceNote", `Ferieønskeperiode: ${request.special_window.name || request.special_window.key || "-"}. Ikke først til mølle.`);
+        appendText(card, "p", "absenceMeta", `${formatRequestPeriod(request)} - ${formatRequestLifecycleText(request)}`);
+        appendSpecialWindowRequestHelp(card, request);
         const actions = document.createElement("div");
         actions.className = "resourceGroupActions";
         appendButton(actions, "Vis", "btn btnCompact", (event) => loadMineAbsenceRequestDetail(request.id, event.currentTarget));
@@ -4021,7 +4095,7 @@
       detail.hidden = false;
       appendText(detail, "h3", "absenceName", requestCardTitle(request));
       appendText(detail, "p", "absenceMeta", `${getRequestStatusLabel(request.status, request)} - ${formatRequestPeriod(request)}`);
-      if (request.special_window) appendText(detail, "p", "absenceNote", `Behandles samlet i ${request.special_window.name || "ferieønskeperiode"}. Ikke først til mølle.`);
+      appendSpecialWindowRequestHelp(detail, request);
       if (request.employee_comment) appendText(detail, "p", "absenceNote", request.employee_comment);
       renderRequestEvents(detail, request.events);
     }
@@ -4630,6 +4704,21 @@
       }
     }
 
+    async function refreshCalendarWorkspace(reason, options = {}) {
+      if (state.currentView !== "calendar") return;
+      const force = Boolean(options.force);
+      const now = Date.now();
+      if (!force && now - state.calendar.calendarAutoRefreshAt < 20000) return;
+      if (state.calendar.calendarAutoRefreshInFlight) return;
+      state.calendar.calendarAutoRefreshInFlight = true;
+      state.calendar.calendarAutoRefreshAt = now;
+      try {
+        await loadCalendarWorkspace({ force: true, reason });
+      } finally {
+        state.calendar.calendarAutoRefreshInFlight = false;
+      }
+    }
+
     function setCalendarMessage(message) {
       setText(absenceRangeStatus, message);
       setText(absenceListMeta, message);
@@ -4653,7 +4742,7 @@
         panel.hidden = panel.dataset.calendarPanel !== nextTab;
       });
       renderCalendarAccessState();
-      loadCalendarWorkspace();
+      return refreshCalendarWorkspace("tab-entry", { force: true });
     }
 
     function renderCalendarAccessState() {
@@ -4943,7 +5032,7 @@
       if (activeView === "calendar") {
         ensureCalendarDefaults();
         renderCalendarAccessState();
-        loadCalendarWorkspace();
+        refreshCalendarWorkspace("view-entry");
       }
       if (activeView === "resource-groups") {
         renderResourceGroupAccessState();
@@ -6659,6 +6748,18 @@
       button.addEventListener("click", () => {
         setCalendarTab(button.dataset.calendarTab);
       });
+    });
+    window.addEventListener("focus", () => {
+      refreshCalendarWorkspace("window-focus");
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) {
+        state.calendar.calendarHiddenAt = Date.now();
+        return;
+      }
+      if (!state.calendar.calendarHiddenAt || Date.now() - state.calendar.calendarHiddenAt >= 15000) {
+        refreshCalendarWorkspace("visibility-return");
+      }
     });
 
     if (byId("absenceRequestsRefreshBtn")) {

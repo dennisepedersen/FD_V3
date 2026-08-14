@@ -778,8 +778,10 @@
 
 
     .absenceWorkspaceTabs {
+      --absence-tab-width: 172px;
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(164px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(var(--absence-tab-width), var(--absence-tab-width)));
+      justify-content: start;
       gap: 8px;
       width: 100%;
       padding: 0;
@@ -788,13 +790,15 @@
     }
 
     .absenceWorkspaceTabs .calendarTab {
-      min-height: 46px;
+      min-height: 44px;
       width: 100%;
       border: 1px solid var(--fd-brand-border);
-      border-radius: 10px;
+      border-radius: 8px;
+      padding-inline: 12px;
       background: var(--fd-brand);
       color: #ffffff;
-      box-shadow: 0 6px 18px rgba(5, 150, 105, 0.14);
+      box-shadow: 0 4px 12px rgba(5, 150, 105, 0.12);
+      white-space: normal;
     }
 
     .absenceWorkspaceTabs .calendarTab:hover,
@@ -1184,8 +1188,9 @@
 
     .calendarField select,
     .resourceGroupField select {
-      background-color: #071224;
-      color-scheme: dark;
+      background-color: #ffffff;
+      color: var(--fd-text);
+      color-scheme: light;
       cursor: pointer;
     }
 
@@ -1198,14 +1203,14 @@
 
     .calendarField select option,
     .resourceGroupField select option {
-      background: #071224;
-      color: var(--text);
+      background: #ffffff;
+      color: var(--fd-text);
     }
 
     .calendarField select option:checked,
     .resourceGroupField select option:checked {
-      background: #18304b;
-      color: #dff8ff;
+      background: var(--fd-brand-soft);
+      color: var(--fd-brand);
     }
 
     .calendarFormActions,
@@ -1252,9 +1257,35 @@
     .absenceDurationGroup,
     .absenceScopeBox {
       border: 1px solid rgba(191, 212, 234, 0.14);
-      border-radius: 12px;
+      border-radius: 8px;
+      padding: 8px 0 0;
+      background: transparent;
+    }
+
+    .absenceRequestFormGrid {
+      align-items: end;
+    }
+
+    .absenceRequestFormGrid #absenceFullDaysFields {
+      display: contents;
+    }
+
+    .absenceRequestFormGrid #absenceFullDaysFields[hidden],
+    .absenceRequestFormGrid #absenceTimeRangeFields[hidden] {
+      display: none;
+    }
+
+    .absencePreflightNotice {
       padding: 10px 11px;
-      background: rgba(4, 10, 22, 0.2);
+      border: 1px solid var(--fd-brand-border);
+      border-radius: 8px;
+      background: var(--fd-brand-soft);
+      color: var(--fd-text);
+    }
+
+    .absencePreflightNoticeBlock {
+      border-color: #fed7aa;
+      background: #fff7ed;
     }
 
     .absenceDurationGroup legend,
@@ -1813,6 +1844,14 @@
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
 
+      .absenceRequestFormGrid {
+        grid-template-columns: minmax(176px, 0.9fr) minmax(146px, 0.7fr) minmax(146px, 0.7fr);
+      }
+
+      .absenceRequestFormGrid #absenceTimeRangeFields {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
       .calendarFieldWide,
       .resourceGroupFieldWide {
         grid-column: 1 / -1;
@@ -1862,6 +1901,21 @@
       .fdModalPanel {
         max-height: calc(100vh - 24px - env(safe-area-inset-bottom));
         border-radius: 18px 18px 12px 12px;
+      }
+
+      .absenceWorkspaceTabs {
+        grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+      }
+
+      .calendarField input,
+      .calendarField select,
+      .calendarField textarea,
+      .resourceGroupField input,
+      .resourceGroupField select,
+      .resourceGroupField textarea,
+      .sortSelect,
+      .absenceReviewReason {
+        font-size: 16px;
       }
 
       .scrollTopBtn {
@@ -3799,16 +3853,11 @@
                   <p id="absenceTypeOptionsStatus" class="subtitle">Indlæser fraværstyper...</p>
                 </div>
               </div>
-              <form id="absenceRequestForm" class="calendarFormGrid" novalidate>
-                <label class="calendarField calendarFieldWide">
+              <form id="absenceRequestForm" class="calendarFormGrid absenceRequestFormGrid" novalidate>
+                <label class="calendarField">
                   Fraværsårsag
                   <select id="absenceRequestTypeSelect" required></select>
                 </label>
-                <fieldset class="calendarField calendarFieldWide absenceDurationGroup">
-                  <legend>Varighed</legend>
-                  <label class="absenceInlineChoice"><input id="absenceDurationFullDays" name="absenceDurationType" type="radio" value="full_days"> Hele dage</label>
-                  <label class="absenceInlineChoice"><input id="absenceDurationTimeRange" name="absenceDurationType" type="radio" value="time_range"> Bestemt tidsrum</label>
-                </fieldset>
                 <div id="absenceFullDaysFields" class="calendarFormGrid calendarFieldWide">
                   <label class="calendarField">
                     Fra dato
@@ -3819,6 +3868,11 @@
                     <input id="absenceRequestEndDateInput" type="date">
                   </label>
                 </div>
+                <fieldset class="calendarField calendarFieldWide absenceDurationGroup">
+                  <legend>Varighed</legend>
+                  <label class="absenceInlineChoice"><input id="absenceDurationFullDays" name="absenceDurationType" type="radio" value="full_days"> Hele dage</label>
+                  <label class="absenceInlineChoice"><input id="absenceDurationTimeRange" name="absenceDurationType" type="radio" value="time_range"> Bestemt tidsrum</label>
+                </fieldset>
                 <div id="absenceTimeRangeFields" class="calendarFormGrid calendarFieldWide" hidden>
                   <label class="calendarField">
                     Dato

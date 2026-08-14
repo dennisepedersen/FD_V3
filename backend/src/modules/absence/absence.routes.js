@@ -199,6 +199,29 @@ router.post("/api/calendar/absence-requests", requireTenantHost, requireAuth("ac
   }
 });
 
+router.post("/api/calendar/absence-requests/split-submit", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  try {
+    const { tenantId, userId } = getTenantContext(req);
+    requireAbsenceRequestAccess(req, "create_own");
+    requireAbsenceRequestAccess(req, "submit_own");
+
+    const result = await absenceRequestService.submitSplitSegments({
+      tenantId,
+      userId,
+      body: req.body || {},
+      idempotencyKey: idempotencyKey(req),
+    });
+
+    res.status(result.idempotent ? 200 : 201).json({
+      success: true,
+      requests: result.requests,
+    });
+  } catch (error) {
+    logRouteError("/api/calendar/absence-requests/split-submit", "POST", req, error);
+    next(error);
+  }
+});
+
 router.get("/api/calendar/absence-requests/:id", requireTenantHost, requireAuth("access"), async (req, res, next) => {
   try {
     const { tenantId, userId } = getTenantContext(req);

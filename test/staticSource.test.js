@@ -262,15 +262,36 @@ test('absence UI polish exposes focused feedback, split preview and contrast hoo
   assert.match(auth, /Del anmodningen automatisk/);
   assert.match(auth, /confirmAbsenceSplitSuggestion/);
   assert.match(auth, /Opret \$\{segments\.length\} anmodninger/);
-  assert.match(auth, /absence-split-create/);
-  assert.match(auth, /absence-split-submit/);
+  assert.match(auth, /\/api\/calendar\/absence-requests\/split-submit/);
+  assert.match(auth, /requestSplitIdempotencyKey/);
+  assert.doesNotMatch(auth, /absence-split-create/);
   assert.match(auth, /requestSplitSubmitting/);
   assert.match(auth, /Fielddesk har kontrolleret perioden server-side/);
   assert.match(auth, /Noget gik galt\. Prøv igen\./);
+  assert.match(auth, /function refreshCalendarWorkspace\(reason, options = \{\}\)/);
+  assert.match(auth, /window\.addEventListener\("focus"/);
+  assert.match(auth, /visibility-return/);
+  assert.match(auth, /requestPreflightModalKey/);
+  assert.match(auth, /maybeShowAbsencePreflightModal/);
+  assert.match(auth, /formatRequestLifecycleText/);
+  assert.match(auth, /appendSpecialWindowRequestHelp/);
+  assert.match(html, /--absence-tab-width: 172px/);
+  assert.match(html, /absenceRequestFormGrid/);
+  assert.match(html, /absencePreflightNotice/);
+  assert.match(html, /font-size: 16px/);
+  assert.doesNotMatch(html, /color-scheme: dark/);
   assert.match(auth, /function enhanceMultiSelectToggle\(select\)/);
   assert.match(auth, /option\.selected = !option\.selected/);
   assert.match(auth, /enhanceMultiSelectToggle\(typeSelect\)/);
   assert.match(auth, /enhanceMultiSelectToggle\(userSelect\)/);
   assert.match(auth, /enhanceMultiSelectToggle\(groupSelect\)/);
   assert.doesNotMatch(calendarHtml, /Fravaer|Planlaegning|Ferieonske|Direkte fravaer|Fraværsaarsag|Begraenset|Oekonomi/);
+});
+
+test("split submit endpoint is routed before dynamic absence request ids", () => {
+  const routes = read("backend/src/modules/absence/absence.routes.js");
+  assert.ok(routes.indexOf("/api/calendar/absence-requests/split-submit") > -1);
+  assert.ok(routes.indexOf("/api/calendar/absence-requests/split-submit") < routes.indexOf("/api/calendar/absence-requests/:id"));
+  assert.match(routes, /requireAbsenceRequestAccess\(req, "create_own"\)/);
+  assert.match(routes, /requireAbsenceRequestAccess\(req, "submit_own"\)/);
 });
