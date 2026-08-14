@@ -796,6 +796,12 @@
     const resourceGroupCreateModal = document.getElementById("resourceGroupCreateModal");
     const resourceGroupCreateCloseBtn = document.getElementById("resourceGroupCreateCloseBtn");
     const resourceGroupCreateCancelBtn = document.getElementById("resourceGroupCreateCancelBtn");
+    const absenceActionModal = document.getElementById("absenceActionModal");
+    const absenceActionModalBody = document.getElementById("absenceActionModalBody");
+    const absenceActionModalTitle = document.getElementById("absenceActionModalTitle");
+    const absenceActionModalSubtitle = document.getElementById("absenceActionModalSubtitle");
+    const absenceActionModalCloseBtn = document.getElementById("absenceActionModalCloseBtn");
+    const absenceActionModalCancelBtn = document.getElementById("absenceActionModalCancelBtn");
     const scrollTopBtn = document.getElementById("scrollTopBtn");
     const dashboardWelcomeName = document.getElementById("dashboardWelcomeName");
     const dashboardDateText = document.getElementById("dashboardDateText");
@@ -861,6 +867,7 @@
         requestSubmitIdempotencyKey: "",
         requestDraftSaving: false,
         requestSubmitting: false,
+        requestSplitSubmitting: false,
         requestPreflight: null,
         requestPreflightLoading: false,
         requestPreflightError: "",
@@ -894,6 +901,7 @@
         specialWindowDetail: null,
         specialWindowReviewRequests: [],
         specialWindowReviewLoaded: false,
+        actionModalKind: '',
       },
       tenantAdmin: {
         users: [],
@@ -2631,6 +2639,116 @@
       setText(tenantAdminUserCreateStatus, "");
     }
 
+    function getAbsenceActionTitle(kind) {
+      if (kind === "manager") return "Behandl fraværsanmodning";
+      if (kind === "mine") return "Fraværsanmodning";
+      if (kind === "special-window-edit") return state.calendar.specialWindowEditorMode === "edit" ? "Rediger ferieønskeperiode" : "Opret ferieønskeperiode";
+      if (kind === "special-window-review") return "Review af ferieønskeperiode";
+      return "Fravær";
+    }
+
+    function getAbsenceActionSubtitle(kind) {
+      if (kind === "manager") return "Lederbehandling for den valgte anmodning.";
+      if (kind === "mine") return "Detaljer for din valgte anmodning.";
+      if (kind === "special-window-edit") return "Administrer perioden uden at miste din placering i listen.";
+      if (kind === "special-window-review") return "Overblik over ønsker, scope og overlap-signaler.";
+      return "Detaljer og handlinger.";
+    }
+
+    function resetAbsenceActionModalContent() {
+      if (!absenceActionModalBody) return;
+      const editor = byId("specialWindowEditor");
+      if (editor && absenceActionModalBody.contains(editor)) {
+        const windowsPanel = byId("specialWindowsPanel");
+        if (windowsPanel) windowsPanel.appendChild(editor);
+        editor.hidden = true;
+      }
+      absenceActionModalBody.replaceChildren();
+    }
+
+    function openAbsenceActionModal(kind, trigger) {
+      if (!absenceActionModal || !absenceActionModalBody) return null;
+      state.calendar.actionModalKind = kind || "";
+      resetAbsenceActionModalContent();
+      setText(absenceActionModalTitle, getAbsenceActionTitle(kind));
+      setText(absenceActionModalSubtitle, getAbsenceActionSubtitle(kind));
+      absenceActionModal.hidden = false;
+      absenceActionModal.setAttribute("aria-hidden", "false");
+      absenceActionModal.dataset.returnFocus = "";
+      tenantAdminActiveModal = { modal: absenceActionModal, trigger: trigger || document.activeElement };
+      document.body.classList.add("fd-modal-open");
+      window.setTimeout(() => {
+        const focusable = getFocusableModalNodes(absenceActionModal);
+        (focusable[0] || absenceActionModal.querySelector(".fdModalPanel") || absenceActionModal).focus();
+      }, 0);
+      return absenceActionModalBody;
+    }
+
+    function closeAbsenceActionModal() {
+      if (!absenceActionModal || absenceActionModal.hidden) return;
+      const trigger = tenantAdminActiveModal && tenantAdminActiveModal.modal === absenceActionModal ? tenantAdminActiveModal.trigger : null;
+      resetAbsenceActionModalContent();
+      absenceActionModal.hidden = true;
+      absenceActionModal.setAttribute("aria-hidden", "true");
+      state.calendar.actionModalKind = "";
+      tenantAdminActiveModal = null;
+      if (!document.querySelector(".fdModalShell:not([hidden])")) document.body.classList.remove("fd-modal-open");
+      if (trigger && typeof trigger.focus === "function") trigger.focus();
+    }
+
+    function getAbsenceActionBody(kind, trigger, loadingText) {
+      const body = openAbsenceActionModal(kind, trigger);
+      if (body && loadingText) body.textContent = loadingText;
+      return body;
+    }
+
+    function confirmAbsenceAction(options) {
+      return new Promise((resolve) => {
+        const body = getAbsenceActionBody("feedback", options && options.trigger, "");
+        if (!body) {
+          resolve(false);
+          return;
+        }
+        setText(absenceActionModalTitle, options && options.title ? options.title : "Bekræft handling");
+        setText(absenceActionModalSubtitle, options && options.subtitle ? options.subtitle : "Handlingen gælder det valgte element.");
+        body.replaceChildren();
+        appendText(body, "p", "absenceNote", options && options.message ? options.message : "Vil du fortsætte?");
+        const actions = document.createElement("div");
+        actions.className = "calendarFormActions";
+        appendButton(actions, options && options.cancelLabel ? options.cancelLabel : "Tilbage", "btn btnCompact", () => {
+          closeAbsenceActionModal();
+          resolve(false);
+        });
+        appendButton(actions, options && options.confirmLabel ? options.confirmLabel : "Fortsæt", "btn btnPrimary", () => {
+          closeAbsenceActionModal();
+          resolve(true);
+        });
+        body.appendChild(actions);
+      });
+    }
+
+    function showAbsenceActionFeedback(title, message, trigger) {
+      const body = getAbsenceActionBody("feedback", trigger, "");
+      if (!body) return;
+      setText(absenceActionModalTitle, title || "Handling gennemført");
+      setText(absenceActionModalSubtitle, "Listen er opdateret.");
+      body.replaceChildren();
+      appendText(body, "p", "absenceNote", message || "Ændringen er gemt.");
+    }
+
+    function setManagerDecisionError(reasonInput, message) {
+      const field = reasonInput && reasonInput.closest ? reasonInput.closest(".calendarField") : null;
+      let errorNode = field ? field.querySelector("[data-manager-decision-error]") : null;
+      if (!errorNode && field) {
+        errorNode = document.createElement("span");
+        errorNode.className = "calendarFormStatus";
+        errorNode.dataset.managerDecisionError = "true";
+        field.appendChild(errorNode);
+      }
+      if (errorNode) errorNode.textContent = message || "";
+      else if (message) setText(byId("absenceManagerListMeta"), message);
+    }
+
     function getFocusableModalNodes(modal) {
       return Array.from(modal ? modal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])') : [])
         .filter((node) => !node.disabled && !node.hidden && node.offsetParent !== null);
@@ -3187,6 +3305,21 @@
       const right = formatDisplayDate(end || start);
       return left === right ? left : `${left} til ${right}`;
     }
+    function shiftDateInput(value, days) {
+      const parsed = parseDateInput(value);
+      if (!parsed) return "";
+      return formatDateInput(addDays(parsed, days));
+    }
+    function getRequestStatusKey(status) {
+      const normalized = String(status || "unknown").toLowerCase().replace(/_/g, "-");
+      return normalized.replace(/[^a-z0-9-]/g, "") || "unknown";
+    }
+    function appendRequestStatusBadge(parent, request) {
+      const status = request && request.status;
+      const badge = appendText(parent, "span", `statusPill absenceStatusPill absenceStatus-${getRequestStatusKey(status)}`, getRequestStatusLabel(status, request));
+      badge.setAttribute("data-status", getRequestStatusKey(status));
+      return badge;
+    }
     function formatTime(value) { return String(value || "").trim().slice(0, 5); }
     function dateInputFromValue(value) { return String(value || "").slice(0, 10); }
     function formatRequestPeriod(request) {
@@ -3203,14 +3336,14 @@
     }
 
     function getRequestTypeName(type) {
-      return String(type && type.name ? type.name : type && type.key ? type.key : "Fravaer");
+      return String(type && type.name ? type.name : type && type.key ? type.key : "Fravær");
     }
     function getRequestTypeById(id) {
       const value = String(id || "");
       return (state.calendar.requestTypes || []).find((type) => String(type && type.id) === value) || null;
     }
     function requestCardTitle(request) {
-      return String(request && request.absence_type && request.absence_type.name ? request.absence_type.name : request && request.absence_type_name ? request.absence_type_name : "Fravaer");
+      return String(request && request.absence_type && request.absence_type.name ? request.absence_type.name : request && request.absence_type_name ? request.absence_type_name : "Fravær");
     }
 
     function renderRequestEvents(parent, events) {
@@ -3220,7 +3353,7 @@
       section.className = "absenceInfoBox";
       appendText(section, "p", "absenceName", "Historik");
       items.forEach((item) => {
-        const status = item.new_status ? getRequestStatusLabel(item.new_status, null) : String(item.event_type || "Haendelse");
+        const status = item.new_status ? getRequestStatusLabel(item.new_status, null) : String(item.event_type || "Hændelse");
         const actor = item.actor && item.actor.display_name ? ` af ${item.actor.display_name}` : "";
         appendText(section, "p", "absenceMeta", `${status}${actor} - ${formatSubmitted(item.created_at)}`);
         if (item.reason) {
@@ -3232,12 +3365,12 @@
     }
     function getRequestStatusLabel(status, request) {
       const normalized = String(status || "").toLowerCase();
-      if (normalized === "submitted" && request && request.special_window) return "Afventer faelles behandling";
-      const labels = { draft: "Kladde", submitted: "Modtaget", ready_for_review: "Klar til behandling", under_review: "Under behandling", approved: "Godkendt", rejected: "Afvist", cancelled: "Annulleret", change_proposed: "Aendringsforslag" };
+      if (normalized === "submitted" && request && request.special_window) return "Afventer fælles behandling";
+      const labels = { draft: "Kladde", submitted: "Modtaget", ready_for_review: "Klar til behandling", under_review: "Under behandling", approved: "Godkendt", rejected: "Afvist", cancelled: "Annulleret", change_proposed: "Ændringsforslag" };
       return labels[normalized] || String(status || "Ukendt");
     }
     function getSpecialWindowStatusLabel(status) {
-      const labels = { draft: "Kladde", scheduled: "Planlagt", open: "Aaben", closed_waiting_review: "Lukket - afventer behandling", review_open: "Behandling aaben", ended: "Afsluttet", archived: "Arkiveret" };
+      const labels = { draft: "Kladde", scheduled: "Planlagt", open: "Åben", closed_waiting_review: "Lukket - afventer behandling", review_open: "Behandling åben", ended: "Afsluttet", archived: "Arkiveret" };
       return labels[String(status || "").toLowerCase()] || String(status || "Ukendt");
     }
     function getLatePolicyLabel(value) {
@@ -3245,26 +3378,41 @@
       return labels[String(value || "")] || "Ukendt politik";
     }
     function getLatePolicyHint(value) {
-      if (value === "blocked") return "Efter deadline kan medarbejdere ikke sende nye oensker.";
-      if (value === "manual_review") return "Efter deadline markeres oensker som sene og kraever vurdering.";
-      if (value === "allowed") return "Efter deadline kan oensker stadig sendes, men markeres ikke som foerst-til-moelle.";
+      if (value === "blocked") return "Efter deadline kan medarbejdere ikke sende nye ønsker.";
+      if (value === "manual_review") return "Efter deadline markeres ønsker som sene og kræver vurdering.";
+      if (value === "allowed") return "Efter deadline kan ønsker stadig sendes, men markeres ikke som først-til-mølle.";
       return "";
     }
     function getAbsenceDomainErrorMessage(error) {
       const code = error && error.code ? String(error.code) : "";
       const details = error && error.details ? error.details : {};
-      if (code === "absence_special_window_not_open") return details.special_window_submission_open ? `Der kan soeges ferie i denne periode fra ${formatDisplayDate(details.special_window_submission_open)}.` : "Der er ikke aabent for oensker i denne periode endnu.";
-      if (code === "absence_special_window_deadline_passed") return "Deadline for denne ferieonskeperiode er passeret.";
-      if (code === "absence_special_window_partial_overlap") return "Oensket overlapper kun delvist med en ferieonskeperiode og kan derfor ikke sendes.";
-      if (code === "absence_special_window_multiple_matches" || code === "absence_special_window_scope_unclear" || code === "absence_special_window_conflict") return "Oensket matcher flere ferieonskeperioder. Kontakt administrator.";
+      const windows = Array.isArray(details.special_windows) ? details.special_windows : [];
+      const firstWindow = windows[0] || null;
+      if (code === "absence_special_window_not_open") {
+        const name = details.special_window_name || (firstWindow && firstWindow.name) || "ferieønskeperioden";
+        const openDate = details.submission_open_date || details.special_window_submission_open || (firstWindow && firstWindow.submission_open_date);
+        return openDate ? `${name} åbner for ferieønsker den ${formatDisplayDate(openDate)}.` : "Der er ikke åbent for ønsker i denne periode endnu.";
+      }
+      if (code === "absence_special_window_deadline_passed") {
+        const name = details.special_window_name || (firstWindow && firstWindow.name) || "ferieønskeperioden";
+        const deadline = details.submission_deadline || (firstWindow && firstWindow.submission_deadline);
+        return deadline ? `Deadline for ${name} var ${formatDisplayDate(deadline)}. Sen indmelding følger periodens late-policy.` : "Deadline for denne ferieønskeperiode er passeret.";
+      }
+      if (code === "absence_special_window_partial_overlap") {
+        const windowText = firstWindow ? `${firstWindow.name || "Ferieønskeperiode"} (${formatDateRange(firstWindow.absence_start_date, firstWindow.absence_end_date)})` : "en ferieønskeperiode";
+        return `Ønsket overlapper kun delvist med ${windowText}. Del anmodningen op, før den sendes.`;
+      }
+      if (code === "absence_special_window_multiple_matches" || code === "absence_special_window_scope_unclear" || code === "absence_special_window_conflict") {
+        return windows.length ? `Ønsket matcher flere ferieønskeperioder: ${windows.map((item) => item.name || item.key || "Ferieønskeperiode").join(", ")}. Del perioden op eller kontakt administrator.` : "Ønsket matcher flere ferieønskeperioder. Kontakt administrator.";
+      }
       if (code === "absence_manager_not_found" || code === "absence_primary_manager_not_found" || code === "absence_manager_relation_not_found") return "Der mangler en entydig lederrelation for medarbejderen.";
       if (code === "absence_manager_ambiguous" || code === "absence_primary_manager_ambiguous") return "Der er mere end en mulig leder. Kontakt administrator.";
       if (code === "absence_special_window_approve_blocked_before_review") return "Anmodningen kan behandles fra review-start.";
-      if (code === "special_window_has_requests_protected_fields") return "Perioden har anmodninger. Datoer, scope og deadline-politik kan ikke aendres nu.";
-      if (code === "absence_type_inactive" || code === "absence_type_not_found") return "Fravaerstypen kan ikke bruges til nye anmodninger.";
-      if (code === "version_conflict") return "Data er aendret af en anden handling. Opdater og proev igen.";
+      if (code === "special_window_has_requests_protected_fields") return "Perioden har anmodninger. Datoer, scope og deadline-politik kan ikke ændres nu.";
+      if (code === "absence_type_inactive" || code === "absence_type_not_found") return "Fraværstypen kan ikke bruges til nye anmodninger.";
+      if (code === "version_conflict") return "Data er ændret af en anden handling. Opdater og prøv igen.";
       if (code === "calendar_event_access_denied" || code === "absence_special_window_access_denied" || code === "absence_request_access_denied") return "Du har ikke adgang til denne visning.";
-      return getErrorMessage(error, "Der opstod en fejl. Proev igen.");
+      return "Noget gik galt. Prøv igen.";
     }
 
     function setCalendarTabVisibility(selector, visible) {
@@ -3325,10 +3473,10 @@
       });
       if (previous && types.some((type) => String(type.id) === previous)) select.value = previous;
       select.disabled = state.calendar.requestTypesLoading || types.length === 0;
-      if (state.calendar.requestTypesLoading) setText(byId("absenceTypeOptionsStatus"), "Indlaeser fravaerstyper...");
+      if (state.calendar.requestTypesLoading) setText(byId("absenceTypeOptionsStatus"), "Indlæser fraværstyper...");
       else if (state.calendar.requestTypesLoadError) setText(byId("absenceTypeOptionsStatus"), state.calendar.requestTypesLoadError);
-      else if (types.length === 0 && state.calendar.requestTypesLoaded) setText(byId("absenceTypeOptionsStatus"), "Der er ingen fravaerstyper tilgaengelige. Kontakt din administrator.");
-      else setText(byId("absenceTypeOptionsStatus"), types.length === 1 ? "1 fravaerstype tilgaengelig." : `${types.length} fravaerstyper tilgaengelige.`);
+      else if (types.length === 0 && state.calendar.requestTypesLoaded) setText(byId("absenceTypeOptionsStatus"), "Der er ingen fraværstyper tilgængelige. Kontakt din administrator.");
+      else setText(byId("absenceTypeOptionsStatus"), types.length === 1 ? "1 fraværstype tilgængelig." : `${types.length} fraværstyper tilgængelige.`);
       updateAbsenceDurationOptions();
       updateAbsenceCommentPolicy();
     }
@@ -3349,11 +3497,11 @@
         state.calendar.requestTypesLoadError = "";
       } catch (error) {
         if (error && error.status === 403) {
-          state.calendar.requestTypesLoadError = "Du har ikke adgang til at oprette fravaersanmodninger.";
+          state.calendar.requestTypesLoadError = "Du har ikke adgang til at oprette fraværsanmodninger.";
           return;
         }
         if (handleAuthFailure(error)) return;
-        state.calendar.requestTypesLoadError = "Fravaerstyperne kunne ikke hentes. Proev igen.";
+        state.calendar.requestTypesLoadError = "Fraværstyperne kunne ikke hentes. Prøv igen.";
       } finally {
         state.calendar.requestTypesLoading = false;
         renderAbsenceRequestTypeOptions();
@@ -3398,7 +3546,7 @@
         input.required = policy === "required";
         if (policy === "disabled") input.value = "";
       }
-      if (policy === "required") setText(byId("absenceCommentPolicyHint"), "Kommentar er paakraevet for denne type.");
+      if (policy === "required") setText(byId("absenceCommentPolicyHint"), "Kommentar er påkrævet for denne type.");
       else if (policy === "disabled") setText(byId("absenceCommentPolicyHint"), "Kommentar bruges ikke for denne type.");
       else setText(byId("absenceCommentPolicyHint"), "Valgfri kommentar.");
       setText(byId("absenceCommentCounter"), `${policy === "disabled" || !input ? 0 : String(input.value || "").length} / 250`);
@@ -3427,7 +3575,7 @@
     function getAbsenceRequestPreflightBlockMessage() {
       const candidate = getAbsenceRequestPreflightCandidate();
       if (!candidate) return "";
-      if (state.calendar.requestPreflightLoading) return "Perioden kontrolleres. Vent et oejeblik.";
+      if (state.calendar.requestPreflightLoading) return "Perioden kontrolleres. Vent et øjeblik.";
       if (state.calendar.requestPreflightError) return state.calendar.requestPreflightError;
       if (state.calendar.requestPreflightSignature !== candidate.signature) return "Perioden skal kontrolleres igen.";
       if (state.calendar.requestPreflight && state.calendar.requestPreflight.can_submit === false) return "Perioden kan ikke sendes med de valgte oplysninger.";
@@ -3446,13 +3594,83 @@
       if (text) appendText(box, "p", "absenceNote", text);
     }
 
+    function getPreflightSplitSegments(preflight) {
+      return Array.isArray(preflight && preflight.split_suggestion)
+        ? preflight.split_suggestion.filter((segment) => segment && segment.start_date && segment.end_date)
+        : [];
+    }
+
+    function appendSplitPreview(box, preflight, options = {}) {
+      const segments = getPreflightSplitSegments(preflight);
+      if (segments.length < 2) return;
+      appendText(box, "p", "absenceName", "Fielddesk foreslår");
+      segments.forEach((segment) => {
+        const label = segment.special_window && segment.special_window.name ? segment.special_window.name : "Almindelig ferieanmodning";
+        appendText(box, "p", "absenceMeta", `${formatDateRange(segment.start_date, segment.end_date)} - ${label}`);
+      });
+      if (options.interactive !== false) {
+        const durationNode = document.querySelector("input[name='absenceDurationType']:checked");
+        if (durationNode && durationNode.value === "full_days") {
+          appendButton(box, "Del anmodningen automatisk", "btn btnPrimary btnCompact", (event) => submitAbsenceSplitSuggestion(event.currentTarget));
+        } else {
+          appendText(box, "p", "absenceNote", "Automatisk deling kan bruges for anmodninger med hele dage.");
+        }
+      }
+    }
+
+    function appendSpecialWindowPreflightDetails(box, preflight, options = {}) {
+      const windowInfo = preflight.special_window || {};
+      const windows = Array.isArray(preflight.special_windows) ? preflight.special_windows : [];
+      if (preflight.state === "before_open") {
+        appendPreflightLine(box, `Denne periode er omfattet af ${windowInfo.name || "ferieønskeperioden"}.`);
+        appendPreflightLine(box, windowInfo.submission_open_date ? `Der kan indsendes ferieønsker fra ${formatDisplayDate(windowInfo.submission_open_date)}.` : "Der er ikke åbent for ønsker i denne periode endnu.");
+        appendPreflightLine(box, "Ønskerne behandles samlet og ikke efter først-til-mølle-princippet.");
+      } else if (preflight.state === "open") {
+        appendPreflightLine(box, "Din anmodning indgår i den fælles behandling af ferieønsker.");
+        appendPreflightLine(box, windowInfo.submission_deadline ? `Frist: ${formatDisplayDate(windowInfo.submission_deadline)}.` : "");
+        appendPreflightLine(box, windowInfo.review_start_date ? `Behandlingen starter ${formatDisplayDate(windowInfo.review_start_date)}.` : "");
+        appendPreflightLine(box, "Tidspunktet for din indsendelse giver ikke fortrinsret.");
+      } else if (preflight.state === "after_deadline_manual_review") {
+        appendPreflightLine(box, `Fristen ${windowInfo.submission_deadline ? formatDisplayDate(windowInfo.submission_deadline) : ""} er passeret. Anmodningen kan sendes som sen indmelding til vurdering.`);
+      } else if (preflight.state === "after_deadline_allowed") {
+        appendPreflightLine(box, `Fristen ${windowInfo.submission_deadline ? formatDisplayDate(windowInfo.submission_deadline) : ""} er passeret. Anmodningen kan stadig sendes og markeres som sen.`);
+      } else if (preflight.state === "after_deadline_blocked") {
+        appendPreflightLine(box, windowInfo.submission_deadline ? `Deadline var ${formatDisplayDate(windowInfo.submission_deadline)}. Periodens late-policy blokerer nye ønsker.` : "Deadline for denne ferieønskeperiode er passeret.");
+      } else if (preflight.state === "partial_overlap") {
+        const requested = preflight.requested_period || {};
+        const matched = windowInfo.id ? windowInfo : windows[0] || {};
+        appendPreflightLine(box, requested.start_date ? `Din valgte periode: ${formatDateRange(requested.start_date, requested.end_date)}.` : "Din valgte periode overlapper kun delvist en ferieønskeperiode.");
+        appendPreflightLine(box, matched.id ? `Ferieønskeperiode: ${matched.name || "Ferieønskeperiode"}, ${formatDateRange(matched.absence_start_date, matched.absence_end_date)}.` : "Ferieønskeperioden dækker kun en del af den valgte periode.");
+        appendSplitPreview(box, preflight, options);
+      } else if (preflight.state === "multiple_matches") {
+        appendPreflightLine(box, "Ønsket rammer flere ferieønskeperioder:");
+        windows.forEach((item) => appendPreflightLine(box, `${item.name || item.key || "Ferieønskeperiode"}: ${formatDateRange(item.absence_start_date, item.absence_end_date)}.`));
+        appendPreflightLine(box, "Del perioden op, så hver anmodning kun rammer én ferieønskeperiode eller almindelig ferie.");
+      }
+    }
+
+    function showAbsencePreflightFeedback(preflight, trigger) {
+      if (!preflight || preflight.can_submit !== false) return;
+      const body = getAbsenceActionBody("feedback", trigger, "");
+      if (!body) return;
+      const title = preflight.state === "before_open" ? "Du kan ikke sende anmodningen endnu"
+        : preflight.state === "after_deadline_blocked" ? "Deadline er overskredet"
+          : preflight.state === "partial_overlap" ? "Perioden skal deles"
+            : preflight.state === "multiple_matches" ? "Flere ferieønskeperioder"
+              : "Anmodningen kan ikke sendes";
+      setText(absenceActionModalTitle, title);
+      setText(absenceActionModalSubtitle, "Fielddesk har kontrolleret perioden server-side.");
+      body.replaceChildren();
+      appendSpecialWindowPreflightDetails(body, preflight, { interactive: true });
+    }
+
     function renderAbsenceRequestPreflight() {
       const box = byId("absenceRequestPreflightStatus");
       if (!box) return;
       box.replaceChildren();
       box.hidden = true;
       if (state.calendar.requestPreflightLoading) {
-        appendText(box, "p", "absenceMeta", "Kontrollerer ferieonskeperiode...");
+        appendText(box, "p", "absenceMeta", "Kontrollerer ferieønskeperiode...");
         box.hidden = false;
       } else if (state.calendar.requestPreflightError) {
         appendText(box, "p", "absenceNote", state.calendar.requestPreflightError);
@@ -3460,27 +3678,9 @@
       } else if (state.calendar.requestPreflight && state.calendar.requestPreflight.state !== "no_match") {
         const preflight = state.calendar.requestPreflight;
         const windowInfo = preflight.special_window || {};
-        appendText(box, "h3", "absenceName", windowInfo.name || "Ferieonskeperiode");
-        if (preflight.state === "before_open") {
-          appendPreflightLine(box, `Denne periode er omfattet af ${windowInfo.name || "ferieonskeperioden"}.`);
-          appendPreflightLine(box, windowInfo.submission_open_date ? `Der kan indsendes ferieonsker fra ${formatDisplayDate(windowInfo.submission_open_date)}.` : "Der er ikke aabent for oensker i denne periode endnu.");
-          appendPreflightLine(box, "Oenskerne behandles samlet og ikke efter foerst-til-moelle-princippet.");
-        } else if (preflight.state === "open") {
-          appendPreflightLine(box, "Din anmodning indgaar i den faelles behandling af ferieonsker.");
-          appendPreflightLine(box, windowInfo.submission_deadline ? `Frist: ${formatDisplayDate(windowInfo.submission_deadline)}.` : "");
-          appendPreflightLine(box, windowInfo.review_start_date ? `Behandlingen starter ${formatDisplayDate(windowInfo.review_start_date)}.` : "");
-          appendPreflightLine(box, "Tidspunktet for din indsendelse giver ikke fortrinsret.");
-        } else if (preflight.state === "after_deadline_manual_review") {
-          appendPreflightLine(box, "Fristen er passeret. Anmodningen kan sendes som sen indmelding til vurdering.");
-        } else if (preflight.state === "after_deadline_allowed") {
-          appendPreflightLine(box, "Fristen er passeret. Anmodningen kan stadig sendes og markeres som sen.");
-        } else if (preflight.state === "after_deadline_blocked") {
-          appendPreflightLine(box, "Deadline for denne ferieonskeperiode er passeret.");
-        } else if (preflight.state === "partial_overlap") {
-          appendPreflightLine(box, "Din valgte periode overlapper kun delvist en ferieonskeperiode. Del anmodningen op i separate perioder.");
-        } else if (preflight.state === "multiple_matches") {
-          appendPreflightLine(box, "Oensket matcher flere ferieonskeperioder. Kontakt administrator.");
-        }
+        appendText(box, "h3", "absenceName", windowInfo.name || "Ferieønskeperiode");
+        appendSpecialWindowPreflightDetails(box, preflight, { interactive: true });
+        if (preflight.can_submit === false) appendButton(box, "Se forklaring", "btn btnCompact", (event) => showAbsencePreflightFeedback(preflight, event.currentTarget));
         box.hidden = false;
       }
       updateAbsenceContinueState();
@@ -3517,7 +3717,7 @@
           if (handleAuthFailure(error)) return;
           if (state.calendar.requestPreflightSeq !== seq) return;
           state.calendar.requestPreflight = null;
-          state.calendar.requestPreflightError = "Perioden kunne ikke kontrolleres. Proev igen.";
+          state.calendar.requestPreflightError = "Perioden kunne ikke kontrolleres. Prøv igen.";
         } finally {
           if (state.calendar.requestPreflightSeq === seq) {
             state.calendar.requestPreflightLoading = false;
@@ -3530,28 +3730,28 @@
 
     function validateAbsenceRequestForm(options = {}) {
       const type = getSelectedRequestType();
-      if (!type) return { error: "Vaelg fravaersaarsag." };
+      if (!type) return { error: "Vælg fraværsårsag." };
       const durationNode = document.querySelector("input[name='absenceDurationType']:checked");
       const durationType = durationNode ? durationNode.value : "";
       const allowed = new Set(Array.isArray(type.allowed_duration_types) ? type.allowed_duration_types : []);
-      if (!allowed.has(durationType)) return { error: "Vaelg en gyldig varighed." };
+      if (!allowed.has(durationType)) return { error: "Vælg en gyldig varighed." };
       const payload = { absence_type_id: type.id, duration_type: durationType };
       if (durationType === "full_days") {
         const startDate = String(byId("absenceRequestStartDateInput") && byId("absenceRequestStartDateInput").value || "").trim();
         const endDate = String(byId("absenceRequestEndDateInput") && byId("absenceRequestEndDateInput").value || "").trim();
         const start = parseDateInput(startDate);
         const end = parseDateInput(endDate);
-        if (!start || !end) return { error: "Vaelg fra- og til-dato." };
-        if (end < start) return { error: "Til dato maa ikke vaere foer fra dato." };
+        if (!start || !end) return { error: "Vælg fra- og til-dato." };
+        if (end < start) return { error: "Til dato må ikke være før fra dato." };
         payload.start_date = startDate;
         payload.end_date = endDate;
       } else if (durationType === "time_range") {
         const date = String(byId("absenceRequestTimeDateInput") && byId("absenceRequestTimeDateInput").value || "").trim();
         const startTime = String(byId("absenceRequestStartTimeInput") && byId("absenceRequestStartTimeInput").value || "").trim();
         const endTime = String(byId("absenceRequestEndTimeInput") && byId("absenceRequestEndTimeInput").value || "").trim();
-        if (!parseDateInput(date)) return { error: "Vaelg dato." };
-        if (!/^\d{2}:\d{2}$/.test(startTime) || !/^\d{2}:\d{2}$/.test(endTime)) return { error: "Vaelg fra- og til-klokkeslaet." };
-        if (endTime <= startTime) return { error: "Til klokkeslaet skal vaere efter fra klokkeslaet." };
+        if (!parseDateInput(date)) return { error: "Vælg dato." };
+        if (!/^\d{2}:\d{2}$/.test(startTime) || !/^\d{2}:\d{2}$/.test(endTime)) return { error: "Vælg fra- og til-klokkeslæt." };
+        if (endTime <= startTime) return { error: "Til klokkeslæt skal være efter fra klokkeslæt." };
         payload.start_date = date;
         payload.start_time = startTime;
         payload.end_time = endTime;
@@ -3559,12 +3759,97 @@
       const policy = String(type.comment_policy || "optional");
       const comment = String(byId("absenceRequestCommentInput") && byId("absenceRequestCommentInput").value || "").trim();
       const skipCommentPolicy = Boolean(options.skipCommentPolicy);
-      if (!skipCommentPolicy && policy === "required" && !comment) return { error: "Kommentar er paakraevet." };
-      if (comment.length > 250) return { error: "Kommentar maa hoejst vaere 250 tegn." };
+      if (!skipCommentPolicy && policy === "required" && !comment) return { error: "Kommentar er påkrævet." };
+      if (comment.length > 250) return { error: "Kommentar må højst være 250 tegn." };
       if (!skipCommentPolicy && policy !== "disabled" && comment) payload.employee_comment = comment;
       return { payload, type };
     }
 
+    function buildSplitSegmentPayload(basePayload, segment) {
+      return {
+        ...basePayload,
+        duration_type: "full_days",
+        start_date: segment.start_date,
+        end_date: segment.end_date,
+      };
+    }
+
+    function confirmAbsenceSplitSuggestion(preflight, trigger) {
+      return new Promise((resolve) => {
+        const body = getAbsenceActionBody("feedback", trigger, "");
+        if (!body) {
+          resolve(false);
+          return;
+        }
+        const segments = getPreflightSplitSegments(preflight);
+        setText(absenceActionModalTitle, "Del anmodningen automatisk");
+        setText(absenceActionModalSubtitle, "Gennemse forslaget før Fielddesk opretter noget.");
+        body.replaceChildren();
+        appendSplitPreview(body, preflight, { interactive: false });
+        const actions = document.createElement("div");
+        actions.className = "calendarFormActions";
+        appendButton(actions, "Tilbage", "btn btnCompact", () => {
+          closeAbsenceActionModal();
+          resolve(false);
+        });
+        appendButton(actions, `Opret ${segments.length} anmodninger`, "btn btnPrimary", () => {
+          closeAbsenceActionModal();
+          resolve(true);
+        });
+        body.appendChild(actions);
+      });
+    }
+
+    async function submitAbsenceSplitSuggestion(trigger) {
+      if (state.calendar.requestSplitSubmitting || state.calendar.requestDraftSaving || state.calendar.requestSubmitting) return;
+      const result = validateAbsenceRequestForm();
+      if (result.error) {
+        setText(byId("absenceRequestFormStatus"), result.error);
+        return;
+      }
+      const preflight = state.calendar.requestPreflight;
+      const segments = getPreflightSplitSegments(preflight);
+      if (result.payload.duration_type !== "full_days" || segments.length < 2) {
+        setText(byId("absenceRequestFormStatus"), "Fielddesk kan kun dele hele dage, når perioden rammer én ferieønskeperiode delvist.");
+        return;
+      }
+      const confirmed = await confirmAbsenceSplitSuggestion(preflight, trigger);
+      if (!confirmed) return;
+      state.calendar.requestSplitSubmitting = true;
+      setAbsenceRequestActionPending(true);
+      setText(byId("absenceRequestFormStatus"), `Opretter ${segments.length} anmodninger...`);
+      try {
+        const submitted = [];
+        for (let index = 0; index < segments.length; index += 1) {
+          const payload = buildSplitSegmentPayload(result.payload, segments[index]);
+          const createResponse = await apiFetch("/api/calendar/absence-requests", {
+            method: "POST",
+            headers: { "Idempotency-Key": createClientActionKey(`absence-split-create-${index + 1}`) },
+            body: JSON.stringify(payload),
+          });
+          const draft = createResponse && createResponse.request ? createResponse.request : createResponse;
+          const submitResponse = await apiFetch(`/api/calendar/absence-requests/${encodeURIComponent(draft.id)}/submit`, {
+            method: "POST",
+            headers: { "Idempotency-Key": createClientActionKey(`absence-split-submit-${index + 1}`) },
+            body: JSON.stringify({ version: draft.version }),
+          });
+          submitted.push(submitResponse && submitResponse.request ? submitResponse.request : submitResponse);
+        }
+        state.calendar.mineLoaded = false;
+        resetAbsenceRequestForm();
+        setCalendarTab("requests");
+        await loadMineAbsenceRequests({ force: true });
+        showAbsenceActionFeedback("Anmodninger sendt", `${submitted.length} anmodninger er oprettet og sendt til normal server-side behandling.`, trigger);
+      } catch (error) {
+        if (handleAuthFailure(error)) return;
+        const message = getAbsenceDomainErrorMessage(error);
+        setText(byId("absenceRequestFormStatus"), message);
+        showAbsenceActionFeedback("Noget gik galt", "En eller flere anmodninger blev ikke sendt. Prøv igen.", trigger);
+      } finally {
+        state.calendar.requestSplitSubmitting = false;
+        setAbsenceRequestActionPending(false);
+      }
+    }
     function renderAbsenceRequestSummary(payload, type) {
       const box = byId("absenceRequestSummary");
       if (!box) return;
@@ -3572,7 +3857,7 @@
       appendText(box, "p", "absenceName", "Gennemse anmodningen");
       appendText(box, "p", "absenceMeta", `${getRequestTypeName(type)} - ${payload.duration_type === "time_range" ? `${formatDisplayDate(payload.start_date)} ${payload.start_time}-${payload.end_time}` : formatDateRange(payload.start_date, payload.end_date)}`);
       if (payload.employee_comment) appendText(box, "p", "absenceNote", payload.employee_comment);
-      if (state.calendar.requestPreflight && state.calendar.requestPreflight.special_window) appendText(box, "p", "absenceNote", `Ferieonskeperiode: ${state.calendar.requestPreflight.special_window.name || "-"}. Ikke foerst til moelle.`);
+      if (state.calendar.requestPreflight && state.calendar.requestPreflight.special_window) appendText(box, "p", "absenceNote", `Ferieønskeperiode: ${state.calendar.requestPreflight.special_window.name || "-"}. Ikke først til mølle.`);
       box.hidden = false;
     }
 
@@ -3591,7 +3876,7 @@
 
     async function saveAbsenceRequestDraft(event) {
       if (event) event.preventDefault();
-      if (state.calendar.requestDraftSaving || state.calendar.requestSubmitting) return;
+      if (state.calendar.requestDraftSaving || state.calendar.requestSubmitting || state.calendar.requestSplitSubmitting) return;
       const result = validateAbsenceRequestForm();
       if (result.error) {
         setText(byId("absenceRequestFormStatus"), result.error);
@@ -3600,6 +3885,7 @@
       const preflightBlock = getAbsenceRequestPreflightBlockMessage();
       if (preflightBlock) {
         setText(byId("absenceRequestFormStatus"), preflightBlock);
+        showAbsencePreflightFeedback(state.calendar.requestPreflight, event && event.submitter ? event.submitter : byId("absenceRequestContinueBtn"));
         scheduleAbsenceRequestPreflight({ immediate: true });
         return;
       }
@@ -3636,10 +3922,10 @@
     }
 
     async function submitAbsenceRequestDraft() {
-      if (state.calendar.requestSubmitting || state.calendar.requestDraftSaving) return;
+      if (state.calendar.requestSubmitting || state.calendar.requestDraftSaving || state.calendar.requestSplitSubmitting) return;
       const draft = state.calendar.requestDraft;
       if (!draft || !draft.id) {
-        setText(byId("absenceRequestFormStatus"), "Gem kladden foerst.");
+        setText(byId("absenceRequestFormStatus"), "Gem kladden først.");
         return;
       }
       if (!state.calendar.requestSubmitIdempotencyKey) state.calendar.requestSubmitIdempotencyKey = createClientActionKey("absence-submit");
@@ -3659,7 +3945,10 @@
         resetAbsenceRequestForm();
         setCalendarTab("requests");
         await loadMineAbsenceRequests({ force: true });
-        renderAbsenceRequestDetail(response && response.request ? { ...response.request, events: response.events || [] } : null);
+        const detailBody = getAbsenceActionBody("mine", null, "");
+        setText(absenceActionModalTitle, "Anmodning sendt");
+        setText(absenceActionModalSubtitle, "Anmodningen er sendt til behandling.");
+        renderAbsenceRequestDetail(response && response.request ? { ...response.request, events: response.events || [] } : null, detailBody);
       } catch (error) {
         if (handleAuthFailure(error)) return;
         setText(byId("absenceRequestFormStatus"), getAbsenceDomainErrorMessage(error));
@@ -3674,9 +3963,9 @@
       if (!list) return;
       list.replaceChildren();
       const requests = Array.isArray(state.calendar.mineRequests) ? state.calendar.mineRequests : [];
-      setText(byId("absenceRequestListMeta"), state.calendar.mineLoading ? "Indlaeser anmodninger..." : requests.length === 1 ? "1 anmodning." : `${requests.length} anmodninger.`);
+      setText(byId("absenceRequestListMeta"), state.calendar.mineLoading ? "Indlæser anmodninger..." : requests.length === 1 ? "1 anmodning." : `${requests.length} anmodninger.`);
       if (!state.calendar.mineLoading && requests.length === 0) {
-        appendText(list, "p", "calendarMessage", "Du har ingen fravaersanmodninger endnu.");
+        appendText(list, "p", "calendarMessage", "Du har ingen fraværsanmodninger endnu.");
         return;
       }
       requests.forEach((request) => {
@@ -3685,15 +3974,15 @@
         const header = document.createElement("div");
         header.className = "absenceCardHeader";
         appendText(header, "p", "absenceName", requestCardTitle(request));
-        appendText(header, "span", "statusPill", getRequestStatusLabel(request.status, request));
+        appendRequestStatusBadge(header, request);
         card.appendChild(header);
         appendText(card, "p", "absenceMeta", `${formatRequestPeriod(request)} - sendt ${formatSubmitted(request.submitted_at)}`);
-        if (request.special_window) appendText(card, "p", "absenceNote", `Ferieonskeperiode: ${request.special_window.name || request.special_window.key || "-"}. Ikke foerst til moelle.`);
+        if (request.special_window) appendText(card, "p", "absenceNote", `Ferieønskeperiode: ${request.special_window.name || request.special_window.key || "-"}. Ikke først til mølle.`);
         const actions = document.createElement("div");
         actions.className = "resourceGroupActions";
-        appendButton(actions, "Vis", "btn btnCompact", () => loadMineAbsenceRequestDetail(request.id));
+        appendButton(actions, "Vis", "btn btnCompact", (event) => loadMineAbsenceRequestDetail(request.id, event.currentTarget));
         if (String(request.status) === "draft") appendButton(actions, "Rediger", "btn btnCompact", () => editMineAbsenceRequest(request));
-        if (String(request.status) === "draft" || String(request.status) === "submitted") appendButton(actions, "Annuller", "btn btnCompact", () => cancelMineAbsenceRequest(request));
+        if (String(request.status) === "draft" || String(request.status) === "submitted") appendButton(actions, "Annuller", "btn btnCompact", (event) => cancelMineAbsenceRequest(request, event.currentTarget));
         card.appendChild(actions);
         list.appendChild(card);
       });
@@ -3714,7 +4003,7 @@
         if (error && error.status === 403) {
           state.calendar.mineRequests = [];
           state.calendar.mineLoaded = true;
-          setText(byId("absenceRequestListMeta"), "Du har ikke adgang til fravaersanmodninger.");
+          setText(byId("absenceRequestListMeta"), "Du har ikke adgang til fraværsanmodninger.");
           return;
         }
         if (handleAuthFailure(error)) return;
@@ -3725,27 +4014,23 @@
       }
     }
 
-    function renderAbsenceRequestDetail(request) {
-      const detail = byId("absenceRequestDetail");
+    function renderAbsenceRequestDetail(request, target) {
+      const detail = target || absenceActionModalBody;
       if (!detail || !request) return;
       detail.replaceChildren();
       detail.hidden = false;
       appendText(detail, "h3", "absenceName", requestCardTitle(request));
       appendText(detail, "p", "absenceMeta", `${getRequestStatusLabel(request.status, request)} - ${formatRequestPeriod(request)}`);
-      if (request.special_window) appendText(detail, "p", "absenceNote", `Behandles samlet i ${request.special_window.name || "ferieonskeperiode"}. Ikke foerst til moelle.`);
+      if (request.special_window) appendText(detail, "p", "absenceNote", `Behandles samlet i ${request.special_window.name || "ferieønskeperiode"}. Ikke først til mølle.`);
       if (request.employee_comment) appendText(detail, "p", "absenceNote", request.employee_comment);
       renderRequestEvents(detail, request.events);
     }
 
-    async function loadMineAbsenceRequestDetail(id) {
-      const detail = byId("absenceRequestDetail");
-      if (detail) {
-        detail.hidden = false;
-        detail.textContent = "Indlaeser anmodning...";
-      }
+    async function loadMineAbsenceRequestDetail(id, trigger) {
+      const detail = getAbsenceActionBody("mine", trigger, "Indlæser anmodning...");
       try {
         const response = await apiFetch(`/api/calendar/absence-requests/${encodeURIComponent(id)}`, { method: "GET" });
-        renderAbsenceRequestDetail(response && response.request ? { ...response.request, events: response.events || [] } : response);
+        renderAbsenceRequestDetail(response && response.request ? { ...response.request, events: response.events || [] } : response, detail);
       } catch (error) {
         if (handleAuthFailure(error)) return;
         if (detail) detail.textContent = getAbsenceDomainErrorMessage(error);
@@ -3778,8 +4063,9 @@
       });
     }
 
-    async function cancelMineAbsenceRequest(request) {
-      if (!window.confirm("Vil du annullere denne fravaersanmodning?")) return;
+    async function cancelMineAbsenceRequest(request, trigger) {
+      const confirmed = await confirmAbsenceAction({ title: "Annuller anmodning", subtitle: "Anmodningen ændres kun, hvis du bekræfter.", message: "Vil du annullere denne fraværsanmodning?", confirmLabel: "Annuller anmodning", trigger });
+      if (!confirmed) return;
       try {
         await apiFetch(`/api/calendar/absence-requests/${encodeURIComponent(request.id)}/cancel`, {
           method: "POST",
@@ -3797,7 +4083,7 @@
       const list = byId(targetId);
       if (!list) return;
       list.replaceChildren();
-      setText(byId(metaId), loading ? "Indlaeser kalender..." : events.length === 1 ? "1 kalenderpost." : `${events.length} kalenderposter.`);
+      setText(byId(metaId), loading ? "Indlæser kalender..." : events.length === 1 ? "1 kalenderpost." : `${events.length} kalenderposter.`);
       if (!loading && events.length === 0) {
         appendText(list, "p", "calendarMessage", emptyText);
         return;
@@ -3805,7 +4091,7 @@
       events.forEach((event) => {
         const card = document.createElement("article");
         card.className = "absenceCard";
-        appendText(card, "p", "absenceName", event.title || "Fravaer");
+        appendText(card, "p", "absenceName", event.title || "Fravær");
         const employee = event.employee && event.employee.display_name ? ` - ${event.employee.display_name}` : "";
         appendText(card, "p", "absenceMeta", `${formatDateRange(event.start_date, event.end_date)}${employee}`);
         if (event.visibility && event.visibility.reason_visible) appendText(card, "p", "absenceNote", event.visibility.reason_visible);
@@ -3816,7 +4102,7 @@
     async function loadAbsenceAgenda(options) {
       ensureCalendarDefaults();
       if (!(options && options.force) && state.calendar.agendaLoaded) {
-        renderCalendarEvents("absenceAgendaList", "absenceAgendaMeta", state.calendar.agendaEvents, false, "Ingen godkendt fravaer i perioden.");
+        renderCalendarEvents("absenceAgendaList", "absenceAgendaMeta", state.calendar.agendaEvents, false, "Ingen godkendt fravær i perioden.");
         return;
       }
       state.calendar.agendaLoading = true;
@@ -3835,7 +4121,7 @@
         setText(byId("absenceAgendaMeta"), getAbsenceDomainErrorMessage(error));
       } finally {
         state.calendar.agendaLoading = false;
-        renderCalendarEvents("absenceAgendaList", "absenceAgendaMeta", state.calendar.agendaEvents, false, "Ingen godkendt fravaer i perioden.");
+        renderCalendarEvents("absenceAgendaList", "absenceAgendaMeta", state.calendar.agendaEvents, false, "Ingen godkendt fravær i perioden.");
       }
     }
 
@@ -3843,7 +4129,7 @@
       ensureCalendarDefaults();
       const silent = Boolean(options && options.silent);
       if (!(options && options.force) && state.calendar.teamAgendaLoaded) {
-        if (!silent) renderCalendarEvents("absenceTeamAgendaList", "absenceTeamAgendaMeta", state.calendar.teamEvents, false, "Ingen teamfravaer i perioden.");
+        if (!silent) renderCalendarEvents("absenceTeamAgendaList", "absenceTeamAgendaMeta", state.calendar.teamEvents, false, "Ingen teamfravær i perioden.");
         return;
       }
       state.calendar.teamAgendaLoading = true;
@@ -3866,7 +4152,7 @@
         if (!silent) setText(byId("absenceTeamAgendaMeta"), getAbsenceDomainErrorMessage(error));
       } finally {
         state.calendar.teamAgendaLoading = false;
-        if (!silent) renderCalendarEvents("absenceTeamAgendaList", "absenceTeamAgendaMeta", state.calendar.teamEvents, false, "Ingen teamfravaer i perioden.");
+        if (!silent) renderCalendarEvents("absenceTeamAgendaList", "absenceTeamAgendaMeta", state.calendar.teamEvents, false, "Ingen teamfravær i perioden.");
       }
     }
 
@@ -3875,15 +4161,20 @@
       if (!list) return;
       list.replaceChildren();
       const requests = Array.isArray(state.calendar.managerRequests) ? state.calendar.managerRequests : [];
-      setText(byId("absenceManagerListMeta"), state.calendar.managerLoading ? "Indlaeser anmodninger..." : requests.length === 1 ? "1 anmodning afventer." : `${requests.length} anmodninger afventer.`);
+      setText(byId("absenceManagerListMeta"), state.calendar.managerLoading ? "Indlæser anmodninger..." : requests.length === 1 ? "1 anmodning afventer." : `${requests.length} anmodninger afventer.`);
       if (!state.calendar.managerLoading && requests.length === 0) appendText(list, "p", "calendarMessage", "Ingen anmodninger afventer behandling.");
       requests.forEach((request) => {
         const card = document.createElement("article");
         card.className = "absenceCard";
         appendText(card, "p", "absenceName", `${request.employee && request.employee.display_name ? request.employee.display_name : "Medarbejder"} - ${requestCardTitle(request)}`);
-        appendText(card, "p", "absenceMeta", `${formatRequestPeriod(request)} - ${getRequestStatusLabel(request.status, request)}`);
-        if (request.has_private_comment && !request.employee_comment) appendText(card, "p", "absenceNote", "Privat kommentar vedlagt.");
-        appendButton(card, "Behandl", "btn btnCompact", () => loadManagerRequestDetail(request.id));
+        const metaRow = document.createElement("div");
+        metaRow.className = "absenceCardHeader";
+        appendText(metaRow, "p", "absenceMeta", formatRequestPeriod(request));
+        appendRequestStatusBadge(metaRow, request);
+        card.appendChild(metaRow);
+        if (request.has_private_comment && !request.employee_comment) appendText(card, "p", "absenceNote", "Kommentar vedlagt.");
+        if (request.special_window) appendText(card, "p", "absenceNote", `Ferieønskeperiode: ${request.special_window.name || request.special_window.key || "-"}.`);
+        appendButton(card, "Behandl", "btn btnPrimary", (event) => loadManagerRequestDetail(request.id, event.currentTarget));
         list.appendChild(card);
       });
     }
@@ -3916,13 +4207,17 @@
       }
     }
 
-    function renderManagerRequestDetail(request) {
-      const detail = byId("absenceManagerDetail");
+    function renderManagerRequestDetail(request, target) {
+      const detail = target || absenceActionModalBody;
       if (!detail || !request) return;
       detail.replaceChildren();
       detail.hidden = false;
       appendText(detail, "h3", "absenceName", `${request.employee && request.employee.display_name ? request.employee.display_name : "Medarbejder"} - ${requestCardTitle(request)}`);
-      appendText(detail, "p", "absenceMeta", `${formatRequestPeriod(request)} - ${getRequestStatusLabel(request.status, request)}`);
+      const detailMeta = document.createElement("div");
+      detailMeta.className = "absenceCardHeader";
+      appendText(detailMeta, "p", "absenceMeta", formatRequestPeriod(request));
+      appendRequestStatusBadge(detailMeta, request);
+      detail.appendChild(detailMeta);
       if (request.employee_comment) appendText(detail, "p", "absenceNote", request.employee_comment);
       else if (request.has_private_comment) appendText(detail, "p", "absenceNote", "Privat kommentar er skjult, fordi din rolle ikke har adgang til den.");
       renderRequestEvents(detail, request.events);
@@ -3945,6 +4240,7 @@
       updateDecisionMessageCounter(textarea, counter);
       textarea.addEventListener("input", () => {
         updateDecisionMessageCounter(textarea, counter);
+        setManagerDecisionError(textarea, "");
       });
       label.append(textarea, counter);
       const actions = document.createElement("div");
@@ -3958,15 +4254,11 @@
       detail.append(label, actions);
     }
 
-    async function loadManagerRequestDetail(id) {
-      const detail = byId("absenceManagerDetail");
-      if (detail) {
-        detail.hidden = false;
-        detail.textContent = "Indlaeser anmodning...";
-      }
+    async function loadManagerRequestDetail(id, trigger) {
+      const detail = getAbsenceActionBody("manager", trigger, "Indlæser anmodning...");
       try {
         const response = await apiFetch(`/api/calendar/absence-requests/manager/${encodeURIComponent(id)}`, { method: "GET" });
-        renderManagerRequestDetail(response && response.request ? { ...response.request, events: response.events || [] } : response);
+        renderManagerRequestDetail(response && response.request ? { ...response.request, events: response.events || [] } : response, detail);
       } catch (error) {
         if (handleAuthFailure(error)) return;
         if (detail) detail.textContent = getAbsenceDomainErrorMessage(error);
@@ -3976,13 +4268,14 @@
     async function decideManagerRequest(request, action, reason, reasonInput) {
       if (state.calendar.managerDecisionSubmitting) return;
       const decisionMessage = String(reason || "").trim();
-      if (action === "approve" && !window.confirm("Vil du godkende anmodningen?")) return;
       if (action === "reject" && !decisionMessage) {
-        setText(byId("absenceManagerListMeta"), "Skriv en besked ved afvisning.");
+        setManagerDecisionError(reasonInput, "Skriv en besked ved afvisning.");
         if (reasonInput && typeof reasonInput.focus === "function") reasonInput.focus();
         return;
       }
+      const returnTrigger = tenantAdminActiveModal && tenantAdminActiveModal.modal === absenceActionModal ? tenantAdminActiveModal.trigger : null;
       try {
+        setManagerDecisionError(reasonInput, "");
         setManagerDecisionPending(true);
         const payload = { version: request.version };
         if (decisionMessage) payload.reason = decisionMessage;
@@ -3994,10 +4287,10 @@
         state.calendar.teamAgendaLoaded = false;
         await loadManagerRequests({ force: true });
         await loadTeamAbsenceAgenda({ force: true });
-        if (byId("absenceManagerDetail")) byId("absenceManagerDetail").hidden = true;
+        showAbsenceActionFeedback(action === "approve" ? "Anmodning godkendt" : "Anmodning afvist", action === "approve" ? "Anmodningen er godkendt, og listen er opdateret." : "Anmodningen er afvist, og listen er opdateret.", returnTrigger);
       } catch (error) {
         if (handleAuthFailure(error)) return;
-        setText(byId("absenceManagerListMeta"), getAbsenceDomainErrorMessage(error));
+        setManagerDecisionError(reasonInput, getAbsenceDomainErrorMessage(error));
       } finally {
         setManagerDecisionPending(false);
       }
@@ -4008,19 +4301,19 @@
       if (!list) return;
       list.replaceChildren();
       const windows = Array.isArray(state.calendar.specialWindows) ? state.calendar.specialWindows : [];
-      setText(byId("specialWindowListMeta"), state.calendar.specialWindowsLoading ? "Indlaeser perioder..." : windows.length === 1 ? "1 periode." : `${windows.length} perioder.`);
-      if (!state.calendar.specialWindowsLoading && windows.length === 0) appendText(list, "p", "calendarMessage", "Ingen saerlige ferieonskeperioder.");
+      setText(byId("specialWindowListMeta"), state.calendar.specialWindowsLoading ? "Indlæser perioder..." : windows.length === 1 ? "1 periode." : `${windows.length} perioder.`);
+      if (!state.calendar.specialWindowsLoading && windows.length === 0) appendText(list, "p", "calendarMessage", "Ingen særlige ferieønskeperioder.");
       windows.forEach((item) => {
         const card = document.createElement("article");
         card.className = "absenceCard";
-        appendText(card, "p", "absenceName", item.name || item.key || "Ferieonskeperiode");
+        appendText(card, "p", "absenceName", item.name || item.key || "Ferieønskeperiode");
         appendText(card, "p", "absenceMeta", `${formatDateRange(item.absence_start_date, item.absence_end_date)} - ${getSpecialWindowStatusLabel(item.derived_status)}`);
         appendText(card, "p", "absenceNote", `Deadline ${formatDisplayDate(item.submission_deadline)}. Review-start ${formatDisplayDate(item.review_start_date)}. ${getLatePolicyLabel(item.late_submission_policy)}`);
         const actions = document.createElement("div");
         actions.className = "resourceGroupActions";
-        appendButton(actions, "Rediger", "btn btnCompact", () => openSpecialWindowEdit(item.id));
-        appendButton(actions, "Review", "btn btnCompact", () => loadSpecialWindowReview(item.id));
-        if (item.is_active !== false) appendButton(actions, "Arkiver", "btn btnCompact", () => archiveSpecialWindow(item));
+        appendButton(actions, "Rediger", "btn btnCompact", (event) => openSpecialWindowEdit(item.id, event.currentTarget));
+        appendButton(actions, "Review", "btn btnCompact", (event) => loadSpecialWindowReview(item.id, event.currentTarget));
+        if (item.is_active !== false) appendButton(actions, "Arkiver", "btn btnCompact", (event) => archiveSpecialWindow(item, event.currentTarget));
         card.appendChild(actions);
         list.appendChild(card);
       });
@@ -4079,13 +4372,26 @@
         if (node) node.disabled = tenantChecked;
       });
       setText(byId("specialWindowPersonScopeHint"), tenantChecked
-        ? "Hele virksomheden er valgt. Konkrete medarbejdere og ressourcegrupper aendrer ikke scope."
-        : "Personscopes kombineres med OR. Fravaerstype-scope anvendes derudover.");
+        ? "Hele virksomheden er valgt. Konkrete medarbejdere og ressourcegrupper ændrer ikke scope."
+        : "Personscopes kombineres med OR. Fraværstype-scope anvendes derudover.");
     }
 
+    function enhanceMultiSelectToggle(select) {
+      if (!select || !select.multiple || select.dataset.enhancedToggle === "true") return;
+      select.dataset.enhancedToggle = "true";
+      select.addEventListener("mousedown", (event) => {
+        const option = event.target && event.target.tagName === "OPTION" ? event.target : null;
+        if (!option) return;
+        event.preventDefault();
+        option.selected = !option.selected;
+        select.focus();
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+    }
     async function renderSpecialWindowSelectors() {
       const typeSelect = byId("specialWindowTypeScopeSelect");
       if (typeSelect) {
+        enhanceMultiSelectToggle(typeSelect);
         const previous = getSelectedValues(typeSelect);
         typeSelect.replaceChildren();
         (state.calendar.requestTypes || []).filter((type) => type.special_window_eligible === true).forEach((type) => {
@@ -4102,6 +4408,7 @@
       }
       const userSelect = byId("specialWindowUserScopeSelect");
       if (userSelect) {
+        enhanceMultiSelectToggle(userSelect);
         const previous = getSelectedValues(userSelect);
         userSelect.replaceChildren();
         (state.tenantAdmin.users || []).forEach((user) => {
@@ -4116,6 +4423,7 @@
       }
       const groupSelect = byId("specialWindowGroupScopeSelect");
       if (groupSelect) {
+        enhanceMultiSelectToggle(groupSelect);
         const previous = getSelectedValues(groupSelect);
         groupSelect.replaceChildren();
         (state.resourceGroups.groups || []).forEach((group) => {
@@ -4130,9 +4438,11 @@
       }
     }
 
-    function openSpecialWindowCreate() {
+    function openSpecialWindowCreate(event) {
+      const body = getAbsenceActionBody("special-window-edit", event && event.currentTarget ? event.currentTarget : byId("specialWindowNewBtn"), "");
       const editor = byId("specialWindowEditor");
-      if (!editor) return;
+      if (!editor || !body) return;
+      body.replaceChildren(editor);
       state.calendar.specialWindowEditorMode = "create";
       state.calendar.specialWindowEditVersion = null;
       state.calendar.specialWindowDetail = null;
@@ -4142,17 +4452,20 @@
       if (byId("specialWindowCollectiveInput")) byId("specialWindowCollectiveInput").checked = true;
       if (byId("specialWindowBlockBeforeReviewInput")) byId("specialWindowBlockBeforeReviewInput").checked = true;
       if (byId("specialWindowTenantScopeInput")) byId("specialWindowTenantScopeInput").checked = true;
-      setText(byId("specialWindowEditorTitle"), "Opret ferieonskeperiode");
+      setText(byId("specialWindowEditorTitle"), "Opret ferieønskeperiode");
+      setText(absenceActionModalTitle, getAbsenceActionTitle("special-window-edit"));
       setText(byId("specialWindowFormStatus"), "");
       setText(byId("specialWindowLatePolicyHint"), getLatePolicyHint(byId("specialWindowLatePolicySelect") ? byId("specialWindowLatePolicySelect").value : "blocked"));
       editor.hidden = false;
       renderSpecialWindowSelectors().then(updateSpecialWindowScopeUi);
     }
 
-    async function openSpecialWindowEdit(id) {
+    async function openSpecialWindowEdit(id, trigger) {
+      const body = getAbsenceActionBody("special-window-edit", trigger, "Indlæser periode...");
       const editor = byId("specialWindowEditor");
-      if (!editor) return;
-      setText(byId("specialWindowFormStatus"), "Indlaeser periode...");
+      if (!editor || !body) return;
+      body.replaceChildren(editor);
+      setText(byId("specialWindowFormStatus"), "Indlæser periode...");
       editor.hidden = false;
       await renderSpecialWindowSelectors();
       try {
@@ -4161,7 +4474,8 @@
         state.calendar.specialWindowEditorMode = "edit";
         state.calendar.specialWindowDetail = item;
         state.calendar.specialWindowEditVersion = item.version;
-        setText(byId("specialWindowEditorTitle"), "Rediger ferieonskeperiode");
+        setText(byId("specialWindowEditorTitle"), "Rediger ferieønskeperiode");
+        setText(absenceActionModalTitle, getAbsenceActionTitle("special-window-edit"));
         setSpecialWindowKeyFieldVisible(true);
         if (byId("specialWindowNameInput")) byId("specialWindowNameInput").value = item.name || "";
         if (byId("specialWindowKeyInput")) byId("specialWindowKeyInput").value = item.key || "";
@@ -4205,12 +4519,12 @@
         scopes: [],
 
       };
-      if (!payload.name) return { error: "Navn er paakraevet." };
+      if (!payload.name) return { error: "Navn er påkrævet." };
       ["absence_start_date", "absence_end_date", "submission_open_date", "submission_deadline", "review_start_date"].forEach((field) => { if (!parseDateInput(payload[field])) payload._dateError = true; });
       if (payload._dateError) return { error: "Alle datoer skal udfyldes korrekt." };
-      if (parseDateInput(payload.absence_end_date) < parseDateInput(payload.absence_start_date)) return { error: "Ferieperiodens slutdato maa ikke vaere foer startdato." };
-      if (parseDateInput(payload.submission_deadline) < parseDateInput(payload.submission_open_date)) return { error: "Deadline maa ikke vaere foer aabningsdato." };
-      if (parseDateInput(payload.review_start_date) < parseDateInput(payload.submission_deadline)) return { error: "Review-start maa ikke vaere foer deadline." };
+      if (parseDateInput(payload.absence_end_date) < parseDateInput(payload.absence_start_date)) return { error: "Ferieperiodens slutdato må ikke være før startdato." };
+      if (parseDateInput(payload.submission_deadline) < parseDateInput(payload.submission_open_date)) return { error: "Deadline må ikke være før åbningsdato." };
+      if (parseDateInput(payload.review_start_date) < parseDateInput(payload.submission_deadline)) return { error: "Review-start må ikke være før deadline." };
       const typeIds = getSelectedValues(byId("specialWindowTypeScopeSelect"));
       if (typeIds.length > 0) payload.absence_type_ids = typeIds;
       if (byId("specialWindowTenantScopeInput") && byId("specialWindowTenantScopeInput").checked) payload.scopes.push({ scope_type: "tenant" });
@@ -4218,7 +4532,7 @@
         getSelectedValues(byId("specialWindowUserScopeSelect")).forEach((id) => payload.scopes.push({ scope_type: "tenant_user", tenant_user_id: id }));
         getSelectedValues(byId("specialWindowGroupScopeSelect")).forEach((id) => payload.scopes.push({ scope_type: "resource_group", resource_group_id: id }));
       }
-      if (payload.scopes.length === 0) return { error: "Vaelg mindst et personscope." };
+      if (payload.scopes.length === 0) return { error: "Vælg mindst et personscope." };
       delete payload._dateError;
       return { payload };
     }
@@ -4239,7 +4553,7 @@
           method: mode === "edit" ? "PATCH" : "POST",
           body: JSON.stringify(payload),
         });
-        if (byId("specialWindowEditor")) byId("specialWindowEditor").hidden = true;
+        closeAbsenceActionModal();
         state.calendar.specialWindowsLoaded = false;
         await loadSpecialWindows({ force: true });
       } catch (error) {
@@ -4248,8 +4562,9 @@
       }
     }
 
-    async function archiveSpecialWindow(item) {
-      if (!window.confirm("Vil du arkivere ferieonskeperioden?")) return;
+    async function archiveSpecialWindow(item, trigger) {
+      const confirmed = await confirmAbsenceAction({ title: "Arkiver ferieønskeperiode", subtitle: "Perioden ændres kun, hvis du bekræfter.", message: "Vil du arkivere ferieønskeperioden?", confirmLabel: "Arkiver", trigger });
+      if (!confirmed) return;
       try {
         await apiFetch(`/api/calendar/special-windows/${encodeURIComponent(item.id)}/archive`, {
           method: "POST",
@@ -4263,23 +4578,25 @@
       }
     }
 
-    async function loadSpecialWindowReview(id) {
-      const panel = byId("specialWindowReviewPanel");
+    async function loadSpecialWindowReview(id, trigger) {
+      const panel = getAbsenceActionBody("special-window-review", trigger, "Indlæser review...");
       if (!panel) return;
-      panel.hidden = false;
-      panel.textContent = "Indlaeser review...";
       try {
         const response = await apiFetch(`/api/calendar/special-windows/${encodeURIComponent(id)}/review-overview`, { method: "GET" });
         const requests = response && Array.isArray(response.requests) ? response.requests : [];
         panel.replaceChildren();
         appendText(panel, "h3", "absenceName", response && response.window ? `Review: ${response.window.name}` : "Review");
-        appendText(panel, "p", "absenceMeta", requests.length === 1 ? "1 oenske matcher perioden." : `${requests.length} oensker matcher perioden.`);
+        appendText(panel, "p", "absenceMeta", requests.length === 1 ? "1 ønske matcher perioden." : `${requests.length} ønsker matcher perioden.`);
         requests.forEach((request) => {
           const card = document.createElement("article");
           card.className = "absenceCard";
           appendText(card, "p", "absenceName", `${request.employee && request.employee.display_name ? request.employee.display_name : "Medarbejder"} - ${requestCardTitle(request)}`);
-          appendText(card, "p", "absenceMeta", `${formatRequestPeriod(request)} - ${getRequestStatusLabel(request.status, request)}`);
-          if (request.has_private_comment && !request.employee_comment) appendText(card, "p", "absenceNote", "Privat kommentar skjult uden saerskilt adgang.");
+          const metaRow = document.createElement("div");
+          metaRow.className = "absenceCardHeader";
+          appendText(metaRow, "p", "absenceMeta", formatRequestPeriod(request));
+          appendRequestStatusBadge(metaRow, request);
+          card.appendChild(metaRow);
+          if (request.has_private_comment && !request.employee_comment) appendText(card, "p", "absenceNote", "Privat kommentar skjult uden særskilt adgang.");
           if (Array.isArray(request.overlap_signals) && request.overlap_signals.length > 0) appendText(card, "p", "absenceNote", `Overlap-signal: ${request.overlap_signals.length} mulig(e) overlap. Ingen automatisk beslutning.`);
           panel.appendChild(card);
         });
@@ -6413,9 +6730,18 @@
     if (byId("specialWindowNewBtn")) {
       byId("specialWindowNewBtn").addEventListener("click", openSpecialWindowCreate);
     }
+    if (absenceActionModalCloseBtn) {
+      absenceActionModalCloseBtn.addEventListener("click", closeAbsenceActionModal);
+    }
+    if (absenceActionModalCancelBtn) {
+      absenceActionModalCancelBtn.addEventListener("click", closeAbsenceActionModal);
+    }
+    Array.from(document.querySelectorAll("[data-absence-modal-close]")).forEach((node) => {
+      node.addEventListener("click", closeAbsenceActionModal);
+    });
     if (byId("specialWindowCancelEditBtn")) {
       byId("specialWindowCancelEditBtn").addEventListener("click", () => {
-        if (byId("specialWindowEditor")) byId("specialWindowEditor").hidden = true;
+        closeAbsenceActionModal();
       });
     }
     if (byId("specialWindowForm")) {
@@ -6518,7 +6844,8 @@
     });
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && tenantAdminActiveModal) {
-        closeTenantAdminModal(tenantAdminActiveModal.modal);
+        if (tenantAdminActiveModal.modal === absenceActionModal) closeAbsenceActionModal();
+        else closeTenantAdminModal(tenantAdminActiveModal.modal);
       }
     });
 

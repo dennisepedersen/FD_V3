@@ -1519,9 +1519,27 @@ test("absence request preflight returns special-window states without mutation s
   assert.equal(absenceRequestService._test.buildSpecialWindowPreflightResult({ ...baseWindow, late_submission_policy: "allowed" }, { asOfDate: "2027-03-03" }).state, "after_deadline_allowed");
 
   const partial = absenceRequestService._test.preflightResultFromSpecialWindowError(Object.assign(new Error("absence_special_window_partial_overlap"), { statusCode: 409 }));
-  assert.deepEqual(partial, { state: "partial_overlap", can_submit: false, reason: "absence_special_window_partial_overlap", special_window: null });
-  const multiple = absenceRequestService._test.preflightResultFromSpecialWindowError(Object.assign(new Error("absence_special_window_conflict"), { statusCode: 409 }));
+  assert.equal(partial.state, "partial_overlap");
+  assert.equal(partial.can_submit, false);
+  assert.deepEqual(partial.special_windows, []);
+  assert.deepEqual(partial.split_suggestion, []);
+
+  const overlapDetails = absenceRequestService._test.buildSpecialWindowOverlapDetails([{ ...baseWindow, absence_start_date: "2027-05-25", absence_end_date: "2027-08-29" }], {
+    startDate: "2027-06-15",
+    endDate: "2027-09-15",
+  });
+  assert.deepEqual(overlapDetails.requested_period, { start_date: "2027-06-15", end_date: "2027-09-15" });
+  assert.deepEqual(overlapDetails.split_suggestion.map((segment) => [segment.start_date, segment.end_date, segment.special_window ? segment.special_window.name : null]), [
+    ["2027-06-15", "2027-08-29", "Sommerferie 2027"],
+    ["2027-08-30", "2027-09-15", null],
+  ]);
+  const detailedPartial = absenceRequestService._test.preflightResultFromSpecialWindowError(Object.assign(new Error("absence_special_window_partial_overlap"), { statusCode: 409, details: overlapDetails }));
+  assert.equal(detailedPartial.special_window.name, "Sommerferie 2027");
+  assert.equal(detailedPartial.split_suggestion.length, 2);
+
+  const multiple = absenceRequestService._test.preflightResultFromSpecialWindowError(Object.assign(new Error("absence_special_window_conflict"), { statusCode: 409, details: overlapDetails }));
   assert.equal(multiple.state, "multiple_matches");
+  assert.equal(multiple.special_windows.length, 1);
 
   const client = createTxClient();
   let eventCount = 0;

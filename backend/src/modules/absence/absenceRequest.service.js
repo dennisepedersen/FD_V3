@@ -368,6 +368,61 @@ function requestEndDateForWindow(payloadOrRow) {
   return toDateString(payloadOrRow.endDate || payloadOrRow.end_date || payloadOrRow.startDate || payloadOrRow.start_date);
 }
 
+function shiftDateString(dateString, days) {
+  const normalized = toDateString(dateString);
+  if (!normalized) return null;
+  const date = new Date(`${normalized}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime())) return null;
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function mapPreflightWindow(specialWindow) {
+  if (!specialWindow) return null;
+  return {
+    id: specialWindow.id,
+    key: specialWindow.key || null,
+    name: specialWindow.name || null,
+    absence_start_date: toDateString(specialWindow.absence_start_date),
+    absence_end_date: toDateString(specialWindow.absence_end_date),
+    submission_open_date: toDateString(specialWindow.submission_open_date),
+    submission_deadline: toDateString(specialWindow.submission_deadline),
+    review_start_date: toDateString(specialWindow.review_start_date),
+    late_submission_policy: specialWindow.late_submission_policy || "blocked",
+    collective_processing: specialWindow.collective_processing === true,
+  };
+}
+
+function buildSpecialWindowOverlapDetails(overlaps, { startDate, endDate }) {
+  const requestStart = toDateString(startDate);
+  const requestEnd = toDateString(endDate || startDate);
+  const specialWindows = (overlaps || []).map(mapPreflightWindow).filter(Boolean);
+  const primaryWindow = specialWindows[0] || null;
+  const segments = [];
+
+  if (requestStart && requestEnd && primaryWindow?.absence_start_date && primaryWindow.absence_end_date) {
+    const insideStart = requestStart > primaryWindow.absence_start_date ? requestStart : primaryWindow.absence_start_date;
+    const insideEnd = requestEnd < primaryWindow.absence_end_date ? requestEnd : primaryWindow.absence_end_date;
+    const beforeEnd = shiftDateString(insideStart, -1);
+    const afterStart = shiftDateString(insideEnd, 1);
+    if (requestStart < insideStart && beforeEnd && requestStart <= beforeEnd) {
+      segments.push({ start_date: requestStart, end_date: beforeEnd, special_window: null });
+    }
+    if (insideStart <= insideEnd) {
+      segments.push({ start_date: insideStart, end_date: insideEnd, special_window: primaryWindow });
+    }
+    if (afterStart && afterStart <= requestEnd) {
+      segments.push({ start_date: afterStart, end_date: requestEnd, special_window: null });
+    }
+  }
+
+  return {
+    requested_period: { start_date: requestStart, end_date: requestEnd },
+    special_windows: specialWindows,
+    split_suggestion: segments,
+  };
+}
+
 async function resolveSpecialWindow(client, {
   tenantId,
   employeeTenantUserId,
@@ -386,7 +441,7 @@ async function resolveSpecialWindow(client, {
   });
   if (overlaps.length === 0) return null;
   if (overlaps.some((row) => row.fully_contains_request !== true)) {
-    throw createHttpError(409, "absence_special_window_partial_overlap");
+    throw createHttpError(409, "absence_special_window_partial_overlap", buildSpecialWindowOverlapDetails(overlaps, { startDate, endDate }));
   }
   const safeMatches = new Map();
   for (const row of overlaps) {
@@ -395,10 +450,10 @@ async function resolveSpecialWindow(client, {
     }
   }
   if (safeMatches.size === 0) {
-    throw createHttpError(409, "absence_special_window_scope_unclear");
+    throw createHttpError(409, "absence_special_window_scope_unclear", buildSpecialWindowOverlapDetails(overlaps, { startDate, endDate }));
   }
   if (safeMatches.size > 1) {
-    throw createHttpError(409, "absence_special_window_conflict");
+    throw createHttpError(409, "absence_special_window_conflict", buildSpecialWindowOverlapDetails(Array.from(safeMatches.values()), { startDate, endDate }));
   }
   return Array.from(safeMatches.values())[0];
 }
@@ -435,21 +490,6 @@ function validateSpecialWindowSubmissionTiming(specialWindow, { asOfDate = today
   };
 }
 
-function mapPreflightWindow(specialWindow) {
-  if (!specialWindow) return null;
-  return {
-    id: specialWindow.id,
-    key: specialWindow.key || null,
-    name: specialWindow.name || null,
-    absence_start_date: toDateString(specialWindow.absence_start_date),
-    absence_end_date: toDateString(specialWindow.absence_end_date),
-    submission_open_date: toDateString(specialWindow.submission_open_date),
-    submission_deadline: toDateString(specialWindow.submission_deadline),
-    review_start_date: toDateString(specialWindow.review_start_date),
-    late_submission_policy: specialWindow.late_submission_policy || "blocked",
-    collective_processing: specialWindow.collective_processing === true,
-  };
-}
 
 function buildSpecialWindowPreflightResult(specialWindow, { asOfDate = todayDate() } = {}) {
   if (!specialWindow) return { state: "no_match", can_submit: true, special_window: null };
@@ -468,11 +508,27 @@ function buildSpecialWindowPreflightResult(specialWindow, { asOfDate = todayDate
 
 function preflightResultFromSpecialWindowError(error) {
   const code = error && error.message ? String(error.message) : "";
+  const details = error && error.details && typeof error.details === "object" ? error.details : {};
   if (code === "absence_special_window_partial_overlap") {
-    return { state: "partial_overlap", can_submit: false, reason: code, special_window: null };
+    return {
+      state: "partial_overlap",
+      can_submit: false,
+      reason: code,
+      special_window: details.special_windows && details.special_windows[0] ? details.special_windows[0] : null,
+      requested_period: details.requested_period || null,
+      special_windows: details.special_windows || [],
+      split_suggestion: details.split_suggestion || [],
+    };
   }
   if (code === "absence_special_window_conflict" || code === "absence_special_window_scope_unclear") {
-    return { state: "multiple_matches", can_submit: false, reason: code, special_window: null };
+    return {
+      state: "multiple_matches",
+      can_submit: false,
+      reason: code,
+      special_window: null,
+      requested_period: details.requested_period || null,
+      special_windows: details.special_windows || [],
+    };
   }
   return null;
 }
@@ -1153,6 +1209,7 @@ module.exports = {
     displayStatus,
     mapManagerRequest,
     mapRequest,
+    buildSpecialWindowOverlapDetails,
     buildSpecialWindowPreflightResult,
     normalizeIdempotencyKey,
     preflightResultFromSpecialWindowError,

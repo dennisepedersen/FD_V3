@@ -118,8 +118,8 @@ test('tenant absence UI uses request backend contracts instead of legacy hardcod
   assert.match(routes, /items: result\.items/);
   assert.match(auth, /Array\.isArray\(response\.items\)/);
   assert.match(auth, /requestTypesLoadError/);
-  assert.match(auth, /Fravaerstyperne kunne ikke hentes\. Proev igen\./);
-  assert.match(auth, /Der er ingen fravaerstyper tilgaengelige\. Kontakt din administrator\./);
+  assert.match(auth, /Fraværstyperne kunne ikke hentes\. Prøv igen\./);
+  assert.match(auth, /Der er ingen fraværstyper tilgængelige\. Kontakt din administrator\./);
   assert.match(auth, /allowed_duration_types\.some\(\(item\) => item === "full_days" \|\| item === "time_range"\)/);
   assert.match(html, /id="absenceDurationFullDays"[\s\S]*Hele dage/);
   assert.match(html, /id="absenceDurationTimeRange"[\s\S]*Bestemt tidsrum/);
@@ -137,7 +137,7 @@ test('tenant absence UI uses request backend contracts instead of legacy hardcod
   assert.match(auth, /setCalendarTabVisibility\("\[data-absence-team-tab\]", !state\.calendar\.teamAgendaAccessDenied\)/);
   assert.match(auth, /loadTeamAbsenceAgenda\(\{ silent: true \}\)/);
   assert.match(auth, /if \(error && error\.status === 403\) \{\s*state\.calendar\.teamAgendaAccessDenied = true;/);
-  assert.match(auth, /appendText\(card, "p", "absenceName", event\.title \|\| "Fravaer"\)/);
+  assert.match(auth, /appendText\(card, "p", "absenceName", event\.title \|\| "Fravær"\)/);
   assert.doesNotMatch(auth, /absenceTeamAgendaSection/);
   assert.match(auth, /\/api\/calendar\/special-windows/);
   assert.match(auth, /"Idempotency-Key"/);
@@ -158,9 +158,9 @@ test('tenant absence UI uses request backend contracts instead of legacy hardcod
   assert.match(auth, /String\(textarea && textarea\.value \|\| ""\)\.length\} \/ 500/);
   assert.match(auth, /const decisionMessage = String\(reason \|\| ""\)\.trim\(\)/);
   assert.match(auth, /if \(decisionMessage\) payload\.reason = decisionMessage/);
-  assert.match(auth, /renderManagerRequestDetail\(response && response\.request \? \{ \.\.\.response\.request, events: response\.events \|\| \[\] \} : response\)/);
-  assert.match(auth, /renderAbsenceRequestDetail\(response && response\.request \? \{ \.\.\.response\.request, events: response\.events \|\| \[\] \} : response\)/);
-  assert.match(auth, /Privat kommentar vedlagt\./);
+  assert.match(auth, /renderManagerRequestDetail\(response && response\.request \? \{ \.\.\.response\.request, events: response\.events \|\| \[\] \} : response, detail\)/);
+  assert.match(auth, /renderAbsenceRequestDetail\(response && response\.request \? \{ \.\.\.response\.request, events: response\.events \|\| \[\] \} : response, detail\)/);
+  assert.match(auth, /Kommentar vedlagt\./);
   assert.doesNotMatch(auth, /Privat kommentar findes, men kraever saerskilt adgang\./);
   assert.doesNotMatch(auth, /outbox apply|sendRealMail|worksheet-sync|EK-sync/i);
 });
@@ -197,10 +197,10 @@ test('special-window preflight UI and admin scope controls are wired', () => {
   assert.match(auth, /requestPreflightLoading/);
   assert.match(auth, /apiFetch\("\/api\/calendar\/absence-requests\/preflight"/);
   assert.match(auth, /state\.calendar\.requestPreflightSeq !== seq/);
-  assert.match(auth, /Perioden kunne ikke kontrolleres\. Proev igen\./);
+  assert.match(auth, /Perioden kunne ikke kontrolleres\. Prøv igen\./);
   assert.match(auth, /requestPreflight\.can_submit === false/);
   assert.match(auth, /button\.disabled = !type[\s\S]+getAbsenceRequestPreflightBlockMessage\(\)/);
-  assert.match(auth, /Ferieonskeperiode: \$\{state\.calendar\.requestPreflight\.special_window\.name/);
+  assert.match(auth, /Ferieønskeperiode: \$\{state\.calendar\.requestPreflight\.special_window\.name/);
   assert.match(html, /id="absenceRequestPreflightStatus"/);
   assert.match(html, /id="specialWindowKeyField"[^>]*hidden/);
   assert.match(html, /id="specialWindowKeyInput" maxlength="64" readonly/);
@@ -208,10 +208,69 @@ test('special-window preflight UI and admin scope controls are wired', () => {
   assert.match(html, /id="specialWindowClearTypeScopeBtn"[\s\S]*Ryd valg/);
   assert.match(html, /id="specialWindowClearUserScopeBtn"[\s\S]*Ryd valg/);
   assert.match(html, /id="specialWindowClearGroupScopeBtn"[\s\S]*Ryd valg/);
-  assert.match(html, /Ingen valgte typer betyder alle ferieonskeegnede typer/);
+  assert.match(html, /Ingen valgte typer betyder alle ferieønskeegnede typer/);
   assert.match(auth, /clearSelectedValues\(byId\("specialWindowTypeScopeSelect"\)\)/);
   assert.match(auth, /clearSelectedValues\(byId\("specialWindowUserScopeSelect"\)\)/);
   assert.match(auth, /clearSelectedValues\(byId\("specialWindowGroupScopeSelect"\)\)/);
   assert.match(auth, /payload\.absence_type_ids = typeIds/);
   assert.doesNotMatch(auth, /key: String\(byId\("specialWindowKeyInput"\)/);
+});
+
+test('absence item actions use focused modal instead of inline detail panels', () => {
+  const html = read('backend/src/public/tenant/app.html');
+  const auth = read('backend/src/public/tenant/auth.js');
+
+  assert.match(html, /id="absenceActionModal"/);
+  assert.match(html, /id="absenceActionModalBody"/);
+  assert.match(html, /class="fdModalPanel absenceActionPanel"/);
+  assert.doesNotMatch(html, /id="absenceRequestDetail"/);
+  assert.doesNotMatch(html, /id="absenceManagerDetail"/);
+  assert.doesNotMatch(html, /id="specialWindowReviewPanel"/);
+  assert.match(auth, /function openAbsenceActionModal\(kind, trigger\)/);
+  assert.match(auth, /function closeAbsenceActionModal\(\)/);
+  assert.match(auth, /loadMineAbsenceRequestDetail\(request\.id, event\.currentTarget\)/);
+  assert.match(auth, /loadManagerRequestDetail\(request\.id, event\.currentTarget\)/);
+  assert.match(auth, /openSpecialWindowEdit\(item\.id, event\.currentTarget\)/);
+  assert.match(auth, /loadSpecialWindowReview\(item\.id, event\.currentTarget\)/);
+  assert.match(auth, /getAbsenceActionBody\("manager", trigger/);
+  assert.match(auth, /getAbsenceActionBody\("special-window-review", trigger/);
+  assert.match(auth, /tenantAdminActiveModal\.modal === absenceActionModal/);
+  assert.match(auth, /data-absence-modal-close/);
+  assert.match(auth, /confirmAbsenceAction/);
+  assert.doesNotMatch(auth, /window\.confirm\("Vil du godkende anmodningen/);
+  assert.doesNotMatch(auth, /window\.confirm\("Vil du annullere denne fraværsanmodning/);
+  assert.doesNotMatch(auth, /window\.confirm\("Vil du arkivere ferieønskeperioden/);
+});
+
+test('absence UI polish exposes focused feedback, split preview and contrast hooks', () => {
+  const html = read('backend/src/public/tenant/app.html');
+  const auth = read('backend/src/public/tenant/auth.js');
+  const calendarHtml = html.slice(html.indexOf('id="calendarView"'), html.indexOf('id="absenceActionModal"'));
+
+  assert.match(html, /\.absenceWorkspaceTabs \.calendarTab\[aria-selected="true"\]/);
+  assert.match(html, /\.calendarField select\[multiple\]/);
+  assert.match(html, /\.calendarField input:disabled/);
+  assert.match(html, /\.appShell \.absenceStatus-approved/);
+  assert.match(html, /\.absenceStatus-rejected/);
+  assert.match(auth, /function appendRequestStatusBadge\(parent, request\)/);
+  assert.match(auth, /appendRequestStatusBadge\(header, request\)/);
+  assert.match(auth, /showAbsencePreflightFeedback/);
+  assert.match(auth, /Du kan ikke sende anmodningen endnu/);
+  assert.match(auth, /Deadline er overskredet/);
+  assert.match(auth, /Perioden skal deles/);
+  assert.match(auth, /Fielddesk foreslår/);
+  assert.match(auth, /Del anmodningen automatisk/);
+  assert.match(auth, /confirmAbsenceSplitSuggestion/);
+  assert.match(auth, /Opret \$\{segments\.length\} anmodninger/);
+  assert.match(auth, /absence-split-create/);
+  assert.match(auth, /absence-split-submit/);
+  assert.match(auth, /requestSplitSubmitting/);
+  assert.match(auth, /Fielddesk har kontrolleret perioden server-side/);
+  assert.match(auth, /Noget gik galt\. Prøv igen\./);
+  assert.match(auth, /function enhanceMultiSelectToggle\(select\)/);
+  assert.match(auth, /option\.selected = !option\.selected/);
+  assert.match(auth, /enhanceMultiSelectToggle\(typeSelect\)/);
+  assert.match(auth, /enhanceMultiSelectToggle\(userSelect\)/);
+  assert.match(auth, /enhanceMultiSelectToggle\(groupSelect\)/);
+  assert.doesNotMatch(calendarHtml, /Fravaer|Planlaegning|Ferieonske|Direkte fravaer|Fraværsaarsag|Begraenset|Oekonomi/);
 });
