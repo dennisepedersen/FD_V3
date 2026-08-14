@@ -22,6 +22,7 @@ test('tenant html gets stable versioned tenant asset URLs', () => {
   const html = [
     '<script src="/tenant/drawing-engine.js"></script>',
     '<script src="/tenant/project-equipment-cctv-drawing-adapter.js?v=old"></script>',
+    '<script src="/tenant/project-restarbejde-drawing-adapter.js"></script>',
     '<script src="/tenant/auth.js"></script>',
     '<script src="/tenant/auth.js?v=old"></script>',
   ].join('');
@@ -29,6 +30,7 @@ test('tenant html gets stable versioned tenant asset URLs', () => {
   assert.equal(out, [
     '<script src="/tenant/drawing-engine.js?v=commitwithspace"></script>',
     '<script src="/tenant/project-equipment-cctv-drawing-adapter.js?v=commitwithspace"></script>',
+    '<script src="/tenant/project-restarbejde-drawing-adapter.js?v=commitwithspace"></script>',
     '<script src="/tenant/auth.js?v=commitwithspace"></script>',
     '<script src="/tenant/auth.js?v=commitwithspace"></script>',
   ].join(''));

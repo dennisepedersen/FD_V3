@@ -3357,6 +3357,78 @@
         bottom: calc(96px + env(safe-area-inset-bottom));
       }
     }
+
+    body.restarbejde-modal-open,
+    body.restarbejde-drawing-open { overflow: hidden; }
+    .restarbejdePanel { display: grid; gap: 16px; }
+    .restarbejdeHeaderRow,.restarbejdeToolbar,.restarbejdeCardHeader,.restarbejdeCardActions,.restarbejdeDetailActions,.restarbejdeDrawingActions,.restarbejdeDrawingHeader,.restarbejdeDrawingControls,.restarbejdeDrawingPlacementBar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .restarbejdeHeaderRow { justify-content: space-between; }
+    .restarbejdeToolbar { align-items: end; }
+    .restarbejdeToolbar label { display: grid; gap: 4px; font-size: 0.82rem; color: var(--muted); min-width: 140px; }
+    .restarbejdeToolbar input,.restarbejdeToolbar select,.restarbejdeDrawerBody input,.restarbejdeDrawerBody select,.restarbejdeDrawerBody textarea { width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 9px 10px; background: #fff; color: var(--text); font: inherit; }
+    .restarbejdeToolbar .restarbejdeSearchField { flex: 1 1 220px; }
+    .restarbejdeList { display: grid; gap: 10px; }
+    .restarbejdeCard,.restarbejdeDetailCard,.restarbejdeDrawingCard { border: 1px solid var(--border); border-radius: 8px; background: #fff; padding: 14px; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04); }
+    .restarbejdeCard.isArchived,.restarbejdeDrawingCard.isArchived { opacity: 0.72; background: #f8fafc; }
+    .restarbejdeCardHeader { justify-content: space-between; align-items: flex-start; }
+    .restarbejdeCard h3,.restarbejdeDetailCard h3 { margin: 0; font-size: 1rem; }
+    .restarbejdeCardMeta,.restarbejdeCardText,.restarbejdeMuted,.restarbejdeDetailText { color: var(--muted); margin: 4px 0 0; }
+    .restarbejdeBadgeRow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .restarbejdeProgressLine { display: grid; grid-template-columns: auto auto 1fr; gap: 8px; align-items: center; margin-top: 10px; color: var(--muted); font-size: 0.86rem; }
+    .restarbejdeProgressTrack { height: 7px; border-radius: 999px; background: #e5e7eb; overflow: hidden; }
+    .restarbejdeProgressTrack span { display: block; height: 100%; background: #16a34a; }
+    .restarbejdeKindToggle { display: flex; gap: 8px; }
+    .restarbejdeKindToggle button.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+    .restarbejdeFormGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .restarbejdeFormGrid label { display: grid; gap: 5px; font-size: 0.84rem; color: var(--muted); }
+    .restarbejdeFormGrid .wide { grid-column: 1 / -1; }
+    .restarbejdeFlagGrid { display: grid; gap: 8px; }
+    .restarbejdeFlagGrid label { display: flex; align-items: center; gap: 8px; color: var(--text); }
+    .restarbejdeProgressStepper { display: grid; grid-template-columns: 42px 1fr 42px auto; gap: 8px; align-items: center; }
+    .restarbejdeAttachmentGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+    .restarbejdeAttachmentPreview { border: 1px solid var(--border); border-radius: 8px; padding: 8px; display: grid; gap: 8px; }
+    .restarbejdeAttachmentPreview img,.restarbejdeAttachmentIcon { width: 100%; aspect-ratio: 4 / 3; border-radius: 6px; background: #f1f5f9; }
+    .restarbejdeAttachmentPreview img { object-fit: cover; }
+    .restarbejdeAttachmentIcon { display: grid; place-items: center; color: var(--muted); font-weight: 700; }
+    .restarbejdeAttachmentMeta { display: grid; gap: 2px; font-size: 0.82rem; color: var(--muted); }
+    .restarbejdeDrawingCard { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+    .restarbejdeDrawingCard > div:first-child { display: grid; gap: 2px; }
+    .restarbejdeDrawingShell { position: fixed; inset: 0; z-index: 90; display: none; }
+    .restarbejdeDrawingShell.open { display: block; }
+    .restarbejdeDrawingOverlay { position: absolute; inset: 0; background: rgba(15, 23, 42, 0.48); }
+    .restarbejdeDrawingPanel { position: absolute; inset: max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left)); background: #fff; border-radius: 10px; display: grid; grid-template-rows: auto auto auto minmax(0, 1fr) auto; overflow: hidden; box-shadow: 0 24px 80px rgba(15, 23, 42, 0.28); }
+    .restarbejdeDrawingHeader,.restarbejdeDrawingControls,.restarbejdeDrawingStatus,.restarbejdeDrawingPlacementBar { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+    .restarbejdeDrawingHeader { justify-content: space-between; }
+    .restarbejdeDrawingHeader h2 { margin: 0; font-size: 1rem; }
+    .restarbejdeDrawingStatus { color: var(--muted); font-size: 0.86rem; min-height: 0; }
+    .restarbejdeDrawingStatus.error { color: #b91c1c; }
+    .restarbejdeDrawingBody { min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(230px, 300px); }
+    .restarbejdeDrawingCanvas { min-width: 0; min-height: 0; overflow: hidden; background: #f8fafc; touch-action: none; position: relative; display: grid; place-items: center; }
+    .restarbejdeDrawingStage { position: relative; transform-origin: 0 0; }
+    .restarbejdeDrawingStage.isPannable { cursor: grab; }
+    .restarbejdeDrawingStage.isPanning { cursor: grabbing; }
+    .restarbejdeDrawingCanvas.isPlacing .restarbejdeDrawingStage { cursor: crosshair; }
+    .restarbejdeDrawingSurface { display: block; max-width: min(100%, 1400px); max-height: 100%; object-fit: contain; }
+    .restarbejdeDrawingPinLayer { position: absolute; inset: 0; pointer-events: none; }
+    .restarbejdeDrawingOverlayPin { position: absolute; transform: translate(-50%, -100%); border: 0; background: transparent; padding: 0; pointer-events: auto; display: flex; align-items: center; gap: 4px; cursor: pointer; }
+    .restarbejdeDrawingPinMarker { width: 18px; height: 18px; border-radius: 50% 50% 50% 0; background: #ef4444; transform: rotate(-45deg); border: 2px solid #fff; box-shadow: 0 1px 4px rgba(15, 23, 42, 0.35); }
+    .restarbejdeDrawingOverlayPin.active .restarbejdeDrawingPinMarker { background: #16a34a; }
+    .restarbejdeDrawingPinLabel { transform: translateY(-10px); background: rgba(255,255,255,0.92); border: 1px solid var(--border); border-radius: 6px; padding: 2px 5px; font-size: 0.72rem; color: var(--text); white-space: nowrap; }
+    .restarbejdeDrawingPendingPin .restarbejdeDrawingPinMarker { background: #f59e0b; }
+    .restarbejdeDrawingSidePanel { min-height: 0; overflow: auto; border-left: 1px solid var(--border); padding: 12px; }
+    .restarbejdeDrawingPlacementBar { border-top: 1px solid var(--border); border-bottom: 0; justify-content: space-between; }
+    @media (max-width: 760px) {
+      .restarbejdeHeaderRow,.restarbejdeCardHeader,.restarbejdeDrawingCard { align-items: stretch; flex-direction: column; }
+      .restarbejdeToolbar,.restarbejdeFormGrid { grid-template-columns: 1fr; display: grid; }
+      .restarbejdeProgressLine { grid-template-columns: auto auto; }
+      .restarbejdeProgressTrack { grid-column: 1 / -1; }
+      .restarbejdeDrawingPanel { inset: env(safe-area-inset-top) 0 env(safe-area-inset-bottom) 0; border-radius: 0; height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom)); }
+      .restarbejdeDrawingControls { display: grid; grid-template-columns: 1fr auto auto auto; align-items: center; }
+      .restarbejdeDrawingControls select { grid-column: 1 / -1; width: 100%; }
+      .restarbejdeDrawingBody { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) auto; }
+      .restarbejdeDrawingSidePanel { max-height: 28dvh; border-left: 0; border-top: 1px solid var(--border); }
+      .restarbejdeDrawingPinLabel { display: none; }
+    }
   </style>
 </head>
 <body data-page="project">
@@ -3459,6 +3531,7 @@
         <p class="projectToolboxLabel">Projektmoduler</p>
         <div class="projectToolboxTabs" role="tablist" aria-label="V&aelig;lg projektmodul">
           <button class="projectToolboxTab active" type="button" data-project-module-tab="qa" aria-selected="true">QA</button>
+          <button class="projectToolboxTab" type="button" data-project-module-tab="restarbejde" hidden aria-selected="false">Restarbejde</button>
           <button class="projectToolboxTab" type="button" data-project-module-tab="equipment" hidden aria-selected="false">Udstyr</button>
           <button class="projectToolboxTab" type="button" data-project-module-tab="activity" aria-selected="false">Aktivitet</button>
         </div>
@@ -3484,6 +3557,14 @@
     </section>
 
 
+
+    <section id="restarbejdeSection" class="panel sectionPanel restarbejdePanel" data-project-module-panel="restarbejde" data-project-module-available="false" hidden>
+      <div class="restarbejdeHeaderRow"><div><span class="sectionEyebrow">Restarbejde</span><h2>Restarbejde og OBS</h2><p id="restarbejdeMetaText" class="sectionLead">Aktive punkter på sagen</p></div><div class="restarbejdeCardActions"><button id="restarbejdeDrawingBtn" class="btn btnSecondary" type="button">Tegninger</button><button id="restarbejdeNewItemBtn" class="btn btnPrimary" type="button">Nyt punkt</button></div></div>
+      <div id="restarbejdeSummaryGrid" class="summaryGrid compact"></div>
+      <div class="restarbejdeToolbar" aria-label="Restarbejde filtrering"><label>Type<select id="restarbejdeKindFilter"><option value="all">Alle typer</option><option value="internal_defect">Interne mangler</option><option value="obs">OBS</option></select></label><label>Status<select id="restarbejdeStatusFilter"><option value="all">Alle statusser</option></select></label><label>Fag<select id="restarbejdeTradeFilter"><option value="all">Alle fag</option></select></label><label class="restarbejdeSearchField">Søg<input id="restarbejdeSearchInput" type="search" placeholder="Titel, placering, ansvarlig"></label><label id="restarbejdeArchivedToggleLabel"><input id="restarbejdeArchivedToggle" type="checkbox"> Vis arkiverede</label></div>
+      <p id="restarbejdeFeedback" class="sectionState" hidden></p><p id="restarbejdeState" class="sectionState" hidden></p><div id="restarbejdeList" class="restarbejdeList"></div>
+      <section class="restarbejdeDetailCard" aria-label="Restarbejde tegninger"><div class="restarbejdeHeaderRow"><div><h3>Restarbejde-tegninger</h3><p class="restarbejdeMuted">Separate tegninger fra CCTV.</p></div><label id="restarbejdeDrawingUploadLabel" class="btn btnSecondary">Upload tegning<input id="restarbejdeDrawingFileInput" type="file" accept="application/pdf,image/jpeg,image/png,image/webp" hidden></label></div><div id="restarbejdeDrawingList" class="restarbejdeList"></div></section>
+    </section>
     <section id="equipmentSection" class="panel sectionPanel equipmentPanel" data-project-module-panel="equipment" data-project-module-available="false" hidden>
       <div class="equipmentStickyBar">
         <div class="equipmentSubnav" aria-label="Udstyrsmoduler">
@@ -3691,6 +3772,9 @@
   </div>
 
 
+
+  <div id="restarbejdeDrawerShell" class="qaDrawerShell" aria-hidden="true"><div id="restarbejdeDrawerOverlay" class="qaDrawerOverlay"></div><aside class="qaDrawer" role="dialog" aria-modal="true" aria-labelledby="restarbejdeDrawerTitle"><button id="restarbejdeDrawerCloseBtn" class="modalCloseBtn" type="button" aria-label="Luk">×</button><header class="qaDrawerHeader"><span class="sectionEyebrow">Restarbejde</span><h2 id="restarbejdeDrawerTitle">Nyt punkt</h2><p id="restarbejdeDrawerMeta">Opret hurtigt og udfyld detaljer senere.</p></header><div class="restarbejdeDrawerBody qaDrawerBody"><form id="restarbejdeItemForm" class="qaForm"><div class="restarbejdeKindToggle"><button id="restarbejdeKindInternalBtn" type="button" class="btn btnSecondary active">Intern mangel</button><button id="restarbejdeKindObsBtn" type="button" class="btn btnSecondary">OBS</button></div><input id="restarbejdeItemIdInput" type="hidden"><div class="restarbejdeFormGrid"><label class="wide">Titel<input id="restarbejdeTitleInput" type="text" required maxlength="160"></label><label>Fag<select id="restarbejdeTradeSelect" required></select></label><label id="restarbejdePriorityField">Prioritet<select id="restarbejdePrioritySelect"><option value="low">Lav</option><option value="normal">Normal</option><option value="high">Høj</option><option value="critical">Kritisk</option></select></label><label id="restarbejdeRiskField" hidden>Risiko<select id="restarbejdeRiskSelect"><option value="">Vælg risiko</option><option value="low">Lav</option><option value="medium">Middel</option><option value="high">Høj</option><option value="critical">Kritisk</option></select></label><label>Status<select id="restarbejdeStatusSelect"></select></label><label id="restarbejdeProgressField">Fremdrift<div id="restarbejdeProgressStepper" class="restarbejdeProgressStepper"><button id="restarbejdeProgressMinusBtn" type="button" class="btn btnCompact">-</button><input id="restarbejdeProgressInput" type="range" min="0" max="100" step="5" value="0"><button id="restarbejdeProgressPlusBtn" type="button" class="btn btnCompact">+</button><strong id="restarbejdeProgressValue">0%</strong></div></label><label class="wide">Beskrivelse<textarea id="restarbejdeDescriptionInput" rows="3"></textarea></label><label>Placering<input id="restarbejdeLocationInput" type="text"></label><label>Ansvarlig tekst<input id="restarbejdeResponsibleInput" type="text"></label><label>Deadline<input id="restarbejdeDeadlineInput" type="date"></label><label>Ekstern part<input id="restarbejdeExternalPartyInput" type="text"></label><label class="wide">Kommentar<textarea id="restarbejdeCommentInput" rows="2"></textarea></label><div class="wide restarbejdeFlagGrid"><label><input id="restarbejdeBlocksDeliveryInput" type="checkbox"> Blokerer levering</label><label><input id="restarbejdeEscalatedInput" type="checkbox"> Eskaleret</label><label><input id="restarbejdeCanActInput" type="checkbox"> Internt team kan handle</label></div></div><p id="restarbejdeFormStatus" class="sectionState"></p><div class="qaDrawerActions"><button id="restarbejdeCancelBtn" class="btn btnSecondary" type="button">Annuller</button><button id="restarbejdeSaveBtn" class="btn btnPrimary" type="submit">Gem</button></div></form><div id="restarbejdeDetailView" hidden></div></div></aside></div>
+  <div id="restarbejdeDrawingShell" class="restarbejdeDrawingShell" aria-hidden="true"><div id="restarbejdeDrawingOverlay" class="restarbejdeDrawingOverlay"></div><section class="restarbejdeDrawingPanel" role="dialog" aria-modal="true" aria-labelledby="restarbejdeDrawingTitle"><header class="restarbejdeDrawingHeader"><h2 id="restarbejdeDrawingTitle">Tegning & placering</h2><button id="restarbejdeDrawingCloseBtn" class="modalCloseBtn" type="button" aria-label="Luk">×</button></header><div class="restarbejdeDrawingControls"><select id="restarbejdeDrawingSelect"></select><button id="restarbejdeDrawingPrevPageBtn" class="btn btnCompact" type="button">Forrige</button><span id="restarbejdeDrawingPageLabel">Side 1 / 1</span><button id="restarbejdeDrawingNextPageBtn" class="btn btnCompact" type="button">Næste</button><button id="restarbejdeDrawingZoomOutBtn" class="btn btnCompact" type="button">-</button><span id="restarbejdeDrawingZoomValue">100%</span><button id="restarbejdeDrawingZoomInBtn" class="btn btnCompact" type="button">+</button><button id="restarbejdeDrawingResetViewBtn" class="btn btnCompact" type="button">Reset</button></div><p id="restarbejdeDrawingStatus" class="restarbejdeDrawingStatus">Tegning klar.</p><div class="restarbejdeDrawingBody"><div id="restarbejdeDrawingCanvas" class="restarbejdeDrawingCanvas"></div><aside id="restarbejdeDrawingSidePanel" class="restarbejdeDrawingSidePanel"></aside></div><div id="restarbejdeDrawingPlacementBar" class="restarbejdeDrawingPlacementBar" hidden><span id="restarbejdeDrawingPlacementHint">Tryk på tegningen for at vælge placering.</span><div><button id="restarbejdeDrawingCancelPlacementBtn" class="btn btnSecondary" type="button">Annuller</button><button id="restarbejdeDrawingConfirmPlacementBtn" class="btn btnPrimary" type="button" disabled>Gem placering</button></div></div></section></div>
   <div id="equipmentDrawerShell" class="qaDrawerShell" aria-hidden="true">
     <div id="equipmentDrawerOverlay" class="qaDrawerOverlay"></div>
     <aside class="qaDrawerPanel" aria-modal="true" role="dialog" aria-labelledby="equipmentDrawerTitle">
@@ -3858,6 +3942,7 @@
   <script src="/tenant/vendor/zxing-browser.min.js"></script>
   <script src="/tenant/drawing-engine.js"></script>
   <script src="/tenant/project-equipment-cctv-drawing-adapter.js"></script>
+  <script src="/tenant/project-restarbejde-drawing-adapter.js"></script>
   <script src="/tenant/auth.js"></script>
 </body>
 </html>
