@@ -158,6 +158,15 @@
         width: 144px;
       }
     }
+
+    /* Fielddesk mobile form-control rule: prevent iOS focus zoom without disabling user zoom. */
+    @media (hover: none), (max-width: 767px) {
+      input:not([type="checkbox"]):not([type="radio"]),
+      select,
+      textarea {
+        font-size: 16px;
+      }
+    }
   </style>
 </head>
 <body data-page="accept-invite">

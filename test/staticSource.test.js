@@ -295,3 +295,29 @@ test("split submit endpoint is routed before dynamic absence request ids", () =>
   assert.match(routes, /requireAbsenceRequestAccess\(req, "create_own"\)/);
   assert.match(routes, /requireAbsenceRequestAccess\(req, "submit_own"\)/);
 });
+
+test("tenant mobile form controls keep 16px minimum without viewport zoom hacks", () => {
+  const surfaces = [
+    ["app", read("backend/src/public/tenant/app.html")],
+    ["project", read("backend/src/public/tenant/project.html")],
+    ["login", read("backend/src/public/tenant/login.html")],
+    ["accept-invite", read("backend/src/public/tenant/accept-invite.html")],
+  ];
+
+  for (const [name, source] of surfaces) {
+    assert.doesNotMatch(source, /user-scalable\s*=\s*no|maximum-scale\s*=\s*1|minimum-scale\s*=\s*1/i, `${name} must preserve user zoom`);
+    assert.match(source, /Fielddesk mobile form-control rule/, `${name} must document the central mobile control rule`);
+    assert.match(source, /@media \(hover: none\), \(max-width: 767px\) \{[\s\S]*input:not\(\[type="checkbox"\]\):not\(\[type="radio"\]\)[\s\S]*font-size: 16px;/, `${name} must keep text-entry controls at 16px on touch/mobile`);
+  }
+
+  const app = surfaces.find(([name]) => name === "app")[1];
+  assert.match(app, /\.fdCaseSearch input,[^}]*\.fdMobileSearch input,[^}]*\.appShell\.caseOverviewActive \.topSearch input \{[^}]*font-size: 16px;/);
+  assert.doesNotMatch(app, /\.fdCaseSearch input,[^}]*\.appShell\.caseOverviewActive \.topSearch input \{[^}]*font-size: 1[0-5]px;/);
+
+  const ruleDoc = read("docs/ui/MOBILE_FORM_CONTROLS.md");
+  assert.match(ruleDoc, /font-size: 16px/);
+  assert.match(ruleDoc, /user-scalable=no/);
+
+  const project = surfaces.find(([name]) => name === "project")[1];
+  assert.match(project, /\.qaInput,[\s\S]*\.qaSelect,[\s\S]*\.qaTextarea,[\s\S]*\.equipmentMacSegment[\s\S]*font-size: 16px;/);
+});

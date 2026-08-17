@@ -2532,7 +2532,7 @@
       background: transparent;
       color: #0e1018;
       font: inherit;
-      font-size: 14px;
+      font-size: 16px;
     }
 
     .fdCaseSearch input::placeholder,
@@ -3414,6 +3414,27 @@
       .drawerBody,
       .drawerFooter {
         display: none;
+      }
+    }
+
+    /* Fielddesk mobile form-control rule: prevent iOS focus zoom without disabling user zoom. */
+    @media (hover: none), (max-width: 767px) {
+      input:not([type="checkbox"]):not([type="radio"]),
+      select,
+      textarea,
+      .sortSelect,
+      .topSearch input,
+      .fdCaseSearch input,
+      .fdMobileSearch input,
+      .appShell.caseOverviewActive .topSearch input,
+      .calendarField input,
+      .calendarField select,
+      .calendarField textarea,
+      .resourceGroupField input,
+      .resourceGroupField select,
+      .resourceGroupField textarea,
+      .absenceReviewReason {
+        font-size: 16px;
       }
     }
   </style>

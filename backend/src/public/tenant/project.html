@@ -3357,6 +3357,23 @@
         bottom: calc(96px + env(safe-area-inset-bottom));
       }
     }
+
+    /* Fielddesk mobile form-control rule: prevent iOS focus zoom without disabling user zoom. */
+    @media (hover: none), (max-width: 767px) {
+      input:not([type="checkbox"]):not([type="radio"]),
+      select,
+      textarea,
+      .qaInput,
+      .qaSelect,
+      .qaTextarea,
+      .equipmentMacSegment,
+      .equipmentBrandOption,
+      .equipmentModelOption,
+      .equipmentBrandEmpty,
+      .equipmentModelEmpty {
+        font-size: 16px;
+      }
+    }
   </style>
 </head>
 <body data-page="project">
