@@ -59,6 +59,71 @@ test('fd datepicker preserves ISO values and supports range selection ordering',
   );
 });
 
+test('fd date range picker commits start and end together before dispatching input events', () => {
+  const api = loadApi();
+  const snapshots = [];
+  const endInput = {
+    value: '2027-07-02',
+    dispatchEvent(event) {
+      snapshots.push({ source: 'end', type: event.type, start: startInput.value, end: endInput.value });
+    },
+  };
+  const startInput = {
+    value: '2027-07-01',
+    dispatchEvent(event) {
+      snapshots.push({ source: 'start', type: event.type, start: startInput.value, end: endInput.value });
+    },
+  };
+  const picker = Object.create(api.FDDateRangePicker.prototype);
+  Object.assign(picker, {
+    startInput,
+    endInput,
+    draft: { start: '2027-07-26', end: '2027-07-31' },
+    options: { onChange: (range) => snapshots.push({ source: 'change', ...range }) },
+  });
+
+  picker.commitDraft();
+
+  assert.equal(startInput.value, '2027-07-26');
+  assert.equal(endInput.value, '2027-07-31');
+  assert.deepEqual(snapshots[0], { source: 'start', type: 'input', start: '2027-07-26', end: '2027-07-31' });
+  assert.deepEqual(snapshots[snapshots.length - 1], { source: 'change', start: '2027-07-26', end: '2027-07-31' });
+});
+
+test('fd date range picker cancel preserves values, clear resets both, and today drafts a one-day range', () => {
+  const api = loadApi();
+  let removed = false;
+  let renderCount = 0;
+  const startInput = { value: '2027-07-01', dispatchEvent() {}, focus() {} };
+  const endInput = { value: '2027-07-02', dispatchEvent() {}, focus() {} };
+  const picker = Object.create(api.FDDateRangePicker.prototype);
+  Object.assign(picker, {
+    startInput,
+    endInput,
+    draft: { start: '2027-07-26', end: '2027-07-31' },
+    options: {},
+    isOpen: true,
+    overlay: { remove: () => { removed = true; } },
+    triggers: [],
+    updateTriggers() {},
+    render() { renderCount += 1; },
+  });
+
+  picker.close(false);
+  assert.equal(startInput.value, '2027-07-01');
+  assert.equal(endInput.value, '2027-07-02');
+  assert.equal(removed, true);
+
+  picker.clearDraft();
+  picker.commitDraft();
+  assert.equal(startInput.value, '');
+  assert.equal(endInput.value, '');
+
+  picker.pickToday();
+  assert.ok(picker.draft.start);
+  assert.equal(picker.draft.end, picker.draft.start);
+  assert.equal(renderCount, 1);
+});
 test('fd datepicker decorations normalize disabled range dot underline and info markers', () => {
   const helpers = loadApi()._test;
   const decorations = helpers.normalizeDecorations([

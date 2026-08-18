@@ -353,6 +353,72 @@ test("special-window matching accepts tenant-scoped resource-group matches and r
   }
 });
 
+test("vacation-day special-window policy only exempts exact one-day requests", async () => {
+  const original = absenceSpecialWindowRepository.listOverlappingActiveScopedForEmployee;
+  let lookups = 0;
+  try {
+    absenceSpecialWindowRepository.listOverlappingActiveScopedForEmployee = async () => {
+      lookups += 1;
+      return [{ id: uuid(32), scope_type: "tenant", fully_contains_request: true }];
+    };
+
+    const vacationMatch = await absenceRequestService._test.resolveSpecialWindow({ query: async () => ({ rows: [] }) }, {
+      tenantId: uuid(1),
+      employeeTenantUserId: uuid(2),
+      absenceType: requestType({ key: "vacation", name: "Ferie", special_window_eligible: true }),
+      absenceTypeId: uuid(3),
+      startDate: "2027-07-10",
+      endDate: "2027-07-10",
+    });
+    assert.equal(vacationMatch.id, uuid(32));
+    assert.equal(lookups, 1);
+
+    lookups = 0;
+    const vacationDaySingle = await absenceRequestService._test.resolveSpecialWindow({ query: async () => ({ rows: [] }) }, {
+      tenantId: uuid(1),
+      employeeTenantUserId: uuid(2),
+      absenceType: requestType({ key: "vacation_day", name: "Feriefridag", special_window_eligible: true }),
+      absenceTypeId: uuid(3),
+      startDate: "2027-07-10",
+      endDate: "2027-07-10",
+    });
+    assert.equal(vacationDaySingle, null);
+    assert.equal(lookups, 0);
+
+    lookups = 0;
+    const vacationDayRange = await absenceRequestService._test.resolveSpecialWindow({ query: async () => ({ rows: [] }) }, {
+      tenantId: uuid(1),
+      employeeTenantUserId: uuid(2),
+      absenceType: requestType({ key: "vacation_day", name: "Feriefridag", special_window_eligible: true }),
+      absenceTypeId: uuid(3),
+      startDate: "2027-07-10",
+      endDate: "2027-07-11",
+    });
+    assert.equal(vacationDayRange.id, uuid(32));
+    assert.equal(lookups, 1);
+
+    absenceSpecialWindowRepository.listOverlappingActiveScopedForEmployee = async () => [{
+      id: uuid(33),
+      scope_type: "tenant",
+      fully_contains_request: false,
+      absence_start_date: "2027-07-01",
+      absence_end_date: "2027-07-31",
+    }];
+    await assert.rejects(
+      absenceRequestService._test.resolveSpecialWindow({ query: async () => ({ rows: [] }) }, {
+        tenantId: uuid(1),
+        employeeTenantUserId: uuid(2),
+        absenceType: requestType({ key: "vacation_day", name: "Feriefridag", special_window_eligible: true }),
+        absenceTypeId: uuid(3),
+        startDate: "2027-06-30",
+        endDate: "2027-07-02",
+      }),
+      (error) => error.statusCode === 409 && error.message === "absence_special_window_partial_overlap"
+    );
+  } finally {
+    absenceSpecialWindowRepository.listOverlappingActiveScopedForEmployee = original;
+  }
+});
 test("employee absence request routes are tenant-authenticated, permission-gated and mounted", () => {
   const routes = read("backend/src/modules/absence/absence.routes.js");
   const tenantSurfaceRoutes = read("backend/src/routes/tenantSurfaceRoutes.js");
@@ -887,6 +953,55 @@ test("special-window submit timing enforces open date and late policy", () => {
   const allowed = absenceRequestService._test.validateSpecialWindowSubmissionTiming({ ...base, late_submission_policy: "allowed" }, { asOfDate: "2026-01-21" });
   assert.equal(allowed.submittedAfterDeadline, true);
   assert.equal(allowed.metadata.late_submission_requires_manual_review, false);
+});
+test("submit revalidation uses vacation-day special-window policy without mutating blocked drafts", async () => {
+  const baseWindow = {
+    id: uuid(51),
+    name: "Sommerferie 2027",
+    submission_open_date: "2027-01-01",
+    submission_deadline: "2027-03-01",
+    late_submission_policy: "blocked",
+    scope_type: "tenant",
+    fully_contains_request: true,
+  };
+
+  for (const row of [
+    detailRow({ absence_type_key: "vacation_day", absence_type_name: "Feriefridag", absence_type_special_window_eligible: true, start_date: "2027-07-10", end_date: "2027-07-10" }),
+    detailRow({ absence_type_key: "vacation_day", absence_type_name: "Feriefridag", absence_type_special_window_eligible: true, start_date: "2027-07-10", end_date: "2027-07-11" }),
+  ]) {
+    const client = createTxClient();
+    let lookupCount = 0;
+    let submitArgs = null;
+    let eventCount = 0;
+    await withPatches([
+      [pool, "connect", async () => client],
+      [absenceRequestRepository, "findByIdForEmployee", async () => row],
+      [employeeManagerRelationRepository, "findActivePrimaryManagersForEmployee", async () => [{ id: uuid(30), manager_tenant_user_id: uuid(5), manager_status: "active", manager_login_status: "active" }]],
+      [absenceSpecialWindowRepository, "listOverlappingActiveScopedForEmployee", async () => { lookupCount += 1; return [baseWindow]; }],
+      [absenceRequestRepository, "submitDraftForEmployee", async (_client, args) => {
+        submitArgs = args;
+        return detailRow({ status: "submitted", version: 2, assigned_manager_tenant_user_id: uuid(5) });
+      }],
+      [absenceRequestRepository, "insertEvent", async () => { eventCount += 1; return { id: uuid(20) }; }],
+      [auditService, "logAuditEvent", async () => {}],
+      [absenceRequestRepository, "findNotificationContextById", async () => notificationContextRow({ assigned_manager_tenant_user_id: uuid(5) })],
+      [absenceNotificationService, "enqueueAbsenceSubmitted", async () => {}],
+    ], async () => {
+      const action = absenceRequestService.submitDraft({ tenantId: uuid(1), userId: uuid(2), absenceRequestId: uuid(10), body: { version: 1 } });
+      if (row.start_date === row.end_date) {
+        await action;
+        assert.equal(lookupCount, 0);
+        assert.equal(submitArgs.specialWindowId, null);
+        assert.equal(eventCount, 1);
+      } else {
+        await assert.rejects(action, (error) => error.statusCode === 409 && error.message === "absence_special_window_not_open");
+        assert.equal(lookupCount, 1);
+        assert.equal(submitArgs, null);
+        assert.equal(eventCount, 0);
+        assert.deepEqual(client.calls.map((call) => call.sql).filter((sql) => ["BEGIN", "COMMIT", "ROLLBACK"].includes(sql)), ["BEGIN", "ROLLBACK"]);
+      }
+    });
+  }
 });
 test("special-window matching accepts one exact tenant or user match and rejects multiple matches", async () => {
   const original = absenceSpecialWindowRepository.listOverlappingActiveScopedForEmployee;

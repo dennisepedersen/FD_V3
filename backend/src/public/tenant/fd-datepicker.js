@@ -743,20 +743,26 @@
       this.render();
     }
 
+    pickToday() {
+      const today = formatISODateFromSystemDate();
+      this.draft = { start: today, end: today };
+      const parsed = parseISODate(today);
+      if (parsed) this.viewMonth = startOfMonth(parsed);
+      this.render();
+    }
+
     clearDraft() {
       this.draft = { start: "", end: "" };
     }
 
     commitDraft() {
-      if (this.startInput) {
-        this.startInput.value = this.draft.start;
-        dispatchInputEvents(this.startInput);
-      }
-      if (this.endInput) {
-        this.endInput.value = this.draft.end || this.draft.start;
-        dispatchInputEvents(this.endInput);
-      }
-      if (typeof this.options.onChange === "function") this.options.onChange(this.draft);
+      const nextStart = this.draft.start;
+      const nextEnd = this.draft.end || this.draft.start;
+      if (this.startInput) this.startInput.value = nextStart;
+      if (this.endInput) this.endInput.value = nextEnd;
+      if (this.startInput) dispatchInputEvents(this.startInput);
+      if (this.endInput) dispatchInputEvents(this.endInput);
+      if (typeof this.options.onChange === "function") this.options.onChange({ start: nextStart, end: nextEnd });
     }
   }
 

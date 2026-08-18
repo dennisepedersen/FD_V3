@@ -199,6 +199,10 @@ test('special-window preflight UI and admin scope controls are wired', () => {
   assert.match(auth, /state\.calendar\.requestPreflightSeq !== seq/);
   assert.match(auth, /Perioden kunne ikke kontrolleres\. Prøv igen\./);
   assert.match(auth, /requestPreflight\.can_submit === false/);
+  assert.match(auth, /getAbsencePreflightDomainText/);
+  assert.match(auth, /Der kan først søges fra/);
+  assert.match(auth, /Fristen for ferieønsker var/);
+  assert.doesNotMatch(auth, /Blokeret af kontrol|validation failed|domain blocked|late-policy/i);
   assert.match(auth, /button\.disabled = !type[\s\S]+getAbsenceRequestPreflightBlockMessage\(\)/);
   assert.match(auth, /Ferieønskeperiode: \$\{state\.calendar\.requestPreflight\.special_window\.name/);
   assert.match(html, /id="absenceRequestPreflightStatus"/);
@@ -363,4 +367,6 @@ test("absence request pilot maps only own and preflight datepicker decorations",
   assert.doesNotMatch(mapping, /teamEvents|managerRequests|specialWindows|events\/team|manager\/pending|review-overview/);
   assert.match(mapping, /can_submit === false/);
   assert.match(mapping, /disabled/);
+  assert.match(mapping, /getAbsencePreflightDomainText\(preflight\)\.label/);
+  assert.doesNotMatch(mapping, /Blokeret af kontrol|Perioden kan ikke sendes med de valgte oplysninger/i);
 });

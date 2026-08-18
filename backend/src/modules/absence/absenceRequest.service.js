@@ -278,6 +278,8 @@ async function auditApprovedAbsenceCreated(client, {
 function absenceTypeFromRequestRow(row) {
   return {
     id: row.absence_type_id,
+    key: row.absence_type_key || null,
+    name: row.absence_type_name || null,
     workflow_mode: row.absence_type_workflow_mode,
     comment_policy: row.absence_type_comment_policy,
     visibility_policy: row.absence_type_visibility_policy,
@@ -369,6 +371,24 @@ function requestEndDateForWindow(payloadOrRow) {
   return toDateString(payloadOrRow.endDate || payloadOrRow.end_date || payloadOrRow.startDate || payloadOrRow.start_date);
 }
 
+function isVacationDayAbsenceType(absenceType) {
+  const key = String(absenceType && (absenceType.key || absenceType.absence_type_key) || "").trim().toLowerCase();
+  const name = String(absenceType && (absenceType.name || absenceType.absence_type_name) || "").trim().toLowerCase();
+  return key === "vacation_day" || name === "feriefridag";
+}
+
+function isSingleCalendarDayRequest({ startDate, endDate }) {
+  const start = toDateString(startDate);
+  const end = toDateString(endDate || startDate);
+  return Boolean(start && end && start === end);
+}
+
+function shouldResolveSpecialWindow(absenceType, { startDate, endDate }) {
+  if (absenceType.special_window_eligible !== true) return false;
+  if (isVacationDayAbsenceType(absenceType) && isSingleCalendarDayRequest({ startDate, endDate })) return false;
+  return true;
+}
+
 function shiftDateString(dateString, days) {
   const normalized = toDateString(dateString);
   if (!normalized) return null;
@@ -432,7 +452,7 @@ async function resolveSpecialWindow(client, {
   startDate,
   endDate,
 }) {
-  if (absenceType.special_window_eligible !== true) return null;
+  if (!shouldResolveSpecialWindow(absenceType, { startDate, endDate })) return null;
   const overlaps = await absenceSpecialWindowRepository.listOverlappingActiveScopedForEmployee(client, {
     tenantId,
     employeeTenantUserId,

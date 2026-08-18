@@ -3421,7 +3421,7 @@
       if (code === "absence_special_window_deadline_passed") {
         const name = details.special_window_name || (firstWindow && firstWindow.name) || "ferieønskeperioden";
         const deadline = details.submission_deadline || (firstWindow && firstWindow.submission_deadline);
-        return deadline ? `Deadline for ${name} var ${formatDisplayDate(deadline)}. Sen indmelding følger periodens late-policy.` : "Deadline for denne ferieønskeperiode er passeret.";
+        return deadline ? `Fristen for ferieønsker i ${name} var ${formatDisplayDate(deadline)}.` : "Fristen for ferieønsker i denne periode er passeret.";
       }
       if (code === "absence_special_window_partial_overlap") {
         const windowText = firstWindow ? `${firstWindow.name || "Ferieønskeperiode"} (${formatDateRange(firstWindow.absence_start_date, firstWindow.absence_end_date)})` : "en ferieønskeperiode";
@@ -3554,8 +3554,8 @@
           start: candidate.payload.start_date,
           end: candidate.payload.end_date || candidate.payload.start_date,
           styles: ["disabled", "info"],
-          label: "Blokeret af kontrol",
-          info: getAbsenceRequestPreflightBlockMessage() || "Perioden kan ikke sendes med de valgte oplysninger.",
+          label: getAbsencePreflightDomainText(preflight).label,
+          info: getAbsencePreflightDomainText(preflight).info,
           disabled: true,
           priority: 80,
         });
@@ -3740,13 +3740,74 @@
       return { payload, signature };
     }
 
+    function getPreflightWindowLabel(windowInfo) {
+      return (windowInfo && (windowInfo.name || windowInfo.key)) || "Ferieønskeperiode";
+    }
+
+    function getAbsencePreflightDomainText(preflight) {
+      const windowInfo = preflight && preflight.special_window ? preflight.special_window : {};
+      const windows = Array.isArray(preflight && preflight.special_windows) ? preflight.special_windows : [];
+      const requested = preflight && preflight.requested_period ? preflight.requested_period : {};
+      const primary = windowInfo.id || windowInfo.name ? windowInfo : windows[0] || {};
+      if (!preflight) return { label: "Ferieønskeperiode", info: "Perioden kan ikke kontrolleres endnu." };
+      if (preflight.state === "before_open") {
+        return {
+          label: getPreflightWindowLabel(windowInfo),
+          info: windowInfo.submission_open_date
+            ? `Der kan først søges fra ${formatDisplayDate(windowInfo.submission_open_date)}.`
+            : "Der er ikke åbent for ønsker i denne ferieønskeperiode endnu.",
+        };
+      }
+      if (preflight.state === "after_deadline_blocked") {
+        return {
+          label: getPreflightWindowLabel(windowInfo),
+          info: windowInfo.submission_deadline
+            ? `Fristen for ferieønsker var ${formatDisplayDate(windowInfo.submission_deadline)}.`
+            : "Fristen for ferieønsker i denne periode er overskredet.",
+        };
+      }
+      if (preflight.state === "after_deadline_manual_review") {
+        return {
+          label: getPreflightWindowLabel(windowInfo),
+          info: "Fristen er overskredet. Din anmodning kan stadig indsendes, men behandles som sen indmelding.",
+        };
+      }
+      if (preflight.state === "after_deadline_allowed") {
+        return {
+          label: getPreflightWindowLabel(windowInfo),
+          info: "Fristen er overskredet. Din anmodning kan stadig indsendes og markeres som sen indmelding.",
+        };
+      }
+      if (preflight.state === "partial_overlap") {
+        const requestedText = requested.start_date ? `Din valgte periode ${formatDateRange(requested.start_date, requested.end_date)}` : "Din valgte periode";
+        const windowText = primary.absence_start_date ? `${getPreflightWindowLabel(primary)} (${formatDateRange(primary.absence_start_date, primary.absence_end_date)})` : getPreflightWindowLabel(primary);
+        return {
+          label: getPreflightWindowLabel(primary),
+          info: `${requestedText} overlapper kun delvist ${windowText}. Del perioden op, så hver anmodning enten ligger helt inden for eller helt uden for ferieønskeperioden.`,
+        };
+      }
+      if (preflight.state === "multiple_matches") {
+        const names = windows.map((item) => `${getPreflightWindowLabel(item)}${item.absence_start_date ? ` (${formatDateRange(item.absence_start_date, item.absence_end_date)})` : ""}`).filter(Boolean);
+        return {
+          label: "Flere ferieønskeperioder",
+          info: names.length
+            ? `Perioden rammer flere ferieønskeperioder: ${names.join("; ")}. Del perioden op, så hver anmodning kun rammer én periode.`
+            : "Perioden rammer flere ferieønskeperioder. Del perioden op, så hver anmodning kun rammer én periode.",
+        };
+      }
+      if (preflight.state === "technical_error") {
+        return { label: "Perioden kunne ikke kontrolleres", info: "Prøv igen om lidt. Hvis problemet fortsætter, skal support kigge på kalenderkontrollen." };
+      }
+      return { label: getPreflightWindowLabel(windowInfo), info: "Ferieønskeperioden kræver særlig håndtering. Se forklaringen, eller vælg en anden periode." };
+    }
+
     function getAbsenceRequestPreflightBlockMessage() {
       const candidate = getAbsenceRequestPreflightCandidate();
       if (!candidate) return "";
       if (state.calendar.requestPreflightLoading) return "Perioden kontrolleres. Vent et øjeblik.";
-      if (state.calendar.requestPreflightError) return state.calendar.requestPreflightError;
+      if (state.calendar.requestPreflightError) return "Perioden kunne ikke kontrolleres. Prøv igen.";
       if (state.calendar.requestPreflightSignature !== candidate.signature) return "Perioden skal kontrolleres igen.";
-      if (state.calendar.requestPreflight && state.calendar.requestPreflight.can_submit === false) return "Perioden kan ikke sendes med de valgte oplysninger.";
+      if (state.calendar.requestPreflight && state.calendar.requestPreflight.can_submit === false) return getAbsencePreflightDomainText(state.calendar.requestPreflight).info;
       return "";
     }
 
@@ -3803,7 +3864,7 @@
       } else if (preflight.state === "after_deadline_allowed") {
         appendPreflightLine(box, `Fristen ${windowInfo.submission_deadline ? formatDisplayDate(windowInfo.submission_deadline) : ""} er passeret. Anmodningen kan stadig sendes og markeres som sen.`);
       } else if (preflight.state === "after_deadline_blocked") {
-        appendPreflightLine(box, windowInfo.submission_deadline ? `Deadline var ${formatDisplayDate(windowInfo.submission_deadline)}. Periodens late-policy blokerer nye ønsker.` : "Deadline for denne ferieønskeperiode er passeret.");
+        appendPreflightLine(box, windowInfo.submission_deadline ? `Fristen for ferieønsker var ${formatDisplayDate(windowInfo.submission_deadline)}.` : "Fristen for ferieønsker i denne periode er overskredet.");
       } else if (preflight.state === "partial_overlap") {
         const requested = preflight.requested_period || {};
         const matched = windowInfo.id ? windowInfo : windows[0] || {};
@@ -3841,7 +3902,7 @@
       setText(absenceActionModalTitle, title);
       setText(absenceActionModalSubtitle, "Fielddesk har kontrolleret perioden server-side.");
       body.replaceChildren();
-      if (preflight.state === "technical_error") appendText(body, "p", "absenceNote", preflight.error_message || "Perioden kunne ikke kontrolleres. Prøv igen.");
+      if (preflight.state === "technical_error") appendText(body, "p", "absenceNote", getAbsencePreflightDomainText(preflight).info);
       else appendSpecialWindowPreflightDetails(body, preflight, { interactive: true });
     }
 
@@ -3862,9 +3923,10 @@
         const preflight = state.calendar.requestPreflight;
         const windowInfo = preflight.special_window || {};
         box.className = `absencePreflightNotice calendarFieldWide${preflight.can_submit === false ? " absencePreflightNoticeBlock" : ""}`;
-        appendText(box, "h3", "absenceName", windowInfo.name || (preflight.can_submit === false ? "Ferieønskeperioden skal håndteres" : "Ferieønskeperiode"));
+        const domainText = getAbsencePreflightDomainText(preflight);
+        appendText(box, "h3", "absenceName", windowInfo.name || domainText.label || (preflight.can_submit === false ? "Ferieønskeperioden skal håndteres" : "Ferieønskeperiode"));
         if (preflight.can_submit === false) {
-          appendText(box, "p", "absenceNote", "Perioden kan ikke sendes med de valgte oplysninger.");
+          appendText(box, "p", "absenceNote", domainText.info);
           appendButton(box, "Se forklaring", "btn btnCompact", (event) => showAbsencePreflightFeedback(preflight, event.currentTarget));
         } else {
           appendSpecialWindowPreflightDetails(box, preflight, { interactive: false });
