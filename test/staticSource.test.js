@@ -321,3 +321,46 @@ test("tenant mobile form controls keep 16px minimum without viewport zoom hacks"
   const project = surfaces.find(([name]) => name === "project")[1];
   assert.match(project, /\.qaInput,[\s\S]*\.qaSelect,[\s\S]*\.qaTextarea,[\s\S]*\.equipmentMacSegment[\s\S]*font-size: 16px;/);
 });
+
+test("global datepicker asset is routed, versioned and loaded before tenant auth", () => {
+  const routes = read("backend/src/routes/tenantSurfaceRoutes.js");
+  const version = read("backend/src/utils/tenantAssetVersion.js");
+  const app = read("backend/src/public/tenant/app.html");
+  const picker = read("backend/src/public/tenant/fd-datepicker.js");
+
+  assert.match(routes, /\/tenant\/fd-datepicker\.js/);
+  assert.match(version, /\/tenant\/fd-datepicker\.js/);
+  assert.ok(app.indexOf('/tenant/fd-datepicker.js') > -1);
+  assert.ok(app.indexOf('/tenant/fd-datepicker.js') < app.indexOf('/tenant/auth.js'));
+  assert.match(picker, /FDDatePicker/);
+  assert.match(picker, /FDDateRangePicker/);
+  assert.match(picker, /normalizeDecorations/);
+  assert.match(picker, /@media \(hover: none\), \(max-width: 767px\)/);
+  assert.match(picker, /font-size: 16px/);
+  assert.match(picker, /Escape/);
+  assert.match(picker, /ArrowLeft/);
+  assert.doesNotMatch(picker, /user-scalable\s*=\s*no|maximum-scale\s*=\s*1/i);
+});
+
+test("absence request pilot maps only own and preflight datepicker decorations", () => {
+  const auth = read("backend/src/public/tenant/auth.js");
+  assert.match(auth, /requestDateRangePicker: null/);
+  assert.match(auth, /requestTimeDatePicker: null/);
+  assert.match(auth, /new api\.FDDateRangePicker/);
+  assert.match(auth, /new api\.FDDatePicker/);
+  assert.match(auth, /absenceRequestStartDateInput/);
+  assert.match(auth, /absenceRequestEndDateInput/);
+  assert.match(auth, /absenceRequestTimeDateInput/);
+  assert.match(auth, /await Promise\.all\(\[loadAbsenceRequestTypes\(options\), loadMineAbsenceRequests\(options\), loadAbsenceAgenda\(options\)\]\)/);
+  assert.match(auth, /state\.calendar\.mineRequests/);
+  assert.match(auth, /state\.calendar\.agendaEvents/);
+  assert.match(auth, /state\.calendar\.requestPreflight/);
+  assert.match(auth, /getAbsenceRequestPreflightCandidate\(\)/);
+  const start = auth.indexOf("function buildAbsenceRequestDateDecorations()");
+  const end = auth.indexOf("function refreshAbsenceRequestDatePickers()", start);
+  assert.ok(start > -1 && end > start);
+  const mapping = auth.slice(start, end);
+  assert.doesNotMatch(mapping, /teamEvents|managerRequests|specialWindows|events\/team|manager\/pending|review-overview/);
+  assert.match(mapping, /can_submit === false/);
+  assert.match(mapping, /disabled/);
+});

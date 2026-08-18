@@ -20,6 +20,7 @@ test('tenant asset version falls back without producing empty undefined or null'
 
 test('tenant html gets stable versioned tenant asset URLs', () => {
   const html = [
+    '<script src="/tenant/fd-datepicker.js"></script>',
     '<script src="/tenant/drawing-engine.js"></script>',
     '<script src="/tenant/project-equipment-cctv-drawing-adapter.js?v=old"></script>',
     '<script src="/tenant/auth.js"></script>',
@@ -27,6 +28,7 @@ test('tenant html gets stable versioned tenant asset URLs', () => {
   ].join('');
   const out = versionTenantHtml(html, { RENDER_GIT_COMMIT: 'commit/with space' });
   assert.equal(out, [
+    '<script src="/tenant/fd-datepicker.js?v=commitwithspace"></script>',
     '<script src="/tenant/drawing-engine.js?v=commitwithspace"></script>',
     '<script src="/tenant/project-equipment-cctv-drawing-adapter.js?v=commitwithspace"></script>',
     '<script src="/tenant/auth.js?v=commitwithspace"></script>',

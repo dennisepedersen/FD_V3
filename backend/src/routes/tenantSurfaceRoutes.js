@@ -110,6 +110,16 @@ router.get("/tenant/auth.js", requireTenantHost, (req, res) => {
   res.sendFile(path.join(tenantPublicDir, "auth.js"));
 });
 
+router.get("/tenant/fd-datepicker.js", requireTenantHost, (req, res) => {
+  if (req.query && req.query.v) {
+    res.set("Cache-Control", "public, max-age=31536000, immutable");
+  } else {
+    res.set("Cache-Control", "no-cache, must-revalidate");
+  }
+  res.type("application/javascript");
+  res.sendFile(path.join(tenantPublicDir, "fd-datepicker.js"));
+});
+
 router.get("/tenant/drawing-engine.js", requireTenantHost, (req, res) => {
   if (req.query && req.query.v) {
     res.set("Cache-Control", "public, max-age=31536000, immutable");

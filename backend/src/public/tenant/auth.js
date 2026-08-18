@@ -879,6 +879,8 @@
         requestPreflightSeq: 0,
         requestPreflightSignature: "",
         requestPreflightTimer: null,
+        requestDateRangePicker: null,
+        requestTimeDatePicker: null,
         mineRequests: [],
         mineLoaded: false,
         mineLoading: false,
@@ -3464,6 +3466,145 @@
     function updateDecisionMessageCounter(textarea, counter) {
       if (counter) counter.textContent = `${String(textarea && textarea.value || "").length} / 500`;
     }
+    function getFielddeskDatePickerApi() {
+      return window.FielddeskDatePicker || null;
+    }
+
+    function datePickerIso(value) {
+      const iso = dateInputFromValue(value);
+      return parseDateInput(iso) ? iso : "";
+    }
+
+    function addAbsenceDateDecoration(items, decoration) {
+      const start = datePickerIso(decoration && decoration.start);
+      const end = datePickerIso(decoration && (decoration.end || decoration.start));
+      if (!start || !end) return;
+      items.push({
+        id: decoration.id,
+        start,
+        end,
+        styles: decoration.styles,
+        label: decoration.label,
+        info: decoration.info,
+        disabled: decoration.disabled === true,
+        priority: decoration.priority || 0,
+      });
+    }
+
+    function getSpecialWindowDecorationInfo(windowInfo) {
+      const parts = [];
+      if (!windowInfo) return "";
+      if (windowInfo.absence_start_date && windowInfo.absence_end_date) parts.push(`Periode ${formatDateRange(windowInfo.absence_start_date, windowInfo.absence_end_date)}`);
+      if (windowInfo.submission_open_date) parts.push(`\u00c5bner ${formatDisplayDate(windowInfo.submission_open_date)}`);
+      if (windowInfo.submission_deadline) parts.push(`Deadline ${formatDisplayDate(windowInfo.submission_deadline)}`);
+      if (windowInfo.review_start_date) parts.push(`Behandling starter ${formatDisplayDate(windowInfo.review_start_date)}`);
+      return parts.join(". ");
+    }
+
+    function buildAbsenceRequestDateDecorations() {
+      const items = [];
+      (Array.isArray(state.calendar.mineRequests) ? state.calendar.mineRequests : []).forEach((request) => {
+        const status = String(request && request.status || "").toLowerCase();
+        if (!["submitted", "ready_for_review", "under_review", "approved"].includes(status)) return;
+        const start = datePickerIso(request.start_date);
+        const end = datePickerIso(request.end_date || request.start_date);
+        if (!start || !end) return;
+        const approved = status === "approved";
+        addAbsenceDateDecoration(items, {
+          id: `own-request-${request.id || start}`,
+          start,
+          end,
+          styles: approved ? ["range", "underline", "info"] : ["dot", "info"],
+          label: approved ? "Godkendt frav\u00e6r" : "Afventer behandling",
+          info: `${requestCardTitle(request)} - ${getRequestStatusLabel(status, request)} - ${formatDateRange(start, end)}`,
+          priority: approved ? 20 : 30,
+        });
+      });
+      (Array.isArray(state.calendar.agendaEvents) ? state.calendar.agendaEvents : []).forEach((event) => {
+        const start = datePickerIso(event && event.start_date);
+        const end = datePickerIso(event && (event.end_date || event.start_date));
+        if (!start || !end) return;
+        addAbsenceDateDecoration(items, {
+          id: `own-event-${event.id || start}`,
+          start,
+          end,
+          styles: ["range", "underline", "info"],
+          label: "Godkendt kalenderpost",
+          info: `${event.title || "Frav\u00e6r"} - ${formatDateRange(start, end)}`,
+          priority: 25,
+        });
+      });
+      const preflight = state.calendar.requestPreflight || null;
+      const windowInfo = preflight && preflight.special_window ? preflight.special_window : null;
+      if (windowInfo) {
+        addAbsenceDateDecoration(items, {
+          id: `request-window-${windowInfo.id || windowInfo.key || windowInfo.absence_start_date}`,
+          start: windowInfo.absence_start_date,
+          end: windowInfo.absence_end_date,
+          styles: ["range", "info"],
+          label: windowInfo.name || "Ferie\u00f8nskeperiode",
+          info: getSpecialWindowDecorationInfo(windowInfo),
+          priority: 40,
+        });
+      }
+      const candidate = getAbsenceRequestPreflightCandidate();
+      if (preflight && preflight.can_submit === false && candidate && candidate.payload) {
+        addAbsenceDateDecoration(items, {
+          id: "request-preflight-blocked",
+          start: candidate.payload.start_date,
+          end: candidate.payload.end_date || candidate.payload.start_date,
+          styles: ["disabled", "info"],
+          label: "Blokeret af kontrol",
+          info: getAbsenceRequestPreflightBlockMessage() || "Perioden kan ikke sendes med de valgte oplysninger.",
+          disabled: true,
+          priority: 80,
+        });
+      }
+      return items;
+    }
+
+    function refreshAbsenceRequestDatePickers() {
+      const decorations = buildAbsenceRequestDateDecorations();
+      [state.calendar.requestDateRangePicker, state.calendar.requestTimeDatePicker].forEach((picker) => {
+        if (!picker) return;
+        picker.setDecorations(decorations);
+        picker.refresh();
+      });
+    }
+
+    function syncAbsenceRequestDatePickerState() {
+      [state.calendar.requestDateRangePicker, state.calendar.requestTimeDatePicker].forEach((picker) => {
+        if (picker && typeof picker.refresh === "function") picker.refresh();
+      });
+    }
+
+    function initializeAbsenceRequestDatePickers() {
+      const api = getFielddeskDatePickerApi();
+      if (!api || state.calendar.requestDateRangePicker || state.calendar.requestTimeDatePicker) return;
+      const startInput = byId("absenceRequestStartDateInput");
+      const endInput = byId("absenceRequestEndDateInput");
+      const timeDateInput = byId("absenceRequestTimeDateInput");
+      const decorations = buildAbsenceRequestDateDecorations();
+      if (startInput && endInput) {
+        state.calendar.requestDateRangePicker = new api.FDDateRangePicker({
+          startInput,
+          endInput,
+          startLabel: "V\u00e6lg f\u00f8rste frav\u00e6rsdato",
+          endLabel: "V\u00e6lg sidste frav\u00e6rsdato",
+          decorations,
+          onChange: refreshAbsenceRequestDatePickers,
+        });
+      }
+      if (timeDateInput) {
+        state.calendar.requestTimeDatePicker = new api.FDDatePicker({
+          input: timeDateInput,
+          label: "V\u00e6lg dato for tidsrum",
+          decorations,
+          onChange: refreshAbsenceRequestDatePickers,
+        });
+      }
+      syncAbsenceRequestDatePickerState();
+    }
     function resetAbsenceRequestForm() {
       state.calendar.requestDraft = null;
       state.calendar.requestDraftIdempotencyKey = "";
@@ -3477,6 +3618,7 @@
       if (byId("absenceRequestStartDateInput")) byId("absenceRequestStartDateInput").value = state.calendar.from;
       if (byId("absenceRequestEndDateInput")) byId("absenceRequestEndDateInput").value = state.calendar.from;
       if (byId("absenceRequestTimeDateInput")) byId("absenceRequestTimeDateInput").value = state.calendar.from;
+      refreshAbsenceRequestDatePickers();
       setAbsenceRequestReviewMode(false);
       updateAbsenceDurationOptions();
       updateAbsenceCommentPolicy();
@@ -3586,6 +3728,7 @@
       state.calendar.requestPreflightModalKey = "";
       state.calendar.requestPreflightSeq += 1;
       renderAbsenceRequestPreflight();
+      refreshAbsenceRequestDatePickers();
     }
 
     function getAbsenceRequestPreflightCandidate() {
@@ -3740,6 +3883,7 @@
         state.calendar.requestPreflightError = "";
         state.calendar.requestPreflightSignature = "";
         renderAbsenceRequestPreflight();
+        refreshAbsenceRequestDatePickers();
         return;
       }
       const seq = state.calendar.requestPreflightSeq + 1;
@@ -3767,6 +3911,7 @@
           if (state.calendar.requestPreflightSeq === seq) {
             state.calendar.requestPreflightLoading = false;
             renderAbsenceRequestPreflight();
+            refreshAbsenceRequestDatePickers();
             if (state.calendar.requestPreflight && state.calendar.requestPreflightSignature === candidate.signature) {
               maybeShowAbsencePreflightModal(state.calendar.requestPreflight, byId("absenceRequestContinueBtn"));
             } else if (state.calendar.requestPreflightError && state.calendar.requestPreflightSignature === candidate.signature) {
@@ -3947,6 +4092,7 @@
         if (node) node.disabled = Boolean(enabled);
       });
       if (!enabled) renderAbsenceRequestTypeOptions();
+      syncAbsenceRequestDatePickerState();
     }
 
     async function saveAbsenceRequestDraft(event) {
@@ -4085,6 +4231,7 @@
       } finally {
         state.calendar.mineLoading = false;
         renderMineAbsenceRequests();
+        refreshAbsenceRequestDatePickers();
       }
     }
 
@@ -4133,6 +4280,7 @@
         if (byId("absenceRequestCommentInput")) byId("absenceRequestCommentInput").value = request.employee_comment || "";
         updateAbsenceCommentPolicy();
         setAbsenceRequestReviewMode(false);
+        refreshAbsenceRequestDatePickers();
         scheduleAbsenceRequestPreflight();
       });
     }
@@ -4196,6 +4344,7 @@
       } finally {
         state.calendar.agendaLoading = false;
         renderCalendarEvents("absenceAgendaList", "absenceAgendaMeta", state.calendar.agendaEvents, false, "Ingen godkendt fravær i perioden.");
+        refreshAbsenceRequestDatePickers();
       }
     }
 
@@ -4689,7 +4838,7 @@
         loadTeamAbsenceAgenda({ silent: true });
         loadSpecialWindows({ silent: true });
       } else if (tab === "new-request") {
-        await loadAbsenceRequestTypes(options);
+        await Promise.all([loadAbsenceRequestTypes(options), loadMineAbsenceRequests(options), loadAbsenceAgenda(options)]);
       } else if (tab === "agenda") {
         await loadAbsenceAgenda(options);
       } else if (tab === "team") {
@@ -6774,6 +6923,7 @@
         updateAbsenceDurationOptions();
         updateAbsenceCommentPolicy();
         setAbsenceRequestReviewMode(false);
+        refreshAbsenceRequestDatePickers();
         scheduleAbsenceRequestPreflight();
       });
     }
@@ -6782,6 +6932,7 @@
         state.calendar.requestDraft = null;
         updateAbsenceDurationOptions();
         setAbsenceRequestReviewMode(false);
+        refreshAbsenceRequestDatePickers();
         scheduleAbsenceRequestPreflight();
       });
     });
@@ -6789,6 +6940,7 @@
       if (byId(id)) byId(id).addEventListener("input", () => {
         state.calendar.requestDraft = null;
         setAbsenceRequestReviewMode(false);
+        refreshAbsenceRequestDatePickers();
         scheduleAbsenceRequestPreflight();
       });
     });
@@ -6805,6 +6957,7 @@
     if (byId("absenceRequestSubmitBtn")) {
       byId("absenceRequestSubmitBtn").addEventListener("click", submitAbsenceRequestDraft);
     }
+    initializeAbsenceRequestDatePickers();
     if (byId("absenceAgendaRefreshBtn")) {
       byId("absenceAgendaRefreshBtn").addEventListener("click", () => {
         state.calendar.agendaLoaded = false;

@@ -13,6 +13,7 @@ function getTenantAssetVersion(env = process.env) {
 function versionTenantHtml(html, env = process.env) {
   const version = encodeURIComponent(getTenantAssetVersion(env));
   return String(html)
+    .replace(/\/tenant\/fd-datepicker\.js(?:\?v=[^"']*)?/g, `/tenant/fd-datepicker.js?v=${version}`)
     .replace(/\/tenant\/drawing-engine\.js(?:\?v=[^"']*)?/g, `/tenant/drawing-engine.js?v=${version}`)
     .replace(/\/tenant\/project-equipment-cctv-drawing-adapter\.js(?:\?v=[^"']*)?/g, `/tenant/project-equipment-cctv-drawing-adapter.js?v=${version}`)
     .replace(/\/tenant\/auth\.js(?:\?v=[^"']*)?/g, `/tenant/auth.js?v=${version}`);

@@ -19,6 +19,7 @@ Scope: points to docs; does not replace them
 | `docs/MODULE_REGISTRY_CONTRACT.md` | Shared module registry, enablement and discovery contract | Draft/Proposed contract |
 | `docs/V3_BUILD_GATECHECK.md` | Build gate rules before implementation | Current |
 | `docs/ui/MOBILE_FORM_CONTROLS.md` | Mobile/touch form-control font-size and iOS zoom accessibility rule | Current |
+| `docs/ui/FIELDDESK_DATEPICKER.md` | Shared tenant datepicker/date-range picker API, decorations, accessibility and migration plan | Current |
 | `docs/SECRET_HANDLING_RULES.md` | Secret handling and commit checks | Current |
 | `backend/docs/standards/fd_implementation_rules.md` | Backend evidence, mapping, tenant filtering, no-guessing rules | Current |
 | `backend/docs/decisions/*.md` | Verified backend decisions | Current |
