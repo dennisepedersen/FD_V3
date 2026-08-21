@@ -4019,6 +4019,11 @@
                     </select>
                     <span id="specialWindowLatePolicyHint" class="resourceGroupFormStatus"></span>
                   </label>
+                  <label class="resourceGroupField">
+                    Feriefridage uden fælles behandling
+                    <input id="specialWindowVacationDayQuotaInput" type="number" min="0" max="31" value="1" inputmode="numeric">
+                    <span class="resourceGroupFormStatus">Antal feriefridage pr. medarbejder i perioden.</span>
+                  </label>
                   <label class="resourceGroupCheckField resourceGroupFieldWide" for="specialWindowCollectiveInput">
                     <input id="specialWindowCollectiveInput" type="checkbox" checked>
                     <span>Ønsker behandles samlet. Ingen først-til-mølle-logik.</span>
@@ -4152,6 +4157,7 @@
                   <label class="calendarField calendarFieldWide">
                     Note
                     <textarea id="absenceNoteInput" maxlength="1000"></textarea>
+                    <span id="absenceNoteHint" class="calendarFormStatus"></span>
                   </label>
                   <div class="calendarFormActions calendarFieldWide">
                     <button id="absenceCreateBtn" class="btn btnPrimary" type="submit">Gem direkte fravær</button>

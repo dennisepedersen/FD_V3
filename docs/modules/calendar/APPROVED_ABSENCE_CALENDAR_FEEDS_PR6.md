@@ -72,3 +72,9 @@ Recommended PR7 scope:
 - shared treatment overview
 
 PR7 should not attempt a full calendar UI unless separately approved.
+
+### 0046 Direct Absence Feed Source
+
+verified: Calendar feeds now read both materialized `approved_absence` rows and direct `resource_absences` rows that can be tenant-safely joined to an active `tenant_user` through `fitter.tenant_user_id`. Direct rows remain separate storage records; the feed service only coalesces overlapping or directly contiguous same-tenant/same-employee/same-effective-type rows for presentation.
+
+verified: The feed query does not select `resource_absences.note`. Own and managed feeds expose absence type labels according to the existing visibility policy, while private direct absence notes remain available only on the tenant-admin direct absence list.

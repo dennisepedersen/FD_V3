@@ -18,6 +18,7 @@ const approvedAbsenceService = require("../backend/src/modules/calendar/approved
 const calendarFeedRepository = require("../backend/src/modules/calendar/calendarFeed.repository");
 const calendarFeedService = require("../backend/src/modules/calendar/calendarFeed.service");
 const { mapApprovedAbsenceEvent } = require("../backend/src/modules/calendar/calendarEvent.mapper");
+const { coalesceAbsenceRows } = require("../backend/src/modules/calendar/absenceCoalescing");
 
 const repoRoot = path.resolve(__dirname, "..");
 const read = (rel) => fs.readFileSync(path.join(repoRoot, rel), "utf8");
@@ -200,6 +201,9 @@ test("calendar feed repositories scope own and team feeds by tenant and active m
   });
 
   assert.match(client.calls[0].sql, /aa\.tenant_id = \$1/);
+  assert.match(client.calls[0].sql, /FROM resource_absences ra/);
+  assert.match(client.calls[0].sql, /f\.tenant_user_id = \$2/);
+  assert.doesNotMatch(client.calls[0].sql, /ra\.note/);
   assert.match(client.calls[0].sql, /aa\.employee_tenant_user_id = \$2/);
   assert.match(client.calls[0].sql, /aa\.status = 'active'/);
   assert.match(client.calls[0].sql, /COALESCE\(aa\.end_date, aa\.start_date\) >= \$3::date/);
@@ -274,6 +278,34 @@ test("calendar feed mapping redacts manager titles based on visibility and omits
   }
 });
 
+
+test("calendar feed coalesces overlapping and contiguous absence rows by tenant employee and effective type", () => {
+  const originalRows = [
+    approvedAbsenceRow({ id: uuid(70), source_id: uuid(70), start_date: "2027-07-01", end_date: "2027-07-03" }),
+    approvedAbsenceRow({ id: uuid(71), source_id: uuid(71), source_type: "direct_registration", start_date: "2027-07-03", end_date: "2027-07-04", absence_type_name: "Ferie (direkte)" }),
+    approvedAbsenceRow({ id: uuid(72), source_id: uuid(72), start_date: "2027-07-05", end_date: "2027-07-05" }),
+    approvedAbsenceRow({ id: uuid(73), source_id: uuid(73), start_date: "2027-07-07", end_date: "2027-07-07" }),
+    approvedAbsenceRow({ id: uuid(74), source_id: uuid(74), absence_type_key: "sickness", absence_type_name: "Sygdom", start_date: "2027-07-04", end_date: "2027-07-05" }),
+    approvedAbsenceRow({ id: uuid(75), source_id: uuid(75), employee_tenant_user_id: uuid(99), start_date: "2027-07-04", end_date: "2027-07-05" }),
+    approvedAbsenceRow({ id: uuid(76), source_id: uuid(76), tenant_id: uuid(88), start_date: "2027-07-04", end_date: "2027-07-05" }),
+  ];
+  const rowsBefore = JSON.stringify(originalRows);
+  const result = coalesceAbsenceRows(originalRows);
+
+  assert.equal(JSON.stringify(originalRows), rowsBefore, "source rows are not mutated");
+  assert.equal(result.length, 5);
+
+  const ownVacation = result.find((row) => row.tenant_id === uuid(1) && row.employee_tenant_user_id === uuid(2) && row.absence_type_key === "vacation" && row.start_date === "2027-07-01");
+  assert.equal(ownVacation.end_date, "2027-07-05");
+  assert.deepEqual(ownVacation.source_ids, [uuid(70), uuid(71), uuid(72)]);
+  assert.equal(ownVacation.source_type, "absence_request");
+  assert.equal(ownVacation.source_id, uuid(70));
+
+  assert.ok(result.some((row) => row.absence_type_key === "vacation" && row.start_date === "2027-07-07" && row.end_date === "2027-07-07"), "gap starts a separate range");
+  assert.ok(result.some((row) => row.absence_type_key === "sickness" && row.start_date === "2027-07-04"), "different types stay separate");
+  assert.ok(result.some((row) => row.employee_tenant_user_id === uuid(99) && row.start_date === "2027-07-04"), "employees stay isolated");
+  assert.ok(result.some((row) => row.tenant_id === uuid(88) && row.start_date === "2027-07-04"), "tenants stay isolated");
+});
 test("calendar feed service requires bounded date filters and maps repository rows", async () => {
   assert.throws(
     () => calendarFeedService._test.normalizeFilters({ from: "2026-08-01" }),
@@ -343,6 +375,9 @@ test("calendar feed routes expose PR6 endpoints and do not reuse legacy resource
   assert.match(repository, /function hasActiveManagedTeamScope/);
   assert.match(service, /hasActiveManagedTeamScope/);
   assert.match(service, /calendar_event_access_denied/);
+  assert.match(repository, /FROM resource_absences ra/);
+  assert.match(repository, /COALESCE\(ra\.source_type, 'legacy_resource_absence'\)/);
+  assert.doesNotMatch(repository, /ra\.note/);
   assert.doesNotMatch(routes, /resourceAbsenceService\.listAbsencesForTenantRange[\s\S]+events\/mine/);
   assert.equal(auditService.ALLOWED_EVENT_TYPES.includes("approved_absence.created"), true);
 });

@@ -19,6 +19,7 @@ const CREATE_FIELDS = new Set([
   "collective_processing",
   "approval_blocked_before_review",
   "late_submission_policy",
+  "vacation_day_exemption_quota",
   "receipt_text",
   "is_active",
   "scopes",
@@ -37,6 +38,7 @@ const UPDATE_FIELDS = new Set([
   "collective_processing",
   "approval_blocked_before_review",
   "late_submission_policy",
+  "vacation_day_exemption_quota",
   "receipt_text",
   "is_active",
   "scopes",
@@ -53,6 +55,7 @@ const PROTECTED_AFTER_REQUEST_FIELDS = new Set([
   "collective_processing",
   "approval_blocked_before_review",
   "late_submission_policy",
+  "vacation_day_exemption_quota",
   "is_active",
   "scopes",
   "absence_type_ids",
@@ -180,6 +183,13 @@ function normalizeLateSubmissionPolicy(value) {
   return normalized;
 }
 
+function normalizeVacationDayExemptionQuota(value) {
+  if (value === undefined || value === null || value === "") return 1;
+  const number = Number(value);
+  if (!Number.isInteger(number) || number < 0 || number > 31) throw createHttpError(400, "invalid_vacation_day_exemption_quota");
+  return number;
+}
+
 function assertDateRules(payload) {
   if (payload.absenceEndDate < payload.absenceStartDate) throw createHttpError(400, "special_window_absence_end_before_start");
   if (payload.submissionDeadline < payload.submissionOpenDate) throw createHttpError(400, "special_window_deadline_before_open");
@@ -223,6 +233,9 @@ function normalizeCorePayload(body, existing = null, { requireAll = false } = {}
   }
   if (requireAll || Object.prototype.hasOwnProperty.call(source, "late_submission_policy")) {
     payload.lateSubmissionPolicy = normalizeLateSubmissionPolicy(get("late_submission_policy", existing?.late_submission_policy));
+  }
+  if (requireAll || Object.prototype.hasOwnProperty.call(source, "vacation_day_exemption_quota")) {
+    payload.vacationDayExemptionQuota = normalizeVacationDayExemptionQuota(get("vacation_day_exemption_quota", existing?.vacation_day_exemption_quota));
   }
 
   const completeForValidation = {
@@ -342,6 +355,7 @@ module.exports = {
   normalizeBoolean,
   normalizeCreatePayload,
   normalizeLimit,
+  normalizeVacationDayExemptionQuota,
   normalizeOffset,
   normalizeOptionalText,
   normalizeOptionalUuid,

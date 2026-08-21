@@ -14,6 +14,7 @@ const WINDOW_COLUMNS = `
   collective_processing,
   approval_blocked_before_review,
   late_submission_policy,
+  vacation_day_exemption_quota,
   receipt_text,
   is_active,
   created_by_tenant_user_id,
@@ -144,6 +145,7 @@ async function insertWindow(client, {
   collectiveProcessing = true,
   approvalBlockedBeforeReview = true,
   lateSubmissionPolicy = "blocked",
+  vacationDayExemptionQuota = 1,
   receiptText = null,
   isActive = true,
   actorId,
@@ -163,12 +165,13 @@ async function insertWindow(client, {
         collective_processing,
         approval_blocked_before_review,
         late_submission_policy,
+        vacation_day_exemption_quota,
         receipt_text,
         is_active,
         created_by_tenant_user_id,
         updated_by_tenant_user_id
       )
-      VALUES ($1, $2, $3, $4, $5::date, $6::date, $7::date, $8::date, $9::date, $10, $11, $12, $13, $14, $15, $15)
+      VALUES ($1, $2, $3, $4, $5::date, $6::date, $7::date, $8::date, $9::date, $10, $11, $12, $13, $14, $15, $16, $16)
       RETURNING ${WINDOW_COLUMNS}
     `,
     [
@@ -184,6 +187,7 @@ async function insertWindow(client, {
       collectiveProcessing === true,
       approvalBlockedBeforeReview === true,
       lateSubmissionPolicy,
+      vacationDayExemptionQuota,
       receiptText,
       isActive === true,
       actorId,
@@ -214,9 +218,10 @@ async function updateWindow(client, {
         collective_processing = COALESCE($12::boolean, collective_processing),
         approval_blocked_before_review = COALESCE($13::boolean, approval_blocked_before_review),
         late_submission_policy = COALESCE($14::text, late_submission_policy),
-        receipt_text = CASE WHEN $15::boolean THEN $16 ELSE receipt_text END,
-        is_active = COALESCE($17::boolean, is_active),
-        updated_by_tenant_user_id = $18,
+        vacation_day_exemption_quota = COALESCE($15::integer, vacation_day_exemption_quota),
+        receipt_text = CASE WHEN $16::boolean THEN $17 ELSE receipt_text END,
+        is_active = COALESCE($18::boolean, is_active),
+        updated_by_tenant_user_id = $19,
         version = version + 1
       WHERE tenant_id = $1
         AND id = $2
@@ -238,6 +243,7 @@ async function updateWindow(client, {
       Object.prototype.hasOwnProperty.call(patch, "collectiveProcessing") ? patch.collectiveProcessing === true : null,
       Object.prototype.hasOwnProperty.call(patch, "approvalBlockedBeforeReview") ? patch.approvalBlockedBeforeReview === true : null,
       patch.lateSubmissionPolicy || null,
+      Object.prototype.hasOwnProperty.call(patch, "vacationDayExemptionQuota") ? patch.vacationDayExemptionQuota : null,
       patch.hasReceiptText === true,
       patch.receiptText || null,
       Object.prototype.hasOwnProperty.call(patch, "isActive") ? patch.isActive === true : null,
@@ -448,6 +454,7 @@ async function listOverlappingActiveScopedForEmployee(client, {
         sw.submission_deadline,
         sw.review_start_date,
         sw.late_submission_policy,
+        sw.vacation_day_exemption_quota,
         sw.collective_processing,
         sw.approval_blocked_before_review,
         sws.scope_type,
@@ -567,6 +574,32 @@ async function listReviewOverviewRequests(client, { tenantId, specialWindowId, l
   return rows;
 }
 
+async function listVacationDayQuotaUsageDates(client, { tenantId, employeeTenantUserId, specialWindowId }) {
+  const { rows } = await client.query(
+    `
+      SELECT DISTINCT days.day::date AS absence_date
+      FROM absence_special_window sw
+      JOIN absence_request ar
+        ON ar.tenant_id = sw.tenant_id
+       AND ar.employee_tenant_user_id = $2
+       AND ar.status NOT IN ('draft', 'rejected', 'cancelled')
+       AND ar.start_date <= sw.absence_end_date
+       AND COALESCE(ar.end_date, ar.start_date) >= sw.absence_start_date
+      JOIN absence_type at
+        ON at.tenant_id = ar.tenant_id
+       AND at.id = ar.absence_type_id
+       AND at.key = 'vacation_day'
+      JOIN LATERAL generate_series(ar.start_date, COALESCE(ar.end_date, ar.start_date), interval '1 day') AS days(day)
+        ON true
+      WHERE sw.tenant_id = $1
+        AND sw.id = $3
+        AND days.day::date BETWEEN sw.absence_start_date AND sw.absence_end_date
+      ORDER BY absence_date ASC
+    `,
+    [tenantId, employeeTenantUserId, specialWindowId]
+  );
+  return rows.map((row) => row.absence_date);
+}
 module.exports = {
   archiveWindow,
   countRequestsForWindow,
@@ -578,6 +611,7 @@ module.exports = {
   insertWindow,
   listKeysByPrefix,
   listOverlappingActiveScopedForEmployee,
+  listVacationDayQuotaUsageDates,
   listRelevantAbsenceTypes,
   listReviewOverviewRequests,
   listReviewReady,

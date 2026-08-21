@@ -62,6 +62,26 @@ test("PR7 migration and schema are additive for special vacation windows", () =>
   assert.match(schema, /afventer faelles behandling/);
 });
 
+
+test("0046 migration adds vacation-day quota and direct absence idempotency safely", () => {
+  const migration = read("migrations/0046_vacation_day_quota_direct_absence.sql");
+  const schema = read("schema.sql");
+
+  assert.match(migration, /ALTER TABLE absence_special_window[\s\S]+ADD COLUMN IF NOT EXISTS vacation_day_exemption_quota integer NOT NULL DEFAULT 1/);
+  assert.match(migration, /ck_absence_special_window_vacation_day_exemption_quota/);
+  assert.match(migration, /ALTER TABLE resource_absences[\s\S]+ADD COLUMN IF NOT EXISTS source_type text NULL/);
+  assert.match(migration, /ADD COLUMN IF NOT EXISTS idempotency_key text NULL/);
+  assert.match(migration, /uq_resource_absences_direct_idempotency/);
+  assert.match(migration, /WHERE key = 'sickness'/);
+  assert.match(migration, /workflow_mode = 'direct_registration'/);
+  assert.match(migration, /comment_policy = 'required'/);
+  assert.doesNotMatch(migration, /special_window_eligible\s*=/);
+
+  assert.match(schema, /vacation_day_exemption_quota integer NOT NULL DEFAULT 1/);
+  assert.match(schema, /source_type text NULL/);
+  assert.match(schema, /idempotency_payload_hash text NULL/);
+  assert.match(schema, /uq_resource_absences_direct_idempotency/);
+});
 test("special-window admin routes are tenant-authenticated and permission gated", () => {
   const routes = read("backend/src/modules/absence/specialWindow.routes.js");
   const mounted = read("backend/src/routes/tenantSurfaceRoutes.js");
@@ -114,6 +134,9 @@ test("special-window validation normalizes tenant-wide scopes and protects windo
   assert.equal(payload.scopes.length, 1);
   assert.equal(payload.scopes[0].scopeType, "tenant");
   assert.equal(payload.scopes[0].absenceTypeId, uuid(7));
+  assert.equal(payload.vacationDayExemptionQuota, 1);
+  assert.equal(specialWindowValidation.normalizeVacationDayExemptionQuota("3"), 3);
+  assert.equal(specialWindowService._test.mapWindow({ id: uuid(8), key: "k", name: "N", absence_start_date: "2027-07-01", absence_end_date: "2027-07-31", submission_open_date: "2027-01-01", submission_deadline: "2027-03-01", review_start_date: "2027-03-15", late_submission_policy: "blocked", vacation_day_exemption_quota: 0, is_active: true }).vacation_day_exemption_quota, 0);
 
   assert.throws(
     () => specialWindowValidation.normalizeCreatePayload({

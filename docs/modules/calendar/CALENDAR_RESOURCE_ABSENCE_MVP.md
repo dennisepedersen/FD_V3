@@ -223,3 +223,13 @@ Known gaps after PR8:
 - PR7b: group-aware resource listing and default "mine medarbejdere" design, once admin UI usage is verified.
 - Later: audit events for create, update, cancel, approve/reject when those actions exist.
 - Later: direct manager/resource owner approval and masked visibility such as unavailable-only views.
+
+### 0046 Direct Absence And Vacation-Day Quota
+
+verified: `absence_special_window.vacation_day_exemption_quota` configures how many `vacation_day` calendar dates an employee may submit inside a special vacation window without normal collective window blocking. Usage is counted server-side from active `absence_request` rows for the same tenant, employee, type, and window period; `draft`, `rejected`, and `cancelled` rows do not consume quota. Submit revalidates the same policy in a transaction and locks the employee/window quota key before consuming quota.
+
+verified: Direct `resource_absences` rows now carry nullable provenance/idempotency fields for new direct registrations. Existing rows are left unchanged. New direct registrations set `source_type = 'direct_registration'` in the service layer, use an optional `Idempotency-Key`, and split around same-type overlaps so only missing date segments are created. Different-type overlaps are blocked.
+
+verified: Canonical `absence_type.key = 'sickness'` is migrated to `workflow_mode = 'direct_registration'` and `comment_policy = 'required'`. Employee request options only expose active `workflow_mode = 'request'` types, so sickness is not available as an employee request type after the migration. Direct sickness registration requires a note server-side.
+
+verified: Direct absence notes stay in `resource_absences.note` for the tenant-admin direct list. They are not selected into calendar event feeds, DatePicker marker data, outbox payloads, notifications, or audit metadata by this change.

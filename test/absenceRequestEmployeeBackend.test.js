@@ -353,14 +353,28 @@ test("special-window matching accepts tenant-scoped resource-group matches and r
   }
 });
 
-test("vacation-day special-window policy only exempts exact one-day requests", async () => {
-  const original = absenceSpecialWindowRepository.listOverlappingActiveScopedForEmployee;
+test("vacation-day special-window policy uses configurable quota before normal window blocking", async () => {
+  const originalList = absenceSpecialWindowRepository.listOverlappingActiveScopedForEmployee;
+  const originalUsage = absenceSpecialWindowRepository.listVacationDayQuotaUsageDates;
   let lookups = 0;
   try {
     absenceSpecialWindowRepository.listOverlappingActiveScopedForEmployee = async () => {
       lookups += 1;
-      return [{ id: uuid(32), scope_type: "tenant", fully_contains_request: true }];
+      return [{
+        id: uuid(32),
+        name: "Sommerferie 2027",
+        scope_type: "tenant",
+        fully_contains_request: true,
+        absence_start_date: "2027-07-01",
+        absence_end_date: "2027-07-31",
+        submission_open_date: "2027-01-01",
+        submission_deadline: "2027-03-01",
+        review_start_date: "2027-03-02",
+        late_submission_policy: "blocked",
+        vacation_day_exemption_quota: 1,
+      }];
     };
+    absenceSpecialWindowRepository.listVacationDayQuotaUsageDates = async () => [];
 
     const vacationMatch = await absenceRequestService._test.resolveSpecialWindow({ query: async () => ({ rows: [] }) }, {
       tenantId: uuid(1),
@@ -383,27 +397,20 @@ test("vacation-day special-window policy only exempts exact one-day requests", a
       endDate: "2027-07-10",
     });
     assert.equal(vacationDaySingle, null);
-    assert.equal(lookups, 0);
+    assert.equal(lookups, 1);
 
-    lookups = 0;
-    const vacationDayRange = await absenceRequestService._test.resolveSpecialWindow({ query: async () => ({ rows: [] }) }, {
+    absenceSpecialWindowRepository.listVacationDayQuotaUsageDates = async () => ["2027-07-09"];
+    const vacationDayAfterQuota = await absenceRequestService._test.resolveSpecialWindow({ query: async () => ({ rows: [] }) }, {
       tenantId: uuid(1),
       employeeTenantUserId: uuid(2),
       absenceType: requestType({ key: "vacation_day", name: "Feriefridag", special_window_eligible: true }),
       absenceTypeId: uuid(3),
       startDate: "2027-07-10",
-      endDate: "2027-07-11",
+      endDate: "2027-07-10",
     });
-    assert.equal(vacationDayRange.id, uuid(32));
-    assert.equal(lookups, 1);
+    assert.equal(vacationDayAfterQuota.id, uuid(32));
 
-    absenceSpecialWindowRepository.listOverlappingActiveScopedForEmployee = async () => [{
-      id: uuid(33),
-      scope_type: "tenant",
-      fully_contains_request: false,
-      absence_start_date: "2027-07-01",
-      absence_end_date: "2027-07-31",
-    }];
+    absenceSpecialWindowRepository.listVacationDayQuotaUsageDates = async () => [];
     await assert.rejects(
       absenceRequestService._test.resolveSpecialWindow({ query: async () => ({ rows: [] }) }, {
         tenantId: uuid(1),
@@ -413,10 +420,14 @@ test("vacation-day special-window policy only exempts exact one-day requests", a
         startDate: "2027-06-30",
         endDate: "2027-07-02",
       }),
-      (error) => error.statusCode === 409 && error.message === "absence_special_window_partial_overlap"
+      (error) => error.statusCode === 409
+        && error.message === "absence_vacation_day_quota_split_required"
+        && error.details.vacation_day_quota.exempt_dates.includes("2027-07-01")
+        && error.details.vacation_day_quota.normal_window_dates.includes("2027-07-02")
     );
   } finally {
-    absenceSpecialWindowRepository.listOverlappingActiveScopedForEmployee = original;
+    absenceSpecialWindowRepository.listOverlappingActiveScopedForEmployee = originalList;
+    absenceSpecialWindowRepository.listVacationDayQuotaUsageDates = originalUsage;
   }
 });
 test("employee absence request routes are tenant-authenticated, permission-gated and mounted", () => {
@@ -961,6 +972,9 @@ test("submit revalidation uses vacation-day special-window policy without mutati
     submission_open_date: "2027-01-01",
     submission_deadline: "2027-03-01",
     late_submission_policy: "blocked",
+    absence_start_date: "2027-07-01",
+    absence_end_date: "2027-07-31",
+    vacation_day_exemption_quota: 1,
     scope_type: "tenant",
     fully_contains_request: true,
   };
@@ -978,6 +992,7 @@ test("submit revalidation uses vacation-day special-window policy without mutati
       [absenceRequestRepository, "findByIdForEmployee", async () => row],
       [employeeManagerRelationRepository, "findActivePrimaryManagersForEmployee", async () => [{ id: uuid(30), manager_tenant_user_id: uuid(5), manager_status: "active", manager_login_status: "active" }]],
       [absenceSpecialWindowRepository, "listOverlappingActiveScopedForEmployee", async () => { lookupCount += 1; return [baseWindow]; }],
+      [absenceSpecialWindowRepository, "listVacationDayQuotaUsageDates", async () => []],
       [absenceRequestRepository, "submitDraftForEmployee", async (_client, args) => {
         submitArgs = args;
         return detailRow({ status: "submitted", version: 2, assigned_manager_tenant_user_id: uuid(5) });
@@ -990,11 +1005,11 @@ test("submit revalidation uses vacation-day special-window policy without mutati
       const action = absenceRequestService.submitDraft({ tenantId: uuid(1), userId: uuid(2), absenceRequestId: uuid(10), body: { version: 1 } });
       if (row.start_date === row.end_date) {
         await action;
-        assert.equal(lookupCount, 0);
+        assert.equal(lookupCount, 1);
         assert.equal(submitArgs.specialWindowId, null);
         assert.equal(eventCount, 1);
       } else {
-        await assert.rejects(action, (error) => error.statusCode === 409 && error.message === "absence_special_window_not_open");
+        await assert.rejects(action, (error) => error.statusCode === 409 && error.message === "absence_vacation_day_quota_split_required");
         assert.equal(lookupCount, 1);
         assert.equal(submitArgs, null);
         assert.equal(eventCount, 0);

@@ -189,6 +189,41 @@ router.get("/api/calendar/resources", requireTenantHost, requireAuth("access"), 
   }
 });
 
+router.post("/api/calendar/absences/preflight", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  try {
+    const { tenantId, userId } = getTenantContext(req);
+    requireCalendarAbsenceAccess(req, "create");
+
+    const result = await resourceAbsenceService.preflightAbsenceForTenant({
+      tenantId,
+      fitterId: req.body?.fitter_id,
+      absenceType: req.body?.absence_type,
+      startDate: req.body?.start_date,
+      endDate: req.body?.end_date,
+      note: req.body?.note,
+      visibilityScope: req.body?.visibility_scope,
+      createdByUserId: userId,
+      updatedByUserId: userId,
+      idempotencyKey: req.get("Idempotency-Key") || req.get("X-Idempotency-Key") || null,
+    });
+
+    res.status(200).json({
+      success: true,
+      preflight: result.preflight,
+    });
+  } catch (error) {
+    console.error("[calendar.routes] request_failed", {
+      route: "/api/calendar/absences/preflight",
+      method: "POST",
+      tenant_id: req.context?.tenant?.id || req.auth?.tenant_id || null,
+      user_id: req.auth?.sub || null,
+      role: req.auth?.role || null,
+      error_message: error?.message || null,
+      error_stack: error?.stack || null,
+    });
+    next(error);
+  }
+});
 router.post("/api/calendar/absences", requireTenantHost, requireAuth("access"), async (req, res, next) => {
   try {
     const { tenantId, userId } = getTenantContext(req);
@@ -204,11 +239,16 @@ router.post("/api/calendar/absences", requireTenantHost, requireAuth("access"), 
       visibilityScope: req.body?.visibility_scope,
       createdByUserId: userId,
       updatedByUserId: userId,
+      idempotencyKey: req.get("Idempotency-Key") || req.get("X-Idempotency-Key") || null,
     });
 
     res.status(201).json({
       success: true,
       absence: result.absence,
+      absences: result.absences || (result.absence ? [result.absence] : []),
+      preflight: result.preflight || null,
+      idempotent: result.idempotent === true,
+      already_covered: result.already_covered === true,
     });
   } catch (error) {
     console.error("[calendar.routes] request_failed", {

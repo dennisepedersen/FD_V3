@@ -14,6 +14,9 @@ async function listAbsencesForTenantRange(client, { tenantId, from, to }) {
         ra.end_date,
         ra.note,
         ra.visibility_scope,
+        ra.source_type,
+        ra.idempotency_key,
+        ra.idempotency_segment_index,
         ra.created_by_user_id,
         created_by.name AS created_by_name,
         ra.updated_by_user_id,
@@ -82,6 +85,75 @@ async function listResourcesForTenant(client, { tenantId, includeInactive = fals
   return rows;
 }
 
+
+async function listAbsencesForFitterRange(client, { tenantId, fitterId, startDate, endDate, forUpdate = false }) {
+  const { rows } = await client.query(
+    `
+      SELECT
+        id,
+        tenant_id,
+        fitter_id,
+        absence_type,
+        status,
+        start_date,
+        end_date,
+        visibility_scope,
+        source_type,
+        idempotency_key,
+        idempotency_payload_hash,
+        idempotency_segment_index,
+        created_by_user_id,
+        updated_by_user_id,
+        created_at,
+        updated_at
+      FROM resource_absences
+      WHERE tenant_id = $1
+        AND fitter_id = $2
+        AND status <> 'cancelled'
+        AND start_date <= $4::date
+        AND end_date >= $3::date
+      ORDER BY start_date ASC, end_date ASC, created_at ASC
+      ${forUpdate ? "FOR UPDATE" : ""}
+    `,
+    [tenantId, fitterId, startDate, endDate]
+  );
+  return rows;
+}
+
+async function listByDirectIdempotencyKey(client, { tenantId, createdByUserId, idempotencyKey }) {
+  if (!idempotencyKey || !createdByUserId) return [];
+  const { rows } = await client.query(
+    `
+      SELECT
+        id,
+        tenant_id,
+        fitter_id,
+        absence_type,
+        status,
+        start_date,
+        end_date,
+        note,
+        visibility_scope,
+        source_type,
+        idempotency_key,
+        idempotency_payload_hash,
+        idempotency_segment_index,
+        created_by_user_id,
+        updated_by_user_id,
+        created_at,
+        updated_at,
+        cancelled_at,
+        cancelled_by_user_id
+      FROM resource_absences
+      WHERE tenant_id = $1
+        AND created_by_user_id = $2
+        AND idempotency_key = $3
+      ORDER BY idempotency_segment_index ASC NULLS LAST, created_at ASC
+    `,
+    [tenantId, createdByUserId, idempotencyKey]
+  );
+  return rows;
+}
 async function createAbsenceForTenant(client, {
   tenantId,
   fitterId,
@@ -93,6 +165,10 @@ async function createAbsenceForTenant(client, {
   visibilityScope = "tenant_admin_only",
   createdByUserId = null,
   updatedByUserId = null,
+  sourceType = "direct_registration",
+  idempotencyKey = null,
+  idempotencyPayloadHash = null,
+  idempotencySegmentIndex = null,
 }) {
   const { rows } = await client.query(
     `
@@ -105,10 +181,14 @@ async function createAbsenceForTenant(client, {
         end_date,
         note,
         visibility_scope,
+        source_type,
+        idempotency_key,
+        idempotency_payload_hash,
+        idempotency_segment_index,
         created_by_user_id,
         updated_by_user_id
       )
-      VALUES ($1, $2, $3, $4, $5::date, $6::date, $7, $8, $9, $10)
+      VALUES ($1, $2, $3, $4, $5::date, $6::date, $7, $8, $9, $10, $11, $12, $13, $14)
       RETURNING
         id,
         tenant_id,
@@ -119,6 +199,10 @@ async function createAbsenceForTenant(client, {
         end_date,
         note,
         visibility_scope,
+        source_type,
+        idempotency_key,
+        idempotency_payload_hash,
+        idempotency_segment_index,
         created_by_user_id,
         updated_by_user_id,
         created_at,
@@ -135,6 +219,10 @@ async function createAbsenceForTenant(client, {
       endDate,
       note,
       visibilityScope,
+      sourceType,
+      idempotencyKey,
+      idempotencyPayloadHash,
+      idempotencySegmentIndex,
       createdByUserId,
       updatedByUserId,
     ]
@@ -145,6 +233,8 @@ async function createAbsenceForTenant(client, {
 
 module.exports = {
   createAbsenceForTenant,
+  listAbsencesForFitterRange,
   listAbsencesForTenantRange,
+  listByDirectIdempotencyKey,
   listResourcesForTenant,
 };

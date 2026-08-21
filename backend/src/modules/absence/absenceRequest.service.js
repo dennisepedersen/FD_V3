@@ -377,16 +377,22 @@ function isVacationDayAbsenceType(absenceType) {
   return key === "vacation_day" || name === "feriefridag";
 }
 
-function isSingleCalendarDayRequest({ startDate, endDate }) {
+function enumerateDateRange(startDate, endDate) {
   const start = toDateString(startDate);
   const end = toDateString(endDate || startDate);
-  return Boolean(start && end && start === end);
+  if (!start || !end || end < start) return [];
+  const days = [];
+  let cursor = start;
+  while (cursor <= end) {
+    days.push(cursor);
+    cursor = shiftDateString(cursor, 1);
+    if (!cursor) break;
+  }
+  return days;
 }
 
-function shouldResolveSpecialWindow(absenceType, { startDate, endDate }) {
-  if (absenceType.special_window_eligible !== true) return false;
-  if (isVacationDayAbsenceType(absenceType) && isSingleCalendarDayRequest({ startDate, endDate })) return false;
-  return true;
+function shouldResolveSpecialWindow(absenceType) {
+  return absenceType.special_window_eligible === true;
 }
 
 function shiftDateString(dateString, days) {
@@ -410,6 +416,7 @@ function mapPreflightWindow(specialWindow) {
     submission_deadline: toDateString(specialWindow.submission_deadline),
     review_start_date: toDateString(specialWindow.review_start_date),
     late_submission_policy: specialWindow.late_submission_policy || "blocked",
+    vacation_day_exemption_quota: Number.isInteger(Number(specialWindow.vacation_day_exemption_quota)) ? Number(specialWindow.vacation_day_exemption_quota) : 1,
     collective_processing: specialWindow.collective_processing === true,
   };
 }
@@ -444,6 +451,47 @@ function buildSpecialWindowOverlapDetails(overlaps, { startDate, endDate }) {
   };
 }
 
+function buildVacationDayQuotaDetails(specialWindow, { startDate, endDate, usedDates, exemptDates, normalWindowDates }) {
+  const windowInfo = mapPreflightWindow(specialWindow);
+  const requestedPeriod = { start_date: toDateString(startDate), end_date: toDateString(endDate || startDate) };
+  const quota = Number.isInteger(Number(specialWindow.vacation_day_exemption_quota)) ? Number(specialWindow.vacation_day_exemption_quota) : 1;
+  const used = Array.from(new Set((usedDates || []).map(toDateString).filter(Boolean))).sort();
+  const exempt = Array.from(new Set((exemptDates || []).map(toDateString).filter(Boolean))).sort();
+  const normal = Array.from(new Set((normalWindowDates || []).map(toDateString).filter(Boolean))).sort();
+  const segments = [];
+  let cursor = requestedPeriod.start_date;
+  const end = requestedPeriod.end_date;
+  const exemptSet = new Set(exempt);
+  const normalSet = new Set(normal);
+  while (cursor && cursor <= end) {
+    const special = normalSet.has(cursor) ? windowInfo : null;
+    const quotaExempt = exemptSet.has(cursor);
+    const start = cursor;
+    let segmentEnd = cursor;
+    let next = shiftDateString(cursor, 1);
+    while (next && next <= end && (normalSet.has(next) ? windowInfo.id : null) === (special ? windowInfo.id : null) && exemptSet.has(next) === quotaExempt) {
+      segmentEnd = next;
+      next = shiftDateString(next, 1);
+    }
+    segments.push({ start_date: start, end_date: segmentEnd, special_window: special, vacation_day_quota_exempt: quotaExempt });
+    cursor = next;
+  }
+  return {
+    requested_period: requestedPeriod,
+    special_windows: [windowInfo],
+    special_window: windowInfo,
+    vacation_day_quota: {
+      quota,
+      used_count: used.length,
+      remaining_before_request: Math.max(0, quota - used.length),
+      used_dates: used,
+      exempt_dates: exempt,
+      normal_window_dates: normal,
+    },
+    split_suggestion: segments,
+  };
+}
+
 async function resolveSpecialWindow(client, {
   tenantId,
   employeeTenantUserId,
@@ -451,8 +499,10 @@ async function resolveSpecialWindow(client, {
   absenceTypeId,
   startDate,
   endDate,
+  lockVacationDayQuota = false,
+  reservedVacationDayQuotaDatesByWindowId = null,
 }) {
-  if (!shouldResolveSpecialWindow(absenceType, { startDate, endDate })) return null;
+  if (!shouldResolveSpecialWindow(absenceType)) return null;
   const overlaps = await absenceSpecialWindowRepository.listOverlappingActiveScopedForEmployee(client, {
     tenantId,
     employeeTenantUserId,
@@ -461,9 +511,6 @@ async function resolveSpecialWindow(client, {
     endDate,
   });
   if (overlaps.length === 0) return null;
-  if (overlaps.some((row) => row.fully_contains_request !== true)) {
-    throw createHttpError(409, "absence_special_window_partial_overlap", buildSpecialWindowOverlapDetails(overlaps, { startDate, endDate }));
-  }
   const safeMatches = new Map();
   for (const row of overlaps) {
     if (row.scope_type === "tenant" || row.scope_type === "tenant_user" || row.scope_type === "resource_group") {
@@ -476,9 +523,52 @@ async function resolveSpecialWindow(client, {
   if (safeMatches.size > 1) {
     throw createHttpError(409, "absence_special_window_conflict", buildSpecialWindowOverlapDetails(Array.from(safeMatches.values()), { startDate, endDate }));
   }
-  return Array.from(safeMatches.values())[0];
+  const specialWindow = Array.from(safeMatches.values())[0];
+  if (isVacationDayAbsenceType(absenceType)) {
+    if (lockVacationDayQuota) {
+      await absenceRequestRepository.acquireIdempotencyLock(client, {
+        lockKey: `absence:vacation-day-quota:${tenantId}:${employeeTenantUserId}:${specialWindow.id}`,
+      });
+    }
+    const requestDays = enumerateDateRange(startDate, endDate || startDate);
+    const insideDays = requestDays.filter((day) => day >= toDateString(specialWindow.absence_start_date) && day <= toDateString(specialWindow.absence_end_date));
+    const usedDates = (await absenceSpecialWindowRepository.listVacationDayQuotaUsageDates(client, {
+      tenantId,
+      employeeTenantUserId,
+      specialWindowId: specialWindow.id,
+    })).map(toDateString).filter(Boolean);
+    const reservedSet = reservedVacationDayQuotaDatesByWindowId?.get(String(specialWindow.id)) || new Set();
+    const usedSet = new Set([...usedDates, ...Array.from(reservedSet)]);
+    const quota = Number.isInteger(Number(specialWindow.vacation_day_exemption_quota)) ? Number(specialWindow.vacation_day_exemption_quota) : 1;
+    const remaining = Math.max(0, quota - usedSet.size);
+    const exemptDates = insideDays.filter((day) => !usedSet.has(day)).slice(0, remaining);
+    const exemptSet = new Set(exemptDates);
+    const normalWindowDates = insideDays.filter((day) => !exemptSet.has(day));
+    const details = buildVacationDayQuotaDetails(specialWindow, {
+      startDate,
+      endDate: endDate || startDate,
+      usedDates: Array.from(usedSet),
+      exemptDates,
+      normalWindowDates,
+    });
+    if (normalWindowDates.length === 0) {
+      if (reservedVacationDayQuotaDatesByWindowId) {
+        const nextReserved = reservedVacationDayQuotaDatesByWindowId.get(String(specialWindow.id)) || new Set();
+        exemptDates.forEach((day) => nextReserved.add(day));
+        reservedVacationDayQuotaDatesByWindowId.set(String(specialWindow.id), nextReserved);
+      }
+      return null;
+    }
+    if (exemptDates.length > 0 || overlaps.some((row) => row.fully_contains_request !== true)) {
+      throw createHttpError(409, "absence_vacation_day_quota_split_required", details);
+    }
+    return specialWindow;
+  }
+  if (overlaps.some((row) => row.fully_contains_request !== true)) {
+    throw createHttpError(409, "absence_special_window_partial_overlap", buildSpecialWindowOverlapDetails(overlaps, { startDate, endDate }));
+  }
+  return specialWindow;
 }
-
 function validateSpecialWindowSubmissionTiming(specialWindow, { asOfDate = todayDate() } = {}) {
   if (!specialWindow) return { submittedAfterDeadline: false, metadata: {} };
   const openDate = toDateString(specialWindow.submission_open_date);
@@ -571,6 +661,7 @@ function normalizeSplitSegmentsPayload(body) {
 async function validateSplitSegmentsForSubmit(client, { tenantId, employeeTenantUserId, segments }) {
   const manager = await resolvePrimaryManager(client, { tenantId, employeeTenantUserId });
   const validated = [];
+  const reservedVacationDayQuotaDatesByWindowId = new Map();
   for (let index = 0; index < segments.length; index += 1) {
     const payload = segments[index];
     try {
@@ -583,6 +674,8 @@ async function validateSplitSegmentsForSubmit(client, { tenantId, employeeTenant
         absenceTypeId: payload.absenceTypeId,
         startDate: payload.startDate,
         endDate: requestEndDateForWindow(payload),
+        lockVacationDayQuota: true,
+        reservedVacationDayQuotaDatesByWindowId,
       });
       const specialWindowSubmission = validateSpecialWindowSubmissionTiming(specialWindow);
       validated.push({ payload, absenceType, specialWindow, specialWindowSubmission });
@@ -596,6 +689,18 @@ async function validateSplitSegmentsForSubmit(client, { tenantId, employeeTenant
 function preflightResultFromSpecialWindowError(error) {
   const code = error && error.message ? String(error.message) : "";
   const details = error && error.details && typeof error.details === "object" ? error.details : {};
+  if (code === "absence_vacation_day_quota_split_required") {
+    return {
+      state: "vacation_day_quota_split_required",
+      can_submit: false,
+      reason: code,
+      special_window: details.special_window || (details.special_windows && details.special_windows[0] ? details.special_windows[0] : null),
+      requested_period: details.requested_period || null,
+      special_windows: details.special_windows || [],
+      vacation_day_quota: details.vacation_day_quota || null,
+      split_suggestion: details.split_suggestion || [],
+    };
+  }
   if (code === "absence_special_window_partial_overlap") {
     return {
       state: "partial_overlap",
@@ -1131,6 +1236,7 @@ async function submitDraft({ tenantId, userId, absenceRequestId, body, idempoten
       absenceTypeId: existing.absence_type_id,
       startDate: toDateString(existing.start_date),
       endDate: requestEndDateForWindow(existing),
+      lockVacationDayQuota: true,
     });
     const specialWindowSubmission = validateSpecialWindowSubmissionTiming(specialWindow);
 

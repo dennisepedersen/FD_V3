@@ -4,6 +4,7 @@ const pool = require("../../db/pool");
 const { createHttpError } = require("../../middleware/errorHandler");
 const calendarFeedRepository = require("./calendarFeed.repository");
 const { mapApprovedAbsenceEvent } = require("./calendarEvent.mapper");
+const { coalesceAbsenceRows } = require("./absenceCoalescing");
 
 const MAX_RANGE_DAYS = 366;
 const DEFAULT_LIMIT = 200;
@@ -88,7 +89,7 @@ async function listMine({ tenantId, userId, filters = {} }) {
       offset: normalizedFilters.offset,
     });
     return {
-      events: rows.map((row) => mapApprovedAbsenceEvent(row, { scope: "mine" })),
+      events: coalesceAbsenceRows(rows).map((row) => mapApprovedAbsenceEvent(row, { scope: "mine" })),
       limit: normalizedFilters.limit,
       offset: normalizedFilters.offset,
       event_type: normalizedFilters.eventType,
@@ -120,7 +121,7 @@ async function listTeam({ tenantId, userId, filters = {} }) {
       offset: normalizedFilters.offset,
     });
     return {
-      events: rows.map((row) => mapApprovedAbsenceEvent(row, { scope: "team" })),
+      events: coalesceAbsenceRows(rows).map((row) => mapApprovedAbsenceEvent(row, { scope: "team" })),
       limit: normalizedFilters.limit,
       offset: normalizedFilters.offset,
       event_type: normalizedFilters.eventType,

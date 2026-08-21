@@ -1436,6 +1436,10 @@ CREATE TABLE resource_absences (
   end_date date NOT NULL,
   note text NULL,
   visibility_scope text NOT NULL DEFAULT 'tenant_admin_only',
+  source_type text NULL,
+  idempotency_key text NULL,
+  idempotency_payload_hash text NULL,
+  idempotency_segment_index integer NULL,
   created_by_user_id uuid NULL,
   updated_by_user_id uuid NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -1461,8 +1465,20 @@ CREATE TABLE resource_absences (
   CONSTRAINT ck_resource_absences_visibility_scope CHECK (
     visibility_scope IN ('tenant_admin_only', 'limited_availability', 'manager_full', 'finance_relevant', 'custom')
   ),
+  CONSTRAINT ck_resource_absences_source_type CHECK (
+    source_type IS NULL OR source_type IN ('direct_registration', 'legacy_resource_absence')
+  ),
   CONSTRAINT ck_resource_absences_date_range CHECK (end_date >= start_date),
   CONSTRAINT ck_resource_absences_note_not_blank CHECK (note IS NULL OR btrim(note) <> ''),
+  CONSTRAINT ck_resource_absences_idempotency_key CHECK (
+    idempotency_key IS NULL OR (btrim(idempotency_key) <> '' AND char_length(idempotency_key) <= 160)
+  ),
+  CONSTRAINT ck_resource_absences_idempotency_payload_hash CHECK (
+    idempotency_payload_hash IS NULL OR idempotency_payload_hash ~ '^[0-9a-f]{64}$'
+  ),
+  CONSTRAINT ck_resource_absences_idempotency_segment_index CHECK (
+    idempotency_segment_index IS NULL OR idempotency_segment_index >= 1
+  ),
   CONSTRAINT ck_resource_absences_cancelled_state CHECK (
     (status = 'cancelled' AND cancelled_at IS NOT NULL)
     OR
@@ -1478,6 +1494,13 @@ CREATE INDEX ix_resource_absences_tenant_fitter_range
 
 CREATE INDEX ix_resource_absences_tenant_status_range
   ON resource_absences (tenant_id, status, start_date, end_date);
+
+CREATE UNIQUE INDEX uq_resource_absences_direct_idempotency
+  ON resource_absences (tenant_id, created_by_user_id, idempotency_key, idempotency_segment_index)
+  WHERE idempotency_key IS NOT NULL AND created_by_user_id IS NOT NULL;
+
+CREATE INDEX ix_resource_absences_tenant_fitter_status_range
+  ON resource_absences (tenant_id, fitter_id, status, start_date, end_date);
 
 CREATE TRIGGER trg_resource_absences_set_updated_at
 BEFORE UPDATE ON resource_absences
@@ -2292,6 +2315,7 @@ CREATE TABLE absence_special_window (
   collective_processing boolean NOT NULL DEFAULT true,
   approval_blocked_before_review boolean NOT NULL DEFAULT true,
   late_submission_policy text NOT NULL DEFAULT 'blocked',
+  vacation_day_exemption_quota integer NOT NULL DEFAULT 1,
   receipt_text text NULL,
   is_active boolean NOT NULL DEFAULT true,
   created_by_tenant_user_id uuid NULL,
@@ -2308,6 +2332,7 @@ CREATE TABLE absence_special_window (
   CONSTRAINT ck_absence_special_window_description_not_blank CHECK (description IS NULL OR btrim(description) <> ''),
   CONSTRAINT ck_absence_special_window_receipt_text CHECK (receipt_text IS NULL OR (btrim(receipt_text) <> '' AND char_length(receipt_text) <= 2000)),
   CONSTRAINT ck_absence_special_window_late_policy CHECK (late_submission_policy IN ('blocked', 'manual_review', 'allowed')),
+  CONSTRAINT ck_absence_special_window_vacation_day_exemption_quota CHECK (vacation_day_exemption_quota >= 0 AND vacation_day_exemption_quota <= 31),
   CONSTRAINT ck_absence_special_window_absence_range CHECK (absence_end_date >= absence_start_date),
   CONSTRAINT ck_absence_special_window_submission_range CHECK (submission_deadline >= submission_open_date),
   CONSTRAINT ck_absence_special_window_review_after_deadline CHECK (review_start_date >= submission_deadline),

@@ -709,6 +709,7 @@
     const absenceStartDateInput = document.getElementById("absenceStartDateInput");
     const absenceEndDateInput = document.getElementById("absenceEndDateInput");
     const absenceNoteInput = document.getElementById("absenceNoteInput");
+    const absenceNoteHint = document.getElementById("absenceNoteHint");
     const absenceCreateBtn = document.getElementById("absenceCreateBtn");
     const absenceFormStatus = document.getElementById("absenceFormStatus");
     const absenceTodayCount = document.getElementById("absenceTodayCount");
@@ -3505,19 +3506,18 @@
       const items = [];
       (Array.isArray(state.calendar.mineRequests) ? state.calendar.mineRequests : []).forEach((request) => {
         const status = String(request && request.status || "").toLowerCase();
-        if (!["submitted", "ready_for_review", "under_review", "approved"].includes(status)) return;
+        if (!["submitted", "ready_for_review", "under_review"].includes(status)) return;
         const start = datePickerIso(request.start_date);
         const end = datePickerIso(request.end_date || request.start_date);
         if (!start || !end) return;
-        const approved = status === "approved";
         addAbsenceDateDecoration(items, {
           id: `own-request-${request.id || start}`,
           start,
           end,
-          styles: approved ? ["range", "underline", "info"] : ["dot", "info"],
-          label: approved ? "Godkendt frav\u00e6r" : "Afventer behandling",
+          styles: ["dot", "info"],
+          label: "Afventer behandling",
           info: `${requestCardTitle(request)} - ${getRequestStatusLabel(status, request)} - ${formatDateRange(start, end)}`,
-          priority: approved ? 20 : 30,
+          priority: 30,
         });
       });
       (Array.isArray(state.calendar.agendaEvents) ? state.calendar.agendaEvents : []).forEach((event) => {
@@ -4736,6 +4736,7 @@
       if (byId("specialWindowKeyInput")) byId("specialWindowKeyInput").value = "";
       if (byId("specialWindowCollectiveInput")) byId("specialWindowCollectiveInput").checked = true;
       if (byId("specialWindowBlockBeforeReviewInput")) byId("specialWindowBlockBeforeReviewInput").checked = true;
+      if (byId("specialWindowVacationDayQuotaInput")) byId("specialWindowVacationDayQuotaInput").value = "1";
       if (byId("specialWindowTenantScopeInput")) byId("specialWindowTenantScopeInput").checked = true;
       setText(byId("specialWindowEditorTitle"), "Opret ferieønskeperiode");
       setText(absenceActionModalTitle, getAbsenceActionTitle("special-window-edit"));
@@ -4771,6 +4772,7 @@
         if (byId("specialWindowDeadlineInput")) byId("specialWindowDeadlineInput").value = dateInputFromValue(item.submission_deadline);
         if (byId("specialWindowReviewStartInput")) byId("specialWindowReviewStartInput").value = dateInputFromValue(item.review_start_date);
         if (byId("specialWindowLatePolicySelect")) byId("specialWindowLatePolicySelect").value = item.late_submission_policy || "blocked";
+        if (byId("specialWindowVacationDayQuotaInput")) byId("specialWindowVacationDayQuotaInput").value = String(Number.isInteger(Number(item.vacation_day_exemption_quota)) ? Number(item.vacation_day_exemption_quota) : 1);
         if (byId("specialWindowCollectiveInput")) byId("specialWindowCollectiveInput").checked = item.collective_processing !== false;
         if (byId("specialWindowBlockBeforeReviewInput")) byId("specialWindowBlockBeforeReviewInput").checked = item.approval_blocked_before_review !== false;
         if (byId("specialWindowReceiptTextInput")) byId("specialWindowReceiptTextInput").value = item.receipt_text || "";
@@ -4798,6 +4800,7 @@
         submission_deadline: String(byId("specialWindowDeadlineInput") && byId("specialWindowDeadlineInput").value || "").trim(),
         review_start_date: String(byId("specialWindowReviewStartInput") && byId("specialWindowReviewStartInput").value || "").trim(),
         late_submission_policy: String(byId("specialWindowLatePolicySelect") && byId("specialWindowLatePolicySelect").value || "blocked"),
+        vacation_day_exemption_quota: Number(String(byId("specialWindowVacationDayQuotaInput") && byId("specialWindowVacationDayQuotaInput").value || "1").trim()),
         collective_processing: byId("specialWindowCollectiveInput") ? Boolean(byId("specialWindowCollectiveInput").checked) : true,
         approval_blocked_before_review: byId("specialWindowBlockBeforeReviewInput") ? Boolean(byId("specialWindowBlockBeforeReviewInput").checked) : true,
         receipt_text: String(byId("specialWindowReceiptTextInput") && byId("specialWindowReceiptTextInput").value || "").trim() || null,
@@ -4810,6 +4813,7 @@
       if (parseDateInput(payload.absence_end_date) < parseDateInput(payload.absence_start_date)) return { error: "Ferieperiodens slutdato må ikke være før startdato." };
       if (parseDateInput(payload.submission_deadline) < parseDateInput(payload.submission_open_date)) return { error: "Deadline må ikke være før åbningsdato." };
       if (parseDateInput(payload.review_start_date) < parseDateInput(payload.submission_deadline)) return { error: "Review-start må ikke være før deadline." };
+      if (!Number.isInteger(payload.vacation_day_exemption_quota) || payload.vacation_day_exemption_quota < 0 || payload.vacation_day_exemption_quota > 31) return { error: "Feriefridagskvoten skal være et helt tal mellem 0 og 31." };
       const typeIds = getSelectedValues(byId("specialWindowTypeScopeSelect"));
       if (typeIds.length > 0) payload.absence_type_ids = typeIds;
       if (byId("specialWindowTenantScopeInput") && byId("specialWindowTenantScopeInput").checked) payload.scopes.push({ scope_type: "tenant" });
@@ -5144,6 +5148,9 @@
       if (!allowedVisibility.has(visibilityScope)) {
         return { error: "Vælg en kendt synlighed." };
       }
+      if (absenceType === "sickness" && !note) {
+        return { error: "Note er påkrævet ved direkte sygefravær." };
+      }
 
       return {
         input: {
@@ -5157,6 +5164,25 @@
       };
     }
 
+
+    function updateDirectAbsenceNoteHint() {
+      if (!absenceNoteHint) return;
+      const isSickness = absenceTypeSelect && String(absenceTypeSelect.value || "") === "sickness";
+      setText(absenceNoteHint, isSickness ? "Note er påkrævet ved direkte sygefravær." : "");
+    }
+
+    function createDirectAbsenceIdempotencyKey() {
+      if (window.crypto && typeof window.crypto.randomUUID === "function") return window.crypto.randomUUID();
+      return `direct-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    }
+
+    function describeDirectAbsencePreflight(preflight) {
+      if (!preflight) return "";
+      if (preflight.reason === "different_type_overlap") return "Perioden overlapper allerede med en anden fraværstype og kan ikke gemmes oveni.";
+      if (preflight.reason === "already_covered") return "Perioden er allerede dækket af samme fraværstype.";
+      if (preflight.reason === "same_type_partial_overlap") return "Perioden overlapper delvist med samme fraværstype. Fielddesk gemmer kun de manglende dage.";
+      return "";
+    }
     async function submitAbsenceForm(event) {
       event.preventDefault();
       if (!isTenantAdmin(state.me)) {
@@ -5177,11 +5203,32 @@
       setText(absenceFormStatus, "Gemmer fravær...");
 
       try {
-        await apiFetch("/api/calendar/absences", {
+        const preflightResponse = await apiFetch("/api/calendar/absences/preflight", {
           method: "POST",
           body: JSON.stringify(result.input),
         });
-        setText(absenceFormStatus, "Fravær gemt.");
+        const preflight = preflightResponse && preflightResponse.preflight ? preflightResponse.preflight : null;
+        if (preflight && preflight.can_apply === false && preflight.already_covered !== true) {
+          setText(absenceFormStatus, describeDirectAbsencePreflight(preflight) || "Perioden kan ikke gemmes.");
+          return;
+        }
+        if (preflight && preflight.requires_confirmation === true) {
+          const confirmed = await confirmAbsenceAction({
+            title: "Gem manglende fraværsdage",
+            subtitle: "Perioden overlapper med eksisterende direkte fravær.",
+            message: describeDirectAbsencePreflight(preflight),
+            confirmLabel: "Gem manglende dage",
+          });
+          if (!confirmed) return;
+        }
+        const idempotencyKey = createDirectAbsenceIdempotencyKey();
+        const response = await apiFetch("/api/calendar/absences", {
+          method: "POST",
+          headers: { "Idempotency-Key": idempotencyKey },
+          body: JSON.stringify(result.input),
+        });
+        const createdCount = response && Array.isArray(response.absences) ? response.absences.length : response && response.absence ? 1 : 0;
+        setText(absenceFormStatus, response && response.already_covered ? "Perioden var allerede dækket." : createdCount > 1 ? `${createdCount} fraværsperioder gemt.` : "Fravær gemt.");
         if (absenceNoteInput) {
           absenceNoteInput.value = "";
         }
@@ -7106,6 +7153,11 @@
           absenceEndDateInput.value = absenceStartDateInput.value;
         }
       });
+    }
+
+    if (absenceTypeSelect) {
+      absenceTypeSelect.addEventListener("change", updateDirectAbsenceNoteHint);
+      updateDirectAbsenceNoteHint();
     }
 
     if (absenceCreateForm) {
