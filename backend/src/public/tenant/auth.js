@@ -882,6 +882,12 @@
         requestPreflightTimer: null,
         requestDateRangePicker: null,
         requestTimeDatePicker: null,
+        directFilterDateRangePicker: null,
+        directCreateDateRangePicker: null,
+        specialWindowAbsenceDateRangePicker: null,
+        specialWindowOpenDatePicker: null,
+        specialWindowDeadlineDatePicker: null,
+        specialWindowReviewStartDatePicker: null,
         mineRequests: [],
         mineLoaded: false,
         mineLoading: false,
@@ -2720,7 +2726,8 @@
         setText(absenceActionModalTitle, options && options.title ? options.title : "Bekræft handling");
         setText(absenceActionModalSubtitle, options && options.subtitle ? options.subtitle : "Handlingen gælder det valgte element.");
         body.replaceChildren();
-        appendText(body, "p", "absenceNote", options && options.message ? options.message : "Vil du fortsætte?");
+        const messages = Array.isArray(options && options.message) ? options.message : [options && options.message ? options.message : "Vil du forts\u00e6tte?"];
+        messages.filter(Boolean).forEach((message) => appendText(body, "p", "absenceNote", message));
         const actions = document.createElement("div");
         actions.className = "calendarFormActions";
         appendButton(actions, options && options.cancelLabel ? options.cancelLabel : "Tilbage", "btn btnCompact", () => {
@@ -3236,6 +3243,7 @@
       absenceList.replaceChildren();
       const absences = Array.isArray(state.calendar.absences) ? state.calendar.absences : [];
       setText(absenceListMeta, absences.length === 1 ? "1 fravær fundet." : `${absences.length} fravær fundet.`);
+      updateCalendarTabCounts();
 
       if (absences.length === 0) {
         const empty = document.createElement("p");
@@ -3444,11 +3452,26 @@
     function setCalendarTabVisibility(selector, visible) {
       document.querySelectorAll(selector).forEach((node) => { node.hidden = !visible; });
     }
+
+    function setCalendarTabLabel(tab, label, count) {
+      const button = document.querySelector(`[data-calendar-tab="${tab}"]`);
+      if (!button) return;
+      const suffix = Number.isInteger(count) ? ` (${count})` : "";
+      button.textContent = `${label}${suffix}`;
+    }
+
+    function updateCalendarTabCounts() {
+      setCalendarTabLabel("requests", "Mine anmodninger", state.calendar.mineLoaded ? (Array.isArray(state.calendar.mineRequests) ? state.calendar.mineRequests.length : 0) : null);
+      setCalendarTabLabel("manager", "Afventer behandling", !state.calendar.managerAccessDenied && state.calendar.managerLoaded ? (Array.isArray(state.calendar.managerRequests) ? state.calendar.managerRequests.length : 0) : null);
+      setCalendarTabLabel("absences", "Direkte frav\u00e6r", isTenantAdmin(state.me) && state.calendar.loadedKey ? (Array.isArray(state.calendar.absences) ? state.calendar.absences.length : 0) : null);
+    }
+
     function renderOptionalCalendarTabs() {
       setCalendarTabVisibility("[data-absence-manager-tab]", !state.calendar.managerAccessDenied);
       setCalendarTabVisibility("[data-absence-team-tab]", !state.calendar.teamAgendaAccessDenied);
       setCalendarTabVisibility("[data-special-window-tab]", !state.calendar.specialWindowAccessDenied);
       setCalendarTabVisibility("[data-legacy-absence-tab]", isTenantAdmin(state.me));
+      updateCalendarTabCounts();
     }
     function setAbsenceRequestActionPending(pending) {
       const disabled = Boolean(pending);
@@ -3605,6 +3628,48 @@
       }
       syncAbsenceRequestDatePickerState();
     }
+    function initializeCalendarDatePickers() {
+      const api = getFielddeskDatePickerApi();
+      if (!api) return;
+      if (!state.calendar.directFilterDateRangePicker && absenceFromInput && absenceToInput) {
+        state.calendar.directFilterDateRangePicker = new api.FDDateRangePicker({
+          startInput: absenceFromInput,
+          endInput: absenceToInput,
+          startLabel: "V\u00e6lg filterets startdato",
+          endLabel: "V\u00e6lg filterets slutdato",
+          onChange: () => {
+            state.calendar.from = absenceFromInput.value || state.calendar.from;
+            state.calendar.to = absenceToInput.value || state.calendar.to;
+            state.calendar.loadedKey = "";
+          },
+        });
+      }
+      if (!state.calendar.directCreateDateRangePicker && absenceStartDateInput && absenceEndDateInput) {
+        state.calendar.directCreateDateRangePicker = new api.FDDateRangePicker({
+          startInput: absenceStartDateInput,
+          endInput: absenceEndDateInput,
+          startLabel: "V\u00e6lg f\u00f8rste frav\u00e6rsdato",
+          endLabel: "V\u00e6lg sidste frav\u00e6rsdato",
+        });
+      }
+      if (!state.calendar.specialWindowAbsenceDateRangePicker && byId("specialWindowAbsenceStartInput") && byId("specialWindowAbsenceEndInput")) {
+        state.calendar.specialWindowAbsenceDateRangePicker = new api.FDDateRangePicker({
+          startInput: byId("specialWindowAbsenceStartInput"),
+          endInput: byId("specialWindowAbsenceEndInput"),
+          startLabel: "V\u00e6lg ferieperiodens startdato",
+          endLabel: "V\u00e6lg ferieperiodens slutdato",
+        });
+      }
+      if (!state.calendar.specialWindowOpenDatePicker && byId("specialWindowOpenInput")) {
+        state.calendar.specialWindowOpenDatePicker = new api.FDDatePicker({ input: byId("specialWindowOpenInput"), label: "V\u00e6lg \u00e5bningsdato" });
+      }
+      if (!state.calendar.specialWindowDeadlineDatePicker && byId("specialWindowDeadlineInput")) {
+        state.calendar.specialWindowDeadlineDatePicker = new api.FDDatePicker({ input: byId("specialWindowDeadlineInput"), label: "V\u00e6lg deadline" });
+      }
+      if (!state.calendar.specialWindowReviewStartDatePicker && byId("specialWindowReviewStartInput")) {
+        state.calendar.specialWindowReviewStartDatePicker = new api.FDDatePicker({ input: byId("specialWindowReviewStartInput"), label: "V\u00e6lg behandlingsstart" });
+      }
+    }
     function resetAbsenceRequestForm() {
       state.calendar.requestDraft = null;
       state.calendar.requestDraftIdempotencyKey = "";
@@ -3744,12 +3809,46 @@
       return (windowInfo && (windowInfo.name || windowInfo.key)) || "Ferieønskeperiode";
     }
 
+    function formatQuotaDateList(dates) {
+      const items = (Array.isArray(dates) ? dates : []).filter(Boolean).map(formatDisplayDate);
+      if (items.length === 0) return "";
+      if (items.length === 1) return items[0];
+      return `${items.slice(0, -1).join(", ")} og ${items[items.length - 1]}`;
+    }
+
+    function getVacationDayQuotaSummary(preflight) {
+      const quota = preflight && preflight.vacation_day_quota ? preflight.vacation_day_quota : null;
+      if (!quota) return "";
+      const total = Number(quota.quota || 0);
+      const used = Number(quota.used_count || 0);
+      const requestUses = Number(quota.request_uses_count || 0);
+      const after = Number.isFinite(Number(quota.used_after_request)) ? Number(quota.used_after_request) : Math.min(total, used + requestUses);
+      const exemptDates = Array.isArray(quota.exempt_dates) ? quota.exempt_dates : [];
+      const normalDates = Array.isArray(quota.normal_window_dates) ? quota.normal_window_dates : [];
+      if (exemptDates.length > 0 && normalDates.length > 0) {
+        return `Din resterende kvote d\u00e6kker ${formatQuotaDateList(exemptDates)}. ${formatQuotaDateList(normalDates)} f\u00f8lger den f\u00e6lles behandling af ferie\u00f8nsker.`;
+      }
+      if (normalDates.length > 0 && requestUses === 0) {
+        return `Du har allerede brugt ${used} af ${total} feriefridage. Denne anmodning kan stadig sendes, men indg\u00e5r i den f\u00e6lles behandling af ferie\u00f8nsker.`;
+      }
+      if (requestUses > 0 && used === 0) {
+        return `Denne anmodning bruger ${requestUses} af dine ${total} feriefridage uden f\u00e6lles behandling.`;
+      }
+      if (requestUses > 0) {
+        return `Efter denne anmodning har du brugt ${after} af ${total} feriefridage uden f\u00e6lles behandling.`;
+      }
+      return "";
+    }
     function getAbsencePreflightDomainText(preflight) {
       const windowInfo = preflight && preflight.special_window ? preflight.special_window : {};
       const windows = Array.isArray(preflight && preflight.special_windows) ? preflight.special_windows : [];
       const requested = preflight && preflight.requested_period ? preflight.requested_period : {};
       const primary = windowInfo.id || windowInfo.name ? windowInfo : windows[0] || {};
       if (!preflight) return { label: "Ferieønskeperiode", info: "Perioden kan ikke kontrolleres endnu." };
+      const quotaSummary = getVacationDayQuotaSummary(preflight);
+      if (quotaSummary && ["vacation_day_quota_exempt", "vacation_day_quota_collective", "vacation_day_quota_split_required"].includes(preflight.state)) {
+        return { label: getPreflightWindowLabel(windowInfo), info: quotaSummary };
+      }
       if (preflight.state === "before_open") {
         return {
           label: getPreflightWindowLabel(windowInfo),
@@ -3850,6 +3949,15 @@
     function appendSpecialWindowPreflightDetails(box, preflight, options = {}) {
       const windowInfo = preflight.special_window || {};
       const windows = Array.isArray(preflight.special_windows) ? preflight.special_windows : [];
+      const quotaSummary = getVacationDayQuotaSummary(preflight);
+      if (quotaSummary) appendPreflightLine(box, quotaSummary);
+      if (preflight.state === "vacation_day_quota_split_required") {
+        appendSplitPreview(box, preflight, options);
+        return;
+      }
+      if (preflight.state === "vacation_day_quota_exempt") {
+        return;
+      }
       if (preflight.state === "before_open") {
         appendPreflightLine(box, `Denne periode er omfattet af ${windowInfo.name || "ferieønskeperioden"}.`);
         appendPreflightLine(box, windowInfo.submission_open_date ? `Der kan indsendes ferieønsker fra ${formatDisplayDate(windowInfo.submission_open_date)}.` : "Der er ikke åbent for ønsker i denne periode endnu.");
@@ -3895,7 +4003,7 @@
       if (!body) return;
       const title = preflight.state === "before_open" ? "Du kan ikke sende anmodningen endnu"
         : preflight.state === "after_deadline_blocked" ? "Deadline er overskredet"
-          : preflight.state === "partial_overlap" ? "Perioden skal deles"
+          : preflight.state === "partial_overlap" || preflight.state === "vacation_day_quota_split_required" ? "Perioden skal deles"
             : preflight.state === "multiple_matches" ? "Flere ferieønskeperioder"
               : preflight.state === "technical_error" ? "Kontrollen fejlede"
                 : "Anmodningen kan ikke sendes";
@@ -4246,6 +4354,7 @@
       list.replaceChildren();
       const requests = Array.isArray(state.calendar.mineRequests) ? state.calendar.mineRequests : [];
       setText(byId("absenceRequestListMeta"), state.calendar.mineLoading ? "Indlæser anmodninger..." : requests.length === 1 ? "1 anmodning." : `${requests.length} anmodninger.`);
+      updateCalendarTabCounts();
       if (!state.calendar.mineLoading && requests.length === 0) {
         appendText(list, "p", "calendarMessage", "Du har ingen fraværsanmodninger endnu.");
         return;
@@ -4447,6 +4556,7 @@
       list.replaceChildren();
       const requests = Array.isArray(state.calendar.managerRequests) ? state.calendar.managerRequests : [];
       setText(byId("absenceManagerListMeta"), state.calendar.managerLoading ? "Indlæser anmodninger..." : requests.length === 1 ? "1 anmodning afventer." : `${requests.length} anmodninger afventer.`);
+      updateCalendarTabCounts();
       if (!state.calendar.managerLoading && requests.length === 0) appendText(list, "p", "calendarMessage", "Ingen anmodninger afventer behandling.");
       requests.forEach((request) => {
         const card = document.createElement("article");
@@ -5176,12 +5286,42 @@
       return `direct-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     }
 
+    function formatDirectAbsenceOverlapList(items) {
+      return (Array.isArray(items) ? items : [])
+        .filter((item) => item && item.start_date && item.end_date)
+        .map((item) => `${getAbsenceTypeLabel(item.absence_type)} ${formatDateRange(item.start_date, item.end_date)}`);
+    }
+
+    function formatDirectAbsenceSegments(items) {
+      return (Array.isArray(items) ? items : [])
+        .filter((item) => item && item.start_date && item.end_date)
+        .map((item) => formatDateRange(item.start_date, item.end_date));
+    }
+
     function describeDirectAbsencePreflight(preflight) {
-      if (!preflight) return "";
-      if (preflight.reason === "different_type_overlap") return "Perioden overlapper allerede med en anden fraværstype og kan ikke gemmes oveni.";
-      if (preflight.reason === "already_covered") return "Perioden er allerede dækket af samme fraværstype.";
-      if (preflight.reason === "same_type_partial_overlap") return "Perioden overlapper delvist med samme fraværstype. Fielddesk gemmer kun de manglende dage.";
-      return "";
+      if (!preflight) return [];
+      const existing = formatDirectAbsenceOverlapList(preflight.same_type_overlaps || preflight.conflicts);
+      const missing = formatDirectAbsenceSegments(preflight.missing_segments);
+      if (preflight.reason === "different_type_overlap") {
+        return [
+          "Perioden overlapper allerede med en anden frav\u00e6rstype og kan ikke gemmes oveni.",
+          existing.length ? `Eksisterende frav\u00e6r: ${existing.join("; ")}.` : "",
+        ].filter(Boolean);
+      }
+      if (preflight.reason === "already_covered") {
+        return [
+          "Hele perioden er allerede d\u00e6kket af samme frav\u00e6rstype. Der er ikke noget nyt at registrere.",
+          existing.length ? `Eksisterende frav\u00e6r: ${existing.join("; ")}.` : "",
+        ].filter(Boolean);
+      }
+      if (preflight.reason === "same_type_partial_overlap") {
+        return [
+          "Perioden overlapper delvist med samme frav\u00e6rstype.",
+          existing.length ? `Eksisterende frav\u00e6r: ${existing.join("; ")}.` : "",
+          missing.length ? `Fielddesk opretter kun den manglende periode: ${missing.join("; ")}.` : "",
+        ].filter(Boolean);
+      }
+      return [];
     }
     async function submitAbsenceForm(event) {
       event.preventDefault();
@@ -5208,8 +5348,19 @@
           body: JSON.stringify(result.input),
         });
         const preflight = preflightResponse && preflightResponse.preflight ? preflightResponse.preflight : null;
-        if (preflight && preflight.can_apply === false && preflight.already_covered !== true) {
-          setText(absenceFormStatus, describeDirectAbsencePreflight(preflight) || "Perioden kan ikke gemmes.");
+        if (preflight && preflight.can_apply === false) {
+          const messages = describeDirectAbsencePreflight(preflight);
+          setText(absenceFormStatus, messages[0] || "Perioden kan ikke gemmes.");
+          if (preflight.already_covered === true) {
+            await confirmAbsenceAction({
+              title: "Intet nyt at registrere",
+              subtitle: "Perioden er allerede d\u00e6kket.",
+              message: messages,
+              confirmLabel: "OK",
+              cancelLabel: "Luk",
+              trigger: absenceCreateBtn,
+            });
+          }
           return;
         }
         if (preflight && preflight.requires_confirmation === true) {
@@ -7067,6 +7218,7 @@
       byId("absenceRequestSubmitBtn").addEventListener("click", submitAbsenceRequestDraft);
     }
     initializeAbsenceRequestDatePickers();
+    initializeCalendarDatePickers();
     if (byId("absenceAgendaRefreshBtn")) {
       byId("absenceAgendaRefreshBtn").addEventListener("click", () => {
         state.calendar.agendaLoaded = false;

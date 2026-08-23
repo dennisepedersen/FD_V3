@@ -202,6 +202,12 @@ test('special-window preflight UI and admin scope controls are wired', () => {
   assert.match(auth, /getAbsencePreflightDomainText/);
   assert.match(auth, /Der kan først søges fra/);
   assert.match(auth, /Fristen for ferieønsker var/);
+  assert.match(auth, /vacation_day_quota_exempt/);
+  assert.match(auth, /vacation_day_quota_collective/);
+  assert.match(auth, /vacation_day_quota_split_required/);
+  assert.match(auth, /Denne anmodning bruger/);
+  assert.match(auth, /Efter denne anmodning har du brugt/);
+  assert.match(auth, /f\\u00e6lles behandling af ferie\\u00f8nsker/);
   assert.doesNotMatch(auth, /Blokeret af kontrol|validation failed|domain blocked|late-policy/i);
   assert.match(auth, /button\.disabled = !type[\s\S]+getAbsenceRequestPreflightBlockMessage\(\)/);
   assert.match(auth, /Ferieønskeperiode: \$\{state\.calendar\.requestPreflight\.special_window\.name/);
@@ -369,4 +375,41 @@ test("absence request pilot maps only own and preflight datepicker decorations",
   assert.match(mapping, /disabled/);
   assert.match(mapping, /getAbsencePreflightDomainText\(preflight\)\.label/);
   assert.doesNotMatch(mapping, /Blokeret af kontrol|Perioden kan ikke sendes med de valgte oplysninger/i);
+});
+test("calendar planning UI uses shared datepickers, tab counts and domain overlap text", () => {
+  const html = read("backend/src/public/tenant/app.html");
+  const auth = read("backend/src/public/tenant/auth.js");
+
+  assert.match(auth, /directFilterDateRangePicker: null/);
+  assert.match(auth, /directCreateDateRangePicker: null/);
+  assert.match(auth, /specialWindowAbsenceDateRangePicker: null/);
+  assert.match(auth, /specialWindowOpenDatePicker: null/);
+  assert.match(auth, /specialWindowDeadlineDatePicker: null/);
+  assert.match(auth, /specialWindowReviewStartDatePicker: null/);
+  assert.match(auth, /function initializeCalendarDatePickers\(\)/);
+  assert.match(auth, /new api\.FDDateRangePicker\(\{[\s\S]*startInput: absenceFromInput[\s\S]*endInput: absenceToInput/);
+  assert.match(auth, /new api\.FDDateRangePicker\(\{[\s\S]*startInput: absenceStartDateInput[\s\S]*endInput: absenceEndDateInput/);
+  assert.match(auth, /new api\.FDDateRangePicker\(\{[\s\S]*specialWindowAbsenceStartInput[\s\S]*specialWindowAbsenceEndInput/);
+  assert.match(auth, /specialWindowOpenDatePicker = new api\.FDDatePicker/);
+  assert.match(auth, /specialWindowDeadlineDatePicker = new api\.FDDatePicker/);
+  assert.match(auth, /specialWindowReviewStartDatePicker = new api\.FDDatePicker/);
+  assert.match(auth, /initializeAbsenceRequestDatePickers\(\);\s*initializeCalendarDatePickers\(\);/);
+
+  assert.match(auth, /function setCalendarTabLabel/);
+  assert.match(auth, /function updateCalendarTabCounts/);
+  assert.match(auth, /setCalendarTabLabel\("manager", "Afventer behandling"/);
+  assert.match(auth, /renderMineAbsenceRequests[\s\S]{0,2000}updateCalendarTabCounts\(\)/);
+  assert.match(auth, /renderManagerRequests[\s\S]{0,2000}updateCalendarTabCounts\(\)/);
+  assert.match(auth, /renderAbsenceList[\s\S]{0,2000}updateCalendarTabCounts\(\)/);
+
+  assert.match(auth, /function describeDirectAbsencePreflight/);
+  assert.match(auth, /Hele perioden er allerede d\\u00e6kket/);
+  assert.match(auth, /Fielddesk opretter kun den manglende periode/);
+  assert.match(auth, /Intet nyt at registrere/);
+  assert.match(auth, /preflight\.already_covered === true/);
+  assert.match(auth, /message: messages/);
+  assert.match(auth, /Array\.isArray\(options && options\.message\)/);
+
+  assert.doesNotMatch(html, /Legacy tenant-admin flow/);
+  assert.match(html, /Registr&eacute;r frav&aelig;r direkte for en medarbejder\./);
 });

@@ -79,6 +79,7 @@ function approvedAbsenceRow(overrides = {}) {
     tenant_id: uuid(1),
     employee_tenant_user_id: uuid(2),
     employee_name: "Anne Medarbejder",
+    employee_username: "AME",
     employee_fitter_id: "FIT-2",
     source_type: "absence_request",
     source_id: uuid(10),
@@ -203,6 +204,8 @@ test("calendar feed repositories scope own and team feeds by tenant and active m
   assert.match(client.calls[0].sql, /aa\.tenant_id = \$1/);
   assert.match(client.calls[0].sql, /FROM resource_absences ra/);
   assert.match(client.calls[0].sql, /f\.tenant_user_id = \$2/);
+  assert.match(client.calls[0].sql, /employee\.username AS employee_username/);
+  assert.match(client.calls[0].sql, /ra\.absence_type = 'sickness' OR ra\.visibility_scope = 'manager_full'/);
   assert.doesNotMatch(client.calls[0].sql, /ra\.note/);
   assert.match(client.calls[0].sql, /aa\.employee_tenant_user_id = \$2/);
   assert.match(client.calls[0].sql, /aa\.status = 'active'/);
@@ -223,6 +226,7 @@ test("calendar feed repositories scope own and team feeds by tenant and active m
   assert.match(client.calls[2].sql, /employee\.login_status = 'active'/);
   assert.doesNotMatch(client.calls[2].sql, /resource_group/);
   assert.doesNotMatch(client.calls[2].sql, /calendar_absence/);
+  assert.match(read("backend/src/modules/calendar/resourceAbsence.repository.js"), /COALESCE\(NULLIF\(btrim\(tu\.username\), ''\), NULLIF\(btrim\(f\.username\), ''\)\) AS username/);
 });
 
 function overlapsDateRange({ startDate, endDate }, { from, to }) {
@@ -254,6 +258,10 @@ test("calendar feed mapping redacts manager titles based on visibility and omits
   assert.equal(teamPrivate.visibility.reason_visible, false);
   assert.equal(teamVisible.title, "Ferie");
   assert.equal(teamVisible.visibility.reason_visible, true);
+  const teamSickness = mapApprovedAbsenceEvent(approvedAbsenceRow({ source_type: "direct_registration", absence_type_key: "sickness", absence_type_name: "Sygdom", visibility_policy: "manager_visible" }), { scope: "team" });
+  assert.equal(teamSickness.title, "Sygdom");
+  assert.equal(teamSickness.visibility.reason_visible, true);
+  assert.equal(mapApprovedAbsenceEvent(approvedAbsenceRow({ employee_name: "Testbruger To", employee_username: "TBT" }), { scope: "mine" }).employee.initials, "TBT");
 
   for (const event of [own, teamPrivate, teamVisible]) {
     assert.deepEqual(Object.keys(event).sort(), [

@@ -430,6 +430,119 @@ test("vacation-day special-window policy uses configurable quota before normal w
     absenceSpecialWindowRepository.listVacationDayQuotaUsageDates = originalUsage;
   }
 });
+test("vacation-day quota preflight reports deterministic quota usage and split states", () => {
+  const baseWindow = {
+    id: uuid(33),
+    key: "sommerferie-2027",
+    name: "Sommerferie 2027",
+    absence_start_date: "2027-07-01",
+    absence_end_date: "2027-07-31",
+    submission_open_date: "2027-01-01",
+    submission_deadline: "2027-03-01",
+    review_start_date: "2027-03-02",
+    late_submission_policy: "blocked",
+    collective_processing: true,
+  };
+  const details = (quota) => ({
+    requested_period: { start_date: "2027-07-10", end_date: "2027-07-10" },
+    special_window: baseWindow,
+    special_windows: [baseWindow],
+    split_suggestion: [
+      { start_date: "2027-07-10", end_date: "2027-07-10", special_window: null, vacation_day_quota_exempt: true },
+    ],
+    vacation_day_quota: {
+      quota: 2,
+      used_count: quota.used_count,
+      remaining_before_request: quota.remaining_before_request,
+      request_uses_count: quota.request_uses_count,
+      used_after_request: quota.used_after_request,
+      remaining_after_request: quota.remaining_after_request,
+      used_dates: quota.used_dates || [],
+      exempt_dates: quota.exempt_dates || [],
+      normal_window_dates: quota.normal_window_dates || [],
+    },
+  });
+
+  const zeroOfTwo = absenceRequestService._test.buildVacationDayQuotaPreflightResult(details({
+    used_count: 0,
+    remaining_before_request: 2,
+    request_uses_count: 1,
+    used_after_request: 1,
+    remaining_after_request: 1,
+    exempt_dates: ["2027-07-10"],
+  }), { asOfDate: "2027-02-01" });
+  assert.equal(zeroOfTwo.state, "vacation_day_quota_exempt");
+  assert.equal(zeroOfTwo.can_submit, true);
+  assert.equal(zeroOfTwo.vacation_day_quota.used_after_request, 1);
+
+  const oneOfTwo = absenceRequestService._test.buildVacationDayQuotaPreflightResult(details({
+    used_count: 1,
+    remaining_before_request: 1,
+    request_uses_count: 1,
+    used_after_request: 2,
+    remaining_after_request: 0,
+    used_dates: ["2027-07-09"],
+    exempt_dates: ["2027-07-10"],
+  }), { asOfDate: "2027-02-01" });
+  assert.equal(oneOfTwo.state, "vacation_day_quota_exempt");
+  assert.equal(oneOfTwo.vacation_day_quota.remaining_after_request, 0);
+
+  const exhaustedBeforeDeadline = absenceRequestService._test.buildVacationDayQuotaPreflightResult(details({
+    used_count: 2,
+    remaining_before_request: 0,
+    request_uses_count: 0,
+    used_after_request: 2,
+    remaining_after_request: 0,
+    used_dates: ["2027-07-08", "2027-07-09"],
+    normal_window_dates: ["2027-07-10"],
+  }), { asOfDate: "2027-02-01" });
+  assert.equal(exhaustedBeforeDeadline.state, "vacation_day_quota_collective");
+  assert.equal(exhaustedBeforeDeadline.can_submit, true);
+
+  const thirdAfterDeadline = absenceRequestService._test.buildVacationDayQuotaPreflightResult(details({
+    used_count: 2,
+    remaining_before_request: 0,
+    request_uses_count: 0,
+    used_after_request: 2,
+    remaining_after_request: 0,
+    used_dates: ["2027-07-08", "2027-07-09"],
+    normal_window_dates: ["2027-07-10"],
+  }), { asOfDate: "2027-03-10" });
+  assert.equal(thirdAfterDeadline.state, "after_deadline_blocked");
+  assert.equal(thirdAfterDeadline.can_submit, false);
+
+  const partialQuota = absenceRequestService._test.buildVacationDayQuotaPreflightResult({
+    ...details({
+      used_count: 1,
+      remaining_before_request: 1,
+      request_uses_count: 1,
+      used_after_request: 2,
+      remaining_after_request: 0,
+      used_dates: ["2027-07-08"],
+      exempt_dates: ["2027-07-10"],
+      normal_window_dates: ["2027-07-11"],
+    }),
+    requested_period: { start_date: "2027-07-10", end_date: "2027-07-11" },
+    split_suggestion: [
+      { start_date: "2027-07-10", end_date: "2027-07-10", special_window: null, vacation_day_quota_exempt: true },
+      { start_date: "2027-07-11", end_date: "2027-07-11", special_window: baseWindow, vacation_day_quota_exempt: false },
+    ],
+  }, { asOfDate: "2027-02-01" });
+  assert.equal(partialQuota.state, "vacation_day_quota_split_required");
+  assert.equal(partialQuota.can_submit, false);
+  assert.deepEqual(partialQuota.split_suggestion.map((segment) => [segment.start_date, segment.end_date, Boolean(segment.vacation_day_quota_exempt)]), [
+    ["2027-07-10", "2027-07-10", true],
+    ["2027-07-11", "2027-07-11", false],
+  ]);
+});
+
+test("vacation-day quota usage excludes draft rejected and cancelled requests", () => {
+  const repository = read("backend/src/modules/absence/absenceSpecialWindow.repository.js");
+  assert.match(repository, /ar\.status NOT IN \('draft', 'rejected', 'cancelled'\)/);
+  assert.match(repository, /ar\.employee_tenant_user_id = \$2/);
+  assert.match(repository, /ar\.tenant_id = \$1/);
+  assert.match(repository, /sw\.id = \$3/);
+});
 test("employee absence request routes are tenant-authenticated, permission-gated and mounted", () => {
   const routes = read("backend/src/modules/absence/absence.routes.js");
   const tenantSurfaceRoutes = read("backend/src/routes/tenantSurfaceRoutes.js");

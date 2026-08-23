@@ -56,16 +56,19 @@ Decoration sources in the pilot:
 
 The pilot does not use team events, manager queues, review overview data, or other employees’ project/meeting information for picker decorations.
 
-## Remaining Native Date Inputs
+## Tenant Calendar Date Inputs
 
-Not migrated in phase 1:
+The tenant calendar absence/planning surface uses the shared DatePicker components for:
 
-- special-window admin fields
-- legacy direct absence range and create fields
-- future project/equipment/date surfaces as they appear
-- auth/login/invite/password flows, which currently have no datepicker need
+- employee request full-day and time-range dates
+- direct absence filter range
+- direct absence create start/end range
+- special-window absence period range
+- special-window open date, deadline and review-start date
 
-These should be migrated incrementally after the pilot is manually tested.
+All values remain plain ISO `YYYY-MM-DD` strings in the underlying inputs and backend contracts. DatePicker decorations remain presentation-only; backend preflight and submit validation remain authoritative.
+
+Future project/equipment/date surfaces should migrate to the shared picker as they appear. Auth/login/invite/password flows currently have no datepicker need.
 
 ## Accessibility
 

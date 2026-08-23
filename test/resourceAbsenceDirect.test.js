@@ -134,3 +134,115 @@ test("direct absence overlap preflight creates only missing same-type segments w
     assert.equal(JSON.stringify(result.preflight).includes("Privat note"), false);
   });
 });
+
+test("direct vacation overlap creates the canonical missing tail and leaves source records unchanged", async () => {
+  const client = createTxClient();
+  const existing = [{
+    id: uuid(40),
+    absence_type: "vacation",
+    status: "approved",
+    start_date: "2026-08-24",
+    end_date: "2026-08-30",
+    note: "Privat note maa ikke ud",
+    visibility_scope: "tenant_admin_only",
+  }];
+  const snapshot = JSON.stringify(existing);
+  const inserts = [];
+  await withPatches([
+    [pool, "connect", async () => client],
+    [resourceAbsenceRepository, "listByDirectIdempotencyKey", async () => []],
+    [resourceAbsenceRepository, "listAbsencesForFitterRange", async () => existing],
+    [resourceAbsenceRepository, "createAbsenceForTenant", async (_client, args) => {
+      inserts.push(args);
+      return { id: uuid(50 + inserts.length), ...args };
+    }],
+  ], async () => {
+    const result = await resourceAbsenceService.createAbsenceForTenant({
+      tenantId: uuid(1),
+      fitterId: "TBT",
+      absenceType: "vacation",
+      startDate: "2026-08-25",
+      endDate: "2026-10-29",
+      note: "",
+      visibilityScope: "tenant_admin_only",
+      createdByUserId: uuid(2),
+      updatedByUserId: uuid(2),
+      idempotencyKey: "vacation-tail",
+    });
+
+    assert.equal(JSON.stringify(existing), snapshot, "underlying source record is not mutated");
+    assert.equal(result.preflight.requires_confirmation, true);
+    assert.equal(result.preflight.reason, "same_type_partial_overlap");
+    assert.deepEqual(result.preflight.missing_segments, [{ start_date: "2026-08-31", end_date: "2026-10-29" }]);
+    assert.equal(JSON.stringify(result.preflight).includes("Privat note"), false);
+    assert.deepEqual(inserts.map((item) => [item.startDate, item.endDate]), [["2026-08-31", "2026-10-29"]]);
+  });
+});
+
+test("direct absence preflight blocks fully covered and different-type overlap without mutation", async () => {
+  const client = createTxClient();
+  let inserts = 0;
+  await withPatches([
+    [pool, "connect", async () => client],
+    [resourceAbsenceRepository, "listAbsencesForFitterRange", async () => [{
+      id: uuid(60),
+      absence_type: "vacation",
+      status: "approved",
+      start_date: "2026-08-24",
+      end_date: "2026-10-29",
+      note: "Privat note",
+      visibility_scope: "tenant_admin_only",
+    }]],
+    [resourceAbsenceRepository, "createAbsenceForTenant", async () => { inserts += 1; }],
+  ], async () => {
+    const result = await resourceAbsenceService.preflightAbsenceForTenant({
+      tenantId: uuid(1),
+      fitterId: "TBT",
+      absenceType: "vacation",
+      startDate: "2026-08-25",
+      endDate: "2026-10-29",
+      note: "",
+      visibilityScope: "tenant_admin_only",
+      createdByUserId: uuid(2),
+    });
+    assert.equal(result.preflight.already_covered, true);
+    assert.equal(result.preflight.can_apply, false);
+    assert.equal(JSON.stringify(result.preflight).includes("Privat note"), false);
+  });
+
+  await withPatches([
+    [pool, "connect", async () => client],
+    [resourceAbsenceRepository, "listByDirectIdempotencyKey", async () => []],
+    [resourceAbsenceRepository, "listAbsencesForFitterRange", async () => [{
+      id: uuid(61),
+      absence_type: "sickness",
+      status: "approved",
+      start_date: "2026-08-24",
+      end_date: "2026-08-30",
+      note: "Privat sygenote",
+      visibility_scope: "tenant_admin_only",
+    }]],
+    [resourceAbsenceRepository, "createAbsenceForTenant", async () => { inserts += 1; }],
+  ], async () => {
+    await assert.rejects(
+      resourceAbsenceService.createAbsenceForTenant({
+        tenantId: uuid(1),
+        fitterId: "TBT",
+        absenceType: "vacation",
+        startDate: "2026-08-25",
+        endDate: "2026-10-29",
+        note: "",
+        visibilityScope: "tenant_admin_only",
+        createdByUserId: uuid(2),
+        updatedByUserId: uuid(2),
+        idempotencyKey: "blocked-different-type",
+      }),
+      (error) => error.statusCode === 409
+        && error.message === "direct_absence_overlap_conflict"
+        && error.details.preflight.reason === "different_type_overlap"
+        && JSON.stringify(error.details.preflight).includes("Privat sygenote") === false
+    );
+  });
+
+  assert.equal(inserts, 0);
+});

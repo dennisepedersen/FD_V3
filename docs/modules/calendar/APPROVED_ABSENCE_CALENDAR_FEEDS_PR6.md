@@ -58,9 +58,9 @@ Both feeds require bounded `from` and `to` date filters, support `event_type=abs
 
 ## Legacy Behavior
 
-Existing `resource_absences` remain available through the old admin calendar absence endpoints. They are not shown in PR6 feeds because a safe mapping to current active `tenant_user` and manager-scope cannot be proven from the legacy model alone.
+Existing `resource_absences` remain available through the tenant-admin direct absence endpoints. After the 0046 direct absence extension, calendar feeds also include direct `resource_absences` only when they can be tenant-safely joined to an active current `tenant_user` through `fitter.tenant_user_id`. Rows without that safe identity chain remain excluded from employee/manager feeds.
 
-Future PRs may add an explicit, reviewed legacy import/mapping path if the product requires legacy absence in employee and manager feeds.
+Future PRs may add an explicit, reviewed legacy import/mapping path for rows that cannot be resolved through the safe `fitter.tenant_user_id` identity chain.
 
 ## Next PR
 
@@ -77,4 +77,4 @@ PR7 should not attempt a full calendar UI unless separately approved.
 
 verified: Calendar feeds now read both materialized `approved_absence` rows and direct `resource_absences` rows that can be tenant-safely joined to an active `tenant_user` through `fitter.tenant_user_id`. Direct rows remain separate storage records; the feed service only coalesces overlapping or directly contiguous same-tenant/same-employee/same-effective-type rows for presentation.
 
-verified: The feed query does not select `resource_absences.note`. Own and managed feeds expose absence type labels according to the existing visibility policy, while private direct absence notes remain available only on the tenant-admin direct absence list.
+verified: The feed query does not select `resource_absences.note`. Own feeds show the employee's own direct absence reason. Managed feeds show direct sickness as `Sygdom` for relation-scoped managers and otherwise follow the visibility policy; colleague/broad feeds stay redacted as unavailable. Private direct absence notes remain available only on the tenant-admin direct absence list/detail surface.

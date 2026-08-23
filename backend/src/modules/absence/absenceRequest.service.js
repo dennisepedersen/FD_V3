@@ -169,7 +169,8 @@ function mapRequest(row, { includeComment = true } = {}) {
 function mapEmployee(row) {
   if (!row?.employee_tenant_user_id) return null;
   const name = row.employee_name || "Medarbejder";
-  const initials = name
+  const username = String(row.employee_username || "").trim();
+  const initials = username ? username.toUpperCase() : name
     .split(/\s+/)
     .filter(Boolean)
     .slice(0, 2)
@@ -484,6 +485,9 @@ function buildVacationDayQuotaDetails(specialWindow, { startDate, endDate, usedD
       quota,
       used_count: used.length,
       remaining_before_request: Math.max(0, quota - used.length),
+      request_uses_count: exempt.length,
+      used_after_request: Math.min(quota, used.length + exempt.length),
+      remaining_after_request: Math.max(0, quota - used.length - exempt.length),
       used_dates: used,
       exempt_dates: exempt,
       normal_window_dates: normal,
@@ -492,6 +496,54 @@ function buildVacationDayQuotaDetails(specialWindow, { startDate, endDate, usedD
   };
 }
 
+async function buildVacationDayQuotaPreflightDetails(client, {
+  tenantId,
+  employeeTenantUserId,
+  absenceType,
+  absenceTypeId,
+  startDate,
+  endDate,
+}) {
+  if (!shouldResolveSpecialWindow(absenceType) || !isVacationDayAbsenceType(absenceType)) return null;
+  const overlaps = await absenceSpecialWindowRepository.listOverlappingActiveScopedForEmployee(client, {
+    tenantId,
+    employeeTenantUserId,
+    absenceTypeId,
+    startDate,
+    endDate,
+  });
+  const safeMatches = new Map();
+  for (const row of overlaps) {
+    if (row.scope_type === "tenant" || row.scope_type === "tenant_user" || row.scope_type === "resource_group") {
+      safeMatches.set(String(row.id), row);
+    }
+  }
+  if (safeMatches.size !== 1) return null;
+  const specialWindow = Array.from(safeMatches.values())[0];
+  const requestDays = enumerateDateRange(startDate, endDate || startDate);
+  const windowStart = toDateString(specialWindow.absence_start_date);
+  const windowEnd = toDateString(specialWindow.absence_end_date);
+  const insideDays = requestDays.filter((day) => day >= windowStart && day <= windowEnd);
+  if (insideDays.length === 0) return null;
+  const usedDates = (await absenceSpecialWindowRepository.listVacationDayQuotaUsageDates(client, {
+    tenantId,
+    employeeTenantUserId,
+    specialWindowId: specialWindow.id,
+  })).map(toDateString).filter(Boolean);
+  const usedSet = new Set(usedDates);
+  const quota = Number.isInteger(Number(specialWindow.vacation_day_exemption_quota)) ? Number(specialWindow.vacation_day_exemption_quota) : 1;
+  const remaining = Math.max(0, quota - usedSet.size);
+  const exemptDates = insideDays.filter((day) => !usedSet.has(day)).slice(0, remaining);
+  const exemptSet = new Set(exemptDates);
+  const normalWindowDates = insideDays.filter((day) => !exemptSet.has(day));
+  return buildVacationDayQuotaDetails(specialWindow, {
+    startDate,
+    endDate: endDate || startDate,
+    usedDates,
+    exemptDates,
+    normalWindowDates,
+  });
+}
 async function resolveSpecialWindow(client, {
   tenantId,
   employeeTenantUserId,
@@ -617,6 +669,43 @@ function buildSpecialWindowPreflightResult(specialWindow, { asOfDate = todayDate
   return { state: "after_deadline_allowed", can_submit: true, late: true, late_submission_policy: policy, special_window: window };
 }
 
+function buildVacationDayQuotaPreflightResult(details, { asOfDate = todayDate() } = {}) {
+  if (!details || !details.special_window || !details.vacation_day_quota) return null;
+  const normalDates = Array.isArray(details.vacation_day_quota.normal_window_dates) ? details.vacation_day_quota.normal_window_dates : [];
+  const exemptDates = Array.isArray(details.vacation_day_quota.exempt_dates) ? details.vacation_day_quota.exempt_dates : [];
+  if (normalDates.length === 0) {
+    return {
+      state: "vacation_day_quota_exempt",
+      can_submit: true,
+      special_window: details.special_window,
+      requested_period: details.requested_period,
+      special_windows: details.special_windows || [],
+      vacation_day_quota: details.vacation_day_quota,
+      split_suggestion: details.split_suggestion || [],
+    };
+  }
+  if (exemptDates.length > 0) {
+    return {
+      state: "vacation_day_quota_split_required",
+      can_submit: false,
+      reason: "absence_vacation_day_quota_split_required",
+      special_window: details.special_window,
+      requested_period: details.requested_period,
+      special_windows: details.special_windows || [],
+      vacation_day_quota: details.vacation_day_quota,
+      split_suggestion: details.split_suggestion || [],
+    };
+  }
+  const base = buildSpecialWindowPreflightResult(details.special_window, { asOfDate });
+  return {
+    ...base,
+    state: base.state === "open" ? "vacation_day_quota_collective" : base.state,
+    requested_period: details.requested_period,
+    special_windows: details.special_windows || [],
+    vacation_day_quota: details.vacation_day_quota,
+    split_suggestion: details.split_suggestion || [],
+  };
+}
 function summarizeSplitPayload(payload) {
   if (!payload) return null;
   return {
@@ -1172,6 +1261,16 @@ async function preflightEmployeeRequest({ tenantId, userId, body, asOfDate = tod
     assertAbsenceTypeAllowsEmployeeRequest(absenceType);
     assertAbsenceTypeAllowsDuration(absenceType, payload.durationType);
     try {
+      const quotaDetails = await buildVacationDayQuotaPreflightDetails(client, {
+        tenantId: normalizedTenantId,
+        employeeTenantUserId: normalizedUserId,
+        absenceType,
+        absenceTypeId: payload.absenceTypeId,
+        startDate: payload.startDate,
+        endDate: requestEndDateForWindow(payload),
+      });
+      const quotaResult = buildVacationDayQuotaPreflightResult(quotaDetails, { asOfDate });
+      if (quotaResult) return { preflight: quotaResult };
       const specialWindow = await resolveSpecialWindow(client, {
         tenantId: normalizedTenantId,
         employeeTenantUserId: normalizedUserId,
@@ -1559,6 +1658,7 @@ module.exports = {
     absenceTypeFromRequestRow,
     displayStatus,
     mapManagerRequest,
+    buildVacationDayQuotaPreflightResult,
     mapRequest,
     buildSpecialWindowOverlapDetails,
     buildSpecialWindowPreflightResult,

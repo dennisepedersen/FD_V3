@@ -21,6 +21,11 @@ function initialsForName(name) {
     .join("") || null;
 }
 
+function employeeInitials(row) {
+  const username = String(row && row.employee_username ? row.employee_username : "").trim();
+  return username ? username.toUpperCase() : initialsForName(row && row.employee_name);
+}
+
 function titleForEvent(row, scope) {
   if (scope === "mine") return row.absence_type_name || "Fravær";
   if (row.visibility_policy === "manager_visible") return row.absence_type_name || "Fravær";
@@ -45,7 +50,7 @@ function mapApprovedAbsenceEvent(row, { scope }) {
     employee: {
       id: row.employee_tenant_user_id,
       display_name: row.employee_name || "Medarbejder",
-      initials: initialsForName(row.employee_name),
+      initials: employeeInitials(row),
     },
     visibility: {
       policy: row.visibility_policy,

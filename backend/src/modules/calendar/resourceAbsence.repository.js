@@ -54,30 +54,38 @@ async function listResourcesForTenant(client, { tenantId, includeInactive = fals
   const { rows } = await client.query(
     `
       SELECT
-        fitter_id,
-        name,
-        username,
+        f.fitter_id,
+        COALESCE(NULLIF(btrim(tu.name), ''), NULLIF(btrim(f.name), ''), NULLIF(btrim(f.username), ''), f.fitter_id) AS name,
+        COALESCE(NULLIF(btrim(tu.username), ''), NULLIF(btrim(f.username), '')) AS username,
         UPPER(
-          LEFT(
-            REGEXP_REPLACE(
-              COALESCE(NULLIF(btrim(name), ''), NULLIF(btrim(username), ''), fitter_id),
-              '[^[:alnum:]]',
-              '',
-              'g'
-            ),
-            4
+          COALESCE(
+            NULLIF(btrim(tu.username), ''),
+            NULLIF(btrim(f.username), ''),
+            LEFT(
+              REGEXP_REPLACE(
+                COALESCE(NULLIF(btrim(tu.name), ''), NULLIF(btrim(f.name), ''), f.fitter_id),
+                '[^[:alnum:]]',
+                '',
+                'g'
+              ),
+              4
+            )
           )
         ) AS initials,
-        COALESCE(NULLIF(btrim(name), ''), NULLIF(btrim(username), ''), fitter_id) AS label,
-        is_active_derived AS is_active,
-        is_plannable,
-        end_date
-      FROM fitter
-      WHERE tenant_id = $1
-        AND ($2::boolean = true OR is_active_derived = true)
+        COALESCE(NULLIF(btrim(tu.name), ''), NULLIF(btrim(f.name), ''), NULLIF(btrim(f.username), ''), f.fitter_id) AS label,
+        f.tenant_user_id,
+        f.is_active_derived AS is_active,
+        f.is_plannable,
+        f.end_date
+      FROM fitter f
+      LEFT JOIN tenant_user tu
+        ON tu.tenant_id = f.tenant_id
+       AND tu.id = f.tenant_user_id
+      WHERE f.tenant_id = $1
+        AND ($2::boolean = true OR f.is_active_derived = true)
       ORDER BY
-        COALESCE(NULLIF(btrim(name), ''), NULLIF(btrim(username), ''), fitter_id) ASC,
-        fitter_id ASC
+        COALESCE(NULLIF(btrim(tu.name), ''), NULLIF(btrim(f.name), ''), NULLIF(btrim(f.username), ''), f.fitter_id) ASC,
+        f.fitter_id ASC
     `,
     [tenantId, includeInactive === true]
   );
