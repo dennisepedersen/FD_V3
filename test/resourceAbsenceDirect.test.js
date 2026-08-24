@@ -60,6 +60,31 @@ test("direct sickness registration requires note server-side", async () => {
   );
 });
 
+
+test("direct sickness forces relation-scoped manager visibility server-side", () => {
+  const sickness = resourceAbsenceService._test.normalizeCreateInput({
+    tenantId: uuid(1),
+    fitterId: "FIT-1",
+    absenceType: "sickness",
+    startDate: "2027-07-01",
+    endDate: "2027-07-01",
+    note: "Ringet ind kl. 07:12",
+    visibilityScope: "tenant_admin_only",
+    createdByUserId: uuid(2),
+  });
+  assert.equal(sickness.visibilityScope, "manager_full");
+
+  const vacation = resourceAbsenceService._test.normalizeCreateInput({
+    tenantId: uuid(1),
+    fitterId: "FIT-1",
+    absenceType: "vacation",
+    startDate: "2027-07-01",
+    endDate: "2027-07-01",
+    visibilityScope: "tenant_admin_only",
+    createdByUserId: uuid(2),
+  });
+  assert.equal(vacation.visibilityScope, "tenant_admin_only");
+});
 test("direct absence idempotency rejects payload mismatch before insert", async () => {
   const client = createTxClient();
   let inserts = 0;
@@ -130,6 +155,7 @@ test("direct absence overlap preflight creates only missing same-type segments w
       ["2027-07-01", "2027-07-01", 1],
       ["2027-07-04", "2027-07-04", 2],
     ]);
+    assert.deepEqual(inserts.map((item) => item.visibilityScope), ["manager_full", "manager_full"]);
     assert.equal(result.preflight.requires_confirmation, true);
     assert.equal(JSON.stringify(result.preflight).includes("Privat note"), false);
   });

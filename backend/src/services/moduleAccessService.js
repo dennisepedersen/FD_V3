@@ -122,7 +122,6 @@ const ROLE_PERMISSIONS = Object.freeze({
     ...OWN_CALENDAR_EVENT_PERMISSIONS,
     ...OWN_ABSENCE_REQUEST_PERMISSIONS,
     "absence_request:administrative_override",
-    "absence_request:approve_before_review_date",
     "absence_request:read_audit",
     "absence_type:manage",
     "absence_special_window:manage",

@@ -5,6 +5,7 @@ const { createHttpError } = require("../../middleware/errorHandler");
 const resourceAbsenceRepository = require("./resourceAbsence.repository");
 
 const ALLOWED_ABSENCE_TYPES = new Set(["vacation", "vacation_free", "course", "sickness", "other"]);
+const SICKNESS_VISIBILITY_SCOPE = "manager_full";
 const ALLOWED_VISIBILITY_SCOPES = new Set([
   "tenant_admin_only",
   "limited_availability",
@@ -201,7 +202,8 @@ function normalizeCreateInput(input) {
   const absenceType = normalizeAbsenceType(input?.absenceType);
   const startDate = normalizeDate(input?.startDate, "start_date_required");
   const endDate = normalizeDate(input?.endDate, "end_date_required");
-  const visibilityScope = normalizeVisibilityScope(input?.visibilityScope);
+  const requestedVisibilityScope = normalizeVisibilityScope(input?.visibilityScope);
+  const visibilityScope = absenceType === "sickness" ? SICKNESS_VISIBILITY_SCOPE : requestedVisibilityScope;
   const note = normalizeOptionalText(input?.note);
   const createdByUserId = normalizeOptionalText(input?.createdByUserId);
   const updatedByUserId = normalizeOptionalText(input?.updatedByUserId) || createdByUserId;
@@ -296,4 +298,7 @@ module.exports = {
   preflightAbsenceForTenant,
   listAbsencesForTenantRange,
   listResourcesForTenant,
+  _test: {
+    normalizeCreateInput,
+  },
 };

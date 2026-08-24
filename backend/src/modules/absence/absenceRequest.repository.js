@@ -814,6 +814,127 @@ async function updateManagedDecision(client, {
 
   return rows[0] || null;
 }
+
+async function updateQuotaReclassificationSegment(client, {
+  tenantId,
+  absenceRequestId,
+  startDate,
+  endDate,
+  specialWindowId = null,
+}) {
+  const { rows } = await client.query(
+    `
+      UPDATE absence_request
+      SET
+        start_date = $3::date,
+        end_date = $4::date,
+        special_window_id = $5,
+        version = version + 1
+      WHERE tenant_id = $1
+        AND id = $2
+      RETURNING
+        id,
+        tenant_id,
+        employee_tenant_user_id,
+        employee_fitter_id,
+        absence_type_id,
+        duration_type,
+        day_part,
+        start_date,
+        end_date,
+        start_time,
+        end_time,
+        timezone,
+        employee_comment,
+        status,
+        assigned_manager_tenant_user_id,
+        special_window_id,
+        submitted_at,
+        reviewed_at,
+        cancelled_at,
+        version,
+        created_at,
+        updated_at
+    `,
+    [tenantId, absenceRequestId, startDate, endDate, specialWindowId]
+  );
+
+  return rows[0] || null;
+}
+
+async function insertQuotaReclassificationSegment(client, {
+  sourceRow,
+  startDate,
+  endDate,
+  specialWindowId = null,
+}) {
+  const { rows } = await client.query(
+    `
+      INSERT INTO absence_request (
+        tenant_id,
+        employee_tenant_user_id,
+        employee_fitter_id,
+        absence_type_id,
+        duration_type,
+        day_part,
+        start_date,
+        end_date,
+        start_time,
+        end_time,
+        timezone,
+        employee_comment,
+        status,
+        assigned_manager_tenant_user_id,
+        special_window_id,
+        submitted_at
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7::date, $8::date, $9::time, $10::time, $11, $12, $13, $14, $15, $16::timestamptz)
+      RETURNING
+        id,
+        tenant_id,
+        employee_tenant_user_id,
+        employee_fitter_id,
+        absence_type_id,
+        duration_type,
+        day_part,
+        start_date,
+        end_date,
+        start_time,
+        end_time,
+        timezone,
+        employee_comment,
+        status,
+        assigned_manager_tenant_user_id,
+        special_window_id,
+        submitted_at,
+        reviewed_at,
+        cancelled_at,
+        version,
+        created_at,
+        updated_at
+    `,
+    [
+      sourceRow.tenant_id,
+      sourceRow.employee_tenant_user_id,
+      sourceRow.employee_fitter_id || null,
+      sourceRow.absence_type_id,
+      sourceRow.duration_type,
+      sourceRow.day_part || null,
+      startDate,
+      endDate,
+      sourceRow.start_time || null,
+      sourceRow.end_time || null,
+      sourceRow.timezone || "Europe/Copenhagen",
+      sourceRow.employee_comment || null,
+      sourceRow.status,
+      sourceRow.assigned_manager_tenant_user_id || null,
+      specialWindowId,
+      sourceRow.submitted_at || null,
+    ]
+  );
+
+  return rows[0];
+}
 async function insertEvent(client, {
   tenantId,
   absenceRequestId,
@@ -910,4 +1031,6 @@ module.exports = {
   submitDraftForEmployee,
   updateDraftForEmployee,
   updateManagedDecision,
+  updateQuotaReclassificationSegment,
+  insertQuotaReclassificationSegment,
 };

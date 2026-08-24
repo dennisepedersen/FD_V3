@@ -207,9 +207,16 @@ test('special-window preflight UI and admin scope controls are wired', () => {
   assert.match(auth, /vacation_day_quota_split_required/);
   assert.match(auth, /Denne anmodning bruger/);
   assert.match(auth, /Efter denne anmodning har du brugt/);
+  assert.match(auth, /usedDisplay = Math\.min\(total, used\)/);
+  assert.match(auth, /active_collective_count/);
+  assert.match(auth, /vil ogs\\u00e5 indg\\u00e5 i den f\\u00e6lles behandling/);
   assert.match(auth, /f\\u00e6lles behandling af ferie\\u00f8nsker/);
   assert.doesNotMatch(auth, /Blokeret af kontrol|validation failed|domain blocked|late-policy/i);
   assert.match(auth, /button\.disabled = !type[\s\S]+getAbsenceRequestPreflightBlockMessage\(\)/);
+  assert.match(auth, /function isManagerDecisionBlockedBeforeReview\(request\)/);
+  assert.match(auth, /Kan behandles fra \$\{formatDisplayDate\(request\.special_window\.review_start_date\)\}/);
+  assert.match(auth, /approveButton\.disabled = state\.calendar\.managerDecisionSubmitting \|\| blockedBeforeReview/);
+  assert.match(auth, /rejectButton\.disabled = state\.calendar\.managerDecisionSubmitting \|\| blockedBeforeReview/);
   assert.match(auth, /Ferieønskeperiode: \$\{state\.calendar\.requestPreflight\.special_window\.name/);
   assert.match(html, /id="absenceRequestPreflightStatus"/);
   assert.match(html, /id="specialWindowKeyField"[^>]*hidden/);
@@ -281,6 +288,9 @@ test('absence UI polish exposes focused feedback, split preview and contrast hoo
   assert.match(auth, /function refreshCalendarWorkspace\(reason, options = \{\}\)/);
   assert.match(auth, /window\.addEventListener\("focus"/);
   assert.match(auth, /visibility-return/);
+  assert.match(auth, /const visibilityScope = absenceType === "sickness" \? "manager_full" : selectedVisibilityScope/);
+  assert.match(auth, /absenceVisibilitySelect\.disabled = isSickness/);
+  assert.match(auth, /private noter vises ikke i kalenderen/);
   assert.match(auth, /requestPreflightModalKey/);
   assert.match(auth, /maybeShowAbsencePreflightModal/);
   assert.match(auth, /formatRequestLifecycleText/);

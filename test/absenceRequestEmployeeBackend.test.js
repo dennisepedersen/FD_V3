@@ -21,6 +21,7 @@ const absenceRequestRepository = require("../backend/src/modules/absence/absence
 const absenceSpecialWindowRepository = require("../backend/src/modules/absence/absenceSpecialWindow.repository");
 const employeeManagerRelationRepository = require("../backend/src/modules/absence/employeeManagerRelation.repository");
 const absenceRequestService = require("../backend/src/modules/absence/absenceRequest.service");
+const moduleAccessService = require("../backend/src/services/moduleAccessService");
 
 const repoRoot = path.resolve(__dirname, "..");
 const read = (rel) => fs.readFileSync(path.join(repoRoot, rel), "utf8");
@@ -460,6 +461,8 @@ test("vacation-day quota preflight reports deterministic quota usage and split s
       used_dates: quota.used_dates || [],
       exempt_dates: quota.exempt_dates || [],
       normal_window_dates: quota.normal_window_dates || [],
+      active_collective_count: quota.active_collective_count || 0,
+      active_collective_dates: quota.active_collective_dates || [],
     },
   });
 
@@ -495,8 +498,11 @@ test("vacation-day quota preflight reports deterministic quota usage and split s
     remaining_after_request: 0,
     used_dates: ["2027-07-08", "2027-07-09"],
     normal_window_dates: ["2027-07-10"],
+    active_collective_count: 1,
+    active_collective_dates: ["2027-07-10"],
   }), { asOfDate: "2027-02-01" });
   assert.equal(exhaustedBeforeDeadline.state, "vacation_day_quota_collective");
+  assert.equal(exhaustedBeforeDeadline.vacation_day_quota.active_collective_count, 1);
   assert.equal(exhaustedBeforeDeadline.can_submit, true);
 
   const thirdAfterDeadline = absenceRequestService._test.buildVacationDayQuotaPreflightResult(details({
@@ -536,12 +542,313 @@ test("vacation-day quota preflight reports deterministic quota usage and split s
   ]);
 });
 
-test("vacation-day quota usage excludes draft rejected and cancelled requests", () => {
+test("vacation-day quota usage counts only quota-exempt rows and allocation order is deterministic", () => {
   const repository = read("backend/src/modules/absence/absenceSpecialWindow.repository.js");
   assert.match(repository, /ar\.status NOT IN \('draft', 'rejected', 'cancelled'\)/);
   assert.match(repository, /ar\.employee_tenant_user_id = \$2/);
   assert.match(repository, /ar\.tenant_id = \$1/);
   assert.match(repository, /sw\.id = \$3/);
+  assert.match(repository, /AND ar\.special_window_id IS NULL/);
+  assert.match(repository, /COALESCE\(ar\.submitted_at, ar\.created_at\) ASC/);
+  assert.match(repository, /ar\.id ASC/);
+  assert.match(repository, /days\.day::date ASC/);
+  assert.match(repository, /FOR UPDATE OF ar/);
+});
+
+function quotaWindow(overrides = {}) {
+  return {
+    id: uuid(40),
+    tenant_id: uuid(1),
+    name: "Efterårsferie 2026",
+    review_start_date: "2099-01-01",
+    absence_start_date: "2026-10-01",
+    absence_end_date: "2026-10-31",
+    vacation_day_exemption_quota: 2,
+    scope_type: "tenant",
+    scope_ref_id: null,
+    ...overrides,
+  };
+}
+
+function quotaAllocationRow(overrides = {}) {
+  return {
+    ...detailRow({
+      id: uuid(20),
+      tenant_id: uuid(1),
+      employee_tenant_user_id: uuid(2),
+      absence_type_key: "vacation_day",
+      absence_type_name: "Feriefridag",
+      absence_type_special_window_eligible: true,
+      status: "submitted",
+      start_date: "2026-10-07",
+      end_date: "2026-10-07",
+      special_window_id: uuid(40),
+      submitted_at: "2026-08-01T08:00:00.000Z",
+      created_at: "2026-08-01T07:00:00.000Z",
+    }),
+    absence_date: "2026-10-07",
+    ...overrides,
+  };
+}
+
+test("vacation-day quota reclassification promotes freed slots deterministically and writes safe history", async () => {
+  const client = createTxClient();
+  const locks = [];
+  const updates = [];
+  const inserts = [];
+  const events = [];
+  const audits = [];
+  const sources = new Map([
+    [uuid(20), quotaAllocationRow({ id: uuid(20), start_date: "2026-10-07", end_date: "2026-10-07", absence_date: "2026-10-07", employee_comment: "Privat B" })],
+    [uuid(21), quotaAllocationRow({ id: uuid(21), start_date: "2026-10-11", end_date: "2026-10-11", absence_date: "2026-10-11", submitted_at: "2026-08-02T08:00:00.000Z", employee_comment: "Privat C" })],
+  ]);
+
+  await withPatches([
+    [absenceSpecialWindowRepository, "listOverlappingActiveScopedForEmployee", async () => [quotaWindow()]],
+    [absenceRequestRepository, "acquireIdempotencyLock", async (_client, args) => locks.push(args.lockKey)],
+    [absenceSpecialWindowRepository, "listVacationDayQuotaAllocationRows", async (_client, args) => {
+      assert.equal(args.forUpdate, true);
+      return Array.from(sources.values());
+    }],
+    [absenceRequestRepository, "findById", async (_client, args) => sources.get(args.absenceRequestId)],
+    [absenceRequestRepository, "updateQuotaReclassificationSegment", async (_client, args) => {
+      updates.push(args);
+      const source = sources.get(args.absenceRequestId);
+      return { ...source, start_date: args.startDate, end_date: args.endDate, special_window_id: args.specialWindowId, version: source.version + 1 };
+    }],
+    [absenceRequestRepository, "insertQuotaReclassificationSegment", async () => {
+      inserts.push(true);
+      return null;
+    }],
+    [absenceRequestRepository, "insertEvent", async (_client, args) => {
+      events.push(args);
+      return { id: uuid(80 + events.length) };
+    }],
+    [auditService, "logAuditEvent", async (args) => audits.push(args)],
+  ], async () => {
+    const changes = await absenceRequestService._test.reclassifyVacationDayQuotaAfterTerminalTransition(client, {
+      tenantId: uuid(1),
+      employeeTenantUserId: uuid(2),
+      actorId: uuid(2),
+      transitionedRequest: detailRow({
+        id: uuid(10),
+        tenant_id: uuid(1),
+        employee_tenant_user_id: uuid(2),
+        absence_type_id: uuid(1),
+        absence_type_key: "vacation_day",
+        absence_type_name: "Feriefridag",
+        status: "submitted",
+        start_date: "2026-10-05",
+        end_date: "2026-10-06",
+        special_window_id: null,
+      }),
+      triggerEvent: { id: uuid(90) },
+      triggerAction: "cancelled",
+    });
+
+    assert.deepEqual(changes.map((change) => change.request_id), [uuid(20), uuid(21)]);
+  });
+
+  assert.deepEqual(locks, [`absence:vacation-day-quota:${uuid(1)}:${uuid(2)}:${uuid(40)}`]);
+  assert.deepEqual(updates.map((args) => [args.absenceRequestId, args.startDate, args.endDate, args.specialWindowId]), [
+    [uuid(20), "2026-10-07", "2026-10-07", null],
+    [uuid(21), "2026-10-11", "2026-10-11", null],
+  ]);
+  assert.equal(inserts.length, 0);
+  assert.equal(events.length, 2);
+  assert.equal(events[0].eventType, "administrative_override");
+  assert.match(events[0].reason, /annulleret/);
+  assert.equal(events[0].metadata.system_reclassification, true);
+  assert.equal(events[0].metadata.triggered_by_request_id, uuid(10));
+  assert.equal(events[0].metadata.triggered_by_event_id, uuid(90));
+  assert.equal(audits.length, 2);
+  const combinedMetadata = JSON.stringify({ events, audits });
+  assert.equal(combinedMetadata.includes("Privat"), false);
+});
+
+test("vacation-day quota reclassification splits partial multi-day collective requests without leaking notes", async () => {
+  const client = createTxClient();
+  const updates = [];
+  const inserts = [];
+  const events = [];
+  const audits = [];
+  const source = quotaAllocationRow({
+    id: uuid(30),
+    start_date: "2026-10-07",
+    end_date: "2026-10-09",
+    submitted_at: "2026-08-02T08:00:00.000Z",
+    employee_comment: "Privat splittest",
+    version: 3,
+  });
+  const allocationRows = [
+    quotaAllocationRow({ id: uuid(22), special_window_id: null, absence_date: "2026-10-05", start_date: "2026-10-05", end_date: "2026-10-05" }),
+    { ...source, absence_date: "2026-10-07" },
+    { ...source, absence_date: "2026-10-08" },
+    { ...source, absence_date: "2026-10-09" },
+  ];
+
+  await withPatches([
+    [absenceSpecialWindowRepository, "listOverlappingActiveScopedForEmployee", async () => [quotaWindow({ vacation_day_exemption_quota: 2 })]],
+    [absenceRequestRepository, "acquireIdempotencyLock", async () => {}],
+    [absenceSpecialWindowRepository, "listVacationDayQuotaAllocationRows", async () => allocationRows],
+    [absenceRequestRepository, "findById", async () => source],
+    [absenceRequestRepository, "updateQuotaReclassificationSegment", async (_client, args) => {
+      updates.push(args);
+      return { ...source, start_date: args.startDate, end_date: args.endDate, special_window_id: args.specialWindowId, version: 4 };
+    }],
+    [absenceRequestRepository, "insertQuotaReclassificationSegment", async (_client, args) => {
+      inserts.push(args);
+      return { ...source, id: uuid(31), start_date: args.startDate, end_date: args.endDate, special_window_id: args.specialWindowId, version: 1 };
+    }],
+    [absenceRequestRepository, "insertEvent", async (_client, args) => {
+      events.push(args);
+      return { id: uuid(80 + events.length) };
+    }],
+    [auditService, "logAuditEvent", async (args) => audits.push(args)],
+  ], async () => {
+    const changes = await absenceRequestService._test.reclassifyVacationDayQuotaAfterTerminalTransition(client, {
+      tenantId: uuid(1),
+      employeeTenantUserId: uuid(2),
+      actorId: uuid(5),
+      transitionedRequest: detailRow({
+        id: uuid(10),
+        tenant_id: uuid(1),
+        employee_tenant_user_id: uuid(2),
+        absence_type_id: uuid(1),
+        absence_type_key: "vacation_day",
+        absence_type_name: "Feriefridag",
+        status: "submitted",
+        start_date: "2026-10-05",
+        end_date: "2026-10-05",
+        special_window_id: null,
+      }),
+      triggerEvent: { id: uuid(91) },
+      triggerAction: "cancelled",
+    });
+
+    assert.deepEqual(changes, [{ request_id: uuid(30), promoted_dates: ["2026-10-07"], split_created_request_id: uuid(31) }]);
+  });
+
+  assert.deepEqual(updates.map((args) => [args.absenceRequestId, args.startDate, args.endDate, args.specialWindowId]), [
+    [uuid(30), "2026-10-07", "2026-10-07", null],
+  ]);
+  assert.equal(inserts.length, 1);
+  assert.equal(inserts[0].sourceRow.employee_comment, "Privat splittest");
+  assert.deepEqual([inserts[0].startDate, inserts[0].endDate, inserts[0].specialWindowId], ["2026-10-08", "2026-10-09", uuid(40)]);
+  assert.deepEqual(events.map((event) => event.eventType), ["created", "administrative_override"]);
+  assert.equal(events[0].absenceRequestId, uuid(31));
+  assert.equal(events[1].metadata.split_created_request_id, uuid(31));
+  assert.deepEqual(events[1].metadata.split_remainder_dates, ["2026-10-08", "2026-10-09"]);
+  assert.equal(audits.length, 2);
+  assert.equal(JSON.stringify({ events, audits }).includes("Privat splittest"), false);
+});
+
+test("vacation-day quota reclassification respects rejection wording and review-start cutoff", async () => {
+  let allocationLookups = 0;
+  const events = [];
+  await withPatches([
+    [absenceSpecialWindowRepository, "listOverlappingActiveScopedForEmployee", async () => [quotaWindow({ review_start_date: "2099-01-01" })]],
+    [absenceRequestRepository, "acquireIdempotencyLock", async () => {}],
+    [absenceSpecialWindowRepository, "listVacationDayQuotaAllocationRows", async () => {
+      allocationLookups += 1;
+      return [quotaAllocationRow({ id: uuid(20), absence_date: "2026-10-07" })];
+    }],
+    [absenceRequestRepository, "findById", async () => quotaAllocationRow({ id: uuid(20), start_date: "2026-10-07", end_date: "2026-10-07" })],
+    [absenceRequestRepository, "updateQuotaReclassificationSegment", async (_client, args) => quotaAllocationRow({ id: args.absenceRequestId, start_date: args.startDate, end_date: args.endDate, special_window_id: args.specialWindowId, version: 2 })],
+    [absenceRequestRepository, "insertEvent", async (_client, args) => {
+      events.push(args);
+      return { id: uuid(81) };
+    }],
+    [auditService, "logAuditEvent", async () => {}],
+  ], async () => {
+    await absenceRequestService._test.reclassifyVacationDayQuotaAfterTerminalTransition(createTxClient(), {
+      tenantId: uuid(1),
+      employeeTenantUserId: uuid(2),
+      actorId: uuid(5),
+      transitionedRequest: detailRow({
+        id: uuid(10),
+        tenant_id: uuid(1),
+        employee_tenant_user_id: uuid(2),
+        absence_type_id: uuid(1),
+        absence_type_key: "vacation_day",
+        absence_type_name: "Feriefridag",
+        status: "ready_for_review",
+        start_date: "2026-10-05",
+        end_date: "2026-10-05",
+      }),
+      triggerEvent: { id: uuid(92) },
+      triggerAction: "rejected",
+    });
+  });
+  assert.equal(allocationLookups, 1);
+  assert.match(events[0].reason, /afvist/);
+
+  await withPatches([
+    [absenceSpecialWindowRepository, "listOverlappingActiveScopedForEmployee", async () => [quotaWindow({ review_start_date: "2020-01-01" })]],
+    [absenceSpecialWindowRepository, "listVacationDayQuotaAllocationRows", async () => {
+      throw new Error("allocation must not run after review start");
+    }],
+  ], async () => {
+    const changes = await absenceRequestService._test.reclassifyVacationDayQuotaAfterTerminalTransition(createTxClient(), {
+      tenantId: uuid(1),
+      employeeTenantUserId: uuid(2),
+      actorId: uuid(5),
+      transitionedRequest: detailRow({
+        id: uuid(10),
+        tenant_id: uuid(1),
+        employee_tenant_user_id: uuid(2),
+        absence_type_id: uuid(1),
+        absence_type_key: "vacation_day",
+        absence_type_name: "Feriefridag",
+        status: "submitted",
+        start_date: "2026-10-05",
+        end_date: "2026-10-05",
+      }),
+      triggerAction: "cancelled",
+    });
+    assert.deepEqual(changes, []);
+  });
+});
+
+test("vacation-day quota reclassification ignores approved, tenant, employee and window mismatches", async () => {
+  const updates = [];
+  const allocationRows = [
+    quotaAllocationRow({ id: uuid(20), status: "approved", absence_date: "2026-10-07" }),
+    quotaAllocationRow({ id: uuid(21), tenant_id: uuid(99), absence_date: "2026-10-08" }),
+    quotaAllocationRow({ id: uuid(22), employee_tenant_user_id: uuid(99), absence_date: "2026-10-09" }),
+    quotaAllocationRow({ id: uuid(23), special_window_id: uuid(99), absence_date: "2026-10-10" }),
+  ];
+
+  await withPatches([
+    [absenceSpecialWindowRepository, "listOverlappingActiveScopedForEmployee", async () => [quotaWindow({ vacation_day_exemption_quota: 4 })]],
+    [absenceRequestRepository, "acquireIdempotencyLock", async () => {}],
+    [absenceSpecialWindowRepository, "listVacationDayQuotaAllocationRows", async () => allocationRows],
+    [absenceRequestRepository, "findById", async () => {
+      throw new Error("mismatched candidates must be skipped before lookup");
+    }],
+    [absenceRequestRepository, "updateQuotaReclassificationSegment", async (_client, args) => updates.push(args)],
+  ], async () => {
+    const changes = await absenceRequestService._test.reclassifyVacationDayQuotaAfterTerminalTransition(createTxClient(), {
+      tenantId: uuid(1),
+      employeeTenantUserId: uuid(2),
+      actorId: uuid(5),
+      transitionedRequest: detailRow({
+        id: uuid(10),
+        tenant_id: uuid(1),
+        employee_tenant_user_id: uuid(2),
+        absence_type_id: uuid(1),
+        absence_type_key: "vacation_day",
+        absence_type_name: "Feriefridag",
+        status: "submitted",
+        start_date: "2026-10-05",
+        end_date: "2026-10-05",
+      }),
+      triggerAction: "cancelled",
+    });
+    assert.deepEqual(changes, []);
+  });
+
+  assert.deepEqual(updates, []);
 });
 test("employee absence request routes are tenant-authenticated, permission-gated and mounted", () => {
   const routes = read("backend/src/modules/absence/absence.routes.js");
@@ -1377,6 +1684,18 @@ function managerRow(overrides = {}) {
   });
 }
 
+
+test("tenant admin does not get before-review decision override by role default", () => {
+  const tenant = { id: uuid(1) };
+  const baseAuth = { sub: uuid(5), tenant_id: uuid(1), role: "tenant_admin", permissions: [] };
+  assert.throws(
+    () => moduleAccessService.requireModuleAccess({ tenant, auth: baseAuth, moduleKey: "absence_request", action: "approve_before_review_date" }),
+    (error) => error.statusCode === 403 && error.message === "module_access_denied"
+  );
+  const explicitAuth = { ...baseAuth, permissions: ["absence_request:approve_before_review_date"] };
+  const result = moduleAccessService.requireModuleAccess({ tenant, auth: explicitAuth, moduleKey: "absence_request", action: "approve_before_review_date" });
+  assert.equal(result.permission, "absence_request:approve_before_review_date");
+});
 test("manager object-scope is independent of system role and never grants blanket access", async () => {
   for (const role of ["technician", "project_leader", "tenant_admin"]) {
     const client = createTxClient();

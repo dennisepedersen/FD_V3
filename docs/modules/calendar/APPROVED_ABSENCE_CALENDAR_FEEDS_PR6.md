@@ -78,3 +78,11 @@ PR7 should not attempt a full calendar UI unless separately approved.
 verified: Calendar feeds now read both materialized `approved_absence` rows and direct `resource_absences` rows that can be tenant-safely joined to an active `tenant_user` through `fitter.tenant_user_id`. Direct rows remain separate storage records; the feed service only coalesces overlapping or directly contiguous same-tenant/same-employee/same-effective-type rows for presentation.
 
 verified: The feed query does not select `resource_absences.note`. Own feeds show the employee's own direct absence reason. Managed feeds show direct sickness as `Sygdom` for relation-scoped managers and otherwise follow the visibility policy; colleague/broad feeds stay redacted as unavailable. Private direct absence notes remain available only on the tenant-admin direct absence list/detail surface.
+
+### Current Coalescing and Privacy Rule
+
+verified: Personal and team calendar feeds apply the same canonical presentation coalescing rule after repository reads: rows are grouped only when tenant, employee identity, effective absence type, visibility policy, source scope, and day/time shape are compatible, and the date ranges overlap or are directly contiguous. Different effective absence types remain separate. Coalescing is presentation-only; underlying `approved_absence` and `resource_absences` source records are not mutated.
+
+verified: Tenant isolation is preserved before coalescing by tenant-scoped repository queries and tenant-safe joins. Coalescing does not merge across tenants, employees, or manager scopes, and it does not add private notes to feed rows.
+
+verified: DatePicker own-absence data consumes the same calendar event feed shape for the current user, so contiguous same-type own absence is presented as one calendar marker/info item after feed coalescing.

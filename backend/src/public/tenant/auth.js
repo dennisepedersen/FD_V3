@@ -3821,6 +3821,8 @@
       if (!quota) return "";
       const total = Number(quota.quota || 0);
       const used = Number(quota.used_count || 0);
+      const usedDisplay = Math.min(total, used);
+      const collectiveCount = Number(quota.active_collective_count || 0);
       const requestUses = Number(quota.request_uses_count || 0);
       const after = Number.isFinite(Number(quota.used_after_request)) ? Number(quota.used_after_request) : Math.min(total, used + requestUses);
       const exemptDates = Array.isArray(quota.exempt_dates) ? quota.exempt_dates : [];
@@ -3829,13 +3831,14 @@
         return `Din resterende kvote d\u00e6kker ${formatQuotaDateList(exemptDates)}. ${formatQuotaDateList(normalDates)} f\u00f8lger den f\u00e6lles behandling af ferie\u00f8nsker.`;
       }
       if (normalDates.length > 0 && requestUses === 0) {
-        return `Du har allerede brugt ${used} af ${total} feriefridage. Denne anmodning kan stadig sendes, men indg\u00e5r i den f\u00e6lles behandling af ferie\u00f8nsker.`;
+        const collectiveText = collectiveCount > 0 ? ` Du har desuden ${collectiveCount} feriefridag${collectiveCount === 1 ? "" : "e"} i den f\u00e6lles behandling.` : "";
+        return `Du har brugt ${usedDisplay} af ${total} feriefridage uden f\u00e6lles behandling.${collectiveText} Denne anmodning vil ogs\u00e5 indg\u00e5 i den f\u00e6lles behandling.`;
       }
       if (requestUses > 0 && used === 0) {
         return `Denne anmodning bruger ${requestUses} af dine ${total} feriefridage uden f\u00e6lles behandling.`;
       }
       if (requestUses > 0) {
-        return `Efter denne anmodning har du brugt ${after} af ${total} feriefridage uden f\u00e6lles behandling.`;
+        return `Efter denne anmodning har du brugt ${Math.min(total, after)} af ${total} feriefridage uden f\u00e6lles behandling.`;
       }
       return "";
     }
@@ -4602,6 +4605,12 @@
       }
     }
 
+    function isManagerDecisionBlockedBeforeReview(request) {
+      const reviewStart = request && request.special_window ? String(request.special_window.review_start_date || "").slice(0, 10) : "";
+      if (!reviewStart) return false;
+      const today = new Date().toISOString().slice(0, 10);
+      return today < reviewStart;
+    }
     function renderManagerRequestDetail(request, target) {
       const detail = target || absenceActionModalBody;
       if (!detail || !request) return;
@@ -4640,12 +4649,16 @@
       label.append(textarea, counter);
       const actions = document.createElement("div");
       actions.className = "calendarFormActions";
+      const blockedBeforeReview = isManagerDecisionBlockedBeforeReview(request);
+      if (blockedBeforeReview) {
+        appendText(detail, "p", "absenceNote", `Kan behandles fra ${formatDisplayDate(request.special_window.review_start_date)}.`);
+      }
       const approveButton = appendButton(actions, "Godkend", "btn btnPrimary", () => decideManagerRequest(request, "approve", textarea.value, textarea));
       approveButton.dataset.managerDecisionAction = "approve";
-      approveButton.disabled = state.calendar.managerDecisionSubmitting;
+      approveButton.disabled = state.calendar.managerDecisionSubmitting || blockedBeforeReview;
       const rejectButton = appendButton(actions, "Afvis", "btn btnCompact", () => decideManagerRequest(request, "reject", textarea.value, textarea));
       rejectButton.dataset.managerDecisionAction = "reject";
-      rejectButton.disabled = state.calendar.managerDecisionSubmitting;
+      rejectButton.disabled = state.calendar.managerDecisionSubmitting || blockedBeforeReview;
       detail.append(label, actions);
     }
 
@@ -5231,7 +5244,8 @@
     function validateAbsenceForm() {
       const fitterId = absenceFitterSelect ? String(absenceFitterSelect.value || "").trim() : "";
       const absenceType = absenceTypeSelect ? String(absenceTypeSelect.value || "").trim() : "";
-      const visibilityScope = absenceVisibilitySelect ? String(absenceVisibilitySelect.value || "").trim() : "tenant_admin_only";
+      const selectedVisibilityScope = absenceVisibilitySelect ? String(absenceVisibilitySelect.value || "").trim() : "tenant_admin_only";
+      const visibilityScope = absenceType === "sickness" ? "manager_full" : selectedVisibilityScope;
       const startDate = absenceStartDateInput ? String(absenceStartDateInput.value || "").trim() : "";
       const endDate = absenceEndDateInput ? String(absenceEndDateInput.value || "").trim() : "";
       const note = absenceNoteInput ? String(absenceNoteInput.value || "").trim() : "";
@@ -5276,11 +5290,21 @@
 
 
     function updateDirectAbsenceNoteHint() {
-      if (!absenceNoteHint) return;
       const isSickness = absenceTypeSelect && String(absenceTypeSelect.value || "") === "sickness";
-      setText(absenceNoteHint, isSickness ? "Note er påkrævet ved direkte sygefravær." : "");
+      if (absenceVisibilitySelect) {
+        if (isSickness) {
+          absenceVisibilitySelect.value = "manager_full";
+        }
+        absenceVisibilitySelect.disabled = isSickness;
+      }
+      if (!absenceNoteHint) return;
+      setText(
+        absenceNoteHint,
+        isSickness
+          ? "Note er påkrævet ved direkte sygefravær. Sygefravær vises kun med type til medarbejderen selv og den konkrete personaleleder; private noter vises ikke i kalenderen."
+          : ""
+      );
     }
-
     function createDirectAbsenceIdempotencyKey() {
       if (window.crypto && typeof window.crypto.randomUUID === "function") return window.crypto.randomUUID();
       return `direct-${Date.now()}-${Math.random().toString(16).slice(2)}`;

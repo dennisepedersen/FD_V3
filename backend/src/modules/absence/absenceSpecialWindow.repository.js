@@ -583,6 +583,7 @@ async function listVacationDayQuotaUsageDates(client, { tenantId, employeeTenant
         ON ar.tenant_id = sw.tenant_id
        AND ar.employee_tenant_user_id = $2
        AND ar.status NOT IN ('draft', 'rejected', 'cancelled')
+       AND ar.special_window_id IS NULL
        AND ar.start_date <= sw.absence_end_date
        AND COALESCE(ar.end_date, ar.start_date) >= sw.absence_start_date
       JOIN absence_type at
@@ -600,6 +601,60 @@ async function listVacationDayQuotaUsageDates(client, { tenantId, employeeTenant
   );
   return rows.map((row) => row.absence_date);
 }
+async function listVacationDayQuotaAllocationRows(client, {
+  tenantId,
+  employeeTenantUserId,
+  specialWindowId,
+  forUpdate = false,
+}) {
+  const { rows } = await client.query(
+    `
+      SELECT
+        ar.id,
+        ar.tenant_id,
+        ar.employee_tenant_user_id,
+        ar.employee_fitter_id,
+        ar.absence_type_id,
+        ar.duration_type,
+        ar.day_part,
+        ar.start_date,
+        ar.end_date,
+        ar.start_time,
+        ar.end_time,
+        ar.timezone,
+        ar.status,
+        ar.assigned_manager_tenant_user_id,
+        ar.special_window_id,
+        ar.submitted_at,
+        ar.reviewed_at,
+        ar.cancelled_at,
+        ar.version,
+        ar.created_at,
+        ar.updated_at,
+        days.day::date AS absence_date
+      FROM absence_special_window sw
+      JOIN absence_request ar
+        ON ar.tenant_id = sw.tenant_id
+       AND ar.employee_tenant_user_id = $2
+       AND ar.status NOT IN ('draft', 'rejected', 'cancelled')
+       AND ar.start_date <= sw.absence_end_date
+       AND COALESCE(ar.end_date, ar.start_date) >= sw.absence_start_date
+      JOIN absence_type at
+        ON at.tenant_id = ar.tenant_id
+       AND at.id = ar.absence_type_id
+       AND at.key = 'vacation_day'
+      JOIN LATERAL generate_series(ar.start_date, COALESCE(ar.end_date, ar.start_date), interval '1 day') AS days(day)
+        ON true
+      WHERE sw.tenant_id = $1
+        AND sw.id = $3
+        AND days.day::date BETWEEN sw.absence_start_date AND sw.absence_end_date
+      ORDER BY COALESCE(ar.submitted_at, ar.created_at) ASC, ar.id ASC, days.day::date ASC
+      ${forUpdate ? "FOR UPDATE OF ar" : ""}
+    `,
+    [tenantId, employeeTenantUserId, specialWindowId]
+  );
+  return rows;
+}
 module.exports = {
   archiveWindow,
   countRequestsForWindow,
@@ -611,6 +666,7 @@ module.exports = {
   insertWindow,
   listKeysByPrefix,
   listOverlappingActiveScopedForEmployee,
+  listVacationDayQuotaAllocationRows,
   listVacationDayQuotaUsageDates,
   listRelevantAbsenceTypes,
   listReviewOverviewRequests,

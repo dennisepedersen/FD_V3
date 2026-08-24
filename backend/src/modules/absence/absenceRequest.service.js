@@ -34,6 +34,7 @@ const RESOURCE_TYPE = "absence_request";
 const CANCEL_ALLOWED_STATUSES = Object.freeze(["draft", "submitted"]);
 const MANAGER_DECISION_ALLOWED_STATUSES = Object.freeze(["submitted", "ready_for_review"]);
 const MANAGER_PENDING_DEFAULT_STATUSES = Object.freeze(["submitted", "ready_for_review"]);
+const QUOTA_RECLASSIFICATION_PROMOTABLE_STATUSES = Object.freeze(["submitted", "ready_for_review"]);
 const STATUS_SET = new Set(ABSENCE_REQUEST_STATUSES);
 const MAX_SPLIT_SEGMENTS = 6;
 
@@ -344,6 +345,292 @@ function validateSpecialWindowForDecision(row, { action, hasBeforeReviewOverride
     },
   };
 }
+
+function activeQuotaStatus(status) {
+  return !["draft", "rejected", "cancelled"].includes(String(status || ""));
+}
+
+function quotaReclassificationReason(triggerAction) {
+  return triggerAction === "rejected"
+    ? "Flyttet til almindelig behandling, fordi en tidligere feriefridag blev afvist."
+    : "Flyttet til almindelig behandling, fordi en tidligere feriefridag blev annulleret.";
+}
+
+function buildQuotaReclassificationMetadata({
+  specialWindow,
+  triggerAction,
+  triggeredByRequestId,
+  triggeredByEventId,
+  oldVersion,
+  newVersion,
+  oldStartDate,
+  oldEndDate,
+  newStartDate,
+  newEndDate,
+  promotedDates,
+  splitCreatedRequestId = null,
+  splitRemainderDates = null,
+}) {
+  return {
+    system_reclassification: true,
+    reclassification_type: "vacation_day_quota_promotion",
+    trigger_action: triggerAction,
+    triggered_by_request_id: triggeredByRequestId || null,
+    triggered_by_event_id: triggeredByEventId || null,
+    previous_special_window_id: specialWindow.id,
+    new_special_window_id: null,
+    special_window_id: specialWindow.id,
+    special_window_name: specialWindow.name || null,
+    old_version: oldVersion,
+    new_version: newVersion,
+    old_start_date: oldStartDate,
+    old_end_date: oldEndDate,
+    new_start_date: newStartDate,
+    new_end_date: newEndDate,
+    promoted_dates: promotedDates,
+    split_created_request_id: splitCreatedRequestId,
+    split_remainder_dates: splitRemainderDates,
+  };
+}
+
+async function resolveQuotaReclassificationWindow(client, {
+  tenantId,
+  employeeTenantUserId,
+  absenceTypeId,
+  startDate,
+  endDate,
+}) {
+  const overlaps = await absenceSpecialWindowRepository.listOverlappingActiveScopedForEmployee(client, {
+    tenantId,
+    employeeTenantUserId,
+    absenceTypeId,
+    startDate,
+    endDate,
+  });
+  const safeMatches = new Map();
+  for (const row of overlaps) {
+    if (row.scope_type === "tenant" || row.scope_type === "tenant_user" || row.scope_type === "resource_group") {
+      safeMatches.set(String(row.id), row);
+    }
+  }
+  if (safeMatches.size !== 1) return null;
+  return Array.from(safeMatches.values())[0];
+}
+
+async function writeQuotaReclassificationHistory(client, {
+  tenantId,
+  actorId,
+  requestId,
+  status,
+  reason,
+  metadata,
+}) {
+  await absenceRequestRepository.insertEvent(client, {
+    tenantId,
+    absenceRequestId: requestId,
+    eventType: "administrative_override",
+    actorTenantUserId: actorId,
+    oldStatus: status,
+    newStatus: status,
+    reason,
+    metadata,
+  });
+  await audit(client, {
+    tenantId,
+    actorId,
+    eventType: "absence_request.updated",
+    requestId,
+    reason,
+    metadata,
+  });
+}
+
+async function writeQuotaReclassificationRemainderHistory(client, {
+  tenantId,
+  actorId,
+  sourceRequest,
+  remainderRequest,
+  specialWindow,
+  triggerAction,
+  triggeredByRequestId,
+  triggeredByEventId,
+}) {
+  const metadata = {
+    system_reclassification: true,
+    reclassification_type: "vacation_day_quota_split_remainder",
+    trigger_action: triggerAction,
+    source_request_id: sourceRequest.id,
+    triggered_by_request_id: triggeredByRequestId || null,
+    triggered_by_event_id: triggeredByEventId || null,
+    special_window_id: specialWindow.id,
+    special_window_name: specialWindow.name || null,
+    start_date: toDateString(remainderRequest.start_date),
+    end_date: requestEndDateForWindow(remainderRequest),
+  };
+  await absenceRequestRepository.insertEvent(client, {
+    tenantId,
+    absenceRequestId: remainderRequest.id,
+    eventType: "created",
+    actorTenantUserId: actorId,
+    oldStatus: null,
+    newStatus: remainderRequest.status,
+    reason: "Oprettet som resterende fælles behandlingsdel efter automatisk feriefridagskvote-reklassifikation.",
+    metadata,
+  });
+  await audit(client, {
+    tenantId,
+    actorId,
+    eventType: "absence_request.created",
+    requestId: remainderRequest.id,
+    reason: "Oprettet som resterende fælles behandlingsdel efter automatisk feriefridagskvote-reklassifikation.",
+    metadata,
+  });
+}
+
+async function reclassifyVacationDayQuotaAfterTerminalTransition(client, {
+  tenantId,
+  employeeTenantUserId,
+  actorId,
+  transitionedRequest,
+  triggerEvent = null,
+  triggerAction,
+}) {
+  if (!transitionedRequest || !activeQuotaStatus(transitionedRequest.status)) return [];
+  if (transitionedRequest.special_window_id) return [];
+  const absenceType = absenceTypeFromRequestRow(transitionedRequest);
+  if (!isVacationDayAbsenceType(absenceType)) return [];
+
+  const specialWindow = await resolveQuotaReclassificationWindow(client, {
+    tenantId,
+    employeeTenantUserId,
+    absenceTypeId: transitionedRequest.absence_type_id,
+    startDate: toDateString(transitionedRequest.start_date),
+    endDate: requestEndDateForWindow(transitionedRequest),
+  });
+  if (!specialWindow) return [];
+  const reviewStart = toDateString(specialWindow.review_start_date);
+  if (reviewStart && todayDate() >= reviewStart) return [];
+
+  await absenceRequestRepository.acquireIdempotencyLock(client, {
+    lockKey: `absence:vacation-day-quota:${tenantId}:${employeeTenantUserId}:${specialWindow.id}`,
+  });
+
+  const allocationRows = await absenceSpecialWindowRepository.listVacationDayQuotaAllocationRows(client, {
+    tenantId,
+    employeeTenantUserId,
+    specialWindowId: specialWindow.id,
+    forUpdate: true,
+  });
+  const quota = Number.isInteger(Number(specialWindow.vacation_day_exemption_quota)) ? Number(specialWindow.vacation_day_exemption_quota) : 1;
+  const usedDates = new Set(allocationRows
+    .filter((row) => !row.special_window_id)
+    .map((row) => toDateString(row.absence_date))
+    .filter(Boolean));
+  let availableSlots = Math.max(0, quota - usedDates.size);
+  if (availableSlots <= 0) return [];
+
+  const selectedDatesByRequest = new Map();
+  for (const row of allocationRows) {
+    if (availableSlots <= 0) break;
+    if (String(row.tenant_id || "") !== String(tenantId)) continue;
+    if (String(row.employee_tenant_user_id || "") !== String(employeeTenantUserId)) continue;
+    if (String(row.special_window_id || "") !== String(specialWindow.id)) continue;
+    if (!QUOTA_RECLASSIFICATION_PROMOTABLE_STATUSES.includes(row.status)) continue;
+    const day = toDateString(row.absence_date);
+    if (!day) continue;
+    const key = String(row.id);
+    if (!selectedDatesByRequest.has(key)) selectedDatesByRequest.set(key, []);
+    selectedDatesByRequest.get(key).push(day);
+    availableSlots -= 1;
+  }
+
+  const changes = [];
+  for (const [requestId, selectedDatesRaw] of selectedDatesByRequest.entries()) {
+    const selectedDates = Array.from(new Set(selectedDatesRaw)).sort();
+    if (selectedDates.length === 0) continue;
+    const source = await absenceRequestRepository.findById(client, { tenantId, absenceRequestId: requestId });
+    if (!source || String(source.tenant_id || "") !== String(tenantId)) continue;
+    if (String(source.employee_tenant_user_id || "") !== String(employeeTenantUserId)) continue;
+    if (String(source.special_window_id || "") !== String(specialWindow.id)) continue;
+    if (!QUOTA_RECLASSIFICATION_PROMOTABLE_STATUSES.includes(source.status)) continue;
+    const sourceDays = enumerateDateRange(source.start_date, requestEndDateForWindow(source));
+    if (sourceDays.length === 0 || selectedDates.length > sourceDays.length) continue;
+    const selectedIsPrefix = selectedDates.every((day, index) => sourceDays[index] === day);
+    if (!selectedIsPrefix) throw createHttpError(409, "absence_vacation_day_quota_reclassification_conflict");
+
+    const oldVersion = Number(source.version);
+    const selectedStart = selectedDates[0];
+    const selectedEnd = selectedDates[selectedDates.length - 1];
+    const oldStart = toDateString(source.start_date);
+    const oldEnd = sourceDays[sourceDays.length - 1];
+    let splitCreatedRequestId = null;
+    let splitRemainderDates = null;
+
+    const updated = await absenceRequestRepository.updateQuotaReclassificationSegment(client, {
+      tenantId,
+      absenceRequestId: requestId,
+      startDate: selectedStart,
+      endDate: selectedEnd,
+      specialWindowId: null,
+    });
+    if (!updated) throw createHttpError(409, "absence_vacation_day_quota_reclassification_conflict");
+
+    if (selectedDates.length < sourceDays.length) {
+      const remainderStart = shiftDateString(selectedEnd, 1);
+      const remainderEnd = oldEnd;
+      if (!remainderStart || remainderStart > remainderEnd) throw createHttpError(409, "absence_vacation_day_quota_reclassification_conflict");
+      const remainder = await absenceRequestRepository.insertQuotaReclassificationSegment(client, {
+        sourceRow: source,
+        startDate: remainderStart,
+        endDate: remainderEnd,
+        specialWindowId: specialWindow.id,
+      });
+      splitCreatedRequestId = remainder.id;
+      splitRemainderDates = enumerateDateRange(remainderStart, remainderEnd);
+      await writeQuotaReclassificationRemainderHistory(client, {
+        tenantId,
+        actorId,
+        sourceRequest: source,
+        remainderRequest: remainder,
+        specialWindow,
+        triggerAction,
+        triggeredByRequestId: transitionedRequest.id,
+        triggeredByEventId: triggerEvent?.id || null,
+      });
+    }
+
+    const metadata = buildQuotaReclassificationMetadata({
+      specialWindow,
+      triggerAction,
+      triggeredByRequestId: transitionedRequest.id,
+      triggeredByEventId: triggerEvent?.id || null,
+      oldVersion,
+      newVersion: updated.version,
+      oldStartDate: oldStart,
+      oldEndDate: oldEnd,
+      newStartDate: toDateString(updated.start_date),
+      newEndDate: requestEndDateForWindow(updated),
+      promotedDates: selectedDates,
+      splitCreatedRequestId,
+      splitRemainderDates,
+    });
+    await writeQuotaReclassificationHistory(client, {
+      tenantId,
+      actorId,
+      requestId,
+      status: updated.status,
+      reason: quotaReclassificationReason(triggerAction),
+      metadata,
+    });
+    changes.push({
+      request_id: requestId,
+      promoted_dates: selectedDates,
+      split_created_request_id: splitCreatedRequestId,
+    });
+  }
+
+  return changes;
+}
 async function requireAbsenceType(client, { tenantId, absenceTypeId }) {
   const absenceType = await absenceTypeRepository.findById(client, { tenantId, absenceTypeId });
   if (!absenceType) throw createHttpError(404, "absence_type_not_found");
@@ -452,13 +739,14 @@ function buildSpecialWindowOverlapDetails(overlaps, { startDate, endDate }) {
   };
 }
 
-function buildVacationDayQuotaDetails(specialWindow, { startDate, endDate, usedDates, exemptDates, normalWindowDates }) {
+function buildVacationDayQuotaDetails(specialWindow, { startDate, endDate, usedDates, exemptDates, normalWindowDates, activeCollectiveDates = [] }) {
   const windowInfo = mapPreflightWindow(specialWindow);
   const requestedPeriod = { start_date: toDateString(startDate), end_date: toDateString(endDate || startDate) };
   const quota = Number.isInteger(Number(specialWindow.vacation_day_exemption_quota)) ? Number(specialWindow.vacation_day_exemption_quota) : 1;
   const used = Array.from(new Set((usedDates || []).map(toDateString).filter(Boolean))).sort();
   const exempt = Array.from(new Set((exemptDates || []).map(toDateString).filter(Boolean))).sort();
   const normal = Array.from(new Set((normalWindowDates || []).map(toDateString).filter(Boolean))).sort();
+  const activeCollective = Array.from(new Set((activeCollectiveDates || []).map(toDateString).filter(Boolean))).sort();
   const segments = [];
   let cursor = requestedPeriod.start_date;
   const end = requestedPeriod.end_date;
@@ -491,6 +779,8 @@ function buildVacationDayQuotaDetails(specialWindow, { startDate, endDate, usedD
       used_dates: used,
       exempt_dates: exempt,
       normal_window_dates: normal,
+      active_collective_count: activeCollective.length,
+      active_collective_dates: activeCollective,
     },
     split_suggestion: segments,
   };
@@ -525,11 +815,21 @@ async function buildVacationDayQuotaPreflightDetails(client, {
   const windowEnd = toDateString(specialWindow.absence_end_date);
   const insideDays = requestDays.filter((day) => day >= windowStart && day <= windowEnd);
   if (insideDays.length === 0) return null;
-  const usedDates = (await absenceSpecialWindowRepository.listVacationDayQuotaUsageDates(client, {
-    tenantId,
-    employeeTenantUserId,
-    specialWindowId: specialWindow.id,
-  })).map(toDateString).filter(Boolean);
+  const allocationRows = typeof absenceSpecialWindowRepository.listVacationDayQuotaAllocationRows === "function"
+    ? await absenceSpecialWindowRepository.listVacationDayQuotaAllocationRows(client, {
+      tenantId,
+      employeeTenantUserId,
+      specialWindowId: specialWindow.id,
+    })
+    : [];
+  const usedDates = allocationRows
+    .filter((row) => !row.special_window_id)
+    .map((row) => toDateString(row.absence_date))
+    .filter(Boolean);
+  const activeCollectiveDates = allocationRows
+    .filter((row) => String(row.special_window_id || "") === String(specialWindow.id))
+    .map((row) => toDateString(row.absence_date))
+    .filter(Boolean);
   const usedSet = new Set(usedDates);
   const quota = Number.isInteger(Number(specialWindow.vacation_day_exemption_quota)) ? Number(specialWindow.vacation_day_exemption_quota) : 1;
   const remaining = Math.max(0, quota - usedSet.size);
@@ -542,6 +842,7 @@ async function buildVacationDayQuotaPreflightDetails(client, {
     usedDates,
     exemptDates,
     normalWindowDates,
+    activeCollectiveDates,
   });
 }
 async function resolveSpecialWindow(client, {
@@ -1026,7 +1327,7 @@ async function decideManaged({
     if (approvedAbsenceResult?.approvedAbsence?.id) eventMetadata.approved_absence_id = approvedAbsenceResult.approvedAbsence.id;
     if (normalizedIdempotencyKey) eventMetadata.idempotency_key = normalizedIdempotencyKey;
 
-    await absenceRequestRepository.insertEvent(client, {
+    const decisionEvent = await absenceRequestRepository.insertEvent(client, {
       tenantId: normalizedTenantId,
       absenceRequestId: normalizedRequestId,
       eventType,
@@ -1059,6 +1360,16 @@ async function decideManaged({
         actorId: normalizedUserId,
         approvedAbsence: approvedAbsenceResult.approvedAbsence,
         absenceRequest: updated,
+      });
+    }
+    if (action === "reject") {
+      await reclassifyVacationDayQuotaAfterTerminalTransition(client, {
+        tenantId: normalizedTenantId,
+        employeeTenantUserId: existing.employee_tenant_user_id,
+        actorId: normalizedUserId,
+        transitionedRequest: existing,
+        triggerEvent: decisionEvent,
+        triggerAction: "rejected",
       });
     }
 
@@ -1598,7 +1909,7 @@ async function cancelOwn({ tenantId, userId, absenceRequestId, body }) {
       allowedStatuses: CANCEL_ALLOWED_STATUSES,
     });
     if (!cancelled) throw createHttpError(409, "absence_request_version_conflict");
-    await absenceRequestRepository.insertEvent(client, {
+    const cancelEvent = await absenceRequestRepository.insertEvent(client, {
       tenantId: normalizedTenantId,
       absenceRequestId: normalizedRequestId,
       eventType: "cancelled",
@@ -1621,6 +1932,14 @@ async function cancelOwn({ tenantId, userId, absenceRequestId, body }) {
         old_version: expectedVersion,
         new_version: cancelled.version,
       },
+    });
+    await reclassifyVacationDayQuotaAfterTerminalTransition(client, {
+      tenantId: normalizedTenantId,
+      employeeTenantUserId: normalizedUserId,
+      actorId: normalizedUserId,
+      transitionedRequest: existing,
+      triggerEvent: cancelEvent,
+      triggerAction: "cancelled",
     });
     await absenceNotificationService.enqueueAbsenceCancelled(client, {
       tenantId: normalizedTenantId,
@@ -1666,6 +1985,7 @@ module.exports = {
     normalizeSplitSegmentsPayload,
     preflightResultFromSpecialWindowError,
     resolveSpecialWindow,
+    reclassifyVacationDayQuotaAfterTerminalTransition,
     segmentErrorDetails,
     validateManagedRequestType,
     validateSpecialWindowForDecision,

@@ -233,3 +233,21 @@ verified: Direct `resource_absences` rows now carry nullable provenance/idempote
 verified: Canonical `absence_type.key = 'sickness'` is migrated to `workflow_mode = 'direct_registration'` and `comment_policy = 'required'`. Employee request options only expose active `workflow_mode = 'request'` types, so sickness is not available as an employee request type after the migration. Direct sickness registration requires a note server-side.
 
 verified: Direct absence notes stay in `resource_absences.note` for the tenant-admin direct list/detail surface. They are not selected into calendar event feeds, DatePicker marker data, outbox payloads, notifications, logs, or audit metadata by this change. Direct sickness is visible as `Sygdom` to the employee and relation-scoped manager calendar where the row resolves through `fitter.tenant_user_id`; unrelated employees receive no reason or note.
+
+## Current Direct Absence Visibility and Vacation-Day Quota Notes
+
+verified: Direct `resource_absences` admin list/create endpoints remain tenant-admin absence administration surfaces guarded by `calendar_absence:read/create`; the list/detail payload may include `resource_absences.note` for that authorised admin surface.
+
+verified: Calendar feeds do not select or expose direct absence notes. Own feed rows can show the employee's own absence type and dates. Team feed rows are relation-scoped through active primary `employee_manager_relation`; a broad tenant admin, project leader, or group manager role alone does not grant team-calendar access to another employee's absence.
+
+verified: `visibility_scope = 'manager_full'` means the concrete relation-scoped personnel manager can see the absence type in the team feed. `tenant_admin_only`, `limited_availability`, `finance_relevant`, and `custom` currently resolve to private/redacted calendar feed behavior unless the direct absence type is `sickness`. `finance_relevant` and `custom` are stored enum values, not a separate finance/custom policy engine in the current implementation.
+
+verified: Direct `sickness` is normalised server-side to `visibility_scope = 'manager_full'` and requires a note server-side. The private note is not copied to calendar feeds, DatePicker data, notifications, outbox payloads, audit metadata, or logs by this flow.
+
+verified: Vacation-day quota usage for preflight now distinguishes quota-exempt active days from active days already in collective processing. `used_count` counts active `vacation_day` request dates for the employee/window where `special_window_id IS NULL`; active collective dates are exposed separately as `active_collective_count`/`active_collective_dates` so the UI does not display impossible counters such as `3 af 2`.
+
+verified: Before `review_start_date`, cancellation or rejection of an active quota-exempt `vacation_day` request triggers server-side quota reclassification for the same tenant, employee, and special window. The service takes the existing advisory quota lock, selects active collective `vacation_day` dates by submitted timestamp, created timestamp, request id, and date, promotes only `submitted`/`ready_for_review` requests, and writes request history plus audit metadata without private notes. Partial multi-day promotion is deterministic: the original request is shortened to the promoted prefix and a new remainder request keeps the unpromoted collective dates with the original submitted timestamp and employee comment. No employee notification/outbox mail is emitted by the automatic reclassification itself.
+
+backlog: Manager notifications around special-window review start should be implemented later as one idempotent notification per manager and special window, with pending request count and no private comments in previews.
+
+identity gap: The direct absence resource dropdown prefers `tenant_user.name`, then fitter name/username, then a generated fallback. Local linked test users can therefore display as expected, while E-Komplet-imported employees without a complete `tenant_user` identity mapping may still show imported fitter fields or generated initials. Treat this as an identity-mapping/display task for the fitters/fitterhours phase, not as a mass rewrite of current resource rows.
