@@ -102,7 +102,7 @@ async function findByIdForEmployee(client, { tenantId, employeeTenantUserId, abs
 async function listForEmployee(client, {
   tenantId,
   employeeTenantUserId,
-  status = null,
+  statuses = null,
   dateFrom = null,
   dateTo = null,
   limit = 100,
@@ -149,19 +149,36 @@ async function listForEmployee(client, {
        AND sw.id = ar.special_window_id
       WHERE ar.tenant_id = $1
         AND ar.employee_tenant_user_id = $2
-        AND ($3::text IS NULL OR ar.status = $3::text)
+        AND ($3::text[] IS NULL OR ar.status = ANY($3::text[]))
         AND ($4::date IS NULL OR COALESCE(ar.end_date, ar.start_date) >= $4::date)
         AND ($5::date IS NULL OR ar.start_date <= $5::date)
       ORDER BY ar.created_at DESC, ar.id DESC
       LIMIT $6
       OFFSET $7
     `,
-    [tenantId, employeeTenantUserId, status, dateFrom, dateTo, limit, offset]
+    [tenantId, employeeTenantUserId, statuses, dateFrom, dateTo, limit, offset]
   );
 
   return rows;
 }
 
+async function countForEmployeeByStatus(client, {
+  tenantId,
+  employeeTenantUserId,
+}) {
+  const { rows } = await client.query(
+    `
+      SELECT ar.status, COUNT(*)::int AS count
+      FROM absence_request ar
+      WHERE ar.tenant_id = $1
+        AND ar.employee_tenant_user_id = $2
+      GROUP BY ar.status
+    `,
+    [tenantId, employeeTenantUserId]
+  );
+
+  return rows;
+}
 async function insertRequest(client, {
   tenantId,
   employeeTenantUserId,
@@ -1017,6 +1034,7 @@ async function listEvents(client, { tenantId, absenceRequestId }) {
 module.exports = {
   acquireIdempotencyLock,
   cancelForEmployee,
+  countForEmployeeByStatus,
   findById,
   findByIdForEmployee,
   findByIdForManager,

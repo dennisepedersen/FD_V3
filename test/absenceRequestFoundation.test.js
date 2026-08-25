@@ -197,7 +197,8 @@ test('absence repositories scope find and list queries by tenant', async () => {
   await absenceTypeRepository.listActive(client, { tenantId: uuid(1) });
   await absenceTypeRepository.listActive(client, { tenantId: uuid(1), workflowMode: 'request' });
   await absenceRequestRepository.findById(client, { tenantId: uuid(1), absenceRequestId: uuid(3) });
-  await absenceRequestRepository.listForEmployee(client, { tenantId: uuid(1), employeeTenantUserId: uuid(4) });
+  await absenceRequestRepository.listForEmployee(client, { tenantId: uuid(1), employeeTenantUserId: uuid(4), statuses: ['submitted', 'ready_for_review'] });
+  await absenceRequestRepository.countForEmployeeByStatus(client, { tenantId: uuid(1), employeeTenantUserId: uuid(4) });
   await absenceSpecialWindowRepository.findById(client, { tenantId: uuid(1), specialWindowId: uuid(5) });
   await employeeManagerRelationRepository.findActiveManagersForEmployee(client, { tenantId: uuid(1), employeeTenantUserId: uuid(6), asOfDate: '2026-08-05' });
 
@@ -208,6 +209,11 @@ test('absence repositories scope find and list queries by tenant', async () => {
   assert.match(client.calls[2].sql, /workflow_mode = \$2::text/);
   assert.deepEqual(client.calls[2].params, [uuid(1), 'request']);
   assert.match(client.calls[2].sql, /ORDER BY sort_order ASC, name ASC, id ASC/);
+  assert.match(client.calls[4].sql, /ar\.employee_tenant_user_id = \$2/);
+  assert.match(client.calls[4].sql, /ar\.status = ANY\(\$3::text\[\]\)/);
+  assert.deepEqual(client.calls[4].params.slice(0, 3), [uuid(1), uuid(4), ['submitted', 'ready_for_review']]);
+  assert.match(client.calls[5].sql, /ar\.employee_tenant_user_id = \$2/);
+  assert.deepEqual(client.calls[5].params, [uuid(1), uuid(4)]);
 });
 
 test('request event history is returned chronologically', async () => {

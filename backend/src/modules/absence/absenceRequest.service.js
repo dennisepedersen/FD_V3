@@ -63,11 +63,15 @@ function normalizeIdempotencyKey(value) {
   return normalized;
 }
 
-function normalizeStatusFilter(value) {
+function normalizeStatusListFilter(value) {
   const normalized = normalizeOptionalText(value);
   if (!normalized) return null;
-  if (!STATUS_SET.has(normalized)) throw createHttpError(400, "invalid_absence_request_status_filter");
-  return normalized;
+  const statuses = normalized.split(",").map((item) => item.trim()).filter(Boolean);
+  if (statuses.length === 0) return null;
+  for (const status of statuses) {
+    if (!STATUS_SET.has(status)) throw createHttpError(400, "invalid_absence_request_status_filter");
+  }
+  return Array.from(new Set(statuses));
 }
 
 function normalizeManagerStatusList(value) {
@@ -1125,10 +1129,19 @@ async function getDetailRow(client, { tenantId, employeeTenantUserId, absenceReq
   return row;
 }
 
+function statusCountsFromRows(rows) {
+  const counts = {};
+  (Array.isArray(rows) ? rows : []).forEach((row) => {
+    const status = String(row && row.status || "").trim();
+    if (STATUS_SET.has(status)) counts[status] = Number(row.count || 0);
+  });
+  return counts;
+}
+
 async function listMine({ tenantId, userId, filters = {} }) {
   const normalizedTenantId = normalizeUuid(tenantId, "tenant_id_required");
   const normalizedUserId = normalizeUuid(userId, "tenant_user_id_required");
-  const status = normalizeStatusFilter(filters.status);
+  const statuses = normalizeStatusListFilter(filters.status);
   const dateFrom = normalizeFilterDate(filters.date_from || filters.from, "invalid_absence_request_date_from");
   const dateTo = normalizeFilterDate(filters.date_to || filters.to, "invalid_absence_request_date_to");
   const limit = normalizeLimit(filters.limit);
@@ -1140,14 +1153,19 @@ async function listMine({ tenantId, userId, filters = {} }) {
     const rows = await absenceRequestRepository.listForEmployee(client, {
       tenantId: normalizedTenantId,
       employeeTenantUserId: normalizedUserId,
-      status,
+      statuses,
       dateFrom,
       dateTo,
       limit,
       offset,
     });
+    const countRows = await absenceRequestRepository.countForEmployeeByStatus(client, {
+      tenantId: normalizedTenantId,
+      employeeTenantUserId: normalizedUserId,
+    });
     return {
       requests: rows.map((row) => mapRequest(row, { includeComment: false })),
+      status_counts: statusCountsFromRows(countRows),
       limit,
       offset,
     };

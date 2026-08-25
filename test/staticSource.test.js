@@ -315,6 +315,32 @@ test('absence UI polish exposes focused feedback, split preview and contrast hoo
   assert.doesNotMatch(calendarHtml, /Fravaer|Planlaegning|Ferieonske|Direkte fravaer|Fraværsaarsag|Begraenset|Oekonomi/);
 });
 
+test("absence request UI guards stale terminal actions and splits mine requests into categories", () => {
+  const html = read("backend/src/public/tenant/app.html");
+  const auth = read("backend/src/public/tenant/auth.js");
+
+  assert.match(auth, /function assertAbsenceActionResponseStatus\(response, expectedStatus, conflictCode\)/);
+  assert.match(auth, /assertAbsenceActionResponseStatus\(response, action === "approve" \? "approved" : "rejected", "absence_request_state_conflict"\)/);
+  assert.match(auth, /assertAbsenceActionResponseStatus\(response, "cancelled", "absence_request_not_cancellable"\)/);
+  assert.ok(auth.indexOf('assertAbsenceActionResponseStatus(response, action === "approve" ? "approved" : "rejected"') < auth.indexOf('showAbsenceActionFeedback(action === "approve"'), "manager success feedback must only run after the server response matches the expected terminal state");
+  assert.match(auth, /Anmodningen blev annulleret af medarbejderen og kan ikke l/);
+  assert.match(auth, /button\.disabled = submitting \|\| button\.dataset\.managerDecisionBlocked === "true"/);
+  assert.match(auth, /refreshManagerRequestDetailAfterDecisionError/);
+
+  assert.match(auth, /MINE_REQUEST_CATEGORIES/);
+  assert.match(auth, /label: "Ubehandlede"/);
+  assert.match(auth, /label: "Behandlede"/);
+  assert.match(auth, /label: "Kladder"/);
+  assert.match(auth, /statuses: Object\.freeze\(\["submitted", "ready_for_review", "under_review", "change_proposed"\]\)/);
+  assert.match(auth, /statuses: Object\.freeze\(\["approved", "rejected", "cancelled"\]\)/);
+  assert.match(auth, /mineRequestsByCategory: \{ pending: \[\], treated: \[\], drafts: \[\] \}/);
+  assert.match(auth, /mineRequestCategory: "pending"/);
+  assert.match(auth, /function renderMineRequestCategoryTabs\(\)/);
+  assert.match(auth, /\/api\/calendar\/absence-requests\/mine\?status=\$\{statusQuery\}/);
+  assert.match(auth, /state\.calendar\.mineRequestStatusCounts = response && response\.status_counts/);
+  assert.match(auth, /async function setMineRequestCategory\(categoryKey\)/);
+  assert.match(html, /\.absenceRequestCategoryTabs \{/);
+});
 test("split submit endpoint is routed before dynamic absence request ids", () => {
   const routes = read("backend/src/modules/absence/absence.routes.js");
   assert.ok(routes.indexOf("/api/calendar/absence-requests/split-submit") > -1);

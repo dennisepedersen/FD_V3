@@ -889,6 +889,10 @@
         specialWindowDeadlineDatePicker: null,
         specialWindowReviewStartDatePicker: null,
         mineRequests: [],
+        mineRequestsByCategory: { pending: [], treated: [], drafts: [] },
+        mineLoadedCategories: { pending: false, treated: false, drafts: false },
+        mineRequestStatusCounts: {},
+        mineRequestCategory: "pending",
         mineLoaded: false,
         mineLoading: false,
         activeRequestId: "",
@@ -3326,6 +3330,12 @@
       if (!parsed) return "";
       return formatDateInput(addDays(parsed, days));
     }
+    const MINE_REQUEST_CATEGORIES = Object.freeze([
+      { key: "pending", label: "Ubehandlede", statuses: Object.freeze(["submitted", "ready_for_review", "under_review", "change_proposed"]) },
+      { key: "treated", label: "Behandlede", statuses: Object.freeze(["approved", "rejected", "cancelled"]) },
+      { key: "drafts", label: "Kladder", statuses: Object.freeze(["draft"]) },
+    ]);
+
     function getRequestStatusKey(status) {
       const normalized = String(status || "unknown").toLowerCase().replace(/_/g, "-");
       return normalized.replace(/[^a-z0-9-]/g, "") || "unknown";
@@ -3403,6 +3413,70 @@
       const labels = { draft: "Kladde", submitted: "Modtaget", ready_for_review: "Klar til behandling", under_review: "Under behandling", approved: "Godkendt", rejected: "Afvist", cancelled: "Annulleret", change_proposed: "Ændringsforslag" };
       return labels[normalized] || String(status || "Ukendt");
     }
+    function getMineRequestCategoryDefinition(key) {
+      return MINE_REQUEST_CATEGORIES.find((item) => item.key === key) || MINE_REQUEST_CATEGORIES[0];
+    }
+
+    function getMineRequestCategoryForStatus(status) {
+      const normalized = String(status || "").toLowerCase();
+      const category = MINE_REQUEST_CATEGORIES.find((item) => item.statuses.includes(normalized));
+      return category ? category.key : "pending";
+    }
+
+    function getMineRequestCategoryCount(categoryKey) {
+      const category = getMineRequestCategoryDefinition(categoryKey);
+      const counts = state.calendar.mineRequestStatusCounts || {};
+      const total = category.statuses.reduce((sum, status) => sum + Number(counts[status] || 0), 0);
+      if (total > 0 || state.calendar.mineLoaded) return total;
+      if (state.calendar.mineLoadedCategories && state.calendar.mineLoadedCategories[category.key]) return (state.calendar.mineRequestsByCategory[category.key] || []).length;
+      return null;
+    }
+
+    function getMineRequestTotalCount() {
+      const counts = state.calendar.mineRequestStatusCounts || {};
+      return Object.keys(counts).reduce((sum, status) => sum + Number(counts[status] || 0), 0);
+    }
+
+    function mergeMineRequestCaches() {
+      const merged = [];
+      MINE_REQUEST_CATEGORIES.forEach((category) => {
+        (state.calendar.mineRequestsByCategory[category.key] || []).forEach((request) => merged.push(request));
+      });
+      state.calendar.mineRequests = merged;
+    }
+
+    function getMineRequestsForActiveCategory() {
+      const category = getMineRequestCategoryDefinition(state.calendar.mineRequestCategory);
+      return state.calendar.mineRequestsByCategory[category.key] || [];
+    }
+
+    function renderMineRequestCategoryTabs() {
+      const list = byId("absenceRequestList");
+      if (!list || !list.parentNode) return;
+      let tabs = byId("absenceRequestCategoryTabs");
+      if (!tabs) {
+        tabs = document.createElement("div");
+        tabs.id = "absenceRequestCategoryTabs";
+        tabs.className = "calendarTabs absenceWorkspaceTabs absenceRequestCategoryTabs";
+        tabs.setAttribute("role", "tablist");
+        tabs.setAttribute("aria-label", "Filtrer mine fraværsanmodninger");
+        list.parentNode.insertBefore(tabs, list);
+      }
+      tabs.replaceChildren();
+      MINE_REQUEST_CATEGORIES.forEach((category) => {
+        const active = getMineRequestCategoryDefinition(state.calendar.mineRequestCategory).key === category.key;
+        const count = getMineRequestCategoryCount(category.key);
+        const label = Number.isInteger(count) ? `${category.label} (${count})` : category.label;
+        const button = document.createElement("button");
+        button.className = active ? "calendarTab active" : "calendarTab";
+        button.type = "button";
+        button.setAttribute("role", "tab");
+        button.setAttribute("aria-selected", active ? "true" : "false");
+        button.textContent = label;
+        button.addEventListener("click", () => setMineRequestCategory(category.key));
+        tabs.appendChild(button);
+      });
+    }
     function getSpecialWindowStatusLabel(status) {
       const labels = { draft: "Kladde", scheduled: "Planlagt", open: "Åben", closed_waiting_review: "Lukket - afventer behandling", review_open: "Behandling åben", ended: "Afsluttet", archived: "Arkiveret" };
       return labels[String(status || "").toLowerCase()] || String(status || "Ukendt");
@@ -3442,6 +3516,8 @@
       if (code === "absence_manager_not_found" || code === "absence_primary_manager_not_found" || code === "absence_manager_relation_not_found") return "Der mangler en entydig lederrelation for medarbejderen.";
       if (code === "absence_manager_ambiguous" || code === "absence_primary_manager_ambiguous") return "Der er mere end en mulig leder. Kontakt administrator.";
       if (code === "absence_special_window_approve_blocked_before_review") return "Anmodningen kan behandles fra review-start.";
+      if (code === "absence_request_cancelled_by_employee") return "Anmodningen blev annulleret af medarbejderen og kan ikke længere behandles.";
+      if (code === "absence_request_not_cancellable") return "Anmodningen er allerede behandlet eller kan ikke længere annulleres. Listen er opdateret.";
       if (code === "special_window_has_requests_protected_fields") return "Perioden har anmodninger. Datoer, scope og deadline-politik kan ikke ændres nu.";
       if (code === "absence_type_inactive" || code === "absence_type_not_found") return "Fraværstypen kan ikke bruges til nye anmodninger.";
       if (code === "version_conflict" || code === "absence_request_version_conflict") return "Anmodningen er \u00e6ndret. Den aktuelle version er hentet, s\u00e5 du kan pr\u00f8ve igen.";
@@ -3462,7 +3538,7 @@
     }
 
     function updateCalendarTabCounts() {
-      setCalendarTabLabel("requests", "Mine anmodninger", state.calendar.mineLoaded ? (Array.isArray(state.calendar.mineRequests) ? state.calendar.mineRequests.length : 0) : null);
+      setCalendarTabLabel("requests", "Mine anmodninger", state.calendar.mineLoaded ? getMineRequestTotalCount() : null);
       setCalendarTabLabel("manager", "Afventer behandling", !state.calendar.managerAccessDenied && state.calendar.managerLoaded ? (Array.isArray(state.calendar.managerRequests) ? state.calendar.managerRequests.length : 0) : null);
       setCalendarTabLabel("absences", "Direkte frav\u00e6r", isTenantAdmin(state.me) && state.calendar.loadedKey ? (Array.isArray(state.calendar.absences) ? state.calendar.absences.length : 0) : null);
     }
@@ -4366,11 +4442,13 @@
       const list = byId("absenceRequestList");
       if (!list) return;
       list.replaceChildren();
-      const requests = Array.isArray(state.calendar.mineRequests) ? state.calendar.mineRequests : [];
-      setText(byId("absenceRequestListMeta"), state.calendar.mineLoading ? "Indlæser anmodninger..." : requests.length === 1 ? "1 anmodning." : `${requests.length} anmodninger.`);
+      renderMineRequestCategoryTabs();
+      const category = getMineRequestCategoryDefinition(state.calendar.mineRequestCategory);
+      const requests = getMineRequestsForActiveCategory();
+      setText(byId("absenceRequestListMeta"), state.calendar.mineLoading ? `Indlæser ${category.label.toLowerCase()}...` : requests.length === 1 ? `1 anmodning i ${category.label.toLowerCase()}.` : `${requests.length} anmodninger i ${category.label.toLowerCase()}.`);
       updateCalendarTabCounts();
       if (!state.calendar.mineLoading && requests.length === 0) {
-        appendText(list, "p", "calendarMessage", "Du har ingen fraværsanmodninger endnu.");
+        appendText(list, "p", "calendarMessage", category.key === "pending" ? "Du har ingen ubehandlede fraværsanmodninger." : category.key === "treated" ? "Du har ingen behandlede fraværsanmodninger." : "Du har ingen kladder.");
         return;
       }
       requests.forEach((request) => {
@@ -4387,26 +4465,33 @@
         actions.className = "resourceGroupActions";
         appendButton(actions, "Vis", "btn btnCompact", (event) => loadMineAbsenceRequestDetail(request.id, event.currentTarget));
         if (String(request.status) === "draft") appendButton(actions, "Rediger", "btn btnCompact", () => editMineAbsenceRequest(request));
-        if (String(request.status) === "draft" || String(request.status) === "submitted") appendButton(actions, "Annuller", "btn btnCompact", (event) => cancelMineAbsenceRequest(request, event.currentTarget));
+        if (["draft", "submitted"].includes(String(request.status || "").toLowerCase())) appendButton(actions, "Annuller", "btn btnCompact", (event) => cancelMineAbsenceRequest(request, event.currentTarget));
         card.appendChild(actions);
         list.appendChild(card);
       });
     }
-
     async function loadMineAbsenceRequests(options) {
-      if (!(options && options.force) && state.calendar.mineLoaded) {
+      const category = getMineRequestCategoryDefinition(options && options.category ? options.category : state.calendar.mineRequestCategory);
+      const loaded = state.calendar.mineLoadedCategories && state.calendar.mineLoadedCategories[category.key];
+      if (!(options && options.force) && loaded) {
         renderMineAbsenceRequests();
         return;
       }
       state.calendar.mineLoading = true;
       renderMineAbsenceRequests();
       try {
-        const response = await apiFetch("/api/calendar/absence-requests/mine", { method: "GET" });
-        state.calendar.mineRequests = response && Array.isArray(response.requests) ? response.requests : [];
+        const statusQuery = encodeURIComponent(category.statuses.join(","));
+        const response = await apiFetch(`/api/calendar/absence-requests/mine?status=${statusQuery}`, { method: "GET" });
+        state.calendar.mineRequestsByCategory[category.key] = response && Array.isArray(response.requests) ? response.requests : [];
+        state.calendar.mineRequestStatusCounts = response && response.status_counts ? response.status_counts : state.calendar.mineRequestStatusCounts || {};
+        state.calendar.mineLoadedCategories[category.key] = true;
         state.calendar.mineLoaded = true;
+        mergeMineRequestCaches();
       } catch (error) {
         if (error && error.status === 403) {
-          state.calendar.mineRequests = [];
+          state.calendar.mineRequestsByCategory[category.key] = [];
+          state.calendar.mineLoadedCategories[category.key] = true;
+          mergeMineRequestCaches();
           state.calendar.mineLoaded = true;
           setText(byId("absenceRequestListMeta"), "Du har ikke adgang til fraværsanmodninger.");
           return;
@@ -4420,6 +4505,13 @@
       }
     }
 
+    async function setMineRequestCategory(categoryKey) {
+      const category = getMineRequestCategoryDefinition(categoryKey);
+      if (state.calendar.mineRequestCategory === category.key && state.calendar.mineLoadedCategories[category.key]) return;
+      state.calendar.mineRequestCategory = category.key;
+      renderMineAbsenceRequests();
+      await loadMineAbsenceRequests({ category: category.key });
+    }
     function renderAbsenceRequestDetail(request, target) {
       const detail = target || absenceActionModalBody;
       if (!detail || !request) return;
@@ -4474,15 +4566,21 @@
       const confirmed = await confirmAbsenceAction({ title: "Annuller anmodning", subtitle: "Anmodningen ændres kun, hvis du bekræfter.", message: "Vil du annullere denne fraværsanmodning?", confirmLabel: "Annuller anmodning", trigger });
       if (!confirmed) return;
       try {
-        await apiFetch(`/api/calendar/absence-requests/${encodeURIComponent(request.id)}/cancel`, {
+        const response = await apiFetch(`/api/calendar/absence-requests/${encodeURIComponent(request.id)}/cancel`, {
           method: "POST",
           body: JSON.stringify({ version: request.version }),
         });
+        assertAbsenceActionResponseStatus(response, "cancelled", "absence_request_not_cancellable");
         state.calendar.mineLoaded = false;
         await loadMineAbsenceRequests({ force: true });
       } catch (error) {
         if (handleAuthFailure(error)) return;
-        setText(byId("absenceRequestListMeta"), getAbsenceDomainErrorMessage(error));
+        const message = getAbsenceDomainErrorMessage(error);
+        if (error && (error.status === 409 || error.code === "absence_request_not_cancellable" || error.code === "absence_request_version_conflict")) {
+          state.calendar.mineLoadedCategories[state.calendar.mineRequestCategory] = false;
+          await loadMineAbsenceRequests({ force: true });
+        }
+        setText(byId("absenceRequestListMeta"), message);
       }
     }
 
@@ -4615,6 +4713,29 @@
       }
     }
 
+    function createAbsenceStateConflictError(code, request) {
+      const error = new Error(code);
+      error.status = 409;
+      error.code = code;
+      error.details = request ? { request } : null;
+      return error;
+    }
+
+    function assertAbsenceActionResponseStatus(response, expectedStatus, conflictCode) {
+      const request = response && response.request ? response.request : null;
+      if (!request || String(request.status || "").toLowerCase() !== expectedStatus) {
+        throw createAbsenceStateConflictError(conflictCode, request);
+      }
+      return request;
+    }
+
+    function managerDecisionConflictMessage(fallback, request) {
+      const status = String(request && request.status || "").toLowerCase();
+      if (status === "cancelled") return "Anmodningen blev annulleret af medarbejderen og kan ikke længere behandles.";
+      if (status === "approved") return "Anmodningen er allerede godkendt og kan ikke behandles igen.";
+      if (status === "rejected") return "Anmodningen er allerede afvist og kan ikke behandles igen.";
+      return fallback;
+    }
     function isManagerDecisionBlockedBeforeReview(request) {
       const reviewStart = request && request.special_window ? String(request.special_window.review_start_date || "").slice(0, 10) : "";
       if (!reviewStart) return false;
@@ -4678,10 +4799,11 @@
       try {
         const response = await apiFetch(`/api/calendar/absence-requests/manager/${encodeURIComponent(requestId)}`, { method: "GET" });
         const latest = response && response.request ? { ...response.request, events: response.events || [], _decision_error: message } : null;
+        const currentMessage = managerDecisionConflictMessage(message, latest);
         if (latest && ["submitted", "ready_for_review"].includes(String(latest.status || "").toLowerCase())) {
-          renderManagerRequestDetail(latest, target || absenceActionModalBody);
+          renderManagerRequestDetail({ ...latest, _decision_error: currentMessage }, target || absenceActionModalBody);
         } else if (target) {
-          target.textContent = "Anmodningen kan ikke behandles l\u00e6ngere. Listen er opdateret.";
+          target.textContent = currentMessage;
         }
         state.calendar.managerLoaded = false;
         await loadManagerRequests({ force: true });
@@ -4716,10 +4838,11 @@
         setManagerDecisionPending(true);
         const payload = { version: request.version };
         if (decisionMessage) payload.reason = decisionMessage;
-        await apiFetch(`/api/calendar/absence-requests/${encodeURIComponent(request.id)}/${action}`, {
+        const response = await apiFetch(`/api/calendar/absence-requests/${encodeURIComponent(request.id)}/${action}`, {
           method: "POST",
           body: JSON.stringify(payload),
         });
+        assertAbsenceActionResponseStatus(response, action === "approve" ? "approved" : "rejected", "absence_request_state_conflict");
         state.calendar.managerLoaded = false;
         state.calendar.teamAgendaLoaded = false;
         await loadManagerRequests({ force: true });

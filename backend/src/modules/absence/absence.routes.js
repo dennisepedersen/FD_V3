@@ -88,6 +88,7 @@ router.get("/api/calendar/absence-requests/mine", requireTenantHost, requireAuth
     res.status(200).json({
       success: true,
       requests: result.requests,
+      status_counts: result.status_counts,
       limit: result.limit,
       offset: result.offset,
     });

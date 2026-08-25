@@ -871,6 +871,57 @@ test("employee absence request routes are tenant-authenticated, permission-gated
   assert.match(tenantSurfaceRoutes, /router\.use\(absenceRoutes\)/);
 });
 
+test("mine request list supports category status filters and status counts", async () => {
+  const client = createTxClient();
+  let listArgs = null;
+  let countArgs = null;
+
+  await withPatches([
+    [pool, "connect", async () => client],
+    [absenceRequestRepository, "listForEmployee", async (_client, args) => {
+      listArgs = args;
+      return [detailRow({ status: "submitted", submitted_at: "2026-08-06T00:00:00.000Z" })];
+    }],
+    [absenceRequestRepository, "countForEmployeeByStatus", async (_client, args) => {
+      countArgs = args;
+      return [
+        { status: "submitted", count: 1 },
+        { status: "ready_for_review", count: 2 },
+        { status: "approved", count: 3 },
+        { status: "cancelled", count: 1 },
+      ];
+    }],
+  ], async () => {
+    const result = await absenceRequestService.listMine({
+      tenantId: uuid(1),
+      userId: uuid(2),
+      filters: { status: "submitted,ready_for_review,submitted" },
+    });
+
+    assert.equal(result.requests.length, 1);
+    assert.deepEqual(listArgs.statuses, ["submitted", "ready_for_review"]);
+    assert.equal(listArgs.tenantId, uuid(1));
+    assert.equal(listArgs.employeeTenantUserId, uuid(2));
+    assert.deepEqual(countArgs, { tenantId: uuid(1), employeeTenantUserId: uuid(2) });
+    assert.deepEqual(result.status_counts, {
+      submitted: 1,
+      ready_for_review: 2,
+      approved: 3,
+      cancelled: 1,
+    });
+  });
+
+  await withPatches([
+    [pool, "connect", async () => createTxClient()],
+    [absenceRequestRepository, "listForEmployee", async () => []],
+    [absenceRequestRepository, "countForEmployeeByStatus", async () => []],
+  ], async () => {
+    await assert.rejects(
+      absenceRequestService.listMine({ tenantId: uuid(1), userId: uuid(2), filters: { status: "slettet" } }),
+      (error) => error.statusCode === 400 && error.message === "invalid_absence_request_status_filter"
+    );
+  });
+});
 test("absence request type options are request-only, ordered and safe for UI", async () => {
   const rows = [
     {
@@ -1360,6 +1411,43 @@ test("cancel allows draft and submitted only and rejects approved without event"
   assert.equal(eventCount, 0);
 });
 
+test("stale employee cancel after manager decision returns conflict without cancel side effects", async () => {
+  for (const status of ["approved", "rejected"]) {
+    const client = createTxClient();
+    let cancelCount = 0;
+    let eventCount = 0;
+    let auditCount = 0;
+    let notificationCount = 0;
+
+    await withPatches([
+      [pool, "connect", async () => client],
+      [absenceRequestRepository, "findByIdForEmployee", async () => detailRow({ status, version: 5, reviewed_at: "2026-08-06T01:00:00.000Z" })],
+      [absenceRequestRepository, "cancelForEmployee", async () => {
+        cancelCount += 1;
+      }],
+      [absenceRequestRepository, "insertEvent", async () => {
+        eventCount += 1;
+      }],
+      [auditService, "logAuditEvent", async () => {
+        auditCount += 1;
+      }],
+      [absenceNotificationService, "enqueueAbsenceCancelled", async () => {
+        notificationCount += 1;
+      }],
+    ], async () => {
+      await assert.rejects(
+        absenceRequestService.cancelOwn({ tenantId: uuid(1), userId: uuid(2), absenceRequestId: uuid(10), body: { version: 4 } }),
+        (error) => error.statusCode === 409 && error.message === "absence_request_not_cancellable"
+      );
+    });
+
+    assert.equal(cancelCount, 0, status);
+    assert.equal(eventCount, 0, status);
+    assert.equal(auditCount, 0, status);
+    assert.equal(notificationCount, 0, status);
+    assert.deepEqual(client.calls.map((call) => call.sql).filter((sql) => ["BEGIN", "COMMIT", "ROLLBACK"].includes(sql)), ["BEGIN", "ROLLBACK"], status);
+  }
+});
 test("special-window submit timing enforces open date and late policy", () => {
   const base = {
     id: uuid(50),
@@ -1967,6 +2055,56 @@ test("manager decision rejects wrong manager, stale version and repeated termina
   assert.equal(duplicateEventCount, 0);
 });
 
+test("stale manager decision after employee cancel returns conflict without approval side effects", async () => {
+  for (const action of ["approve", "reject"]) {
+    const client = createTxClient();
+    let updateCount = 0;
+    let materializeCount = 0;
+    let eventCount = 0;
+    let auditCount = 0;
+    let approvedNotificationCount = 0;
+    let rejectedNotificationCount = 0;
+
+    await withPatches([
+      [pool, "connect", async () => client],
+      [absenceRequestRepository, "findByIdForManager", async () => managerRow({ status: "cancelled", version: 5, cancelled_at: "2026-08-06T01:00:00.000Z" })],
+      [absenceRequestRepository, "updateManagedDecision", async () => {
+        updateCount += 1;
+      }],
+      [approvedAbsenceService, "materializeFromApprovedRequest", async () => {
+        materializeCount += 1;
+      }],
+      [absenceRequestRepository, "insertEvent", async () => {
+        eventCount += 1;
+      }],
+      [auditService, "logAuditEvent", async () => {
+        auditCount += 1;
+      }],
+      [absenceNotificationService, "enqueueAbsenceApproved", async () => {
+        approvedNotificationCount += 1;
+      }],
+      [absenceNotificationService, "enqueueAbsenceRejected", async () => {
+        rejectedNotificationCount += 1;
+      }],
+    ], async () => {
+      const call = action === "approve"
+        ? absenceRequestService.approveManaged({ tenantId: uuid(1), userId: uuid(5), absenceRequestId: uuid(10), body: { version: 4 } })
+        : absenceRequestService.rejectManaged({ tenantId: uuid(1), userId: uuid(5), absenceRequestId: uuid(10), body: { version: 4, reason: "Ikke muligt" } });
+      await assert.rejects(
+        call,
+        (error) => error.statusCode === 409 && error.message === "absence_request_not_reviewable"
+      );
+    });
+
+    assert.equal(updateCount, 0, action);
+    assert.equal(materializeCount, 0, action);
+    assert.equal(eventCount, 0, action);
+    assert.equal(auditCount, 0, action);
+    assert.equal(approvedNotificationCount, 0, action);
+    assert.equal(rejectedNotificationCount, 0, action);
+    assert.deepEqual(client.calls.map((call) => call.sql).filter((sql) => ["BEGIN", "COMMIT", "ROLLBACK"].includes(sql)), ["BEGIN", "ROLLBACK"], action);
+  }
+});
 test("manager decision rejects non-reviewable and opposite terminal statuses", async () => {
   for (const [action, status] of [
     ...["draft", "cancelled", "change_proposed", "under_review", "rejected"].map((status) => ["approve", status]),
