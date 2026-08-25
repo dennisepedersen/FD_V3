@@ -24,6 +24,7 @@ Scope: points to docs; does not replace them
 | `backend/docs/standards/fd_implementation_rules.md` | Backend evidence, mapping, tenant filtering, no-guessing rules | Current |
 | `backend/docs/decisions/*.md` | Verified backend decisions | Current |
 | `backend/docs/integrations/ek/*.md` | E-Komplet endpoint contracts | Current |
+| `backend/docs/integrations/ek/ek_external_api_v4_openapi.json` | Canonical complete EK External API v4 OpenAPI reference | External reference |
 | `backend/docs/operations/*.md` | Operational notes, including Render service facts | Current |
 | `backend/docs/mappings/*.md` | Mapping and scope notes | Current, some gaps documented |
 | `backend/docs/audits/*.md` | Current audits and known mismatches | Current but time-sensitive |
@@ -62,6 +63,8 @@ Scope: points to docs; does not replace them
 | Doc | Use For | Status |
 | --- | --- | --- |
 | `backend/docs/integrations/ek/project_status_model.md` | Canonical EK project lifecycle/WIP status truth | Verified |
+| `backend/docs/integrations/ek/README.md` | EK integration reference index and canonical OpenAPI usage rules | Current |
+| `backend/docs/integrations/ek/ek_external_api_v4_openapi.json` | Complete EK External API v4 OpenAPI reference | External reference |
 | `backend/docs/integrations/ek/projects_v4_masterdata.md` | E-Komplet v4 project masterdata contract | Verified |
 | `backend/docs/integrations/ek/projects_v3_wip.md` | E-Komplet v3 WIP enrichment contract | Verified |
 | `backend/docs/integrations/ek/fitters.md` | E-Komplet v4 fitter master import contract | Verified |
