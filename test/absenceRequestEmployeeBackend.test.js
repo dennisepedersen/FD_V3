@@ -1819,6 +1819,67 @@ test("manager approve is transactional, versioned, audited and enqueues employee
   assert.deepEqual(client.calls.map((call) => call.sql).filter((sql) => ["BEGIN", "COMMIT", "ROLLBACK"].includes(sql)), ["BEGIN", "COMMIT"]);
 });
 
+test("manager approve accepts quota-promoted vacation-day request after reclassification clears special window", async () => {
+  const client = createTxClient();
+  let currentRow = managerRow({
+    absence_type_key: "vacation_day",
+    absence_type_name: "Feriefridag",
+    absence_type_special_window_eligible: true,
+    status: "submitted",
+    version: 8,
+    special_window_id: null,
+    special_window_name: null,
+    special_window_review_start_date: null,
+  });
+  let detailArgs = null;
+  let updateArgs = null;
+  let eventArgs = null;
+  let materializeArgs = null;
+
+  await withPatches([
+    [pool, "connect", async () => client],
+    [absenceRequestRepository, "findByIdForManager", async (_client, args) => {
+      detailArgs = args;
+      return currentRow;
+    }],
+    [absenceRequestRepository, "updateManagedDecision", async (_client, args) => {
+      updateArgs = args;
+      currentRow = { ...currentRow, status: "approved", version: 9, reviewed_at: "2026-08-06T01:00:00.000Z" };
+      return currentRow;
+    }],
+    [approvedAbsenceService, "materializeFromApprovedRequest", async (_client, args) => {
+      materializeArgs = args;
+      return { approvedAbsence: { id: uuid(70), source_type: "absence_request", source_id: uuid(10) }, created: true };
+    }],
+    [absenceRequestRepository, "insertEvent", async (_client, args) => {
+      eventArgs = args;
+      return { id: uuid(20) };
+    }],
+    [auditService, "logAuditEvent", async () => {}],
+    [absenceRequestRepository, "findNotificationContextById", async () => notificationContextRow({ status: "approved", absence_type_name: "Feriefridag" })],
+    [absenceNotificationService, "enqueueAbsenceApproved", async () => {}],
+  ], async () => {
+    const result = await absenceRequestService.approveManaged({
+      tenantId: uuid(1),
+      userId: uuid(5),
+      absenceRequestId: uuid(10),
+      body: { version: 8 },
+    });
+    assert.equal(result.request.status, "approved");
+  });
+
+  assert.equal(detailArgs.tenantId, uuid(1));
+  assert.equal(detailArgs.managerTenantUserId, uuid(5));
+  assert.equal(detailArgs.absenceRequestId, uuid(10));
+  assert.equal(updateArgs.expectedVersion, 8);
+  assert.deepEqual(updateArgs.fromStatuses, ["submitted", "ready_for_review"]);
+  assert.equal(updateArgs.toStatus, "approved");
+  assert.equal(materializeArgs.absenceRequest.status, "approved");
+  assert.equal(materializeArgs.absenceRequest.special_window_id, null);
+  assert.equal(eventArgs.eventType, "approved");
+  assert.equal(Object.prototype.hasOwnProperty.call(eventArgs.metadata, "special_window_id"), false);
+  assert.deepEqual(client.calls.map((call) => call.sql).filter((sql) => ["BEGIN", "COMMIT", "ROLLBACK"].includes(sql)), ["BEGIN", "COMMIT"]);
+});
 test("manager reject stores reason in event but not audit metadata and enqueues employee outbox", async () => {
   const client = createTxClient();
   let currentRow = managerRow({ status: "ready_for_review" });

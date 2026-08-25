@@ -249,11 +249,19 @@ test("calendar date overlap contract covers boundary, year and leap-day cases", 
 });
 test("calendar feed mapping redacts manager titles based on visibility and omits private fields", () => {
   const own = mapApprovedAbsenceEvent(approvedAbsenceRow({ visibility_policy: "private" }), { scope: "mine" });
+  const ownSickness = mapApprovedAbsenceEvent(approvedAbsenceRow({ source_type: "direct_registration", absence_type_key: "sickness", absence_type_name: "Sygdom", visibility_policy: "manager_visible", note: "knæoperation" }), { scope: "mine" });
   const teamPrivate = mapApprovedAbsenceEvent(approvedAbsenceRow({ visibility_policy: "private" }), { scope: "team" });
   const teamVisible = mapApprovedAbsenceEvent(approvedAbsenceRow({ visibility_policy: "manager_visible" }), { scope: "team" });
 
   assert.equal(own.title, "Ferie");
   assert.equal(own.visibility.reason_visible, true);
+  assert.equal(ownSickness.title, "Sygdom");
+  assert.equal(ownSickness.visibility.reason_visible, true);
+  assert.equal(Object.prototype.hasOwnProperty.call(ownSickness, "note"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(ownSickness, "employee_comment"), false);
+  assert.equal(String(ownSickness.title), "Sygdom");
+  assert.notEqual(String(ownSickness.title), "true");
+  assert.notEqual(String(ownSickness.title), "false");
   assert.equal(teamPrivate.title, "Ikke til stede");
   assert.equal(teamPrivate.visibility.reason_visible, false);
   assert.equal(teamVisible.title, "Ferie");
@@ -263,7 +271,7 @@ test("calendar feed mapping redacts manager titles based on visibility and omits
   assert.equal(teamSickness.visibility.reason_visible, true);
   assert.equal(mapApprovedAbsenceEvent(approvedAbsenceRow({ employee_name: "Testbruger To", employee_username: "TBT" }), { scope: "mine" }).employee.initials, "TBT");
 
-  for (const event of [own, teamPrivate, teamVisible]) {
+  for (const event of [own, ownSickness, teamPrivate, teamVisible, teamSickness]) {
     assert.deepEqual(Object.keys(event).sort(), [
       "all_day",
       "employee",

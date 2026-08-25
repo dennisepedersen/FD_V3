@@ -3444,7 +3444,8 @@
       if (code === "absence_special_window_approve_blocked_before_review") return "Anmodningen kan behandles fra review-start.";
       if (code === "special_window_has_requests_protected_fields") return "Perioden har anmodninger. Datoer, scope og deadline-politik kan ikke ændres nu.";
       if (code === "absence_type_inactive" || code === "absence_type_not_found") return "Fraværstypen kan ikke bruges til nye anmodninger.";
-      if (code === "version_conflict") return "Data er ændret af en anden handling. Opdater og prøv igen.";
+      if (code === "version_conflict" || code === "absence_request_version_conflict") return "Anmodningen er \u00e6ndret. Den aktuelle version er hentet, s\u00e5 du kan pr\u00f8ve igen.";
+      if (code === "absence_request_not_reviewable") return "Anmodningen kan ikke behandles l\u00e6ngere. Listen er opdateret.";
       if (code === "calendar_event_access_denied" || code === "absence_special_window_access_denied" || code === "absence_request_access_denied") return "Du har ikke adgang til denne visning.";
       return "Noget gik galt. Prøv igen.";
     }
@@ -3482,9 +3483,10 @@
       if (!disabled) updateAbsenceContinueState();
     }
     function setManagerDecisionPending(pending) {
-      state.calendar.managerDecisionSubmitting = Boolean(pending);
+      const submitting = Boolean(pending);
+      state.calendar.managerDecisionSubmitting = submitting;
       document.querySelectorAll("[data-manager-decision-action]").forEach((button) => {
-        button.disabled = state.calendar.managerDecisionSubmitting;
+        button.disabled = submitting || button.dataset.managerDecisionBlocked === "true";
       });
     }
     function updateDecisionMessageCounter(textarea, counter) {
@@ -3513,6 +3515,15 @@
         disabled: decoration.disabled === true,
         priority: decoration.priority || 0,
       });
+    }
+
+    function calendarEventTitle(event) {
+      const title = event && event.title;
+      if (typeof title === "string") {
+        const trimmed = title.trim();
+        if (trimmed && trimmed !== "true" && trimmed !== "false") return trimmed;
+      }
+      return "Frav\u00e6r";
     }
 
     function getSpecialWindowDecorationInfo(windowInfo) {
@@ -3553,7 +3564,7 @@
           end,
           styles: ["range", "underline", "info"],
           label: "Godkendt kalenderpost",
-          info: `${event.title || "Frav\u00e6r"} - ${formatDateRange(start, end)}`,
+          info: `${calendarEventTitle(event)} - ${formatDateRange(start, end)}`,
           priority: 25,
         });
       });
@@ -4487,10 +4498,9 @@
       events.forEach((event) => {
         const card = document.createElement("article");
         card.className = "absenceCard";
-        appendText(card, "p", "absenceName", event.title || "Fravær");
+        appendText(card, "p", "absenceName", calendarEventTitle(event));
         const employee = event.employee && event.employee.display_name ? ` - ${event.employee.display_name}` : "";
         appendText(card, "p", "absenceMeta", `${formatDateRange(event.start_date, event.end_date)}${employee}`);
-        if (event.visibility && event.visibility.reason_visible) appendText(card, "p", "absenceNote", event.visibility.reason_visible);
         list.appendChild(card);
       });
     }
@@ -4655,13 +4665,32 @@
       }
       const approveButton = appendButton(actions, "Godkend", "btn btnPrimary", () => decideManagerRequest(request, "approve", textarea.value, textarea));
       approveButton.dataset.managerDecisionAction = "approve";
-      approveButton.disabled = state.calendar.managerDecisionSubmitting || blockedBeforeReview;
+      approveButton.dataset.managerDecisionBlocked = blockedBeforeReview ? "true" : "false";
       const rejectButton = appendButton(actions, "Afvis", "btn btnCompact", () => decideManagerRequest(request, "reject", textarea.value, textarea));
       rejectButton.dataset.managerDecisionAction = "reject";
-      rejectButton.disabled = state.calendar.managerDecisionSubmitting || blockedBeforeReview;
+      rejectButton.dataset.managerDecisionBlocked = blockedBeforeReview ? "true" : "false";
       detail.append(label, actions);
+      setManagerDecisionPending(state.calendar.managerDecisionSubmitting);
+      if (request._decision_error) setManagerDecisionError(textarea, request._decision_error);
     }
 
+    async function refreshManagerRequestDetailAfterDecisionError(requestId, message, target) {
+      try {
+        const response = await apiFetch(`/api/calendar/absence-requests/manager/${encodeURIComponent(requestId)}`, { method: "GET" });
+        const latest = response && response.request ? { ...response.request, events: response.events || [], _decision_error: message } : null;
+        if (latest && ["submitted", "ready_for_review"].includes(String(latest.status || "").toLowerCase())) {
+          renderManagerRequestDetail(latest, target || absenceActionModalBody);
+        } else if (target) {
+          target.textContent = "Anmodningen kan ikke behandles l\u00e6ngere. Listen er opdateret.";
+        }
+        state.calendar.managerLoaded = false;
+        await loadManagerRequests({ force: true });
+        return true;
+      } catch (refreshError) {
+        if (handleAuthFailure(refreshError)) return true;
+        return false;
+      }
+    }
     async function loadManagerRequestDetail(id, trigger) {
       const detail = getAbsenceActionBody("manager", trigger, "Indlæser anmodning...");
       try {
@@ -4698,7 +4727,11 @@
         showAbsenceActionFeedback(action === "approve" ? "Anmodning godkendt" : "Anmodning afvist", action === "approve" ? "Anmodningen er godkendt, og listen er opdateret." : "Anmodningen er afvist, og listen er opdateret.", returnTrigger);
       } catch (error) {
         if (handleAuthFailure(error)) return;
-        setManagerDecisionError(reasonInput, getAbsenceDomainErrorMessage(error));
+        const message = getAbsenceDomainErrorMessage(error);
+        const refreshed = error && (error.status === 409 || error.code === "absence_request_version_conflict" || error.code === "absence_request_not_reviewable")
+          ? await refreshManagerRequestDetailAfterDecisionError(request.id, message, absenceActionModalBody)
+          : false;
+        if (!refreshed) setManagerDecisionError(reasonInput, message);
       } finally {
         setManagerDecisionPending(false);
       }

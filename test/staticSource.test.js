@@ -137,7 +137,11 @@ test('tenant absence UI uses request backend contracts instead of legacy hardcod
   assert.match(auth, /setCalendarTabVisibility\("\[data-absence-team-tab\]", !state\.calendar\.teamAgendaAccessDenied\)/);
   assert.match(auth, /loadTeamAbsenceAgenda\(\{ silent: true \}\)/);
   assert.match(auth, /if \(error && error\.status === 403\) \{\s*state\.calendar\.teamAgendaAccessDenied = true;/);
-  assert.match(auth, /appendText\(card, "p", "absenceName", event\.title \|\| "Fravær"\)/);
+  assert.match(auth, /function calendarEventTitle\(event\)/);
+  assert.match(auth, /appendText\(card, "p", "absenceName", calendarEventTitle\(event\)\)/);
+  assert.match(auth, /info: `\$\{calendarEventTitle\(event\)\} - \$\{formatDateRange\(start, end\)\}`/);
+  assert.doesNotMatch(auth, /appendText\(card, "p", "absenceNote", event\.visibility\.reason_visible\)/);
+  assert.match(auth, /trimmed !== "true" && trimmed !== "false"/);
   assert.doesNotMatch(auth, /absenceTeamAgendaSection/);
   assert.match(auth, /\/api\/calendar\/special-windows/);
   assert.match(auth, /"Idempotency-Key"/);
@@ -215,8 +219,11 @@ test('special-window preflight UI and admin scope controls are wired', () => {
   assert.match(auth, /button\.disabled = !type[\s\S]+getAbsenceRequestPreflightBlockMessage\(\)/);
   assert.match(auth, /function isManagerDecisionBlockedBeforeReview\(request\)/);
   assert.match(auth, /Kan behandles fra \$\{formatDisplayDate\(request\.special_window\.review_start_date\)\}/);
-  assert.match(auth, /approveButton\.disabled = state\.calendar\.managerDecisionSubmitting \|\| blockedBeforeReview/);
-  assert.match(auth, /rejectButton\.disabled = state\.calendar\.managerDecisionSubmitting \|\| blockedBeforeReview/);
+  assert.match(auth, /dataset\.managerDecisionBlocked = blockedBeforeReview \? "true" : "false"/);
+  assert.match(auth, /button\.disabled = submitting \|\| button\.dataset\.managerDecisionBlocked === "true"/);
+  assert.match(auth, /refreshManagerRequestDetailAfterDecisionError/);
+  assert.match(auth, /absence_request_version_conflict/);
+  assert.match(auth, /absence_request_not_reviewable/);
   assert.match(auth, /Ferieønskeperiode: \$\{state\.calendar\.requestPreflight\.special_window\.name/);
   assert.match(html, /id="absenceRequestPreflightStatus"/);
   assert.match(html, /id="specialWindowKeyField"[^>]*hidden/);
