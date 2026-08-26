@@ -16,7 +16,7 @@ async function createTenantAdminUser(client, { tenantId, email, name, passwordHa
 
 async function findActiveUserByUsername(client, { tenantId, username }) {
   const sql = `
-    SELECT id, tenant_id, email, name, role, status, login_status, password_hash, username, session_version
+    SELECT id, tenant_id, email, name, role, status, login_status, password_hash, username, session_version, ek_user_id
     FROM tenant_user
     WHERE tenant_id = $1
       AND lower(username) = lower($2)
@@ -29,7 +29,7 @@ async function findActiveUserByUsername(client, { tenantId, username }) {
 
 async function findTenantUserById(client, { tenantId, userId }) {
   const sql = `
-    SELECT id, tenant_id, email, name, role, status
+    SELECT id, tenant_id, email, name, role, status, ek_user_id
     FROM tenant_user
     WHERE tenant_id = $1
       AND id = $2
@@ -42,7 +42,7 @@ async function findTenantUserById(client, { tenantId, userId }) {
 
 async function findSessionTenantUserById(client, { tenantId, userId }) {
   const sql = `
-    SELECT id, tenant_id, email, name, role, status, login_status, session_version
+    SELECT id, tenant_id, email, name, role, status, login_status, username, session_version, ek_user_id
     FROM tenant_user
     WHERE tenant_id = $1
       AND id = $2

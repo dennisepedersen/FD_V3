@@ -1800,6 +1800,20 @@
       return isTenantAdminImportedUser(user) ? "Login: Importeret uden login" : "Login: Uden login";
     }
 
+    function getTenantAdminIdentityLine(user) {
+      const hasFitter = Boolean(user && user.fitter_id);
+      const linkedLogin = Boolean(user && user.fielddesk_login_linked && hasFitter);
+      const status = String(user && user.identity_link_status ? user.identity_link_status : "unresolved").toLowerCase();
+      const identityLabel = status === "conflict"
+        ? "Konflikt"
+        : (linkedLogin && ["auto_linked", "manually_linked"].includes(status) ? "Koblet" : "Ikke koblet");
+      const fitterId = hasFitter ? String(user.fitter_id) : "-";
+      const reason = status === "conflict" && user && user.identity_link_conflict_reason
+        ? ` | Årsag: ${user.identity_link_conflict_reason}`
+        : "";
+      return `Fielddesk login koblet: ${linkedLogin ? "Ja" : "Nej"} | EK fitter ID: ${fitterId} | Identity: ${identityLabel}${reason}`;
+    }
+
     function getFilteredTenantAdminUsers(users) {
       const ekFilter = state.tenantAdmin.ekStatusFilter || "all";
       const loginFilter = state.tenantAdmin.loginStatusFilter || "all";
@@ -1887,7 +1901,10 @@
         const loginMeta = document.createElement("p");
         loginMeta.className = "resourceGroupMeta";
         loginMeta.textContent = getTenantAdminLoginLine(user);
-        card.append(header, meta, loginMeta);
+        const identityMeta = document.createElement("p");
+        identityMeta.className = "resourceGroupMeta";
+        identityMeta.textContent = getTenantAdminIdentityLine(user);
+        card.append(header, meta, loginMeta, identityMeta);
         renderTenantAdminUserAccessFields(card, user);
         if (user && (user.deactivated_reason || user.deactivated_at || user.reactivation_requested_at)) {
           const lifecycleMeta = document.createElement("p");

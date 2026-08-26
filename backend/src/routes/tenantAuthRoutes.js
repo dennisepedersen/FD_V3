@@ -1,17 +1,65 @@
 const express = require("express");
 const pool = require("../db/pool");
 const requireTenantHost = require("../middleware/requireTenantHost");
+const requireAuth = require("../middleware/requireAuth");
 const { rateLimitRedis } = require("../middleware/rateLimitRedis");
 const userQueries = require("../db/queries/user");
 const auditQueries = require("../db/queries/audit");
 const { verifyPassword } = require("../services/passwordService");
 const { issueAccessToken } = require("../services/jwtService");
+const { resolveCurrentFitter } = require("../services/fitterIdentityService");
 const { createHttpError } = require("../middleware/errorHandler");
 
 const router = express.Router();
 const loginRateLimit = rateLimitRedis({
   windowMs: 60 * 1000,
   maxRequests: 10,
+});
+
+router.get("/api/me", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  const tenantId = req.context?.tenant?.id;
+  const authTenantId = req.auth?.tenant_id;
+  const tenantUserId = req.auth?.sub;
+
+  if (!tenantId || !authTenantId || String(tenantId) !== String(authTenantId)) {
+    return next(createHttpError(403, "tenant_context_mismatch"));
+  }
+
+  const client = await pool.connect();
+  try {
+    const user = await userQueries.findSessionTenantUserById(client, {
+      tenantId,
+      userId: tenantUserId,
+    });
+
+    if (!user || user.status !== "active" || user.login_status !== "active") {
+      return next(createHttpError(401, "tenant_user_inactive"));
+    }
+
+    const linkedFitter = await resolveCurrentFitter(client, {
+      tenantId,
+      tenantUserId,
+    });
+
+    res.json({
+      success: true,
+      user: {
+        id: user.id,
+        tenant_id: user.tenant_id,
+        email: user.email,
+        name: user.name,
+        username: user.username,
+        role: user.role,
+        status: user.status,
+        login_status: user.login_status,
+      },
+      linked_fitter: linkedFitter,
+    });
+  } catch (error) {
+    next(error);
+  } finally {
+    client.release();
+  }
 });
 
 router.post("/v1/auth/login", requireTenantHost, loginRateLimit, async (req, res, next) => {

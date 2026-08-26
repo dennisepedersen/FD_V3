@@ -60,3 +60,15 @@ Fielddesk persists supported fields in `fitter` and keeps the full EK row in `ra
 ## Tenant admin resource group seeding
 
 The tenant admin sync slice can read optional `resourceGroupID` / `resourceGroups` fields if EK returns them, but these fields are not part of the verified field list above in this repo snapshot. When absent, fitter import still succeeds without group membership changes. See `tenant_admin_fitters_resource_groups.md`.
+
+## Fielddesk Identity Foundation
+
+Status: verified, 2026-08-26.
+
+- EK fitter `userID` is materialized as `fitter.ek_user_id` and may be linked tenant-scoped to `tenant_user.ek_user_id`.
+- First automatic linking is allowed only when one active EK fitter and one active Fielddesk `tenant_user` in the same tenant have the same normalized email, the EK `userID` is present, and no existing approved link or tenant-local EK user collision exists.
+- Email is only the bootstrap signal. The persistent identity is the tenant-scoped `tenant_user` <-> EK `userID` <-> EK `fitter_id` link.
+- Name, initials, phone, salary id, employee number and fuzzy matching must not create identity links.
+- EK sync must not move approved links, overwrite manual/preexisting links, delete historical fitters/hours, or recreate links that are unresolved/conflict without a fresh safe match.
+- Current-user resolution uses authenticated server-side `tenant_user` context to find the linked EK `fitter_id`; client-supplied EK FitterID is not authoritative.
+- Worksheet-backed project assignment may consume the verified `fitter.tenant_user_id` link, but assignment source semantics remain in `project_assignment_source`.

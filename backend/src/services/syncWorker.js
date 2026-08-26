@@ -3,6 +3,7 @@ const pool = require("../db/pool");
 const { withTransaction } = require("../db/tx");
 const syncJobQueries = require("../db/queries/syncJob");
 const env = require("../config/env");
+const { resolveFitterIdentityLinksForBatch } = require("./fitterIdentityService");
 const { materializeProjectActivityFromFitterHours } = require("./projectActivityMaterializer");
 const {
   pruneExpiredWorksheetSources,
@@ -830,6 +831,14 @@ function asNullableText(value) {
   return text || null;
 }
 
+function asNullableUuidText(value) {
+  const text = asNullableText(value);
+  if (!text) return null;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(text)
+    ? text.toLowerCase()
+    : null;
+}
+
 function asNullableBoolean(value) {
   if (value == null) return null;
   if (typeof value === "boolean") return value;
@@ -914,6 +923,7 @@ function mapFitterRow(raw) {
 
   return {
     fitterId,
+    ekUserId: asNullableUuidText(pickAny(raw, ["UserID", "UserId", "userID", "userId"])),
     name: asNullableText(pickAny(raw, ["Name", "name"])),
     username: asNullableText(pickAny(raw, ["Username", "username", "Initials", "initials"])),
     email: asNullableText(pickAny(raw, ["Email", "email"])),
@@ -972,9 +982,9 @@ async function upsertFitterBatch(client, { tenantId, mappedRows }) {
     const params = [];
 
     chunk.forEach((row, index) => {
-      const base = index * 39;
+      const base = index * 40;
       values.push(
-        `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10}, $${base + 11}, $${base + 12}, $${base + 13}, $${base + 14}, $${base + 15}, $${base + 16}, $${base + 17}, $${base + 18}, $${base + 19}, $${base + 20}, $${base + 21}, $${base + 22}, $${base + 23}::jsonb, $${base + 24}, $${base + 25}::jsonb, $${base + 26}::jsonb, $${base + 27}, $${base + 28}, $${base + 29}, $${base + 30}, $${base + 31}, $${base + 32}, $${base + 33}, $${base + 34}, $${base + 35}, $${base + 36}, $${base + 37}, $${base + 38}, $${base + 39}::jsonb, now())`
+        `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10}, $${base + 11}, $${base + 12}, $${base + 13}, $${base + 14}, $${base + 15}, $${base + 16}, $${base + 17}, $${base + 18}, $${base + 19}, $${base + 20}, $${base + 21}, $${base + 22}, $${base + 23}::jsonb, $${base + 24}, $${base + 25}::jsonb, $${base + 26}::jsonb, $${base + 27}, $${base + 28}, $${base + 29}, $${base + 30}, $${base + 31}, $${base + 32}, $${base + 33}, $${base + 34}, $${base + 35}, $${base + 36}, $${base + 37}, $${base + 38}, $${base + 39}::uuid, $${base + 40}::jsonb, now())`
       );
       params.push(
         tenantId,
@@ -1015,6 +1025,7 @@ async function upsertFitterBatch(client, { tenantId, mappedRows }) {
         row.sumCostCodeId,
         row.costCodeDisplay,
         row.sumCostCodeDisplay,
+        row.ekUserId,
         JSON.stringify(row.rawPayloadJson || {})
       );
     });
@@ -1060,6 +1071,7 @@ async function upsertFitterBatch(client, { tenantId, mappedRows }) {
           sum_cost_code_id,
           cost_code_display,
           sum_cost_code_display,
+          ek_user_id,
           raw_payload_json,
           synced_at
         )
@@ -1102,6 +1114,7 @@ async function upsertFitterBatch(client, { tenantId, mappedRows }) {
           sum_cost_code_id = EXCLUDED.sum_cost_code_id,
           cost_code_display = EXCLUDED.cost_code_display,
           sum_cost_code_display = EXCLUDED.sum_cost_code_display,
+          ek_user_id = COALESCE(EXCLUDED.ek_user_id, fitter.ek_user_id),
           raw_payload_json = EXCLUDED.raw_payload_json,
           synced_at = EXCLUDED.synced_at,
           updated_at = now()
@@ -2801,6 +2814,10 @@ async function runFittersFullListEndpoint({ job, endpointBases, headers, normali
           tenantId: job.tenant_id,
           mappedRows,
         });
+        await resolveFitterIdentityLinksForBatch(client, {
+          tenantId: job.tenant_id,
+          mappedRows,
+        });
 
         await appendPageLog(client, {
           tenantId: job.tenant_id,
@@ -3057,6 +3074,10 @@ async function runReadOnlyEndpoint({ job, cfg, endpointKey, mode, cutoffContext 
 
             await withTransaction(async (client) => {
               rowsPersisted = await upsertFitterBatch(client, {
+                tenantId: job.tenant_id,
+                mappedRows,
+              });
+              await resolveFitterIdentityLinksForBatch(client, {
                 tenantId: job.tenant_id,
                 mappedRows,
               });
@@ -4322,6 +4343,10 @@ async function runReadOnlyBacklogRetryRound({ job, cfg, endpointKey }) {
               tenantId: job.tenant_id,
               mappedRows,
             });
+            await resolveFitterIdentityLinksForBatch(client, {
+              tenantId: job.tenant_id,
+              mappedRows,
+            });
           } else if (isFitterHours) {
             rowsPersisted = await upsertFitterHourBatch(client, {
               tenantId: job.tenant_id,
@@ -4742,4 +4767,8 @@ function stopSyncWorker() {
 module.exports = {
   startSyncWorker,
   stopSyncWorker,
+  _test: {
+    mapFitterRow,
+    upsertFitterBatch,
+  },
 };

@@ -120,3 +120,10 @@ These are not decided yet and must not be assumed:
 - Data policy for Fielddesk-owned, imported, derived, audit, credential, demo, and file data.
 - Storage/file contract and implementation.
 - Permanent AI/Codex governance doc replacing `docs/AI_BOOTSTRAP_CONTEXT.md` as bootstrap context in all references.
+
+
+## tenant_user_ek_fitter_identity
+
+Status: accepted, 2026-08-26.
+
+Fielddesk materializes EK fitter `userID` and links it tenant-scoped to `tenant_user` only through a conservative exact-email bootstrap. The link state is stored on `fitter` as `auto_linked`, `manually_linked`, `unresolved`, or `conflict`, while `tenant_user.ek_user_id` stores the tenant-local EK user GUID. Existing approved links are preserved and conflicts are marked for investigation instead of being overwritten. Project access remains controlled by Fielddesk assignment tables; EK identity only identifies the current user's EK fitter.

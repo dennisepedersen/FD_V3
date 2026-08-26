@@ -77,6 +77,14 @@ async function listUsers(client, { tenantId, search }) {
           COALESCE(f.source, 'ekomplet') AS source,
           f.external_source,
           f.external_id,
+          f.ek_user_id,
+          tu.ek_user_id AS tenant_user_ek_user_id,
+          COALESCE(f.identity_link_status, CASE WHEN f.tenant_user_id IS NOT NULL THEN 'manually_linked' ELSE 'unresolved' END) AS identity_link_status,
+          f.identity_link_method,
+          f.identity_linked_at,
+          f.identity_link_conflict_reason,
+          f.identity_link_checked_at,
+          (tu.id IS NOT NULL) AS fielddesk_login_linked,
           CASE
             WHEN tu.status IS NOT NULL THEN tu.status
             WHEN f.is_active_derived IS TRUE THEN 'active'
@@ -121,6 +129,7 @@ async function listUsers(client, { tenantId, search }) {
             COALESCE(f.username, '') || ' ' ||
             COALESCE(f.fitter_id, '') || ' ' ||
             COALESCE(f.external_id, '') || ' ' ||
+            COALESCE(f.ek_user_id::text, '') || ' ' ||
             COALESCE(fg.groups::text, '')
           ) AS search_text
         FROM fitter f
@@ -154,6 +163,14 @@ async function listUsers(client, { tenantId, search }) {
           'manual' AS source,
           NULL::text AS external_source,
           NULL::text AS external_id,
+          NULL::uuid AS ek_user_id,
+          tu.ek_user_id AS tenant_user_ek_user_id,
+          'unresolved'::text AS identity_link_status,
+          NULL::text AS identity_link_method,
+          NULL::timestamptz AS identity_linked_at,
+          NULL::text AS identity_link_conflict_reason,
+          NULL::timestamptz AS identity_link_checked_at,
+          false AS fielddesk_login_linked,
           tu.status,
           COALESCE(tu.login_status, CASE WHEN tu.status = 'active' THEN 'active' ELSE 'imported_no_login' END) AS login_status,
           tu.last_invited_at,
@@ -187,6 +204,7 @@ async function listUsers(client, { tenantId, search }) {
             COALESCE(tu.name, '') || ' ' ||
             COALESCE(tu.email, '') || ' ' ||
             COALESCE(tu.username, '') || ' ' ||
+            COALESCE(tu.ek_user_id::text, '') || ' ' ||
             COALESCE(tu.role, '')
           ) AS search_text
         FROM tenant_user tu
@@ -266,10 +284,14 @@ async function createManualFitterForTenantUser(client, {
         tenant_user_id,
         manual_note,
         is_active_derived,
+        identity_link_status,
+        identity_link_method,
+        identity_linked_at,
+        identity_link_checked_at,
         raw_payload_json,
         synced_at
       )
-      VALUES ($1, $2, $3, $4, lower($5), 'manual', 'manual', $2, $6, $7, true, '{}'::jsonb, now())
+      VALUES ($1, $2, $3, $4, lower($5), 'manual', 'manual', $2, $6, $7, true, 'manually_linked', 'manual', now(), now(), '{}'::jsonb, now())
       RETURNING *
     `,
     [tenantId, fitterId, name, username, email, tenantUserId, note || null]

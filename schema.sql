@@ -197,6 +197,9 @@ CREATE TABLE tenant_user (
   deactivated_at timestamptz NULL,
   reactivation_requested_at timestamptz NULL,
   reactivation_requested_by_user_id uuid NULL,
+  ek_user_id uuid NULL,
+  ek_user_linked_at timestamptz NULL,
+  ek_user_link_source text NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT fk_tenant_user_tenant FOREIGN KEY (tenant_id) REFERENCES tenant(id) ON DELETE RESTRICT,
@@ -205,6 +208,7 @@ CREATE TABLE tenant_user (
   CONSTRAINT ck_tenant_user_role CHECK (role IN ('tenant_admin', 'project_leader', 'technician')),
   CONSTRAINT ck_tenant_user_status CHECK (status IN ('active', 'suspended', 'invited', 'deleted', 'deactivated', 'pending_reactivation')),
   CONSTRAINT ck_tenant_user_login_status CHECK (login_status IN ('imported_no_login','pending_invite','invited','active','disabled','pending_reactivation')),
+  CONSTRAINT ck_tenant_user_ek_link_source CHECK (ek_user_link_source IS NULL OR ek_user_link_source IN ('ek_fitter_auto_email', 'manual', 'preexisting')),
   CONSTRAINT ck_tenant_user_password_hash_not_blank CHECK (btrim(password_hash) <> '')
 );
 
@@ -212,6 +216,7 @@ ALTER TABLE tenant_user
   ADD CONSTRAINT uq_tenant_user_id_tenant UNIQUE (id, tenant_id);
 
 CREATE UNIQUE INDEX uq_tenant_user_tenant_email_ci ON tenant_user (tenant_id, lower(email));
+CREATE UNIQUE INDEX uq_tenant_user_tenant_ek_user ON tenant_user (tenant_id, ek_user_id) WHERE ek_user_id IS NOT NULL;
 CREATE INDEX ix_tenant_user_tenant_role_status ON tenant_user (tenant_id, role, status);
 CREATE INDEX ix_tenant_user_lifecycle_status ON tenant_user (tenant_id, status, login_status);
 CREATE INDEX ix_tenant_user_session_version ON tenant_user (tenant_id, id, session_version);
@@ -459,6 +464,7 @@ CREATE TABLE audit_event (
       'tenant_user_reactivation_invite_sent',
       'tenant_user_reactivation_invite_failed',
       'tenant_user_reactivated',
+      'tenant_user_identity_linked',
       'resource_group_created',
       'resource_group_updated',
       'resource_group_member_changed',
@@ -877,12 +883,20 @@ CREATE TABLE fitter (
   sum_cost_code_id text NULL,
   cost_code_display text NULL,
   sum_cost_code_display text NULL,
+  ek_user_id uuid NULL,
+  identity_link_status text NOT NULL DEFAULT 'unresolved',
+  identity_link_method text NULL,
+  identity_linked_at timestamptz NULL,
+  identity_link_conflict_reason text NULL,
+  identity_link_checked_at timestamptz NULL,
   raw_payload_json jsonb NULL,
   synced_at timestamptz NOT NULL DEFAULT now(),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT fk_fitter_tenant FOREIGN KEY (tenant_id) REFERENCES tenant(id) ON DELETE CASCADE,
-  CONSTRAINT ck_fitter_id_not_blank CHECK (btrim(fitter_id) <> '')
+  CONSTRAINT ck_fitter_id_not_blank CHECK (btrim(fitter_id) <> ''),
+  CONSTRAINT ck_fitter_identity_link_status CHECK (identity_link_status IN ('auto_linked', 'manually_linked', 'unresolved', 'conflict')),
+  CONSTRAINT ck_fitter_identity_link_method CHECK (identity_link_method IS NULL OR identity_link_method IN ('auto_email', 'manual', 'preexisting', 'conflict'))
 );
 
 CREATE UNIQUE INDEX uq_fitter_tenant_external_id
@@ -899,6 +913,13 @@ CREATE INDEX ix_fitter_tenant_end_date
 
 CREATE INDEX ix_fitter_tenant_name
   ON fitter (tenant_id, name);
+
+CREATE INDEX ix_fitter_tenant_ek_user
+  ON fitter (tenant_id, ek_user_id)
+  WHERE ek_user_id IS NOT NULL;
+
+CREATE INDEX ix_fitter_identity_status
+  ON fitter (tenant_id, identity_link_status);
 
 CREATE TRIGGER trg_fitter_set_updated_at
 BEFORE UPDATE ON fitter
