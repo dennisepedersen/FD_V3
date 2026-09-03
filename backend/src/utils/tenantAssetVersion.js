@@ -16,6 +16,7 @@ function versionTenantHtml(html, env = process.env) {
     .replace(/\/tenant\/fd-datepicker\.js(?:\?v=[^"']*)?/g, `/tenant/fd-datepicker.js?v=${version}`)
     .replace(/\/tenant\/drawing-engine\.js(?:\?v=[^"']*)?/g, `/tenant/drawing-engine.js?v=${version}`)
     .replace(/\/tenant\/project-equipment-cctv-drawing-adapter\.js(?:\?v=[^"']*)?/g, `/tenant/project-equipment-cctv-drawing-adapter.js?v=${version}`)
+    .replace(/\/tenant\/igva-poc\.js(?:\?v=[^"']*)?/g, `/tenant/igva-poc.js?v=${version}`)
     .replace(/\/tenant\/auth\.js(?:\?v=[^"']*)?/g, `/tenant/auth.js?v=${version}`);
 }
 

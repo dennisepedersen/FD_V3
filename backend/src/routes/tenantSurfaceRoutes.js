@@ -9,6 +9,12 @@ const projectQueries = require("../db/queries/project");
 const fitterHourQueries = require("../db/queries/fitterHour");
 const fitterBusinessQueries = require("../db/queries/fitterBusiness");
 const projectAccessService = require("../services/projectAccessService");
+const igvaPocService = require("../services/igvaPocService");
+const {
+  requireIgvaPocOnlineAccess,
+  requireIgvaPocTenantShellAccess,
+  normalizeProjectRefParam,
+} = require("../services/igvaPocOnlineGate");
 const qaRoutes = require("../modules/qa/qa.routes");
 const calendarRoutes = require("../modules/calendar/calendar.routes");
 const absenceRoutes = require("../modules/absence/absence.routes");
@@ -89,6 +95,8 @@ router.get("/kalender", requireTenantHost, sendTenantHtml("app.html"));
 
 router.get("/indstillinger", requireTenantHost, sendTenantHtml("app.html"));
 
+router.get("/igva-poc", requireTenantHost, requireIgvaPocTenantShellAccess, sendTenantHtml("igva-poc.html"));
+
 router.get("/sager/:projectId", requireTenantHost, sendTenantHtml("project.html"));
 router.get("/project/:projectId", requireTenantHost, sendTenantHtml("project.html"));
 
@@ -110,6 +118,15 @@ router.get("/tenant/auth.js", requireTenantHost, (req, res) => {
   res.sendFile(path.join(tenantPublicDir, "auth.js"));
 });
 
+router.get("/tenant/igva-poc.js", requireTenantHost, requireIgvaPocTenantShellAccess, (req, res) => {
+  if (req.query && req.query.v) {
+    res.set("Cache-Control", "public, max-age=31536000, immutable");
+  } else {
+    res.set("Cache-Control", "no-cache, must-revalidate");
+  }
+  res.type("application/javascript");
+  res.sendFile(path.join(tenantPublicDir, "igva-poc.js"));
+});
 router.get("/tenant/fd-datepicker.js", requireTenantHost, (req, res) => {
   if (req.query && req.query.v) {
     res.set("Cache-Control", "public, max-age=31536000, immutable");
@@ -247,6 +264,55 @@ router.get("/api/projects", requireTenantHost, requireAuth("access"), async (req
   }
 });
 
+router.get("/api/igva-poc/projects", requireTenantHost, requireAuth("access"), requireIgvaPocOnlineAccess, async (req, res, next) => {
+  if (hasAccessContextMismatch(req)) {
+    return next(createHttpError(403, "tenant_context_mismatch"));
+  }
+
+  let projectRef = null;
+  try {
+    projectRef = normalizeProjectRefParam(req.query.project_ref);
+  } catch (error) {
+    return next(error);
+  }
+
+  if (!projectRef && req.query.economy === "detail") {
+    return next(createHttpError(400, "igva_project_ref_required_for_detail"));
+  }
+
+  const client = await pool.connect();
+  try {
+    const result = await igvaPocService.listIgvaPocProjects(client, {
+      tenantId: req.context.tenant.id,
+      userId: req.auth.sub,
+      projectRef,
+      includeEconomy: Boolean(projectRef),
+    });
+
+    if (projectRef && (!Array.isArray(result.projects) || result.projects.length === 0)) {
+      return next(createHttpError(404, "igva_poc_project_not_found"));
+    }
+
+    res.status(200).json({
+      success: true,
+      gate: req.igvaPocGate,
+      ...result,
+    });
+  } catch (error) {
+    console.error("[tenantSurfaceRoutes] request_failed", {
+      route: "/api/igva-poc/projects",
+      scope: "mine",
+      tenant_id: req.context?.tenant?.id || req.auth?.tenant_id || null,
+      user_id: req.auth?.sub || null,
+      role: req.auth?.role || null,
+      error_message: error?.message || null,
+      error_stack: error?.stack || null,
+    });
+    next(error);
+  } finally {
+    client.release();
+  }
+});
 router.get("/api/fitterhours", requireTenantHost, requireAuth("access"), async (req, res, next) => {
   if (hasAccessContextMismatch(req)) {
     return next(createHttpError(403, "tenant_context_mismatch"));

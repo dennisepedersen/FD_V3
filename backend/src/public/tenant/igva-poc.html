@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IGVA POC v3.1 - Fielddesk</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@500;700&family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --fd-brand: #059669;
+      --fd-brand-light: #10b981;
+      --fd-brand-soft: #ecfdf5;
+      --fd-brand-border: #d1fae5;
+      --fd-page-bg: #f0faf5;
+      --fd-card-bg: #ffffff;
+      --fd-soft-panel: #f8fefb;
+      --fd-text: #0e1018;
+      --fd-secondary: #5f706b;
+      --fd-muted: #7a8c88;
+      --fd-blue: #2563eb;
+      --fd-cyan: #0891b2;
+      --fd-obs: #f59e0b;
+      --fd-obs-text: #b45309;
+      --fd-critical: #e11d48;
+      --fd-line: rgba(5, 150, 105, 0.10);
+      --fd-card-shadow: 0 1px 4px rgba(0,0,0,0.06), 0 0 0 1px rgba(5,150,105,0.08);
+      --fd-search-shadow: 0 1px 4px rgba(0,0,0,0.07), 0 0 0 1px rgba(5,150,105,0.10);
+      --drawer-width: min(560px, 100vw);
+    }
+
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--fd-text);
+      background: var(--fd-page-bg);
+      font-family: "Plus Jakarta Sans", "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+    }
+
+    body.igvaDrawerOpen { overflow: hidden; }
+    input, textarea, select, button { font: inherit; font-size: 16px; }
+    button, a { -webkit-tap-highlight-color: transparent; }
+
+    .igvaAppShell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 272px minmax(0, 1fr);
+    }
+
+    .igvaSidebar {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      padding: 18px 14px;
+      background: #fff;
+      border-right: 1px solid var(--fd-line);
+      box-shadow: var(--fd-card-shadow);
+    }
+
+    .igvaBrand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--fd-text);
+      text-decoration: none;
+      margin-bottom: 28px;
+      min-height: 42px;
+    }
+
+    .igvaBrand img { width: 168px; height: 42px; object-fit: contain; object-position: left center; }
+    .igvaBrandTenant { color: var(--fd-secondary); font-size: 12px; font-weight: 800; }
+
+    .igvaNavLabel {
+      margin: 20px 6px 10px;
+      color: #8b9b97;
+      font-size: 11px;
+      line-height: 1;
+      font-weight: 850;
+      text-transform: uppercase;
+      letter-spacing: 0;
+    }
+
+    .igvaNavItem {
+      min-height: 54px;
+      display: grid;
+      grid-template-columns: 24px minmax(0, 1fr);
+      align-items: center;
+      gap: 10px;
+      padding: 9px 12px;
+      border: 1px solid var(--fd-line);
+      border-radius: 16px;
+      background: #fff;
+      color: var(--fd-secondary);
+      text-decoration: none;
+      margin-bottom: 8px;
+    }
+
+    .igvaNavItem.active, .igvaNavItem:hover {
+      border-color: var(--fd-brand-border);
+      background: var(--fd-brand-soft);
+      color: var(--fd-brand);
+    }
+
+    .igvaNavIcon { width: 18px; height: 18px; border-left: 3px solid currentColor; border-bottom: 3px solid currentColor; opacity: 0.72; }
+    .igvaNavCopy { display: grid; gap: 2px; min-width: 0; }
+    .igvaNavCopy strong { font-size: 13px; line-height: 1.15; font-weight: 850; }
+    .igvaNavCopy span { color: var(--fd-muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .igvaMainShell { min-width: 0; display: grid; grid-template-rows: auto 1fr; }
+
+    .igvaTopbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      min-height: 62px;
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) minmax(280px, 520px) auto;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 18px;
+      border-bottom: 1px solid var(--fd-line);
+      background: rgba(255,255,255,0.94);
+      backdrop-filter: blur(16px);
+    }
+
+    .igvaCrumbs { display: flex; align-items: center; gap: 14px; color: var(--fd-muted); font-size: 13px; font-weight: 800; min-width: 0; }
+    .igvaCrumbs strong { color: var(--fd-text); white-space: nowrap; }
+    .igvaSlash { color: #c9d4d0; }
+
+    .igvaProjectTools { display: grid; grid-template-columns: minmax(140px, 1fr) minmax(160px, 1.2fr); gap: 8px; min-width: 0; }
+    .igvaField { min-width: 0; }
+    .igvaField label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+    .igvaField input, .igvaField select {
+      width: 100%;
+      min-height: 38px;
+      border: 0;
+      border-radius: 16px;
+      padding: 8px 12px;
+      background: #fff;
+      color: var(--fd-text);
+      box-shadow: var(--fd-search-shadow);
+      outline: 0;
+    }
+    .igvaField input::placeholder { color: #b7c2bf; }
+    .igvaField input:focus, .igvaField select:focus { box-shadow: 0 0 0 3px rgba(5,150,105,0.12), var(--fd-search-shadow); }
+
+    .igvaTopActions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
+    .igvaUserPill { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fd-secondary); font-size: 12px; font-weight: 800; }
+
+    .igvaBtn {
+      min-height: 38px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      border: 1px solid var(--fd-brand-border);
+      border-radius: 16px;
+      padding: 8px 12px;
+      background: var(--fd-brand-soft);
+      color: var(--fd-brand);
+      text-decoration: none;
+      font-weight: 850;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .igvaBtn:hover { background: #dcfce7; }
+    .igvaBtn.primary { border-color: transparent; background: var(--fd-brand); color: #fff; }
+    .igvaBtn.ghost { background: #fff; color: var(--fd-secondary); border-color: var(--fd-line); }
+    .igvaIconBtn { min-width: 38px; padding: 0 10px; font-size: 20px; line-height: 1; }
+
+    .igvaPage {
+      width: min(1380px, 100%);
+      margin: 0 auto;
+      padding: 24px 18px 42px;
+      display: grid;
+      gap: 16px;
+    }
+
+    .igvaStatus { margin: 0; color: var(--fd-secondary); font-size: 13px; font-weight: 700; line-height: 1.45; }
+    .igvaDashboard { display: grid; gap: 16px; }
+    .igvaProjectHeader, .igvaCard, .igvaPanel, .igvaDetails, .igvaDrawerCard {
+      border: 1px solid var(--fd-line);
+      border-radius: 16px;
+      background: #fff;
+      box-shadow: var(--fd-card-shadow);
+    }
+
+    .igvaProjectHeader {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 16px;
+      padding: 18px;
+    }
+    .igvaEyebrow, .igvaCardTitle, .igvaMiniTitle, .igvaTimelineMeta {
+      margin: 0;
+      color: #8b9b97;
+      font-size: 11px;
+      font-weight: 850;
+      text-transform: uppercase;
+      letter-spacing: 0;
+    }
+    .igvaProjectRef { margin: 0 0 4px; color: var(--fd-brand); font-size: 13px; font-weight: 850; text-transform: uppercase; }
+    .igvaProjectName { margin: 0; font-size: 26px; line-height: 1.18; letter-spacing: 0; overflow-wrap: anywhere; }
+    .igvaMetaGrid { display: grid; grid-template-columns: repeat(3, minmax(170px, 1fr)); gap: 8px; margin-top: 14px; }
+    .igvaMeta { min-height: 48px; border: 1px solid var(--fd-line); border-radius: 12px; padding: 8px 10px; background: var(--fd-soft-panel); }
+    .igvaMeta span { display: block; color: var(--fd-muted); font-size: 11px; font-weight: 850; text-transform: uppercase; }
+    .igvaMeta strong { display: block; margin-top: 3px; color: var(--fd-text); font-size: 13px; font-weight: 850; overflow-wrap: anywhere; }
+    .igvaHeaderActions { display: grid; align-content: start; justify-items: end; gap: 8px; min-width: 190px; }
+
+    .igvaCompletionShell { border-radius: 16px; overflow: hidden; background: #fff; border: 1px solid var(--fd-line); box-shadow: var(--fd-card-shadow); }
+    .igvaCompletionTitle { padding: 18px 18px 14px; border-bottom: 1px solid var(--fd-line); }
+    .igvaCompletionGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .igvaCard { min-height: 176px; padding: 18px; border: 0; border-right: 1px solid var(--fd-line); border-radius: 0; box-shadow: none; }
+    .igvaCard:last-child { border-right: 0; }
+    .igvaCard.primaryMetric { background: #f4f7ff; }
+    .igvaMetric { margin: 10px 0 4px; font-family: "DM Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 42px; line-height: 1; font-weight: 800; letter-spacing: 0; }
+    .igvaCaption { margin: 0; color: var(--fd-secondary); font-size: 13px; line-height: 1.45; font-weight: 600; }
+    .igvaProgressTrack { width: 100%; height: 8px; overflow: hidden; border-radius: 999px; margin: 14px 0 10px; background: #e8efec; }
+    .igvaProgressBar { width: 0; height: 100%; border-radius: inherit; background: var(--fd-brand); }
+    .igvaProgressBar.blue { background: var(--fd-blue); }
+    .igvaProgressBar.cyan { background: var(--fd-cyan); }
+    .igvaProgressBar.neutral { background: #64748b; }
+    .igvaProgressBar.amber { background: #64748b; }
+    .igvaPmControls { display: grid; grid-template-columns: 1fr 84px; gap: 10px; align-items: center; margin-top: 12px; }
+    .igvaPmControls input[type="range"] { width: 100%; accent-color: #64748b; }
+    .igvaPmControls input[type="number"] { width: 84px; border: 1px solid var(--fd-line); border-radius: 12px; padding: 7px 8px; background: #fff; }
+    .igvaPmComment { margin-top: 10px; padding: 8px 10px; border: 1px dashed var(--fd-line); border-radius: 12px; color: var(--fd-muted); font-size: 12px; background: var(--fd-soft-panel); }
+
+    .igvaContentGrid { display: grid; grid-template-columns: minmax(0, 1fr) 372px; gap: 20px; align-items: start; }
+    .igvaMainColumn, .igvaSideColumn { display: grid; gap: 16px; min-width: 0; }
+    .igvaPanel { padding: 18px; }
+    .igvaSectionTitle { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+    .igvaSectionTitle h2 { margin: 0; font-size: 18px; line-height: 1.2; letter-spacing: 0; }
+    .igvaMuted { color: var(--fd-muted); font-size: 12px; line-height: 1.35; font-weight: 700; }
+    .igvaBreakdownList { display: grid; gap: 18px; }
+    .igvaBreakdownRow { display: grid; gap: 8px; }
+    .igvaBreakdownTop { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .igvaBreakdownName { display: flex; align-items: center; gap: 8px; font-weight: 850; }
+    .igvaDot { width: 9px; height: 9px; border-radius: 50%; background: var(--fd-blue); }
+    .igvaDot.cyan { background: var(--fd-cyan); }
+    .igvaBreakdownPercent { font-family: "DM Mono", ui-monospace, monospace; font-size: 24px; font-weight: 800; }
+    .igvaBreakdownNumbers { display: flex; justify-content: space-between; gap: 12px; color: var(--fd-muted); font-size: 12px; font-weight: 800; font-family: "DM Mono", ui-monospace, monospace; }
+    .igvaContributionTrack { height: 7px; border-radius: 999px; background: #edf2f0; overflow: hidden; }
+    .igvaContributionBar { height: 100%; border-radius: inherit; background: #93c5fd; }
+    .igvaContributionBar.cyan { background: #67e8f9; }
+
+    .igvaFinanceGrid { display: grid; gap: 10px; }
+    .igvaFinanceCard { border: 1px solid var(--fd-line); border-radius: 12px; padding: 12px; background: var(--fd-soft-panel); }
+    .igvaFinanceSplit { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: end; }
+    .igvaFinanceLabel { margin: 0 0 8px; color: var(--fd-muted); font-size: 11px; font-weight: 850; text-transform: uppercase; }
+    .igvaFinanceSub { margin: 0 0 4px; color: var(--fd-muted); font-size: 11px; font-weight: 800; }
+    .igvaFinanceValue { margin: 0; font-family: "DM Mono", ui-monospace, monospace; font-size: 20px; font-weight: 800; }
+    .igvaFinanceHighlightGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .igvaFinanceHighlight { border-color: var(--fd-brand-border); background: var(--fd-brand-soft); }
+    .igvaFinanceHighlight .igvaFinanceValue { color: #047857; }
+
+    .igvaAlertList, .igvaTimelineList { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+    .igvaAlertItem, .igvaTimelineItem { border-top: 1px solid var(--fd-line); padding-top: 10px; }
+    .igvaAlertItem:first-child, .igvaTimelineItem:first-child { border-top: 0; padding-top: 0; }
+    .igvaAlertItem strong, .igvaTimelineItem strong { display: block; margin-bottom: 4px; font-size: 13px; }
+    .igvaTimelineDelta { font-family: "DM Mono", ui-monospace, monospace; font-size: 18px; font-weight: 800; }
+    .igvaTimelineDelta.positive { color: var(--fd-brand); }
+    .igvaTimelineDelta.negative { color: var(--fd-obs-text); }
+    .igvaSladrehank { margin-top: 14px; border: 1px solid var(--fd-brand-border); border-radius: 12px; padding: 12px; background: var(--fd-brand-soft); }
+
+    .igvaMoneyLine, .igvaExplainLine { display: flex; justify-content: space-between; gap: 14px; padding: 7px 0; border-bottom: 1px solid rgba(5,150,105,0.08); color: var(--fd-secondary); font-size: 13px; font-weight: 650; }
+    .igvaMoneyLine:last-child, .igvaExplainLine:last-child { border-bottom: 0; }
+    .igvaMoneyLine strong, .igvaExplainLine strong { color: var(--fd-text); text-align: right; font-family: "DM Mono", ui-monospace, monospace; font-weight: 800; }
+
+    .igvaBadge { display: inline-flex; width: fit-content; align-items: center; border: 1px solid var(--fd-brand-border); border-radius: 999px; padding: 4px 9px; background: var(--fd-brand-soft); color: var(--fd-brand); font-size: 11px; font-weight: 850; white-space: nowrap; }
+    .igvaBadge.partial, .igvaBadge.probable { background: #fffbeb; color: var(--fd-obs-text); border-color: #fde68a; }
+    .igvaBadge.unresolved, .igvaBadge.red { background: #fff1f2; color: var(--fd-critical); border-color: #fecdd3; }
+    .igvaBadge.na, .igvaBadge.neutral { background: #f8fafc; color: #64748b; border-color: #e2e8f0; }
+    .igvaBadge.legacy, .igvaBadge.info { background: #eff6ff; color: var(--fd-blue); border-color: #bfdbfe; }
+
+    .igvaDetails { overflow: hidden; }
+    .igvaDetails summary { cursor: pointer; padding: 14px 16px; color: var(--fd-brand); font-weight: 850; }
+    .igvaDetailsBody { padding: 0 16px 16px; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; padding: 12px; border-radius: 12px; background: #0e1018; color: #f8fafc; font-size: 12px; line-height: 1.5; }
+    .igvaTableWrap { overflow: auto; border: 1px solid var(--fd-line); border-radius: 12px; background: #fff; }
+    table { width: 100%; min-width: 1560px; border-collapse: collapse; }
+    th, td { padding: 9px 10px; border-bottom: 1px solid var(--fd-line); text-align: left; vertical-align: top; font-size: 13px; }
+    th { position: sticky; top: 0; z-index: 2; background: var(--fd-brand-soft); color: #047857; font-size: 11px; font-weight: 850; text-transform: uppercase; }
+    .igvaStack { display: grid; gap: 4px; }
+    .igvaEmpty { margin: 0; padding: 16px; border-radius: 16px; border: 1px solid var(--fd-line); background: #fff; color: var(--fd-secondary); }
+
+    .igvaDrawerShell { position: fixed; inset: 0; z-index: 80; pointer-events: none; }
+    .igvaDrawerShell.open { pointer-events: auto; }
+    .igvaDrawerOverlay { position: absolute; inset: 0; background: rgba(15,31,24,0); transition: background 0.18s ease; }
+    .igvaDrawerShell.open .igvaDrawerOverlay { background: rgba(15,31,24,0.45); backdrop-filter: blur(3px); }
+    .igvaDrawerPanel { position: absolute; top: 0; right: 0; width: var(--drawer-width); height: 100%; display: grid; grid-template-rows: auto 1fr auto; background: #fff; color: var(--fd-text); transform: translateX(100%); transition: transform 0.2s ease; box-shadow: -24px 0 70px rgba(5,80,58,0.18); }
+    .igvaDrawerShell.open .igvaDrawerPanel { transform: translateX(0); }
+    .igvaDrawerHeader { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 18px 20px; border-bottom: 1px solid var(--fd-line); }
+    .igvaDrawerHeader h2 { margin: 4px 0 0; font-size: 18px; line-height: 1.2; }
+    .igvaDrawerBody { overflow: auto; display: grid; gap: 12px; padding: 16px 20px 22px; }
+    .igvaDrawerFooter { padding: 14px 20px; border-top: 1px solid var(--fd-line); color: var(--fd-muted); font-size: 12px; font-weight: 700; }
+    .igvaDrawerCard { padding: 14px; box-shadow: none; }
+
+    @media (max-width: 1180px) {
+      .igvaAppShell { grid-template-columns: 1fr; }
+      .igvaSidebar { display: none; }
+      .igvaContentGrid { grid-template-columns: 1fr; }
+      .igvaTopbar { grid-template-columns: 1fr; position: static; }
+      .igvaTopActions { justify-content: flex-start; }
+      .igvaMetaGrid { grid-template-columns: 1fr 1fr; }
+    }
+
+    @media (max-width: 760px) {
+      .igvaPage { padding: 14px 10px 28px; }
+      .igvaProjectTools, .igvaCompletionGrid, .igvaProjectHeader, .igvaFinanceHighlightGrid { grid-template-columns: 1fr; }
+      .igvaCard { border-right: 0; border-bottom: 1px solid var(--fd-line); }
+      .igvaCard:last-child { border-bottom: 0; }
+      .igvaProjectName { font-size: 22px; }
+      .igvaMetric { font-size: 34px; }
+      .igvaMetaGrid { grid-template-columns: 1fr; }
+      .igvaHeaderActions { justify-items: start; }
+    }
+  </style>
+</head>
+<body data-page="igva-poc">
+  <div class="igvaAppShell">
+    <aside class="igvaSidebar" aria-label="Fielddesk navigation">
+      <a class="igvaBrand" href="/app#dashboard"><img src="/tenant/assets/FD_logo.png" alt="Fielddesk"><span id="igvaTenantShort" class="igvaBrandTenant">DEP</span></a>
+      <p class="igvaNavLabel">Overblik</p>
+      <a class="igvaNavItem" href="/app#dashboard"><span class="igvaNavIcon"></span><span class="igvaNavCopy"><strong>Dashboard</strong><span>Overblik</span></span></a>
+      <a class="igvaNavItem" href="/app#projects"><span class="igvaNavIcon"></span><span class="igvaNavCopy"><strong>Projekter</strong><span>Sagsliste</span></span></a>
+      <p class="igvaNavLabel">Drift</p>
+      <a class="igvaNavItem active" href="/igva-poc"><span class="igvaNavIcon"></span><span class="igvaNavCopy"><strong>Økonomi</strong><span>IGVA POC</span></span></a>
+      <a class="igvaNavItem" href="/kalender"><span class="igvaNavIcon"></span><span class="igvaNavCopy"><strong>Kalender</strong><span>Plan & fravær</span></span></a>
+    </aside>
+
+    <div class="igvaMainShell">
+      <header class="igvaTopbar">
+        <nav class="igvaCrumbs" aria-label="Brødkrumme">
+          <span>Fielddesk</span><span class="igvaSlash">/</span><span>IGVA</span><span class="igvaSlash">/</span><strong>Projektøkonomi</strong>
+        </nav>
+        <section class="igvaProjectTools" aria-label="Projektvalg">
+          <div class="igvaField">
+            <label for="igvaProjectSearch">Søg projekt</label>
+            <input id="igvaProjectSearch" type="search" autocomplete="off" placeholder="Søg projekt...">
+          </div>
+          <div class="igvaField">
+            <label for="igvaProjectSelect">Aktivt projekt</label>
+            <select id="igvaProjectSelect"></select>
+          </div>
+        </section>
+        <div class="igvaTopActions">
+          <span id="igvaUser" class="igvaUserPill">Fielddesk</span>
+          <a class="igvaBtn ghost" href="/igva-poc">Vis alle</a>
+          <button id="igvaLogoutBtn" class="igvaBtn ghost igvaIconBtn" type="button" aria-label="Log ud" title="Log ud">↗</button>
+        </div>
+      </header>
+
+      <main class="igvaPage">
+        <p id="igvaStatus" class="igvaStatus">Henter POC-data...</p>
+        <p id="igvaEmpty" class="igvaEmpty" hidden>Ingen projekter i dit nuværende Fielddesk-scope.</p>
+        <section id="igvaDashboard" class="igvaDashboard" aria-live="polite"></section>
+
+        <details class="igvaDetails">
+          <summary>Tekniske detaljer</summary>
+          <div class="igvaDetailsBody">
+            <div class="igvaTableWrap" aria-label="IGVA POC tekniske projektdata">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Ref</th>
+                    <th>Projekt</th>
+                    <th>Coverage</th>
+                    <th>Budget</th>
+                    <th>Expected</th>
+                    <th>Projektleder</th>
+                    <th>Omsætning</th>
+                    <th>Labor</th>
+                    <th>Materialer</th>
+                    <th>Historik</th>
+                    <th>Datakvalitet</th>
+                    <th>Beregning</th>
+                  </tr>
+                </thead>
+                <tbody id="igvaTechnicalRows"></tbody>
+              </table>
+            </div>
+          </div>
+        </details>
+      </main>
+    </div>
+  </div>
+
+  <div id="igvaDrawerShell" class="igvaDrawerShell" aria-hidden="true">
+    <div class="igvaDrawerOverlay" data-igva-drawer-close></div>
+    <aside class="igvaDrawerPanel" role="dialog" aria-modal="true" aria-labelledby="igvaDrawerTitle">
+      <header class="igvaDrawerHeader">
+        <div>
+          <p id="igvaDrawerMeta" class="igvaEyebrow">Beregningsdetaljer</p>
+          <h2 id="igvaDrawerTitle">IGVA</h2>
+        </div>
+        <button id="igvaDrawerClose" class="igvaBtn ghost igvaIconBtn" type="button" aria-label="Luk">×</button>
+      </header>
+      <div id="igvaDrawerBody" class="igvaDrawerBody"></div>
+      <footer id="igvaDrawerFooter" class="igvaDrawerFooter">Datakilder vises kun for den lokale POC.</footer>
+    </aside>
+  </div>
+
+  <script src="/tenant/igva-poc.js"></script>
+</body>
+</html>
