@@ -54,6 +54,7 @@ function buildIgvaPocProjectSummary(row) {
     lifecycle: {
       status: row.status || null,
       is_closed: Boolean(row.is_closed),
+      closed_observed_at: row.closed_observed_at || null,
     },
     data_quality: 'NOT_LOADED',
     economy_detail: 'not_loaded',

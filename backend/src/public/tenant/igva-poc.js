@@ -3,7 +3,18 @@
 
   const TOKEN_KEY = 'fielddesk_access_token';
   const PM_KEY_PREFIX = 'fielddesk_igva_pm_completion:';
-  const state = { projects: [], filteredProjects: [], selectedProjectId: null, projectRefFromUrl: null, projectDetailsByRef: Object.create(null), loadingProjectRef: null };
+  const state = {
+    mode: 'standalone',
+    projects: [],
+    filteredProjects: [],
+    selectedProjectId: null,
+    projectRefFromUrl: null,
+    projectDetailsByRef: Object.create(null),
+    loadingProjectRef: null,
+    embeddedEndpoint: null,
+    embeddedProjectContext: null,
+    drawerWired: false,
+  };
 
   const HISTORY_FIELDS = Object.freeze([
     { key: 'totalPurchases', oldKey: 'totalPurchasesOld', newKey: 'totalPurchases', label: 'Materialer forventet', category: 'materials' },
@@ -789,7 +800,7 @@
   function projectRefKey(projectOrRef) {
     const value = typeof projectOrRef === 'string'
       ? projectOrRef
-      : projectOrRef && projectOrRef.external_project_ref;
+      : projectOrRef && (projectOrRef.external_project_ref || projectOrRef.project_id);
     return String(value || '').trim().toLowerCase();
   }
 
@@ -824,19 +835,23 @@
 
     const status = byId('igvaStatus');
     state.loadingProjectRef = refKey;
-    if (status) status.textContent = `Henter økonomi for valgt projekt ${text(project.external_project_ref, refKey)}. Øvrige projekter hentes ikke automatisk.`;
+    const label = text(project.external_project_ref || project.project_id, refKey);
+    if (status) status.textContent = `Henter økonomi for ${label}. Øvrige projekter hentes ikke automatisk.`;
     try {
-      const payload = await apiFetch(`/api/igva-poc/projects?project_ref=${encodeURIComponent(project.external_project_ref || refKey)}`, { method: 'GET' });
+      const detailUrl = state.mode === 'embedded' && state.embeddedEndpoint
+        ? state.embeddedEndpoint
+        : `/api/igva-poc/projects?project_ref=${encodeURIComponent(project.external_project_ref || refKey)}`;
+      const payload = await apiFetch(detailUrl, { method: 'GET' });
       const detail = payload && Array.isArray(payload.projects) ? payload.projects[0] : null;
       if (detail) {
         mergeProjectDetail(detail);
         renderSelectedProject();
         renderTechnicalRows();
-        if (status) status.textContent = `Økonomi hentet for ${text(detail.external_project_ref, refKey)}. Projektlederprocent gemmes kun lokalt i browseren i denne POC.`;
+        if (status) status.textContent = `Økonomi hentet for ${text(detail.external_project_ref || detail.project_id, refKey)}. Projektlederprocent gemmes kun lokalt i browseren i denne POC.`;
       }
     } catch (error) {
-      if (error && (error.status === 401 || error.status === 403)) { logout(); return; }
-      if (status) status.textContent = `Kunne ikke hente økonomi for ${text(project.external_project_ref, refKey)}: ${error && error.message ? error.message : 'request_failed'}`;
+      if (error && (error.status === 401 || error.status === 403)) { renderAccessDenied(); return; }
+      if (status) status.textContent = `Kunne ikke hente økonomi for ${text(project.external_project_ref || project.project_id, refKey)}: ${error && error.message ? error.message : 'request_failed'}`;
     } finally {
       if (state.loadingProjectRef === refKey) state.loadingProjectRef = null;
     }
@@ -845,12 +860,17 @@
   function renderProjectLoading(project) {
     const panel = el('section', 'igvaPanel');
     const title = el('div', 'igvaSectionTitle');
-    title.appendChild(el('h2', null, 'Økonomi hentes for valgt projekt'));
-    title.appendChild(el('span', 'igvaMuted', 'Online POC henter kun økonomi for ét valgt projekt ad gangen.'));
+    const embedded = state.mode === 'embedded';
+    title.appendChild(el('h2', null, embedded ? 'Økonomi hentes for aktuel sag' : 'Økonomi hentes for valgt projekt'));
+    title.appendChild(el('span', 'igvaMuted', 'IGVA henter kun økonomi for ét projekt ad gangen.'));
     panel.appendChild(title);
-    panel.appendChild(el('p', 'igvaCaption', `Vælg projekt eller brug project_ref i URL'en. Aktuelt valg: ${text(project.external_project_ref, '-')}.`));
+    const message = embedded
+      ? `Aktuel sag: ${text(project.external_project_ref || project.project_id, '-')}. Ingen projektvælger bruges i projektfanen.`
+      : `Vælg projekt eller brug project_ref i URL'en. Aktuelt valg: ${text(project.external_project_ref, '-')}.`;
+    panel.appendChild(el('p', 'igvaCaption', message));
     return panel;
   }
+
   function selectedProject() {
     return state.projects.find((project) => String(project.project_id) === String(state.selectedProjectId))
       || state.filteredProjects[0]
@@ -1002,12 +1022,53 @@
     dashboard.appendChild(panel);
   }
   function wireDrawer() {
+    if (state.drawerWired) return;
+    state.drawerWired = true;
     const close = byId('igvaDrawerClose');
     if (close) close.addEventListener('click', closeDrawer);
     Array.from(document.querySelectorAll('[data-igva-drawer-close]')).forEach((node) => node.addEventListener('click', closeDrawer));
     document.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') closeDrawer();
     });
+  }
+
+  function buildEmbeddedPlaceholderProject(options) {
+    const source = options || {};
+    return {
+      project_id: source.projectId || source.project_id || null,
+      external_project_ref: source.projectRef || source.external_project_ref || null,
+      name: source.projectName || source.name || 'Sag',
+      responsible: source.responsible || null,
+      lifecycle: {
+        status: source.status || null,
+        is_closed: Boolean(source.isClosed),
+        closed_observed_at: source.closedObservedAt || null,
+      },
+      data_quality: 'NOT_LOADED',
+      calculation: null,
+    };
+  }
+
+  async function initEmbeddedProject(options) {
+    const status = byId('igvaStatus');
+    state.mode = 'embedded';
+    state.embeddedEndpoint = options && options.endpoint ? options.endpoint : null;
+    state.embeddedProjectContext = options || {};
+    state.projects = [buildEmbeddedPlaceholderProject(options || {})];
+    state.filteredProjects = state.projects.slice();
+    state.selectedProjectId = state.projects[0].project_id || projectRefKey(state.projects[0]);
+    state.projectRefFromUrl = null;
+    state.projectDetailsByRef = Object.create(null);
+    wireDrawer();
+    const empty = byId('igvaEmpty');
+    if (empty) empty.hidden = true;
+    renderSelectedProject();
+    renderTechnicalRows();
+    if (!state.embeddedEndpoint) {
+      if (status) status.textContent = 'IGVA endpoint mangler for denne sag.';
+      return;
+    }
+    await loadProjectDetail(state.projects[0]);
   }
 
   async function init() {
@@ -1069,6 +1130,10 @@
     }
   }
 
+  window.FielddeskIgvaPoc = {
+    initEmbeddedProject,
+  };
+
   window.__igvaPocV31Test = {
     buildExpectedHistoryEvents,
     buildSladrehankObservations,
@@ -1077,7 +1142,10 @@
     renderAccessDenied,
     loadProjectDetail,
     projectRefKey,
+    initEmbeddedProject,
   };
 
-  init();
+  if (document.body && document.body.dataset.page === 'igva-poc') {
+    init();
+  }
 })();

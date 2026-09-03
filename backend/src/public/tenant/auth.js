@@ -101,7 +101,7 @@
 
   function getProjectIdFromPath() {
     const path = String(window.location.pathname || "");
-    const match = path.match(/^\/(?:project|sager)\/([^/]+)$/);
+    const match = path.match(/^\/(?:project|sager)\/([^/]+)(?:\/igva)?$/);
     if (!match || !match[1]) {
       return null;
     }
@@ -687,6 +687,14 @@
     const calendarView = document.getElementById("calendarView");
     const resourceGroupsView = document.getElementById("resourceGroupsView");
     const projectsView = document.getElementById("projectsView");
+    const financeView = document.getElementById("financeView");
+    const igvaFinanceProjects = document.getElementById("igvaFinanceProjects");
+    const igvaFinanceStatus = document.getElementById("igvaFinanceStatus");
+    const igvaFinanceShowCompleted = document.getElementById("igvaFinanceShowCompleted");
+    const igvaFinanceRefreshBtn = document.getElementById("igvaFinanceRefreshBtn");
+    const igvaFinanceActiveCount = document.getElementById("igvaFinanceActiveCount");
+    const igvaFinanceCompletedCount = document.getElementById("igvaFinanceCompletedCount");
+    const igvaFinanceScopeValue = document.getElementById("igvaFinanceScopeValue");
     const viewLinks = Array.from(document.querySelectorAll("[data-view-link]"));
     const calendarTabs = Array.from(document.querySelectorAll("[data-calendar-tab]"));
     const calendarPanels = Array.from(document.querySelectorAll("[data-calendar-panel]"));
@@ -846,6 +854,13 @@
       projectsLoading: false,
       projectLoadError: "",
       expandedProjectRefs: new Set(),
+      finance: {
+        projects: [],
+        loading: false,
+        loaded: false,
+        loadError: "",
+        includeCompleted: window.localStorage.getItem("fielddesk_igva_finance_show_completed") === "true",
+      },
       calendar: {
         activeTab: "requests",
         resourceScope: "mine",
@@ -5614,7 +5629,7 @@
     }
 
     function setActiveAppView(view) {
-      const activeView = view === "projects" || view === "calendar" || view === "resource-groups" ? view : "dashboard";
+      const activeView = view === "projects" || view === "calendar" || view === "finance" || view === "resource-groups" ? view : "dashboard";
       state.currentView = activeView;
 
       if (dashboardView) {
@@ -6662,6 +6677,157 @@
       target.appendChild(tree);
     }
 
+    function getIgvaFinanceProjectRef(project) {
+      return firstText(project && project.external_project_ref, project && project.reference, project && project.project_ref) || "-";
+    }
+
+    function isIgvaFinanceClosed(project) {
+      const lifecycle = project && project.lifecycle ? project.lifecycle : {};
+      return Boolean(lifecycle.is_closed || project && project.is_closed || isClosedStatus(project));
+    }
+
+    function getIgvaFinanceClosedDate(project) {
+      const lifecycle = project && project.lifecycle ? project.lifecycle : {};
+      return toDate(lifecycle.closed_observed_at || project && project.closed_observed_at);
+    }
+
+    function getIgvaProjectUrl(project) {
+      return project && project.project_id ? "/sager/" + encodeURIComponent(String(project.project_id)) + "/igva" : "/oekonomi";
+    }
+
+    function renderIgvaFinanceProject(project) {
+      const ref = getIgvaFinanceProjectRef(project);
+      const closed = isIgvaFinanceClosed(project);
+      const status = closed ? "Afsluttet" : "Aktiv";
+      const quality = firstText(project && project.data_quality, project && project.quality) || "NOT_LOADED";
+      const article = document.createElement("article");
+      article.className = "fdCaseRow";
+      article.dataset.igvaFinanceSource = "lightweight";
+      article.innerHTML =
+        '<div class="fdCaseRowLeft">' +
+          '<span class="fdStatusDot ' + (closed ? 'aktiv' : 'aktiv') + '"></span>' +
+          '<div class="fdCaseRowTitleWrap">' +
+            '<p class="fdCaseName">' + escapeHtml(project && project.name ? project.name : 'Uden navn') + '</p>' +
+            '<div class="fdCaseMetaLine"><span class="fdCaseNumber">Sag ' + escapeHtml(ref) + '</span><span>·</span><span>IGVA ' + escapeHtml(status) + '</span><span>·</span><span>' + escapeHtml(quality) + '</span></div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="fdCaseRowMiddle"><span class="fdSortHint"><span data-icon="chart"></span><span>Økonomi hentes først i sagen</span></span></div>' +
+        '<div class="fdCaseRowActions"><a class="fdCaseBtn primary" href="' + escapeHtml(getIgvaProjectUrl(project)) + '">Åbn IGVA</a></div>';
+      renderInlineIcons(article);
+      return article;
+    }
+
+    function groupCompletedIgvaProjects(projects) {
+      const groups = new Map();
+      (Array.isArray(projects) ? projects : []).forEach((project) => {
+        const closedDate = getIgvaFinanceClosedDate(project);
+        const key = closedDate ? String(closedDate.getFullYear()) : "Uden lukningsdato";
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(project);
+      });
+      return Array.from(groups.entries()).sort((a, b) => {
+        if (a[0] === "Uden lukningsdato") return 1;
+        if (b[0] === "Uden lukningsdato") return -1;
+        return Number(b[0]) - Number(a[0]);
+      }).map(([year, items]) => ({
+        year,
+        items: items.slice().sort((a, b) => {
+          const aDate = getIgvaFinanceClosedDate(a);
+          const bDate = getIgvaFinanceClosedDate(b);
+          if (aDate && bDate) return bDate.getTime() - aDate.getTime();
+          if (aDate) return -1;
+          if (bDate) return 1;
+          return getIgvaFinanceProjectRef(a).localeCompare(getIgvaFinanceProjectRef(b), "da", { numeric: true });
+        }),
+      }));
+    }
+
+    function setIgvaFinanceStatus(message) {
+      if (!igvaFinanceStatus) return;
+      const label = igvaFinanceStatus.querySelector("span:last-child");
+      if (label) label.textContent = message;
+      else igvaFinanceStatus.textContent = message;
+    }
+
+    function renderIgvaFinanceOverview() {
+      if (!igvaFinanceProjects) return;
+      igvaFinanceProjects.innerHTML = "";
+      if (igvaFinanceShowCompleted) igvaFinanceShowCompleted.checked = Boolean(state.finance.includeCompleted);
+      const all = Array.isArray(state.finance.projects) ? state.finance.projects : [];
+      const activeProjects = sortProjects(all.filter((project) => !isIgvaFinanceClosed(project)));
+      const completedProjects = all.filter(isIgvaFinanceClosed);
+      setText(igvaFinanceActiveCount, String(activeProjects.length));
+      setText(igvaFinanceCompletedCount, String(completedProjects.length));
+      setText(igvaFinanceScopeValue, state.finance.includeCompleted ? "Aktive + afsluttede" : "Aktive");
+
+      if (state.finance.loading) {
+        setIgvaFinanceStatus("Indlæser IGVA-projekter...");
+        const loader = document.createElement("div");
+        loader.className = "fdLoadingList";
+        loader.innerHTML = '<div class="fdSkeleton"></div><div class="fdSkeleton"></div><div class="fdSkeleton"></div>';
+        igvaFinanceProjects.appendChild(loader);
+        return;
+      }
+      if (state.finance.loadError) {
+        setIgvaFinanceStatus("Du har ikke adgang til IGVA POC.");
+        const error = document.createElement("div");
+        error.className = "fdErrorState";
+        error.textContent = "Du har ikke adgang til IGVA POC.";
+        igvaFinanceProjects.appendChild(error);
+        return;
+      }
+      if (!all.length) {
+        setIgvaFinanceStatus("Ingen IGVA-projekter i dit scope.");
+        const empty = document.createElement("div");
+        empty.className = "fdEmptyState";
+        empty.textContent = "Ingen IGVA-projekter at vise.";
+        igvaFinanceProjects.appendChild(empty);
+        return;
+      }
+
+      setIgvaFinanceStatus("Projektlisten er letvægtsdata. Økonomi hentes først, når en sag åbnes.");
+      if (activeProjects.length) {
+        activeProjects.forEach((project) => igvaFinanceProjects.appendChild(renderIgvaFinanceProject(project)));
+      } else if (!state.finance.includeCompleted) {
+        const empty = document.createElement("div");
+        empty.className = "fdEmptyState";
+        empty.textContent = "Ingen aktive IGVA-projekter at vise.";
+        igvaFinanceProjects.appendChild(empty);
+      }
+      if (!state.finance.includeCompleted) return;
+      groupCompletedIgvaProjects(completedProjects).forEach((group) => {
+        const block = document.createElement("section");
+        block.className = "groupBlock";
+        const header = document.createElement("h2");
+        header.className = "groupHeader";
+        header.innerHTML = '<strong>Afsluttede ' + escapeHtml(group.year) + '</strong><span>' + group.items.length + ' sager</span>';
+        block.appendChild(header);
+        group.items.forEach((project) => block.appendChild(renderIgvaFinanceProject(project)));
+        igvaFinanceProjects.appendChild(block);
+      });
+    }
+
+    async function loadIgvaFinanceOverview(options = {}) {
+      if (state.finance.loading || (state.finance.loaded && !options.force)) {
+        renderIgvaFinanceOverview();
+        return;
+      }
+      state.finance.loading = true;
+      state.finance.loadError = "";
+      renderIgvaFinanceOverview();
+      try {
+        const response = await apiFetch("/api/igva-poc/projects", { method: "GET" });
+        state.finance.projects = response && Array.isArray(response.projects) ? response.projects : [];
+        state.finance.loaded = true;
+      } catch (error) {
+        if (handleAuthFailure(error)) return;
+        state.finance.projects = [];
+        state.finance.loadError = getErrorMessage(error, "request_failed");
+      } finally {
+        state.finance.loading = false;
+        renderIgvaFinanceOverview();
+      }
+    }
     function renderDashboard() {
       const name = state.me && state.me.name ? String(state.me.name) : "Fielddesk";
       const firstName = name.split(" ").filter(Boolean)[0] || name;
@@ -7160,6 +7326,7 @@
     function getRoutePathForView(view) {
       if (view === "projects") return "/sager";
       if (view === "calendar") return "/kalender";
+      if (view === "finance") return "/oekonomi";
       if (view === "resource-groups") return "/indstillinger";
       return "/";
     }
@@ -7168,10 +7335,12 @@
       const path = String(window.location.pathname || "/").toLowerCase();
       if (path === "/sager" || path.indexOf("/sager/") === 0) return "projects";
       if (path === "/kalender") return "calendar";
+      if (path === "/oekonomi") return "finance";
       if (path === "/indstillinger") return "resource-groups";
       const hash = String(window.location.hash || "").replace(/^#/, "").toLowerCase();
       if (hash === "resource-groups") return "resource-groups";
       if (hash === "calendar") return "calendar";
+      if (hash === "finance") return "finance";
       if (hash === "projects") return "projects";
       return "dashboard";
     }
@@ -7179,9 +7348,10 @@
     function setActiveAppView(view) {
       const activeView = view === "projects" || view === "calendar" || view === "resource-groups" ? view : "dashboard";
       state.currentView = activeView;
-      if (appShell) appShell.classList.toggle("caseOverviewActive", activeView === "projects");
+      if (appShell) appShell.classList.toggle("caseOverviewActive", activeView === "projects" || activeView === "finance");
       if (dashboardView) dashboardView.hidden = activeView !== "dashboard";
       if (calendarView) calendarView.hidden = activeView !== "calendar";
+      if (financeView) financeView.hidden = activeView !== "finance";
       if (resourceGroupsView) resourceGroupsView.hidden = activeView !== "resource-groups";
       if (projectsView) projectsView.hidden = activeView !== "projects";
       viewLinks.forEach((link) => {
@@ -7192,6 +7362,7 @@
         else link.removeAttribute("aria-current");
       });
       if (activeView === "projects") renderProjects();
+      if (activeView === "finance") loadIgvaFinanceOverview();
       if (activeView === "calendar") {
         ensureCalendarDefaults();
         renderCalendarAccessState();
@@ -7218,7 +7389,7 @@
         if (link.dataset.fdRouteWired === "true") return;
         link.dataset.fdRouteWired = "true";
         const view = String(link.dataset.viewLink || "").toLowerCase();
-        if (view === "projects" || view === "calendar" || view === "resource-groups" || view === "dashboard") {
+        if (view === "projects" || view === "calendar" || view === "finance" || view === "resource-groups" || view === "dashboard") {
           link.href = getRoutePathForView(view);
           link.addEventListener("click", (event) => {
             if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -7339,6 +7510,18 @@
         userPill.textContent = `Kunne ikke hente bruger: ${getErrorMessage(error, "request_failed")}`;
       }
       return;
+    }
+
+    if (igvaFinanceShowCompleted) {
+      igvaFinanceShowCompleted.checked = Boolean(state.finance.includeCompleted);
+      igvaFinanceShowCompleted.addEventListener("change", () => {
+        state.finance.includeCompleted = Boolean(igvaFinanceShowCompleted.checked);
+        window.localStorage.setItem("fielddesk_igva_finance_show_completed", state.finance.includeCompleted ? "true" : "false");
+        renderIgvaFinanceOverview();
+      });
+    }
+    if (igvaFinanceRefreshBtn) {
+      igvaFinanceRefreshBtn.addEventListener("click", () => loadIgvaFinanceOverview({ force: true }));
     }
 
     wireCaseNavigation();
@@ -8190,11 +8373,12 @@
     const brandUserName = document.getElementById("brandUserName");
     const logoutBtn = document.getElementById("logoutBtn");
     const projectId = getProjectIdFromPath();
+    const initialProjectModule = getInitialProjectModuleFromPath();
     const projectModuleTabs = Array.from(document.querySelectorAll("[data-project-module-tab]"));
     const projectModulePanels = Array.from(document.querySelectorAll("[data-project-module-panel]"));
     const projectModuleState = {
-      active: "qa",
-      available: new Set(["qa", "activity"]),
+      active: initialProjectModule,
+      available: new Set(["activity", "equipment", "qa", "igva"]),
     };
     const qaSection = document.getElementById("qaSection");
     const qaSummaryGrid = document.getElementById("qaSummaryGrid");
@@ -8399,6 +8583,9 @@
       isDetecting: false,
     };
     let projectPageUser = null;
+    let projectDetailContext = null;
+    let igvaEmbeddedLoading = false;
+    let igvaEmbeddedLoaded = false;
 
     function compactProjectUserName(name) {
       const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
@@ -8428,10 +8615,57 @@
     }
 
 
+    function getInitialProjectModuleFromPath() {
+      const path = String(window.location.pathname || "").toLowerCase();
+      const hash = String(window.location.hash || "").replace(/^#/, "").toLowerCase();
+      if (path.endsWith("/igva") || hash === "igva") return "igva";
+      if (hash === "documentation" || hash === "dokumentation" || hash === "equipment") return "equipment";
+      if (hash === "qa") return "qa";
+      return "activity";
+    }
+
+    function getProjectModulePath(moduleKey) {
+      const base = "/sager/" + encodeURIComponent(String(projectId));
+      return moduleKey === "igva" ? base + "/igva" : base;
+    }
+
+    function updateProjectModuleUrl(moduleKey) {
+      if (!window.history || !projectId) return;
+      const path = getProjectModulePath(moduleKey);
+      if (window.location.pathname !== path) window.history.pushState({}, "", path);
+    }
+
+    async function ensureProjectIgvaLoaded() {
+      if (igvaEmbeddedLoaded || igvaEmbeddedLoading) return;
+      const status = document.getElementById("igvaStatus");
+      if (!projectDetailContext) {
+        if (status) status.textContent = "Henter sag før IGVA kan åbnes.";
+        return;
+      }
+      if (!window.FielddeskIgvaPoc || typeof window.FielddeskIgvaPoc.initEmbeddedProject !== "function") {
+        if (status) status.textContent = "IGVA-modulet kunne ikke indlæses.";
+        return;
+      }
+      igvaEmbeddedLoading = true;
+      try {
+        await window.FielddeskIgvaPoc.initEmbeddedProject({
+          endpoint: "/api/projects/" + encodeURIComponent(String(projectId)) + "/igva",
+          projectId,
+          projectRef: projectDetailContext.external_project_ref || projectDetailContext.reference || null,
+          projectName: projectDetailContext.name || projectDetailContext.project_name || null,
+          status: projectDetailContext.status || projectDetailContext.activity_status || null,
+          isClosed: Boolean(projectDetailContext.is_closed),
+          closedObservedAt: projectDetailContext.closed_observed_at || null,
+        });
+        igvaEmbeddedLoaded = true;
+      } finally {
+        igvaEmbeddedLoading = false;
+      }
+    }
     function renderProjectModules() {
-      let active = projectModuleState.available.has(projectModuleState.active) ? projectModuleState.active : "qa";
+      let active = projectModuleState.available.has(projectModuleState.active) ? projectModuleState.active : "activity";
       if (!projectModuleState.available.has(active)) {
-        active = Array.from(projectModuleState.available)[0] || "qa";
+        active = Array.from(projectModuleState.available)[0] || "activity";
       }
       projectModuleState.active = active;
       projectModuleTabs.forEach((tab) => {
@@ -8451,10 +8685,14 @@
       if (!projectModuleState.available.has(moduleKey)) return;
       projectModuleState.active = moduleKey;
       renderProjectModules();
+      updateProjectModuleUrl(moduleKey);
+      if (moduleKey === "igva") {
+        ensureProjectIgvaLoaded();
+      }
     }
 
     function setProjectModuleAvailable(moduleKey, available) {
-      if (available) {
+      if (available || moduleKey === "equipment") {
         projectModuleState.available.add(moduleKey);
       } else {
         projectModuleState.available.delete(moduleKey);
@@ -9296,6 +9534,9 @@
         if (qaNewThreadPriority) qaNewThreadPriority.value = "normal";
 
         await loadQaThreads();
+      if (projectModuleState.active === "igva") {
+        await ensureProjectIgvaLoaded();
+      }
         const threadId = response && response.thread ? response.thread.id : null;
         if (threadId) {
           openQaDrawer(threadId);
@@ -12305,6 +12546,7 @@
       }
 
       const rawProject = projectResult.value && projectResult.value.project ? projectResult.value.project : null;
+      projectDetailContext = rawProject;
       const vm = mapProjectToQuickViewModel(rawProject);
       if (!vm) {
         renderProjectDetailError("Projektdata mangler");

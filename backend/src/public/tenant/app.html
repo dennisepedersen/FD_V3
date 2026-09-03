@@ -3481,11 +3481,11 @@
           </div>
           <div class="navSection">
             <span class="navLabel">Drift</span>
-            <a class="navItem navMuted" href="#dashboard" aria-disabled="true">
+            <a class="navItem" href="/oekonomi" data-view-link="finance">
               <span class="navIcon" aria-hidden="true">
                 <svg viewBox="0 0 24 24"><path d="M4 19h16"></path><path d="M7 16V9"></path><path d="M12 16V5"></path><path d="M17 16v-4"></path></svg>
               </span>
-              <span class="navCopy"><strong>Økonomi</strong><span>Økonomioverblik</span></span>
+              <span class="navCopy"><strong>Økonomi</strong><span>IGVA-overblik</span></span>
             </a>
             <a class="navItem navMuted" href="#dashboard" aria-disabled="true">
               <span class="navIcon" aria-hidden="true">
@@ -3569,13 +3569,13 @@
               </div>
               <p class="moduleText">Reserveret til søgning, dokumentstatus og tekniske filer.</p>
             </article>
-            <article class="moduleCard disabled">
+            <a class="moduleCard" href="/oekonomi" data-view-link="finance">
               <div class="moduleTop">
-                <p class="moduleName">Økonomi</p>
-                <span class="tag tagPreview">Preview</span>
+                <p class="moduleName">Økonomi / IGVA</p>
+                <span class="tag tagLive">POC</span>
               </div>
-              <p class="moduleText">Kommende samlet billede af budget, forbrug, timer og afvigelser.</p>
-            </article>
+              <p class="moduleText">Samlet IGVA-overblik for projekter i dit scope.</p>
+            </a>
             <article class="moduleCard disabled">
               <div class="moduleTop">
                 <p class="moduleName">CO2 / ESG</p>
@@ -4173,6 +4173,54 @@
             </div>
           </section>
         </section>
+        <section id="financeView" class="view fdCaseView" data-view="finance" hidden>
+          <div class="fdCaseSurface">
+            <div class="fdCaseContent">
+              <header class="fdCaseMobileHeader">
+                <div>
+                  <p class="fdSectionLabel">Økonomi</p>
+                  <h1 class="fdCaseTitle">IGVA-overblik</h1>
+                </div>
+                <div class="fdHeaderActions">
+                  <button class="fdBellButton" type="button" aria-label="Notifikationer"><span data-icon="bell"></span></button>
+                </div>
+              </header>
+
+              <header class="fdCaseDesktopHeader">
+                <div>
+                  <p class="fdSectionLabel">Økonomi</p>
+                  <h1 class="fdCaseTitle">IGVA-overblik</h1>
+                </div>
+                <button id="igvaFinanceRefreshBtn" class="fdDesktopCta" type="button"><span data-icon="filter"></span><span>Opdater</span></button>
+              </header>
+
+              <section class="fdCaseStats" aria-label="IGVA status">
+                <article class="fdCaseStatCard">
+                  <p class="fdCaseStatLabel">Aktive</p>
+                  <p id="igvaFinanceActiveCount" class="fdCaseStatValue">-</p>
+                </article>
+                <article class="fdCaseStatCard">
+                  <p class="fdCaseStatLabel">Afsluttede</p>
+                  <p id="igvaFinanceCompletedCount" class="fdCaseStatValue">-</p>
+                </article>
+                <article class="fdCaseStatCard">
+                  <p class="fdCaseStatLabel">Visning</p>
+                  <p id="igvaFinanceScopeValue" class="fdCaseStatValue fdScopeValue">Aktive</p>
+                </article>
+              </section>
+
+              <div class="fdCaseControls">
+                <label class="fdFilterPill" for="igvaFinanceShowCompleted">
+                  <input id="igvaFinanceShowCompleted" type="checkbox">
+                  <span>Vis afsluttede</span>
+                </label>
+                <span id="igvaFinanceStatus" class="fdSortHint"><span data-icon="filter"></span><span>Indlæser IGVA-projekter...</span></span>
+              </div>
+
+              <section id="igvaFinanceProjects" class="fdCaseList" aria-live="polite"></section>
+            </div>
+          </div>
+        </section>
         <section id="projectsView" class="view fdCaseView" data-view="projects" hidden>
           <div class="fdCaseSurface">
 
@@ -4243,6 +4291,7 @@
     <nav class="fdBottomNav" aria-label="Mobil navigation">
       <a class="fdBottomLink" href="/" data-view-link="dashboard"><span class="fdBottomIcon" data-icon="dashboard"></span><span>Hjem</span></a>
       <a class="fdBottomLink" href="/sager" data-view-link="projects"><span class="fdBottomIcon" data-icon="folder"></span><span>Sager</span></a>
+      <a class="fdBottomLink" href="/oekonomi" data-view-link="finance"><span class="fdBottomIcon" data-icon="chart"></span><span>Økonomi</span></a>
       <a class="fdBottomLink" href="/kalender" data-view-link="calendar"><span class="fdBottomIcon" data-icon="calendar"></span><span>Kalender</span></a>
       <a class="fdBottomLink" href="/indstillinger" data-view-link="resource-groups"><span class="fdBottomIcon" data-icon="settings"></span><span>Indstillinger</span></a>
     </nav>

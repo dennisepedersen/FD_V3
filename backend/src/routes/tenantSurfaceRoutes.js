@@ -95,8 +95,13 @@ router.get("/kalender", requireTenantHost, sendTenantHtml("app.html"));
 
 router.get("/indstillinger", requireTenantHost, sendTenantHtml("app.html"));
 
+router.get("/oekonomi", requireTenantHost, sendTenantHtml("app.html"));
+
+// Deprecated POC shell: hidden developer/debug route. User-facing economy entry is /oekonomi.
 router.get("/igva-poc", requireTenantHost, requireIgvaPocTenantShellAccess, sendTenantHtml("igva-poc.html"));
 
+router.get("/sager/:projectId/igva", requireTenantHost, sendTenantHtml("project.html"));
+router.get("/project/:projectId/igva", requireTenantHost, sendTenantHtml("project.html"));
 router.get("/sager/:projectId", requireTenantHost, sendTenantHtml("project.html"));
 router.get("/project/:projectId", requireTenantHost, sendTenantHtml("project.html"));
 
@@ -313,6 +318,64 @@ router.get("/api/igva-poc/projects", requireTenantHost, requireAuth("access"), r
     client.release();
   }
 });
+router.get("/api/projects/:projectId/igva", requireTenantHost, requireAuth("access"), requireIgvaPocOnlineAccess, async (req, res, next) => {
+  if (hasAccessContextMismatch(req)) {
+    return next(createHttpError(403, "tenant_context_mismatch"));
+  }
+
+  const client = await pool.connect();
+  try {
+    const projectContext = await projectAccessService.requireProjectAccess({
+      client,
+      tenantId: req.context.tenant.id,
+      userId: req.auth.sub,
+      projectId: req.params.projectId,
+    });
+    const projectRef = projectContext.project && projectContext.project.external_project_ref
+      ? String(projectContext.project.external_project_ref).trim()
+      : "";
+    if (!projectRef) {
+      return next(createHttpError(404, "igva_project_ref_unavailable"));
+    }
+
+    const result = await igvaPocService.listIgvaPocProjects(client, {
+      tenantId: req.context.tenant.id,
+      userId: req.auth.sub,
+      projectRef,
+      includeEconomy: true,
+    });
+
+    if (!Array.isArray(result.projects) || result.projects.length === 0) {
+      return next(createHttpError(404, "igva_poc_project_not_found"));
+    }
+
+    res.status(200).json({
+      success: true,
+      gate: req.igvaPocGate,
+      project_context: {
+        project_id: projectContext.project.project_id,
+        external_project_ref: projectRef,
+        source: "server_resolved_project_route",
+      },
+      ...result,
+    });
+  } catch (error) {
+    console.error("[tenantSurfaceRoutes] request_failed", {
+      route: "/api/projects/:projectId/igva",
+      scope: "project",
+      tenant_id: req.context?.tenant?.id || req.auth?.tenant_id || null,
+      user_id: req.auth?.sub || null,
+      role: req.auth?.role || null,
+      project_id: req.params?.projectId || null,
+      error_message: error?.message || null,
+      error_stack: error?.stack || null,
+    });
+    next(error);
+  } finally {
+    client.release();
+  }
+});
+
 router.get("/api/fitterhours", requireTenantHost, requireAuth("access"), async (req, res, next) => {
   if (hasAccessContextMismatch(req)) {
     return next(createHttpError(403, "tenant_context_mismatch"));

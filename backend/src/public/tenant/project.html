@@ -2870,6 +2870,118 @@
       background: rgba(220, 252, 231, 0.72);
     }
 
+
+    .igvaEmbeddedSection {
+      gap: 14px;
+      overflow: visible;
+    }
+
+    .igvaDashboard { display: grid; gap: 16px; }
+    .igvaProjectHeader, .igvaCard, .igvaPanel, .igvaDetails, .igvaDrawerCard {
+      border: 1px solid rgba(5, 150, 105, 0.10);
+      border-radius: 16px;
+      background: #fff;
+      box-shadow: var(--fd-soft-shadow);
+      color: var(--fd-text);
+    }
+    .igvaProjectHeader {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 16px;
+      padding: 16px;
+    }
+    .igvaEyebrow, .igvaCardTitle, .igvaMiniTitle, .igvaTimelineMeta {
+      margin: 0;
+      color: var(--fd-muted);
+      font-size: 11px;
+      font-weight: 850;
+      text-transform: uppercase;
+      letter-spacing: 0;
+    }
+    .igvaProjectRef { margin: 0 0 4px; color: var(--fd-brand); font-size: 13px; font-weight: 850; text-transform: uppercase; }
+    .igvaProjectName { margin: 0; font-size: 23px; line-height: 1.18; letter-spacing: 0; overflow-wrap: anywhere; }
+    .igvaMetaGrid { display: grid; grid-template-columns: repeat(3, minmax(150px, 1fr)); gap: 8px; margin-top: 12px; }
+    .igvaMeta { min-height: 48px; border: 1px solid rgba(5, 150, 105, 0.10); border-radius: 12px; padding: 8px 10px; background: var(--fd-soft-panel); }
+    .igvaMeta span { display: block; color: var(--fd-muted); font-size: 11px; font-weight: 850; text-transform: uppercase; }
+    .igvaMeta strong { display: block; margin-top: 3px; color: var(--fd-text); font-size: 13px; font-weight: 850; overflow-wrap: anywhere; }
+    .igvaHeaderActions { display: grid; align-content: start; justify-items: end; gap: 8px; min-width: 180px; }
+    .igvaCompletionShell { border-radius: 16px; overflow: hidden; background: #fff; border: 1px solid rgba(5, 150, 105, 0.10); box-shadow: var(--fd-soft-shadow); }
+    .igvaCompletionTitle { padding: 16px 16px 12px; border-bottom: 1px solid rgba(5, 150, 105, 0.10); }
+    .igvaCompletionGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .igvaCard { min-height: 156px; padding: 16px; border: 0; border-right: 1px solid rgba(5, 150, 105, 0.10); border-radius: 0; box-shadow: none; }
+    .igvaCard:last-child { border-right: 0; }
+    .igvaCard.primaryMetric { background: #f4f7ff; }
+    .igvaMetric { margin: 10px 0 4px; font-family: Consolas, ui-monospace, monospace; font-size: 38px; line-height: 1; font-weight: 800; letter-spacing: 0; }
+    .igvaCaption { margin: 0; color: var(--fd-secondary); font-size: 13px; line-height: 1.45; font-weight: 600; }
+    .igvaProgressTrack { width: 100%; height: 8px; overflow: hidden; border-radius: 999px; margin: 14px 0 10px; background: #e8efec; }
+    .igvaProgressBar { width: 0; height: 100%; border-radius: inherit; background: var(--fd-brand); }
+    .igvaProgressBar.blue { background: #2563eb; }
+    .igvaProgressBar.cyan { background: #0891b2; }
+    .igvaProgressBar.neutral, .igvaProgressBar.amber { background: #64748b; }
+    .igvaPmControls { display: grid; grid-template-columns: 1fr 84px; gap: 10px; align-items: center; margin-top: 12px; }
+    .igvaPmControls input[type="range"] { width: 100%; accent-color: #64748b; }
+    .igvaPmControls input[type="number"] { width: 84px; border: 1px solid rgba(5, 150, 105, 0.10); border-radius: 12px; padding: 7px 8px; background: #fff; }
+    .igvaPmComment { margin-top: 10px; padding: 8px 10px; border: 1px dashed rgba(5, 150, 105, 0.10); border-radius: 12px; color: var(--fd-muted); font-size: 12px; background: var(--fd-soft-panel); }
+    .igvaContentGrid { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; align-items: start; }
+    .igvaMainColumn, .igvaSideColumn { display: grid; gap: 16px; min-width: 0; }
+    .igvaPanel { padding: 16px; }
+    .igvaSectionTitle { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+    .igvaSectionTitle h2 { margin: 0; font-size: 18px; line-height: 1.2; letter-spacing: 0; }
+    .igvaMuted { color: var(--fd-muted); font-size: 12px; line-height: 1.35; font-weight: 700; }
+    .igvaBreakdownList, .igvaFinanceGrid, .igvaAlertList, .igvaTimelineList { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+    .igvaBreakdownRow { display: grid; gap: 8px; }
+    .igvaBreakdownTop, .igvaBreakdownNumbers, .igvaMoneyLine, .igvaExplainLine { display: flex; justify-content: space-between; gap: 12px; }
+    .igvaBreakdownName { display: flex; align-items: center; gap: 8px; font-weight: 850; }
+    .igvaDot { width: 9px; height: 9px; border-radius: 50%; background: #2563eb; }
+    .igvaDot.cyan { background: #0891b2; }
+    .igvaBreakdownPercent, .igvaFinanceValue, .igvaTimelineDelta { font-family: Consolas, ui-monospace, monospace; font-weight: 800; }
+    .igvaBreakdownPercent { font-size: 24px; }
+    .igvaBreakdownNumbers { color: var(--fd-muted); font-size: 12px; font-weight: 800; }
+    .igvaContributionTrack { height: 7px; border-radius: 999px; background: #edf2f0; overflow: hidden; }
+    .igvaContributionBar { height: 100%; border-radius: inherit; background: #93c5fd; }
+    .igvaContributionBar.cyan { background: #67e8f9; }
+    .igvaFinanceCard { border: 1px solid rgba(5, 150, 105, 0.10); border-radius: 12px; padding: 12px; background: var(--fd-soft-panel); }
+    .igvaFinanceSplit, .igvaFinanceHighlightGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .igvaFinanceLabel, .igvaFinanceSub { margin: 0 0 6px; color: var(--fd-muted); font-size: 11px; font-weight: 850; text-transform: uppercase; }
+    .igvaFinanceValue { margin: 0; font-size: 20px; }
+    .igvaFinanceHighlight { border-color: var(--fd-brand-border); background: var(--fd-brand-soft); }
+    .igvaAlertItem, .igvaTimelineItem { border-top: 1px solid rgba(5, 150, 105, 0.10); padding-top: 10px; }
+    .igvaAlertItem:first-child, .igvaTimelineItem:first-child { border-top: 0; padding-top: 0; }
+    .igvaAlertItem strong, .igvaTimelineItem strong { display: block; margin-bottom: 4px; font-size: 13px; }
+    .igvaSladrehank { margin-top: 14px; border: 1px solid var(--fd-brand-border); border-radius: 12px; padding: 12px; background: var(--fd-brand-soft); }
+    .igvaMoneyLine, .igvaExplainLine { padding: 7px 0; border-bottom: 1px solid rgba(5,150,105,0.08); color: var(--fd-secondary); font-size: 13px; font-weight: 650; }
+    .igvaMoneyLine:last-child, .igvaExplainLine:last-child { border-bottom: 0; }
+    .igvaMoneyLine strong, .igvaExplainLine strong { color: var(--fd-text); text-align: right; font-family: Consolas, ui-monospace, monospace; font-weight: 800; }
+    .igvaBadge { display: inline-flex; width: fit-content; align-items: center; border: 1px solid var(--fd-brand-border); border-radius: 999px; padding: 4px 9px; background: var(--fd-brand-soft); color: var(--fd-brand); font-size: 11px; font-weight: 850; white-space: nowrap; }
+    .igvaBadge.partial, .igvaBadge.probable { background: #fffbeb; color: #b45309; border-color: #fde68a; }
+    .igvaBadge.unresolved, .igvaBadge.red { background: #fff1f2; color: #e11d48; border-color: #fecdd3; }
+    .igvaBadge.na, .igvaBadge.neutral { background: #f8fafc; color: #64748b; border-color: #e2e8f0; }
+    .igvaBadge.legacy, .igvaBadge.info { background: #eff6ff; color: #2563eb; border-color: #bfdbfe; }
+    .igvaDetails { overflow: hidden; }
+    .igvaDetails summary { cursor: pointer; padding: 14px 16px; color: var(--fd-brand); font-weight: 850; }
+    .igvaDetailsBody { padding: 0 16px 16px; }
+    .igvaTableWrap { overflow: auto; border: 1px solid rgba(5, 150, 105, 0.10); border-radius: 12px; background: #fff; }
+    .igvaTableWrap table { width: 100%; min-width: 1560px; border-collapse: collapse; }
+    .igvaTableWrap th, .igvaTableWrap td { padding: 9px 10px; border-bottom: 1px solid rgba(5, 150, 105, 0.10); text-align: left; vertical-align: top; font-size: 13px; }
+    .igvaTableWrap th { position: sticky; top: 0; z-index: 2; background: var(--fd-brand-soft); color: #047857; font-size: 11px; font-weight: 850; text-transform: uppercase; }
+    .igvaStack { display: grid; gap: 4px; }
+    .igvaEmpty { margin: 0; padding: 16px; border-radius: 16px; border: 1px solid rgba(5, 150, 105, 0.10); background: #fff; color: var(--fd-secondary); }
+    .igvaBtn { min-height: 38px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--fd-brand-border); border-radius: 12px; padding: 8px 12px; background: var(--fd-brand-soft); color: var(--fd-brand); text-decoration: none; font-weight: 850; cursor: pointer; white-space: nowrap; }
+    .igvaBtn:hover { background: #dcfce7; }
+    .igvaBtn.ghost { background: #fff; color: var(--fd-secondary); border-color: rgba(5, 150, 105, 0.10); }
+    .igvaIconBtn { min-width: 38px; padding: 0 10px; font-size: 20px; line-height: 1; }
+    .igvaDrawerShell { position: fixed; inset: 0; z-index: 80; pointer-events: none; }
+    .igvaDrawerShell.open { pointer-events: auto; }
+    .igvaDrawerOverlay { position: absolute; inset: 0; background: rgba(15,31,24,0); transition: background 0.18s ease; }
+    .igvaDrawerShell.open .igvaDrawerOverlay { background: rgba(15,31,24,0.45); backdrop-filter: blur(3px); }
+    .igvaDrawerPanel { position: absolute; top: 0; right: 0; width: min(560px, 100vw); height: 100%; display: grid; grid-template-rows: auto 1fr auto; background: #fff; color: var(--fd-text); transform: translateX(100%); transition: transform 0.2s ease; box-shadow: -24px 0 70px rgba(5,80,58,0.18); }
+    .igvaDrawerShell.open .igvaDrawerPanel { transform: translateX(0); }
+    .igvaDrawerHeader { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 18px 20px; border-bottom: 1px solid rgba(5, 150, 105, 0.10); }
+    .igvaDrawerHeader h2 { margin: 4px 0 0; font-size: 18px; line-height: 1.2; }
+    .igvaDrawerBody { overflow: auto; display: grid; gap: 12px; padding: 16px 20px 22px; }
+    .igvaDrawerFooter { padding: 14px 20px; border-top: 1px solid rgba(5, 150, 105, 0.10); color: var(--fd-muted); font-size: 12px; font-weight: 700; }
+    .igvaDrawerCard { padding: 14px; box-shadow: none; }
+
     @media (max-width: 767px) {
       input,
       select,
@@ -3475,14 +3587,15 @@
       <nav id="projectToolbox" class="projectToolbox" aria-label="Projektmoduler">
         <p class="projectToolboxLabel">Projektmoduler</p>
         <div class="projectToolboxTabs" role="tablist" aria-label="V&aelig;lg projektmodul">
-          <button class="projectToolboxTab active" type="button" data-project-module-tab="qa" aria-selected="true">QA</button>
-          <button class="projectToolboxTab" type="button" data-project-module-tab="equipment" hidden aria-selected="false">Udstyr</button>
-          <button class="projectToolboxTab" type="button" data-project-module-tab="activity" aria-selected="false">Aktivitet</button>
+          <button class="projectToolboxTab active" type="button" data-project-module-tab="activity" aria-selected="true">Overblik</button>
+          <button class="projectToolboxTab" type="button" data-project-module-tab="equipment" aria-selected="false">Dokumentation</button>
+          <button class="projectToolboxTab" type="button" data-project-module-tab="qa" aria-selected="false">QA</button>
+          <button class="projectToolboxTab" type="button" data-project-module-tab="igva" aria-selected="false">IGVA</button>
         </div>
       </nav>
     </section>
 
-    <section id="qaSection" class="panel sectionPanel qaPanel" data-project-module-panel="qa">
+    <section id="qaSection" class="panel sectionPanel qaPanel" data-project-module-panel="qa" hidden>
       <div class="qaHeaderRow">
         <div class="qaHeaderCopy">
           <h2 class="sectionTitle">QA</h2>
@@ -3544,9 +3657,9 @@
       </div>
     </section>
 
-    <div id="activityModule" class="projectModuleGroup" data-project-module-panel="activity" hidden>
+    <div id="activityModule" class="projectModuleGroup" data-project-module-panel="activity">
     <section class="panel sectionPanel">
-      <h2 class="sectionTitle">Aktivitet</h2>
+      <h2 class="sectionTitle">Overblik</h2>
       <div class="fieldGrid">
         <div class="field">
           <span class="fieldLabel">Sidste aktivitet</span>
@@ -3621,6 +3734,42 @@
       <div id="hoursList" class="itemList"></div>
     </section>
     </div>
+    <section id="igvaSection" class="panel sectionPanel igvaEmbeddedSection" data-project-module-panel="igva" hidden>
+      <div class="qaHeaderRow">
+        <div class="qaHeaderCopy">
+          <h2 class="sectionTitle">IGVA</h2>
+          <p id="igvaStatus" class="qaMetaText">IGVA hentes først, når fanen åbnes.</p>
+        </div>
+      </div>
+      <p id="igvaEmpty" class="igvaEmpty" hidden>Ingen IGVA-data for denne sag.</p>
+      <section id="igvaDashboard" class="igvaDashboard" aria-live="polite"></section>
+      <details class="igvaDetails">
+        <summary>Tekniske detaljer</summary>
+        <div class="igvaDetailsBody">
+          <div class="igvaTableWrap" aria-label="IGVA tekniske projektdata">
+            <table>
+              <thead>
+                <tr>
+                  <th>Ref</th>
+                  <th>Projekt</th>
+                  <th>Coverage</th>
+                  <th>Budget</th>
+                  <th>Expected</th>
+                  <th>Projektleder</th>
+                  <th>Oms?tning</th>
+                  <th>Labor</th>
+                  <th>Materialer</th>
+                  <th>Historik</th>
+                  <th>Datakvalitet</th>
+                  <th>Beregning</th>
+                </tr>
+              </thead>
+              <tbody id="igvaTechnicalRows"></tbody>
+            </table>
+          </div>
+        </div>
+      </details>
+    </section>
       </main>
     </div>
 
@@ -3630,6 +3779,21 @@
       <a class="fdBottomLink" href="/kalender"><span class="fdBottomIcon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"></rect><path d="M16 2v4"></path><path d="M8 2v4"></path><path d="M3 10h18"></path></svg></span><span>Kalender</span></a>
       <a class="fdBottomLink" href="/indstillinger"><span class="fdBottomIcon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5z"></path><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.65 1.65 0 0 0 15 19.4a1.65 1.65 0 0 0-1 .6 1.65 1.65 0 0 0-.4 1.08V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 8.6 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-.6-1 1.65 1.65 0 0 0-1.08-.4H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 8.6a1.65 1.65 0 0 0-.33-1.82l-.06-.06A2 2 0 1 1 7.04 3.9l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-.6 1.65 1.65 0 0 0 .4-1.08V3a2 2 0 1 1 4 0v.09A1.65 1.65 0 0 0 15.4 4.6a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.4.24.64.65.6 1.12V12c.04.47-.2.88-.6 1z"></path></svg></span><span>Indstillinger</span></a>
     </nav>
+  </div>
+
+  <div id="igvaDrawerShell" class="igvaDrawerShell" aria-hidden="true">
+    <div class="igvaDrawerOverlay" data-igva-drawer-close></div>
+    <aside class="igvaDrawerPanel" role="dialog" aria-modal="true" aria-labelledby="igvaDrawerTitle">
+      <header class="igvaDrawerHeader">
+        <div>
+          <p id="igvaDrawerMeta" class="igvaEyebrow">Beregningsdetaljer</p>
+          <h2 id="igvaDrawerTitle">IGVA</h2>
+        </div>
+        <button id="igvaDrawerClose" class="igvaBtn ghost igvaIconBtn" type="button" aria-label="Luk">&times;</button>
+      </header>
+      <div id="igvaDrawerBody" class="igvaDrawerBody"></div>
+      <footer id="igvaDrawerFooter" class="igvaDrawerFooter">Datakilder vises kun for DEP i IGVA POC.</footer>
+    </aside>
   </div>
 
   <div id="qaDrawerShell" class="qaDrawerShell" aria-hidden="true">
@@ -3875,6 +4039,7 @@
   <script src="/tenant/vendor/zxing-browser.min.js"></script>
   <script src="/tenant/drawing-engine.js"></script>
   <script src="/tenant/project-equipment-cctv-drawing-adapter.js"></script>
+  <script src="/tenant/igva-poc.js"></script>
   <script src="/tenant/auth.js"></script>
 </body>
 </html>

@@ -10,6 +10,8 @@ const routeSource = fs.readFileSync('backend/src/routes/tenantSurfaceRoutes.js',
 const publicShell = [
   fs.readFileSync('backend/src/public/tenant/igva-poc.html', 'utf8'),
   fs.readFileSync('backend/src/public/tenant/igva-poc.js', 'utf8'),
+  fs.readFileSync('backend/src/public/tenant/app.html', 'utf8'),
+  fs.readFileSync('backend/src/public/tenant/project.html', 'utf8'),
 ].join('\\n');
 
 function withGateEnabled(fn) {

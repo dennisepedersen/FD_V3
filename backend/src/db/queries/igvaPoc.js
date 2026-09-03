@@ -17,6 +17,7 @@ async function listIgvaPocProjectsForUser(client, { tenantId, userId }) {
         pc.name,
         pc.status,
         pc.is_closed,
+        pc.closed_observed_at,
         pw.is_work_in_progress,
         pw.is_work_in_progress AS financial_wip,
         pw.ready_to_bill,
