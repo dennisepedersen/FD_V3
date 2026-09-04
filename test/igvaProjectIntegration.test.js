@@ -84,6 +84,7 @@ test('project IGVA API is DEP-gated and derives project_ref from server project 
 
 test('left nav economy opens IGVA overview with active projects as default and optional completed projects', () => {
   assert.match(routeSource, /router\.get\("\/oekonomi", requireTenantHost, sendTenantHtml\("app\.html"\)\)/);
+  assert.match(routeSource, /router\.get\("\/projekter", requireTenantHost, sendTenantHtml\("app\.html"\)\)/);
   assert.match(appHtml, /href="\/oekonomi" data-view-link="finance"/);
   assert.match(appHtml, /id="financeView"/);
   assert.match(appHtml, /id="igvaFinanceShowCompleted"/);
@@ -98,6 +99,7 @@ test('economy route renders finance view instead of leaving dashboard active', (
   const routeBody = getFunctionBody(authJs, 'getCurrentAppViewFromHash');
   const activeBody = getFunctionBody(authJs, 'setActiveAppView');
   assert.match(routeBody, /path === "\/oekonomi"\) return "finance"/);
+  assert.match(routeBody, /path === "\/projekter"/);
   assert.match(activeBody, /view === "finance"/);
   assert.match(activeBody, /dashboardView\.hidden = activeView !== "dashboard"/);
   assert.match(activeBody, /financeView\.hidden = activeView !== "finance"/);

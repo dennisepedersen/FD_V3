@@ -7333,7 +7333,7 @@
 
     function getCurrentAppViewFromHash() {
       const path = String(window.location.pathname || "/").toLowerCase();
-      if (path === "/sager" || path.indexOf("/sager/") === 0) return "projects";
+      if (path === "/sager" || path === "/projekter" || path.indexOf("/sager/") === 0) return "projects";
       if (path === "/kalender") return "calendar";
       if (path === "/oekonomi") return "finance";
       if (path === "/indstillinger") return "resource-groups";

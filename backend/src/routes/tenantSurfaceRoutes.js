@@ -91,6 +91,8 @@ router.get("/", requireTenantHost, sendTenantHtml("app.html"));
 
 router.get("/sager", requireTenantHost, sendTenantHtml("app.html"));
 
+router.get("/projekter", requireTenantHost, sendTenantHtml("app.html"));
+
 router.get("/kalender", requireTenantHost, sendTenantHtml("app.html"));
 
 router.get("/indstillinger", requireTenantHost, sendTenantHtml("app.html"));
