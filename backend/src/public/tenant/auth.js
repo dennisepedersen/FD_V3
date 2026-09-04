@@ -7346,7 +7346,7 @@
     }
 
     function setActiveAppView(view) {
-      const activeView = view === "projects" || view === "calendar" || view === "resource-groups" ? view : "dashboard";
+      const activeView = view === "projects" || view === "calendar" || view === "finance" || view === "resource-groups" ? view : "dashboard";
       state.currentView = activeView;
       if (appShell) appShell.classList.toggle("caseOverviewActive", activeView === "projects" || activeView === "finance");
       if (dashboardView) dashboardView.hidden = activeView !== "dashboard";

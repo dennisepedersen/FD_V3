@@ -16,10 +16,28 @@ function indexOfOrThrow(source, needle) {
   return index;
 }
 
+function getFunctionBody(source, name) {
+  const declaration = `function ${name}`;
+  const start = source.lastIndexOf(declaration);
+  assert.notEqual(start, -1, `Expected to find ${declaration}`);
+  const openBrace = source.indexOf("{", start);
+  assert.notEqual(openBrace, -1, `Expected to find body for ${name}`);
+  let depth = 0;
+  for (let index = openBrace; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === "{") depth += 1;
+    if (char === "}") {
+      depth -= 1;
+      if (depth === 0) return source.slice(openBrace + 1, index);
+    }
+  }
+  assert.fail(`Expected ${name} body to close`);
+}
+
 test('project detail tabs default to Overblik and keep required module order', () => {
   const overblik = indexOfOrThrow(projectHtml, 'data-project-module-tab="activity" aria-selected="true">Overblik');
   const documentation = indexOfOrThrow(projectHtml, 'data-project-module-tab="equipment" aria-selected="false">Dokumentation');
-  const qa = indexOfOrThrow(projectHtml, 'data-project-module-tab="qa" aria-selected="false">QA');
+  const qa = indexOfOrThrow(projectHtml, 'data-project-module-tab="qa" aria-selected="false">Q&amp;A');
   const igva = indexOfOrThrow(projectHtml, 'data-project-module-tab="igva" aria-selected="false">IGVA');
   assert.ok(overblik < documentation);
   assert.ok(documentation < qa);
@@ -74,6 +92,30 @@ test('left nav economy opens IGVA overview with active projects as default and o
   assert.match(authJs, /path === "\/oekonomi"/);
   assert.match(authJs, /includeCompleted: window\.localStorage\.getItem\("fielddesk_igva_finance_show_completed"\) === "true"/);
   assert.match(authJs, /const activeProjects = sortProjects\(all\.filter\(\(project\) => !isIgvaFinanceClosed\(project\)\)\)/);
+});
+
+test('economy route renders finance view instead of leaving dashboard active', () => {
+  const routeBody = getFunctionBody(authJs, 'getCurrentAppViewFromHash');
+  const activeBody = getFunctionBody(authJs, 'setActiveAppView');
+  assert.match(routeBody, /path === "\/oekonomi"\) return "finance"/);
+  assert.match(activeBody, /view === "finance"/);
+  assert.match(activeBody, /dashboardView\.hidden = activeView !== "dashboard"/);
+  assert.match(activeBody, /financeView\.hidden = activeView !== "finance"/);
+  assert.match(activeBody, /if \(activeView === "finance"\) loadIgvaFinanceOverview\(\)/);
+});
+
+test('economy navigation links use SPA routing and browser history rerenders views', () => {
+  const navigationBody = getFunctionBody(authJs, 'wireCaseNavigation');
+  const navigateBody = getFunctionBody(authJs, 'navigateToView');
+  assert.match(appHtml, /href="\/oekonomi" data-view-link="finance"/);
+  assert.match(appHtml, /class="moduleCard" href="\/oekonomi" data-view-link="finance"/);
+  assert.match(navigationBody, /view === "finance"/);
+  assert.match(navigationBody, /event\.preventDefault\(\)/);
+  assert.match(navigationBody, /navigateToView\(view\)/);
+  assert.match(navigateBody, /window\.history\.pushState/);
+  assert.match(navigateBody, /setActiveAppView\(view\)/);
+  assert.match(authJs, /window\.addEventListener\("popstate", \(\) => \{\s*setActiveAppView\(getCurrentAppViewFromHash\(\)\);\s*\}\);/);
+  assert.match(authJs, /navigateToView\(getCurrentAppViewFromHash\(\), \{ replace: true \}\)/);
 });
 
 test('completed IGVA overview grouping uses observed close date only and no guessed updated date', () => {
