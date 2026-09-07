@@ -1,8 +1,6 @@
 (function () {
   'use strict';
-
   const TOKEN_KEY = 'fielddesk_access_token';
-  const PM_KEY_PREFIX = 'fielddesk_igva_pm_completion:';
   const state = {
     mode: 'standalone',
     projects: [],
@@ -15,18 +13,15 @@
     embeddedProjectContext: null,
     drawerWired: false,
   };
-
   const HISTORY_FIELDS = Object.freeze([
     { key: 'totalPurchases', oldKey: 'totalPurchasesOld', newKey: 'totalPurchases', label: 'Materialer forventet', category: 'materials' },
     { key: 'totalLaborExp', oldKey: 'totalLaborExpOld', newKey: 'totalLaborExp', label: 'Løn forventet', category: 'labor' },
     { key: 'totalTurnOverExp', oldKey: 'totalTurnOverExpOld', newKey: 'totalTurnOverExp', label: 'Omsætning forventet', category: 'turnover' },
   ]);
-
   function byId(id) { return document.getElementById(id); }
   function getToken() { return window.localStorage.getItem(TOKEN_KEY); }
   function logout() { window.localStorage.removeItem(TOKEN_KEY); window.location.href = '/login'; }
   function clear(node) { if (node) node.innerHTML = ''; }
-
   async function apiFetch(url, options) {
     const token = getToken();
     if (!token) { window.location.href = '/login'; return null; }
@@ -48,24 +43,20 @@
     }
     return payload;
   }
-
   function toNumber(value) {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : null;
   }
-
   function round(value, digits = 2) {
     const parsed = toNumber(value);
     if (parsed === null) return null;
     const factor = 10 ** digits;
     return Math.round(parsed * factor) / factor;
   }
-
   function text(value, fallback = 'N/A') {
     if (value === null || value === undefined || value === '') return fallback;
     return String(value);
   }
-
   function formatMoney(value, digits = 0) {
     const parsed = toNumber(value);
     if (parsed === null) return 'N/A';
@@ -76,103 +67,107 @@
       minimumFractionDigits: digits,
     }).format(parsed);
   }
-
   function formatShortMoney(value) {
     const parsed = toNumber(value);
     if (parsed === null) return 'N/A';
     const abs = Math.abs(parsed);
-    if (abs >= 1000000) return `${new Intl.NumberFormat('da-DK', { maximumFractionDigits: 3, minimumFractionDigits: 0 }).format(parsed / 1000000)} m`;
-    if (abs >= 1000) return `${new Intl.NumberFormat('da-DK', { maximumFractionDigits: 0 }).format(parsed / 1000)} t`;
-    return new Intl.NumberFormat('da-DK', { maximumFractionDigits: 0 }).format(parsed);
+    if (parsed >= 0 && abs >= 1000000) {
+      return `${new Intl.NumberFormat('da-DK', { maximumFractionDigits: 3, minimumFractionDigits: 0 }).format(parsed / 1000000)} mio. kr.`;
+    }
+    return `${new Intl.NumberFormat('da-DK', { maximumFractionDigits: 0 }).format(parsed)} kr.`;
   }
-
+  function formatFreshness(value) {
+    if (!value) return 'Afventer første synkronisering';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return 'Synkroniseringstid ukendt';
+    const diffMs = Date.now() - date.getTime();
+    if (diffMs < 0) return `Sidst synkroniseret ${new Intl.DateTimeFormat('da-DK', { hour: '2-digit', minute: '2-digit' }).format(date)}`;
+    const minutes = Math.floor(diffMs / 60000);
+    if (minutes < 1) return 'Opdateret lige nu';
+    if (minutes < 60) return `Opdateret ${minutes} min siden`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `Opdateret ${hours} timer siden`;
+    return `Sidst synkroniseret ${new Intl.DateTimeFormat('da-DK', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }).format(date)}`;
+  }
   function formatPercent(value, digits = 2) {
     const parsed = toNumber(value);
     if (parsed === null) return 'N/A';
     return `${new Intl.NumberFormat('da-DK', { maximumFractionDigits: digits, minimumFractionDigits: digits }).format(parsed)} %`;
   }
-
   function formatRatio(value, digits = 2) {
     const parsed = toNumber(value);
     return parsed === null ? 'N/A' : formatPercent(parsed * 100, digits);
   }
-
   function formatNumber(value, digits = 2) {
     const parsed = toNumber(value);
     if (parsed === null) return 'N/A';
     return new Intl.NumberFormat('da-DK', { maximumFractionDigits: digits, minimumFractionDigits: 0 }).format(parsed);
   }
-
   function formatDateTime(value) {
     if (!value) return 'Dato mangler';
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return String(value);
     return new Intl.DateTimeFormat('da-DK', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date);
   }
-
   function formatDateShort(value) {
     if (!value) return 'Dato mangler';
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return String(value);
     return new Intl.DateTimeFormat('da-DK', { day: '2-digit', month: 'short' }).format(date);
   }
-
   function deltaClass(value) {
     const parsed = toNumber(value);
     if (parsed === null || parsed === 0) return 'neutral';
     return parsed > 0 ? 'positive' : 'negative';
   }
-
   function formatDelta(value) {
     const parsed = toNumber(value);
     if (parsed === null) return 'N/A';
     const prefix = parsed > 0 ? '+' : '';
     return `${prefix}${formatMoney(parsed)}`;
   }
-
   function el(tag, className, content) {
     const node = document.createElement(tag);
     if (className) node.className = className;
     if (content !== undefined && content !== null) node.textContent = String(content);
     return node;
   }
-
   function component(project, key) {
     return ((project.calculation || {}).components || []).find((item) => item.key === key) || null;
   }
-
   function expectedIncluded(project, key) {
     const included = (((project.calculation || {}).expected_completion || {}).included || []);
     return included.find((item) => item.key === key) || null;
   }
-
-  function pmStorageKey(project) { return `${PM_KEY_PREFIX}${project.project_id || project.external_project_ref || 'unknown'}`; }
-
   function readProjectManagerCompletion(project) {
-    const parsed = Number(window.localStorage.getItem(pmStorageKey(project)));
-    return Number.isFinite(parsed) ? Math.min(Math.max(parsed, 0), 100) : null;
+    const direct = project && project.project_manager_completion ? project.project_manager_completion.completion_percent : null;
+    const parsed = toNumber(direct ?? (project && project.project_manager_completion_percent));
+    return parsed === null ? null : Math.min(Math.max(parsed, 0), 100);
   }
-
-  function saveProjectManagerCompletion(project, value) {
-    const parsed = Number(value);
-    if (!Number.isFinite(parsed)) { window.localStorage.removeItem(pmStorageKey(project)); return null; }
-    const clamped = Math.min(Math.max(parsed, 0), 100);
-    window.localStorage.setItem(pmStorageKey(project), String(clamped));
-    return clamped;
+  function managerCompletionEndpoint(project) {
+    const projectId = project && project.project_id;
+    return projectId ? `/api/projects/${encodeURIComponent(String(projectId))}/igva/manager-completion` : null;
   }
-
+  async function saveProjectManagerCompletion(project, value, comment) {
+    const parsed = toNumber(value);
+    const endpoint = managerCompletionEndpoint(project);
+    if (parsed === null || !endpoint) throw new Error('invalid_project_manager_completion');
+    const payload = await apiFetch(endpoint, {
+      method: 'PATCH',
+      body: JSON.stringify({ completion_percent: Math.min(Math.max(parsed, 0), 100), comment: comment || null }),
+    });
+    return payload && payload.manager_completion ? payload.manager_completion : null;
+  }
   function progressWidth(percent) {
     const parsed = toNumber(percent);
     if (parsed === null) return 0;
     return Math.min(Math.max(parsed, 0), 100);
   }
-
   function safeSubtract(a, b) {
     const left = toNumber(a);
     const right = toNumber(b);
     return left === null || right === null ? null : left - right;
   }
-
   function humanQuality(statusValue) {
     const status = String(statusValue || 'N/A').toUpperCase();
     if (status === 'VERIFIED') return { label: 'God', detail: 'Datakilden er verificeret for POC-formålet.' };
@@ -182,7 +177,6 @@
     if (status.includes('UNRESOLVED')) return { label: 'Uafklaret', detail: 'Mappingen er ikke sikker nok til beslutningsbrug.' };
     return { label: 'N/A', detail: 'Ingen sikker datakvalitet.' };
   }
-
   function createBadge(value, options = {}) {
     const raw = String(value || 'N/A');
     const status = raw.toUpperCase();
@@ -197,7 +191,6 @@
     badge.title = raw;
     return badge;
   }
-
   function createProgress(percent, tone = '') {
     const track = el('div', 'igvaProgressTrack');
     const bar = el('div', `igvaProgressBar ${tone}`.trim());
@@ -205,21 +198,18 @@
     track.appendChild(bar);
     return track;
   }
-
   function createMoneyLine(label, value, options = {}) {
     const row = el('div', 'igvaMoneyLine');
     row.appendChild(el('span', null, label));
     row.appendChild(el('strong', null, options.percent ? formatPercent(value, 2) : formatMoney(value, options.digits || 0)));
     return row;
   }
-
   function createExplainLine(label, value) {
     const row = el('div', 'igvaExplainLine');
     row.appendChild(el('span', null, label));
     row.appendChild(el('strong', null, value));
     return row;
   }
-
   function evaluateEconomyHealth(_project) {
     return {
       status: 'neutral',
@@ -232,7 +222,6 @@
     const rows = history && Array.isArray(history.rows) ? history.rows : [];
     return rows.slice().sort((left, right) => new Date(right.createdDate || 0) - new Date(left.createdDate || 0));
   }
-
   function buildExpectedHistoryEvents(project) {
     const history = project && project.data_sources ? project.data_sources.expected_history : null;
     if (history && Array.isArray(history.events)) {
@@ -260,11 +249,9 @@
       };
     }).filter(Boolean)).sort((left, right) => new Date(right.changed_at || 0) - new Date(left.changed_at || 0));
   }
-
   function latestHistoryEvents(project, limit = 5) {
     return buildExpectedHistoryEvents(project).slice(0, limit);
   }
-
   function historyCapabilities(project) {
     const history = project && project.data_sources ? project.data_sources.expected_history : null;
     return history && history.capabilities ? history.capabilities : {
@@ -276,7 +263,6 @@
       user_history: true,
     };
   }
-
   function buildSladrehankObservations(project) {
     const events = buildExpectedHistoryEvents(project);
     const observations = [];
@@ -308,7 +294,6 @@
     });
     return observations.slice(0, 4);
   }
-
   function completionCard({ title, value, caption, tone, primary, body }) {
     const card = el('article', primary ? 'igvaCard primaryMetric' : 'igvaCard');
     card.appendChild(el('p', 'igvaCardTitle', title));
@@ -318,7 +303,6 @@
     if (body) card.appendChild(body);
     return card;
   }
-
   function renderProjectManagerCard(project) {
     const currentValue = readProjectManagerCompletion(project);
     const controls = el('div', 'igvaPmControls');
@@ -329,7 +313,6 @@
     range.step = '1';
     range.value = currentValue === null ? '0' : String(currentValue);
     range.setAttribute('aria-label', 'Projektledervurdering');
-
     const number = document.createElement('input');
     number.type = 'number';
     number.min = '0';
@@ -338,33 +321,55 @@
     number.placeholder = 'N/A';
     number.value = currentValue === null ? '' : String(currentValue);
     number.setAttribute('aria-label', 'Projektledervurdering i procent');
-
-    function update(value) {
-      const saved = saveProjectManagerCompletion(project, value);
-      range.value = saved === null ? '0' : String(saved);
-      number.value = saved === null ? '' : String(saved);
-      renderSelectedProject();
-      renderTechnicalRows();
+    const comment = document.createElement('textarea');
+    comment.className = 'igvaPmTextarea';
+    comment.rows = 2;
+    comment.maxLength = 1000;
+    comment.placeholder = 'Valgfri kommentar';
+    comment.value = project && project.project_manager_completion && project.project_manager_completion.comment ? project.project_manager_completion.comment : '';
+    const saveBtn = el('button', 'igvaBtn ghost', 'Gem vurdering');
+    saveBtn.type = 'button';
+    const feedback = el('div', 'igvaPmComment', currentValue === null ? 'Ingen projektledervurdering gemt endnu.' : `Sidst gemt ${formatDateTime(project.project_manager_completion && project.project_manager_completion.changed_at)}`);
+    function syncInputs(value) {
+      range.value = value === null ? '0' : String(value);
+      number.value = value === null ? '' : String(value);
     }
-
-    range.addEventListener('change', () => update(range.value));
-    number.addEventListener('change', () => update(number.value));
+    range.addEventListener('input', () => { number.value = range.value; });
+    number.addEventListener('input', () => { if (number.value !== '') range.value = number.value; });
+    saveBtn.addEventListener('click', async () => {
+      saveBtn.disabled = true;
+      feedback.textContent = 'Gemmer vurdering...';
+      try {
+        const saved = await saveProjectManagerCompletion(project, number.value === '' ? range.value : number.value, comment.value);
+        if (saved) {
+          project.project_manager_completion = saved;
+          project.project_manager_completion_percent = saved.completion_percent;
+          syncInputs(saved.completion_percent);
+          feedback.textContent = 'Projektledervurdering gemt.';
+          renderSelectedProject();
+          renderTechnicalRows();
+        }
+      } catch (error) {
+        feedback.textContent = error && (error.status === 401 || error.status === 403) ? 'Du har ikke adgang til IGVA POC.' : 'Kunne ikke gemme vurdering.';
+      } finally {
+        saveBtn.disabled = false;
+      }
+    });
     controls.appendChild(range);
     controls.appendChild(number);
-
     const body = el('div');
     body.appendChild(controls);
-    body.appendChild(el('div', 'igvaPmComment', 'Kommentar til vurdering forberedes i en senere tenant-scoped model.'));
-
+    body.appendChild(comment);
+    body.appendChild(saveBtn);
+    body.appendChild(feedback);
     return completionCard({
       title: 'Projektleder',
       value: currentValue,
-      caption: 'Manuel vurdering. Gemmes kun lokalt i browseren i denne POC.',
+      caption: 'Manuel vurdering gemmes på sagen.',
       tone: 'amber',
       body,
     });
   }
-
   function renderCompletion(project) {
     const calc = project.calculation || {};
     const grid = el('section', 'igvaCompletionShell');
@@ -391,10 +396,14 @@
     grid.appendChild(cards);
     return grid;
   }
-
+  function lifecycleStatusLabel(value) {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (normalized === 'open') return 'Igangværende';
+    if (normalized === 'closed') return 'Lukket';
+    return text(value);
+  }
   function renderHeader(project) {
     const health = evaluateEconomyHealth(project);
-    const quality = humanQuality(project.data_quality);
     const header = el('section', 'igvaProjectHeader');
     const main = el('div');
     main.appendChild(el('p', 'igvaProjectRef', `Projekt ${text(project.external_project_ref, '-')}`));
@@ -403,11 +412,10 @@
     const responsible = project.responsible && (project.responsible.name || project.responsible.code);
     meta.appendChild(metaBox('Kunde', text(project.customer_name || project.customer || project.client_name, 'N/A')));
     meta.appendChild(metaBox('Projektleder', text(responsible)));
-    meta.appendChild(metaBox('Status', text(project.lifecycle && project.lifecycle.status)));
+    meta.appendChild(metaBox('Status', lifecycleStatusLabel(project.lifecycle && project.lifecycle.status)));
     main.appendChild(meta);
     header.appendChild(main);
     const actions = el('aside', 'igvaHeaderActions');
-    actions.appendChild(createBadge(project.data_quality, { human: `Datakvalitet: ${quality.label}` }));
     actions.appendChild(createBadge(health.status, { human: `Økonomi: ${health.label}`, className: health.status }));
     const calcButton = el('button', 'igvaBtn', 'Vis beregning');
     calcButton.type = 'button';
@@ -420,14 +428,12 @@
     header.appendChild(actions);
     return header;
   }
-
   function metaBox(label, value) {
     const node = el('div', 'igvaMeta');
     node.appendChild(el('span', null, label));
     node.appendChild(el('strong', null, value));
     return node;
   }
-
   function renderComponentBreakdown(project) {
     const calc = project.calculation || {};
     const expected = calc.expected_completion || {};
@@ -442,7 +448,6 @@
     panel.appendChild(list);
     return panel;
   }
-
   function renderBreakdownRow(project, key, label, tone) {
     const item = component(project, key) || {};
     const included = expectedIncluded(project, key) || {};
@@ -455,14 +460,13 @@
     const name = el('div', 'igvaBreakdownName');
     name.appendChild(el('span', `igvaDot ${tone === 'cyan' ? 'cyan' : ''}`.trim()));
     name.appendChild(el('span', null, label));
-    name.appendChild(createBadge(item.source_status || 'N/A'));
     top.appendChild(name);
     top.appendChild(el('div', 'igvaBreakdownPercent', formatRatio(rawCompletion, 1)));
     row.appendChild(top);
     row.appendChild(createProgress(rawCompletion === null ? null : rawCompletion * 100, tone));
     const numbers = el('div', 'igvaBreakdownNumbers');
-    numbers.appendChild(el('span', null, `Realiseret ${formatShortMoney(item.actual_cost)} DKK`));
-    numbers.appendChild(el('span', null, `Forventet ${formatShortMoney(item.expected_cost)} DKK`));
+    numbers.appendChild(el('span', null, `Realiseret ${formatShortMoney(item.actual_cost)}`));
+    numbers.appendChild(el('span', null, `Forventet ${formatShortMoney(item.expected_cost)}`));
     row.appendChild(numbers);
     const contributionTrack = el('div', 'igvaContributionTrack');
     const contributionBar = el('div', `igvaContributionBar ${tone === 'cyan' ? 'cyan' : ''}`.trim());
@@ -504,7 +508,6 @@
     panel.appendChild(grid);
     return panel;
   }
-
   function financeCard(title, leftLabel, leftValue, rightLabel, rightValue) {
     const card = el('article', 'igvaFinanceCard');
     card.appendChild(el('p', 'igvaFinanceLabel', title));
@@ -520,14 +523,12 @@
     card.appendChild(split);
     return card;
   }
-
   function attentionItem(title, detail) {
     const item = el('li', 'igvaAlertItem');
     item.appendChild(el('strong', null, title));
     item.appendChild(el('span', 'igvaCaption', detail));
     return item;
   }
-
   function renderAttention(project) {
     const source = project.source_totals || {};
     const labor = component(project, 'labor') || {};
@@ -540,7 +541,7 @@
     list.appendChild(attentionItem('Løn', `Rest mod expected: ${formatMoney(safeSubtract(labor.expected_cost, labor.actual_cost))}.`));
     list.appendChild(attentionItem('Omsætning', `Rest mod expected: ${formatMoney(safeSubtract(source.turnover_expected, source.turnover_actual))}.`));
     if (pmValue !== null && toNumber(expected.percent) !== null) {
-      list.appendChild(attentionItem('Projektledervurdering', `Manuel vurdering afviger ${formatPercent(pmValue - expected.percent, 1)}-point fra forventet completion.`));
+      list.appendChild(attentionItem('Projektledervurdering', `Manuel vurdering afviger ${formatPercent(pmValue - expected.percent, 1)}-point fra forventet færdiggørelsesgrad.`));
     }
     const panel = el('section', 'igvaPanel');
     const title = el('div', 'igvaSectionTitle');
@@ -550,7 +551,17 @@
     panel.appendChild(list);
     return panel;
   }
-
+  function renderFreshness(project) {
+    const summary = project.summary || {};
+    const panel = el('section', 'igvaPanel');
+    const title = el('div', 'igvaSectionTitle');
+    title.appendChild(el('h2', null, 'Datagrundlag'));
+    title.appendChild(el('span', 'igvaMuted', 'E-Komplet'));
+    panel.appendChild(title);
+    panel.appendChild(createExplainLine('Kilde', 'E-Komplet'));
+    panel.appendChild(createExplainLine('Friskhed', formatFreshness(summary.source_synced_at || summary.calculated_at)));
+    return panel;
+  }
   function renderDataQuality(project) {
     const dataSources = project.data_sources || {};
     const source = project.source_totals || {};
@@ -561,13 +572,12 @@
     title.appendChild(createBadge(project.data_quality, { human: quality.label }));
     panel.appendChild(title);
     panel.appendChild(el('p', 'igvaCaption', quality.detail));
-    panel.appendChild(createExplainLine('Lønactual', `${text(dataSources.actual_labor && dataSources.actual_labor.status)} via midlertidig EK V3 legacy-kilde`));
+    panel.appendChild(createExplainLine('Realiseret løn', `${text(dataSources.actual_labor && dataSources.actual_labor.status)} via midlertidig EK V3 legacy-kilde`));
     panel.appendChild(createExplainLine('Materialer', text(dataSources.actual_materials && dataSources.actual_materials.status)));
-    panel.appendChild(createExplainLine('Lager/Bil-kilde', `${text(dataSources.actual_materials && dataSources.actual_materials.lager_bil_candidate_confidence)} - ${formatMoney(source.lager_bil_actual_candidate, 2)}`));
+    panel.appendChild(createExplainLine('Intern / Lager-Bil', `${formatMoney(source.lager_bil_actual_candidate, 2)} · Sandsynlig kilde`));
     panel.appendChild(createExplainLine('Expected history', `${text(dataSources.expected_history && dataSources.expected_history.status)} · ${text(dataSources.expected_history && dataSources.expected_history.total_rows_observed, '0')} rows`));
     return panel;
   }
-
   function renderHistorySummary(project) {
     const events = latestHistoryEvents(project, 5);
     const observations = buildSladrehankObservations(project);
@@ -579,7 +589,6 @@
     button.addEventListener('click', () => openHistoryDrawer(project));
     title.appendChild(button);
     panel.appendChild(title);
-
     const list = el('ul', 'igvaTimelineList');
     if (!events.length) {
       list.appendChild(attentionItem('Ingen expected-history', 'Der er ingen sikre historik-events i den aktuelle POC-response.'));
@@ -587,7 +596,6 @@
       events.forEach((event) => list.appendChild(renderTimelineItem(event, true)));
     }
     panel.appendChild(list);
-
     const box = el('div', 'igvaSladrehank');
     box.appendChild(el('p', 'igvaMiniTitle', 'Sladrehank V1'));
     if (!observations.length) {
@@ -600,7 +608,6 @@
     panel.appendChild(box);
     return panel;
   }
-
   function renderTimelineItem(event, compact) {
     const item = el(compact ? 'li' : 'div', 'igvaTimelineItem');
     item.appendChild(el('p', 'igvaTimelineMeta', `${formatDateShort(event.changed_at)} · ${text(event.changed_by, 'Ukendt bruger')}`));
@@ -613,7 +620,6 @@
     if (!compact && event.note) item.appendChild(el('p', 'igvaCaption', `Note: ${event.note}`));
     return item;
   }
-
   function renderMaterialDetailsCard(project) {
     const source = project.source_totals || {};
     const dataSource = project.data_sources && project.data_sources.actual_materials ? project.data_sources.actual_materials : {};
@@ -621,18 +627,17 @@
     card.appendChild(el('p', 'igvaMiniTitle', 'Materialeberegning'));
     card.appendChild(createMoneyLine('Kreditor/material køb', source.materials_actual_creditor, { digits: 2 }));
     card.appendChild(createMoneyLine('Intern / Lager/Bil', source.lager_bil_actual_candidate, { digits: 2 }));
-    card.appendChild(createExplainLine('Kilde', text(dataSource.lager_bil_candidate_confidence, 'N/A')));
-    card.appendChild(createMoneyLine('Beregnet materialactual', source.materials_actual, { digits: 2 }));
+    card.appendChild(createExplainLine('Kilde', dataSource.lager_bil_candidate_confidence ? 'Sandsynlig kilde' : 'N/A'));
+    card.appendChild(createMoneyLine('Realiserede materialer', source.materials_actual, { digits: 2 }));
     card.appendChild(createMoneyLine('EK reference', source.materials_actual_reference, { digits: 2 }));
     card.appendChild(createMoneyLine('Afstemningsdifference', source.materials_actual_reference_difference, { digits: 2 }));
     const pct = toNumber(source.materials_actual_reference_difference) !== null && toNumber(source.materials_actual_reference)
       ? (source.materials_actual_reference_difference / source.materials_actual_reference) * 100
       : null;
     card.appendChild(createExplainLine('Difference %', formatPercent(pct, 4)));
-    card.appendChild(el('p', 'igvaCaption', 'Lager/Bil-kilden er sandsynligt identificeret ud fra EKs interne poster: FinancialAccount=null, StatusEnum=4 og direct ProjectID purchase line. Beløbet er konkret; det er mappingen, der er PROBABLE.'));
+    card.appendChild(el('p', 'igvaCaption', 'Lager/Bil-kilden er sandsynligt identificeret ud fra EKs interne poster: FinancialAccount=null, StatusEnum=4 og direct ProjectID purchase line. Beløbet er konkret; det er mappingen, der er sandsynlig.'));
     return card;
   }
-
   function renderWeightingCard(project) {
     const calc = project.calculation || {};
     const expected = calc.expected_completion || {};
@@ -645,7 +650,7 @@
     card.appendChild(createExplainLine('Total inkluderet vægt', formatMoney(expected.included_weight)));
     card.appendChild(createExplainLine('Løn-vægt', formatRatio(labor.expected_weight, 1)));
     card.appendChild(createExplainLine('Materiale-vægt', formatRatio(materials.expected_weight, 1)));
-    card.appendChild(createExplainLine('Weighted completion', formatPercent(expected.percent, 2)));
+    card.appendChild(createExplainLine('Vægtet færdiggørelsesgrad', formatPercent(expected.percent, 2)));
     card.appendChild(el('p', 'igvaCaption', text(expected.formula, 'Formel ikke tilgængelig')));
     return card;
   }
@@ -662,7 +667,6 @@
     shell.setAttribute('aria-hidden', 'false');
     document.body.classList.add('igvaDrawerOpen');
   }
-
   function closeDrawer() {
     const shell = byId('igvaDrawerShell');
     if (!shell) return;
@@ -670,7 +674,6 @@
     shell.setAttribute('aria-hidden', 'true');
     document.body.classList.remove('igvaDrawerOpen');
   }
-
   function openCalculationDrawer(project) {
     const calc = project.calculation || {};
     const source = project.source_totals || {};
@@ -679,24 +682,21 @@
     labor.appendChild(el('p', 'igvaMiniTitle', 'Lønberegning'));
     labor.appendChild(createMoneyLine('Løn netto', source.labor_actual_net));
     labor.appendChild(createMoneyLine('Sociale omkostninger', source.labor_actual_social));
-    labor.appendChild(createMoneyLine('Beregnet lønactual', source.labor_actual_total));
+    labor.appendChild(createMoneyLine('Realiseret løn', source.labor_actual_total));
     labor.appendChild(createMoneyLine('EK reference', source.labor_actual_reference));
-    labor.appendChild(createExplainLine('Kilde', 'Lønactual er verificeret mod EK. Datakilden er midlertidigt V3 legacy.'));
-
+    labor.appendChild(createExplainLine('Kilde', 'E-Komplet'));
     const diff = el('section', 'igvaDrawerCard');
     diff.appendChild(el('p', 'igvaMiniTitle', 'Afstemningsdifference'));
     diff.appendChild(createMoneyLine('Materialer - beregnet vs. EK', source.materials_actual_reference_difference, { digits: 2 }));
     diff.appendChild(createMoneyLine('Løn - beregnet vs. EK', source.labor_actual_reference_difference, { digits: 2 }));
     diff.appendChild(el('p', 'igvaCaption', 'Der anvendes ingen automatisk afrundingsregel. Difference og procent vises som datapunkt.'));
-
     const sources = el('section', 'igvaDrawerCard');
     sources.appendChild(el('p', 'igvaMiniTitle', 'Datakilder'));
     sources.appendChild(createExplainLine('Expected', `${text(dataSources.expected_values && dataSources.expected_values.source)} · ${text(dataSources.expected_values && dataSources.expected_values.status)}`));
     sources.appendChild(createExplainLine('Budget', `${text(dataSources.budget && dataSources.budget.source)} · ${text(dataSources.budget && dataSources.budget.status)}`));
     sources.appendChild(createExplainLine('Omsætning actual', `EK V4 financialposts · ${text(dataSources.actual_turnover && dataSources.actual_turnover.status)}`));
     sources.appendChild(createExplainLine('Løn actual', `EK V3 legacy fitterhours · ${text(dataSources.actual_labor && dataSources.actual_labor.status)}`));
-    sources.appendChild(createExplainLine('Materialer actual', `EK V4 purchaseinvoicelines · ${text(dataSources.actual_materials && dataSources.actual_materials.status)}`));
-
+    sources.appendChild(createExplainLine('Realiserede materialer', `EK V4 purchaseinvoicelines · ${text(dataSources.actual_materials && dataSources.actual_materials.status)}`));
     const wrap = el('div', 'igvaMainColumn');
     wrap.appendChild(labor);
     wrap.appendChild(renderMaterialDetailsCard(project));
@@ -705,12 +705,11 @@
     wrap.appendChild(sources);
     openDrawer({
       meta: 'Beregningsdetaljer',
-      title: `Forventet completion ${formatPercent(calc.expected_completion && calc.expected_completion.percent, 1)}`,
+      title: `Forventet f?rdigg?relsesgrad ${formatPercent(calc.expected_completion && calc.expected_completion.percent, 1)}`,
       footer: 'Datakilder: EK V4 expected/budget/financialposts/purchase lines + EK V3 legacy lønactual.',
       content: wrap,
     });
   }
-
   function openHistoryDrawer(project) {
     const history = project.data_sources && project.data_sources.expected_history ? project.data_sources.expected_history : {};
     const capabilities = historyCapabilities(project);
@@ -724,7 +723,6 @@
     capabilitiesCard.appendChild(createExplainLine('Individuel kreditor-row history', capabilities.creditor_row_history ? 'Ja' : 'Nej'));
     capabilitiesCard.appendChild(el('p', 'igvaCaption', 'POC’en viser kun kategorier, som kan identificeres sikkert fra V4 expectedvalues/history. Kreditorhistorik fabriceres ikke.'));
     wrap.appendChild(capabilitiesCard);
-
     if (!events.length) {
       const empty = el('section', 'igvaDrawerCard');
       empty.appendChild(el('p', 'igvaCaption', 'Ingen sikre expected-history events i den aktuelle response.'));
@@ -737,7 +735,6 @@
         wrap.appendChild(card);
       });
     }
-
     openDrawer({
       meta: 'Historik',
       title: `${text(project.external_project_ref, '-')} · expected values`,
@@ -745,12 +742,10 @@
       content: wrap,
     });
   }
-
   function listLines(items, formatter, empty = 'Ingen') {
     if (!Array.isArray(items) || items.length === 0) return [empty];
     return items.map(formatter);
   }
-
   function renderDebugDetails(project) {
     const details = el('details', 'igvaDetails');
     const summary = document.createElement('summary');
@@ -782,7 +777,7 @@
       `  Expected totalPurchases: ${formatMoney(source.materials_expected_total)}`,
       `  Creditor/material actual: ${formatMoney(source.materials_actual_creditor, 2)}`,
       `  Lager/Bil actual: ${formatMoney(source.lager_bil_actual_candidate, 2)} (${text(source.lager_bil_actual_candidate_confidence)}) rows=${text(source.lager_bil_actual_candidate_rows, '0')}`,
-      `  Samlet material actual: ${formatMoney(source.materials_actual, 2)}`,
+      `  Realiserede materialer: ${formatMoney(source.materials_actual, 2)}`,
       `  Lager/Bil expected bucket: ${formatMoney(source.lager_bil_expected)}`,
       `  Expected breakdown total: ${formatMoney(expectedMaterials.breakdown_total)}`,
       `  Uspecificeret expected residual: ${formatMoney(source.unallocated_expected_materials)}`,
@@ -803,7 +798,6 @@
       : projectOrRef && (projectOrRef.external_project_ref || projectOrRef.project_id);
     return String(value || '').trim().toLowerCase();
   }
-
   function mergeProjectDetail(project) {
     const refKey = projectRefKey(project);
     if (!project || !refKey) return;
@@ -821,7 +815,6 @@
       return item;
     });
   }
-
   async function loadProjectDetail(project) {
     const refKey = projectRefKey(project);
     if (!project || !refKey || project.calculation || state.loadingProjectRef === refKey) return;
@@ -832,7 +825,6 @@
       renderTechnicalRows();
       return;
     }
-
     const status = byId('igvaStatus');
     state.loadingProjectRef = refKey;
     const label = text(project.external_project_ref || project.project_id, refKey);
@@ -847,7 +839,7 @@
         mergeProjectDetail(detail);
         renderSelectedProject();
         renderTechnicalRows();
-        if (status) status.textContent = `Økonomi hentet for ${text(detail.external_project_ref || detail.project_id, refKey)}. Projektlederprocent gemmes kun lokalt i browseren i denne POC.`;
+        if (status) status.textContent = `Økonomi hentet for ${text(detail.external_project_ref || detail.project_id, refKey)}. Projektledervurdering gemmes på sagen.`;
       }
     } catch (error) {
       if (error && (error.status === 401 || error.status === 403)) { renderAccessDenied(); return; }
@@ -856,7 +848,6 @@
       if (state.loadingProjectRef === refKey) state.loadingProjectRef = null;
     }
   }
-
   function renderProjectLoading(project) {
     const panel = el('section', 'igvaPanel');
     const title = el('div', 'igvaSectionTitle');
@@ -870,14 +861,12 @@
     panel.appendChild(el('p', 'igvaCaption', message));
     return panel;
   }
-
   function selectedProject() {
     return state.projects.find((project) => String(project.project_id) === String(state.selectedProjectId))
       || state.filteredProjects[0]
       || state.projects[0]
       || null;
   }
-
   function renderSelectedProject() {
     const dashboard = byId('igvaDashboard');
     clear(dashboard);
@@ -896,12 +885,11 @@
     main.appendChild(renderHistorySummary(project));
     side.appendChild(renderFinanceSummary(project));
     side.appendChild(renderAttention(project));
-    side.appendChild(renderDataQuality(project));
+    side.appendChild(renderFreshness(project));
     grid.appendChild(main);
     grid.appendChild(side);
     dashboard.appendChild(grid);
   }
-
   function projectMatches(project, query) {
     const q = String(query || '').trim().toLowerCase();
     if (!q) return true;
@@ -912,7 +900,6 @@
       project.responsible && project.responsible.code,
     ].some((value) => String(value || '').toLowerCase().includes(q));
   }
-
   function refreshProjectPicker() {
     const search = byId('igvaProjectSearch');
     const select = byId('igvaProjectSelect');
@@ -937,13 +924,11 @@
     renderSelectedProject();
     renderTechnicalRows();
   }
-
   function createCell(value) {
     const td = document.createElement('td');
     td.textContent = value;
     return td;
   }
-
   function createStackCell(items) {
     const td = document.createElement('td');
     const wrap = el('div', 'igvaStack');
@@ -954,7 +939,6 @@
     td.appendChild(wrap);
     return td;
   }
-
   function renderTechnicalRows() {
     const body = byId('igvaTechnicalRows');
     clear(body);
@@ -1002,7 +986,6 @@
       body.appendChild(tr);
     });
   }
-
   function renderAccessDenied() {
     const status = byId('igvaStatus');
     const dashboard = byId('igvaDashboard');
@@ -1031,7 +1014,6 @@
       if (event.key === 'Escape') closeDrawer();
     });
   }
-
   function buildEmbeddedPlaceholderProject(options) {
     const source = options || {};
     return {
@@ -1044,11 +1026,10 @@
         is_closed: Boolean(source.isClosed),
         closed_observed_at: source.closedObservedAt || null,
       },
-      data_quality: 'NOT_LOADED',
+      data_quality: null,
       calculation: null,
     };
   }
-
   async function initEmbeddedProject(options) {
     const status = byId('igvaStatus');
     state.mode = 'embedded';
@@ -1070,7 +1051,6 @@
     }
     await loadProjectDetail(state.projects[0]);
   }
-
   async function init() {
     const status = byId('igvaStatus');
     const logoutBtn = byId('igvaLogoutBtn');
@@ -1085,7 +1065,6 @@
       renderTechnicalRows();
       loadProjectDetail(selectedProject());
     });
-
     let me = null;
     try {
       me = await apiFetch('/api/me', { method: 'GET' });
@@ -1094,12 +1073,10 @@
       if (status) status.textContent = `Kunne ikke hente brugerdata: ${error && error.message ? error.message : 'request_failed'}`;
       return;
     }
-
     const userName = me && me.user && (me.user.username || me.user.name) ? (me.user.username || me.user.name) : 'Fielddesk';
     const tenantName = me && me.tenant && me.tenant.name ? me.tenant.name : window.location.hostname.split('.')[0];
     if (byId('igvaUser')) byId('igvaUser').textContent = `${userName} · ${tenantName}`;
     if (byId('igvaTenantShort')) byId('igvaTenantShort').textContent = String(userName).slice(0, 4).toUpperCase();
-
     try {
       const params = new URLSearchParams(window.location.search || '');
       const projectRef = params.get('project_ref') || params.get('project');
@@ -1120,7 +1097,7 @@
       if (status) {
         const count = state.projects.length;
         const mode = payload && payload.economy_mode ? payload.economy_mode : 'igva_poc';
-        status.textContent = `${count} projekter i dit aktuelle Fielddesk-scope${projectRef ? ` for ${projectRef}` : ''}. Mode: ${mode}. Projektlederprocent gemmes kun lokalt i browseren i denne POC.`;
+        status.textContent = `${count} projekter i dit aktuelle Fielddesk-scope${projectRef ? ` for ${projectRef}` : ''}. Mode: ${mode}. Projektledervurdering gemmes på sagen.`;
       }
       const initialProject = selectedProject();
       if (initialProject && !initialProject.calculation) await loadProjectDetail(initialProject);
@@ -1129,11 +1106,9 @@
       if (status) status.textContent = `Kunne ikke hente IGVA POC-data: ${error && error.message ? error.message : 'request_failed'}`;
     }
   }
-
   window.FielddeskIgvaPoc = {
     initEmbeddedProject,
   };
-
   window.__igvaPocV31Test = {
     buildExpectedHistoryEvents,
     buildSladrehankObservations,
@@ -1144,7 +1119,6 @@
     projectRefKey,
     initEmbeddedProject,
   };
-
   if (document.body && document.body.dataset.page === 'igva-poc') {
     init();
   }

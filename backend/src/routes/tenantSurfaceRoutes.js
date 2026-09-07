@@ -686,6 +686,97 @@ router.get("/api/projects/:projectId", requireTenantHost, requireAuth("access"),
   }
 });
 
+router.patch("/api/projects/:projectId/igva/manager-completion", requireTenantHost, requireAuth("access"), requireIgvaPocOnlineAccess, async (req, res, next) => {
+  if (hasAccessContextMismatch(req)) {
+    return next(createHttpError(403, "tenant_context_mismatch"));
+  }
+
+  const client = await pool.connect();
+  try {
+    const projectContext = await projectAccessService.requireProjectAccess({
+      client,
+      tenantId: req.context.tenant.id,
+      userId: req.auth.sub,
+      projectId: req.params.projectId,
+    });
+    const saved = await igvaPocService.saveProjectManagerCompletion(client, {
+      tenantId: req.context.tenant.id,
+      userId: req.auth.sub,
+      projectId: projectContext.project.project_id,
+      completionPercent: req.body ? req.body.completion_percent : null,
+      comment: req.body ? req.body.comment : null,
+    });
+    res.status(200).json({
+      success: true,
+      gate: req.igvaPocGate,
+      project: {
+        project_id: projectContext.project.project_id,
+        external_project_ref: projectContext.project.external_project_ref || null,
+      },
+      manager_completion: saved.completion,
+      event: saved.event,
+    });
+  } catch (error) {
+    console.error("[tenantSurfaceRoutes] request_failed", {
+      route: "/api/projects/:projectId/igva/manager-completion",
+      scope: "project",
+      tenant_id: req.context?.tenant?.id || req.auth?.tenant_id || null,
+      user_id: req.auth?.sub || null,
+      role: req.auth?.role || null,
+      project_id: req.params?.projectId || null,
+      error_message: error?.message || null,
+      error_stack: error?.stack || null,
+    });
+    next(error);
+  } finally {
+    client.release();
+  }
+});
+
+router.get("/api/projects/:projectId/igva/manager-completion/history", requireTenantHost, requireAuth("access"), requireIgvaPocOnlineAccess, async (req, res, next) => {
+  if (hasAccessContextMismatch(req)) {
+    return next(createHttpError(403, "tenant_context_mismatch"));
+  }
+
+  const client = await pool.connect();
+  try {
+    const projectContext = await projectAccessService.requireProjectAccess({
+      client,
+      tenantId: req.context.tenant.id,
+      userId: req.auth.sub,
+      projectId: req.params.projectId,
+    });
+    const history = await igvaPocService.listProjectManagerCompletionHistory(client, {
+      tenantId: req.context.tenant.id,
+      projectId: projectContext.project.project_id,
+      limit: req.query && req.query.limit ? req.query.limit : 20,
+    });
+    res.status(200).json({
+      success: true,
+      gate: req.igvaPocGate,
+      project: {
+        project_id: projectContext.project.project_id,
+        external_project_ref: projectContext.project.external_project_ref || null,
+      },
+      history,
+    });
+  } catch (error) {
+    console.error("[tenantSurfaceRoutes] request_failed", {
+      route: "/api/projects/:projectId/igva/manager-completion/history",
+      scope: "project",
+      tenant_id: req.context?.tenant?.id || req.auth?.tenant_id || null,
+      user_id: req.auth?.sub || null,
+      role: req.auth?.role || null,
+      project_id: req.params?.projectId || null,
+      error_message: error?.message || null,
+      error_stack: error?.stack || null,
+    });
+    next(error);
+  } finally {
+    client.release();
+  }
+});
+
 router.get("/api/projects/:projectId/fitterhours/summary", requireTenantHost, requireAuth("access"), async (req, res, next) => {
   if (hasAccessContextMismatch(req)) {
     return next(createHttpError(403, "tenant_context_mismatch"));

@@ -99,6 +99,9 @@ const ALLOWED_EVENT_TYPES = Object.freeze([
   "storage_object_uploaded",
   "storage_object_downloaded",
   "storage_object_deleted",
+  "igva.manager_completion_changed",
+  "igva.summary_refreshed",
+  "igva.summary_refresh_failed",
 ]);
 
 const TENANT_SCOPED_ACTOR_SCOPES = new Set(["tenant"]);

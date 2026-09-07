@@ -459,6 +459,7 @@ function buildIgvaPocProject(row, options = {}) {
   const componentResult = buildComponents(row, options);
   const calculation = calculateIgvaProjectEconomy({
     components: componentResult.components,
+    project_manager_completion_percent: toFiniteNumber(row.project_manager_completion_percent),
   });
 
   return {
@@ -479,6 +480,13 @@ function buildIgvaPocProject(row, options = {}) {
       is_closed: row.is_closed === true,
       financial_wip: row.financial_wip,
       is_work_in_progress: row.is_work_in_progress,
+    },
+    project_manager_completion_percent: toFiniteNumber(row.project_manager_completion_percent),
+    project_manager_completion: toFiniteNumber(row.project_manager_completion_percent) === null ? null : {
+      completion_percent: toFiniteNumber(row.project_manager_completion_percent),
+      comment: row.project_manager_completion_comment || null,
+      changed_at: row.project_manager_completion_changed_at || null,
+      changed_by: row.project_manager_completion_changed_by || null,
     },
     source_totals: componentResult.source_totals,
     expected_materials: componentResult.expected_materials,

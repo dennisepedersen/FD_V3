@@ -6698,20 +6698,30 @@
     function renderIgvaFinanceProject(project) {
       const ref = getIgvaFinanceProjectRef(project);
       const closed = isIgvaFinanceClosed(project);
-      const status = closed ? "Afsluttet" : "Aktiv";
-      const quality = firstText(project && project.data_quality, project && project.quality) || "NOT_LOADED";
+      const status = closed ? "Lukket" : "Igangværende";
+      const summary = project && project.summary ? project.summary : {};
+      const calc = project && project.calculation ? project.calculation : {};
+      const source = project && project.source_totals ? project.source_totals : {};
+      const expectedPercent = firstNumber(summary.expected_completion_percent, calc.expected_completion && calc.expected_completion.percent);
+      const materialActual = firstNumber(summary.material_actual, source.materials_actual);
+      const revenueExpected = firstNumber(summary.revenue_expected, source.turnover_expected);
+      const freshness = formatIgvaFreshness(summary.source_synced_at || summary.calculated_at);
+      const hasSummary = Boolean(project && project.economy_detail === "summary" && (project.calculation || project.source_totals));
+      const middle = hasSummary
+        ? '<div class="fdRowProgress">' + renderProgressBar(clampPercent(expectedPercent), false) + '</div><span class="fdProgressText">Forventet færdiggørelsesgrad ' + escapeHtml(formatPercentValue(expectedPercent) || '--') + '</span><span class="fdSortHint"><span data-icon="euro"></span><span>Materialer ' + escapeHtml(formatMoney(materialActual) || '--') + '</span></span><span class="fdSortHint"><span data-icon="chart"></span><span>Forventet omsætning ' + escapeHtml(formatMoney(revenueExpected) || '--') + '</span></span>'
+        : '<span class="fdSortHint"><span data-icon="chart"></span><span>Afventer første IGVA-synkronisering</span></span>';
       const article = document.createElement("article");
       article.className = "fdCaseRow";
-      article.dataset.igvaFinanceSource = "lightweight";
+      article.dataset.igvaFinanceSource = hasSummary ? "summary" : "pending";
       article.innerHTML =
         '<div class="fdCaseRowLeft">' +
-          '<span class="fdStatusDot ' + (closed ? 'aktiv' : 'aktiv') + '"></span>' +
+          '<span class="fdStatusDot ' + (closed ? 'neutral' : 'aktiv') + '"></span>' +
           '<div class="fdCaseRowTitleWrap">' +
             '<p class="fdCaseName">' + escapeHtml(project && project.name ? project.name : 'Uden navn') + '</p>' +
-            '<div class="fdCaseMetaLine"><span class="fdCaseNumber">Sag ' + escapeHtml(ref) + '</span><span>·</span><span>IGVA ' + escapeHtml(status) + '</span><span>·</span><span>' + escapeHtml(quality) + '</span></div>' +
+            '<div class="fdCaseMetaLine"><span class="fdCaseNumber">Sag ' + escapeHtml(ref) + '</span><span>·</span><span>IGVA ' + escapeHtml(status) + '</span><span>·</span><span>' + escapeHtml(freshness) + '</span></div>' +
           '</div>' +
         '</div>' +
-        '<div class="fdCaseRowMiddle"><span class="fdSortHint"><span data-icon="chart"></span><span>Økonomi hentes først i sagen</span></span></div>' +
+        '<div class="fdCaseRowMiddle">' + middle + '</div>' +
         '<div class="fdCaseRowActions"><a class="fdCaseBtn primary" href="' + escapeHtml(getIgvaProjectUrl(project)) + '">Åbn IGVA</a></div>';
       renderInlineIcons(article);
       return article;
@@ -6999,6 +7009,25 @@
       } catch (_error) {
         return String(Math.round(parsed)) + " kr.";
       }
+    }
+
+    function formatPercentValue(value) {
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed)) return null;
+      return new Intl.NumberFormat("da-DK", { maximumFractionDigits: 1, minimumFractionDigits: 0 }).format(parsed) + " %";
+    }
+
+    function formatIgvaFreshness(value) {
+      const date = toDate(value);
+      if (!date) return "Afventer første synkronisering";
+      const diffMs = Date.now() - date.getTime();
+      if (diffMs < 0) return "Sidst synkroniseret " + new Intl.DateTimeFormat("da-DK", { hour: "2-digit", minute: "2-digit" }).format(date);
+      const minutes = Math.floor(diffMs / 60000);
+      if (minutes < 1) return "Opdateret lige nu";
+      if (minutes < 60) return "Opdateret " + minutes + " min siden";
+      const hours = Math.floor(minutes / 60);
+      if (hours < 24) return "Opdateret " + hours + " timer siden";
+      return "Sidst synkroniseret " + new Intl.DateTimeFormat("da-DK", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }).format(date);
     }
 
     function formatCaseDate(value) {
@@ -8949,13 +8978,13 @@
 
       if (error && error.status === 403) {
         if (error.code === "module_access_denied") {
-          return "QA er ikke tilgængelig for din rolle.";
+          return "Q&A er ikke tilgængelig for din rolle.";
         }
-        return "Du har ikke adgang til denne QA handling.";
+        return "Du har ikke adgang til denne Q&A handling.";
       }
 
       if (error && error.status === 404) {
-        return "QA data blev ikke fundet for dette projekt.";
+        return "Q&A data blev ikke fundet for dette projekt.";
       }
 
       return getErrorMessage(error, fallback);
@@ -9058,7 +9087,7 @@
         qaDrawerTitle.textContent = "Opret tråd";
       }
       if (qaDrawerMeta) {
-        qaDrawerMeta.textContent = "Ny projekt-specifik QA";
+        qaDrawerMeta.textContent = "Ny projekt-specifik Q&A";
         qaDrawerMeta.title = "";
       }
       renderQaNewThreadNotice("", false);
@@ -9071,7 +9100,7 @@
     function openQaAllThreadsModal() {
       setQaModalMode("all");
       if (qaDrawerTitle) {
-        qaDrawerTitle.textContent = "Alle QA-tråde";
+        qaDrawerTitle.textContent = "Alle Q&A-tråde";
       }
       if (qaDrawerMeta) {
         qaDrawerMeta.textContent = "Kun dette projekt";
@@ -9128,7 +9157,7 @@
 
       const title = document.createElement("h3");
       title.className = "qaThreadTitle";
-      title.textContent = thread.title || thread.latest_message_preview || "QA thread";
+      title.textContent = thread.title || thread.latest_message_preview || "Q&A thread";
 
       const badges = document.createElement("div");
       badges.className = "qaBadgeRow";
@@ -9213,7 +9242,7 @@
       qaMetaText.textContent = count === 1 ? "1 thread" : `${count} threads`;
 
       if (qaState.isLoadingThreads) {
-        setQaStateMessage("Indlaeser QA threads...", false);
+        setQaStateMessage("Indlaeser Q&A threads...", false);
         return;
       }
 
@@ -9224,7 +9253,7 @@
 
         const title = document.createElement("h3");
         title.className = "qaEmptyTitle";
-        title.textContent = "Ingen QA endnu";
+        title.textContent = "Ingen Q&A endnu";
 
         const text = document.createElement("p");
         text.className = "qaEmptyText";
@@ -9303,7 +9332,7 @@
 
     function setQaDrawerLoading() {
       if (qaDrawerTitle) {
-        qaDrawerTitle.textContent = "QA thread";
+        qaDrawerTitle.textContent = "Q&A thread";
       }
       if (qaDrawerMeta) {
         qaDrawerMeta.textContent = "Indlaeser...";
@@ -9372,7 +9401,7 @@
       const activityAt = thread.updated_at || thread.created_at;
 
       if (qaDrawerTitle) {
-        qaDrawerTitle.textContent = thread.title || "QA thread";
+        qaDrawerTitle.textContent = thread.title || "Q&A thread";
       }
       if (qaDrawerMeta) {
         qaDrawerMeta.textContent = [
@@ -9451,13 +9480,13 @@
         qaState.threads = response && Array.isArray(response.threads) ? response.threads : [];
         setQaListActionsDisabled(false);
       } catch (error) {
-        const message = qaErrorMessage(error, "Kunne ikke hente QA threads.");
+        const message = qaErrorMessage(error, "Kunne ikke hente Q&A threads.");
         if (!message) {
           return;
         }
         qaState.summary = { NEW: 0, WAITING: 0, ANSWERED: 0, CLOSED: 0 };
         qaState.threads = [];
-        qaMetaText.textContent = "QA utilgaengelig";
+        qaMetaText.textContent = "Q&A utilgaengelig";
         renderQaSummary();
         setQaStateMessage(message, true);
         if (error && error.status === 403) {
@@ -9488,7 +9517,7 @@
         qaState.messages = response && Array.isArray(response.messages) ? response.messages : [];
         renderQaDrawerDetail(Boolean(options.scrollToLatest));
       } catch (error) {
-        const message = qaErrorMessage(error, "Kunne ikke hente QA thread.");
+        const message = qaErrorMessage(error, "Kunne ikke hente Q&A thread.");
         if (!message) {
           return;
         }
@@ -9534,9 +9563,6 @@
         if (qaNewThreadPriority) qaNewThreadPriority.value = "normal";
 
         await loadQaThreads();
-      if (projectModuleState.active === "igva") {
-        await ensureProjectIgvaLoaded();
-      }
         const threadId = response && response.thread ? response.thread.id : null;
         if (threadId) {
           openQaDrawer(threadId);
@@ -9544,7 +9570,7 @@
           closeQaDrawer(true);
         }
       } catch (error) {
-        const errorMessage = qaErrorMessage(error, "Kunne ikke oprette QA thread.");
+        const errorMessage = qaErrorMessage(error, "Kunne ikke oprette Q&A thread.");
         if (errorMessage) {
           renderQaNewThreadNotice(errorMessage, true);
         }
@@ -12552,6 +12578,9 @@
         renderProjectDetailError("Projektdata mangler");
       } else {
         renderProjectDetail(vm, { currentUser: projectPageUser });
+        if (projectModuleState.active === "igva") {
+          await ensureProjectIgvaLoaded();
+        }
       }
 
       const breakdown = breakdownResult.status === "fulfilled" && breakdownResult.value

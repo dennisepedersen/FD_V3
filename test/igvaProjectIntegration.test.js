@@ -73,6 +73,14 @@ test('embedded IGVA uses current project route and does not rely on client proje
   assert.match(igvaJs, /document\.body\.dataset\.page === 'igva-poc'/);
 });
 
+test('direct project IGVA route renders after project context is ready', () => {
+  const initBody = getFunctionBody(authJs, 'initProjectPage');
+  const renderIndex = indexOfOrThrow(initBody, 'renderProjectDetail(vm, { currentUser: projectPageUser });');
+  const loadIndex = indexOfOrThrow(initBody, 'if (projectModuleState.active === "igva")');
+  assert.ok(renderIndex < loadIndex);
+  assert.match(initBody.slice(loadIndex, loadIndex + 120), /await ensureProjectIgvaLoaded\(\)/);
+});
+
 test('project IGVA API is DEP-gated and derives project_ref from server project access', () => {
   assert.match(routeSource, /router\.get\("\/api\/projects\/:projectId\/igva", requireTenantHost, requireAuth\("access"\), requireIgvaPocOnlineAccess/);
   assert.match(routeSource, /projectAccessService\.requireProjectAccess/);
@@ -80,6 +88,14 @@ test('project IGVA API is DEP-gated and derives project_ref from server project 
   assert.match(routeSource, /userId: req\.auth\.sub/);
   assert.match(routeSource, /external_project_ref/);
   assert.match(routeSource, /server_resolved_project_route/);
+});
+
+test('manager completion API routes are DEP gated and project scoped', () => {
+  assert.match(routeSource, /router\.patch\("\/api\/projects\/:projectId\/igva\/manager-completion", requireTenantHost, requireAuth\("access"\), requireIgvaPocOnlineAccess/);
+  assert.match(routeSource, /router\.get\("\/api\/projects\/:projectId\/igva\/manager-completion\/history", requireTenantHost, requireAuth\("access"\), requireIgvaPocOnlineAccess/);
+  assert.match(routeSource, /projectAccessService\.requireProjectAccess\(\{[\s\S]+?tenantId: req\.context\.tenant\.id[\s\S]+?userId: req\.auth\.sub[\s\S]+?projectId: req\.params\.projectId/);
+  assert.match(routeSource, /saveProjectManagerCompletion/);
+  assert.match(routeSource, /listProjectManagerCompletionHistory/);
 });
 
 test('left nav economy opens IGVA overview with active projects as default and optional completed projects', () => {
@@ -138,6 +154,43 @@ test('IGVA overview does not bulk fetch project economy details', () => {
   assert.match(body, /apiFetch\("\/api\/igva-poc\/projects", \{ method: "GET" \}\)/);
   assert.doesNotMatch(body, /project_ref|economy=detail|\/api\/projects\/[^"]+\/igva/);
   assert.match(routeSource, /includeEconomy: Boolean\(projectRef\)/);
+});
+
+test('IGVA overview uses persisted summary freshness instead of NOT_LOADED main cards', () => {
+  const cardBody = getFunctionBody(authJs, 'renderIgvaFinanceProject');
+  assert.match(cardBody, /economy_detail === "summary"/);
+  assert.match(cardBody, /formatIgvaFreshness/);
+  assert.match(cardBody, /Afventer første IGVA-synkronisering/);
+  assert.doesNotMatch(cardBody, /NOT_LOADED|PROBABLE|PARTIAL|VERIFIED_WITH_PROBABLE_COMPONENT/);
+});
+
+test('IGVA project manager completion is server persisted, not browser localStorage', () => {
+  assert.doesNotMatch(igvaJs, /PM_KEY_PREFIX|localStorage.*project_manager_completion|project_manager_completion.*localStorage/);
+  assert.match(igvaJs, /function managerCompletionEndpoint/);
+  assert.match(igvaJs, /method: 'PATCH'/);
+  assert.match(igvaJs, /\/igva\/manager-completion/);
+});
+
+test('normal IGVA UI uses Danish business labels and keeps technical statuses out of primary cards', () => {
+  const primaryBodies = [
+    getFunctionBody(igvaJs, 'renderHeader'),
+    getFunctionBody(igvaJs, 'renderFinanceSummary'),
+    getFunctionBody(igvaJs, 'renderComponentBreakdown'),
+    getFunctionBody(igvaJs, 'renderFreshness'),
+    getFunctionBody(authJs, 'renderIgvaFinanceProject'),
+  ].join('\n');
+  assert.match(primaryBodies, /Forventet færdiggørelsesgrad/);
+  assert.match(primaryBodies, /Realiseret løn|Løn/);
+  assert.match(primaryBodies, /Realiserede materialer|Materialer/);
+  assert.doesNotMatch(primaryBodies, /NOT_LOADED|PROBABLE|PARTIAL|VERIFIED_WITH_PROBABLE_COMPONENT|Weighted completion|Beregnet lønactual|Beregnet materialeactual|Materialer actual|Lønactual|Marginal %/);
+});
+
+test('project detail and dashboard surfaces use Q&A copy', () => {
+  assert.match(projectHtml, /data-project-module-tab="qa" aria-selected="false">Q&amp;A/);
+  assert.match(projectHtml, /Indlaeser Q&amp;A/);
+  assert.match(appHtml, /Q&amp;A der afventer mig/);
+  assert.doesNotMatch(projectHtml, />\s*QA\s*</);
+  assert.doesNotMatch(appHtml, />\s*QA\s*</);
 });
 
 test('standalone POC shell is deprecated and hidden from normal navigation', () => {

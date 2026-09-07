@@ -5,6 +5,7 @@ const syncJobQueries = require("../db/queries/syncJob");
 const env = require("../config/env");
 const { resolveFitterIdentityLinksForBatch } = require("./fitterIdentityService");
 const { materializeProjectActivityFromFitterHours } = require("./projectActivityMaterializer");
+const igvaPocService = require("./igvaPocService");
 const {
   pruneExpiredWorksheetSources,
   reconcileMissingWorksheetSources,
@@ -55,6 +56,8 @@ const SYNC_MODES = {
   SLOW_RECONCILIATION: "slow_reconciliation",
   RECONCILE_SCAN: "reconcile_scan",
 };
+const IGVA_SUMMARY_ENDPOINT_KEY = "igva_project_summary";
+
 const SYNC_STRATEGIES = {
   DELTA_SUPPORTED: "delta_supported",
   RECONCILE_SCAN: "reconcile_scan",
@@ -80,6 +83,7 @@ const ENDPOINT_STRATEGY = {
   invoices: { supportsDelta: false, strategy: SYNC_STRATEGIES.RECONCILE_SCAN, materialized: false },
   purchaseinvoices: { supportsDelta: false, strategy: SYNC_STRATEGIES.RECONCILE_SCAN, materialized: false },
   worksheets: { supportsDelta: true, strategy: SYNC_STRATEGIES.DELTA_SUPPORTED, materialized: true },
+  igva_project_summary: { supportsDelta: false, strategy: SYNC_STRATEGIES.RECONCILE_SCAN, materialized: true },
 };
 
 let started = false;
@@ -573,6 +577,11 @@ async function listEnabledEndpoints(client, tenantId) {
   // Fitter categories are required lookup metadata for fitter/fitterhours enrichment and should follow those selections.
   if (!seen.has("fittercategories") && (seen.has("fitters") || seen.has("fitterhours"))) {
     selected.push("fittercategories");
+    seen.add("fittercategories");
+  }
+
+  if (!seen.has(IGVA_SUMMARY_ENDPOINT_KEY) && (seen.has("projects") || seen.has("fitterhours") || seen.has("purchaseinvoices"))) {
+    selected.push(IGVA_SUMMARY_ENDPOINT_KEY);
   }
 
   return selected;
@@ -599,7 +608,7 @@ function orderEndpointExecution(endpointKeys) {
   }
 
   for (const key of unique) {
-    if (key === "projects" || key === "fittercategories" || key === "fitterhours") {
+    if (key === "projects" || key === "fittercategories" || key === "fitterhours" || key === IGVA_SUMMARY_ENDPOINT_KEY) {
       continue;
     }
     ordered.push(key);
@@ -607,6 +616,10 @@ function orderEndpointExecution(endpointKeys) {
 
   if (seen.has("fitterhours")) {
     ordered.push("fitterhours");
+  }
+
+  if (seen.has(IGVA_SUMMARY_ENDPOINT_KEY)) {
+    ordered.push(IGVA_SUMMARY_ENDPOINT_KEY);
   }
 
   return ordered;
@@ -4541,6 +4554,103 @@ async function scheduleDeltaJobs() {
   });
 }
 
+async function runIgvaProjectSummaryEndpoint({ job, mode }) {
+  const startedAt = nowIso();
+  let status = "success";
+  let result = null;
+  const client = await pool.connect();
+  try {
+    await markEndpointState(client, {
+      tenantId: job.tenant_id,
+      endpointKey: IGVA_SUMMARY_ENDPOINT_KEY,
+      status: "running",
+      jobId: job.id,
+      currentJobId: job.id,
+      currentMode: mode,
+      syncStrategy: SYNC_STRATEGIES.RECONCILE_SCAN,
+      lastAttemptAt: startedAt,
+      lastSuccessAt: null,
+      lastSuccessfulPage: null,
+      lastSuccessfulCursor: null,
+      lastSeenRemoteCursor: null,
+      updatedAfterWatermark: null,
+      rowsFetchedDelta: 0,
+      rowsPersistedDelta: 0,
+      pagesProcessedLastJob: 0,
+      rowsFetchedLastJob: 0,
+      retryCount: 0,
+      pendingBacklogCount: 0,
+      failedPageCount: 0,
+      lastHttpStatus: null,
+      heartbeatAt: nowIso(),
+      nextPlannedAt: null,
+      errorMessage: null,
+    });
+
+    result = await igvaPocService.refreshIgvaProjectSummaries(client, {
+      tenantId: job.tenant_id,
+    });
+    status = result.failed > 0 ? "partial" : "success";
+    await markEndpointState(client, {
+      tenantId: job.tenant_id,
+      endpointKey: IGVA_SUMMARY_ENDPOINT_KEY,
+      status,
+      jobId: job.id,
+      currentJobId: null,
+      currentMode: mode,
+      syncStrategy: SYNC_STRATEGIES.RECONCILE_SCAN,
+      lastAttemptAt: startedAt,
+      lastSuccessAt: status === "success" ? nowIso() : null,
+      lastSuccessfulPage: null,
+      lastSuccessfulCursor: null,
+      lastSeenRemoteCursor: null,
+      updatedAfterWatermark: null,
+      rowsFetchedDelta: result.rows_considered,
+      rowsPersistedDelta: result.refreshed,
+      pagesProcessedLastJob: 1,
+      rowsFetchedLastJob: result.rows_considered,
+      retryCount: 0,
+      pendingBacklogCount: 0,
+      failedPageCount: result.failed,
+      lastHttpStatus: null,
+      heartbeatAt: nowIso(),
+      nextPlannedAt: null,
+      errorMessage: result.failed ? "igva_summary_partial_failure" : null,
+    });
+    return { rowsProcessed: result.refreshed, pagesProcessed: 1, result };
+  } catch (error) {
+    await markEndpointState(client, {
+      tenantId: job.tenant_id,
+      endpointKey: IGVA_SUMMARY_ENDPOINT_KEY,
+      status: "partial",
+      jobId: job.id,
+      currentJobId: null,
+      currentMode: mode,
+      syncStrategy: SYNC_STRATEGIES.RECONCILE_SCAN,
+      lastAttemptAt: startedAt,
+      lastSuccessAt: null,
+      lastSuccessfulPage: null,
+      lastSuccessfulCursor: null,
+      lastSeenRemoteCursor: null,
+      updatedAfterWatermark: null,
+      rowsFetchedDelta: 0,
+      rowsPersistedDelta: 0,
+      pagesProcessedLastJob: 1,
+      rowsFetchedLastJob: 0,
+      retryCount: 1,
+      pendingBacklogCount: 0,
+      failedPageCount: 1,
+      lastHttpStatus: classifyError(error).status,
+      heartbeatAt: nowIso(),
+      nextPlannedAt: null,
+      errorMessage: String(error && error.message ? error.message : "igva_summary_refresh_failed").slice(0, 2000),
+    });
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function processSyncJob(job) {
   console.log(`[syncWorker] job picked ${job.id} tenant=${job.tenant_id} type=${job.type}`);
   console.log(`[syncWorker] job started ${job.id}`);
@@ -4613,6 +4723,17 @@ async function processSyncJob(job) {
           mode: jobMode,
         });
 
+        rowsProcessed += result.rowsProcessed;
+        pagesProcessed += result.pagesProcessed;
+        continue;
+      }
+
+      if (endpointKey === IGVA_SUMMARY_ENDPOINT_KEY) {
+        const result = await runIgvaProjectSummaryEndpoint({
+          job,
+          cfg,
+          mode: jobMode,
+        });
         rowsProcessed += result.rowsProcessed;
         pagesProcessed += result.pagesProcessed;
         continue;
@@ -4770,5 +4891,9 @@ module.exports = {
   _test: {
     mapFitterRow,
     upsertFitterBatch,
+    listEnabledEndpoints,
+    orderEndpointExecution,
+    runIgvaProjectSummaryEndpoint,
+    IGVA_SUMMARY_ENDPOINT_KEY,
   },
 };

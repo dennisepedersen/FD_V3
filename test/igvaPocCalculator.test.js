@@ -627,9 +627,9 @@ test('case 36: IGVA online project list does not read through EK without project
     ekClient: createCountingEkClient(calls),
   });
 
-  assert.equal(result.economy_mode, 'igva_poc_v3_1_project_list_only');
+  assert.equal(result.economy_mode, 'igva_poc_v3_2_persisted_summary');
   assert.equal(result.projects.length, 2);
-  assert.equal(result.projects[0].economy_detail, 'not_loaded');
+  assert.equal(result.projects[0].economy_detail, 'summary_pending');
   assert.equal(result.projects[0].calculation, null);
   assert.deepEqual(Object.values(calls), [0, 0, 0, 0, 0, 0]);
 });
@@ -651,7 +651,7 @@ test('case 37: IGVA online project_ref reads EK economy only for scoped matching
     ekClient: createCountingEkClient(calls),
   });
 
-  assert.equal(result.economy_mode, 'igva_poc_v3_1_selected_project_read_through');
+  assert.equal(result.economy_mode, 'igva_poc_v3_2_selected_project_read_through');
   assert.equal(result.projects.length, 1);
   assert.equal(result.projects[0].external_project_ref, '80396-003');
   assert.ok(result.projects[0].calculation);

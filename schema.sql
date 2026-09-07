@@ -532,7 +532,10 @@ CREATE TABLE audit_event (
       'email_outbox.dead_lettered',
       'storage_object_uploaded',
       'storage_object_downloaded',
-      'storage_object_deleted'
+      'storage_object_deleted',
+      'igva.manager_completion_changed',
+      'igva.summary_refreshed',
+      'igva.summary_refresh_failed'
     )
   ),
   CONSTRAINT ck_audit_event_target_type_not_blank CHECK (btrim(target_type) <> ''),
@@ -736,7 +739,126 @@ FOR EACH ROW
 EXECUTE FUNCTION prevent_immutable_update('project_id', 'tenant_id', 'created_at');
 
 -- ============================================================================
--- 14) project_assignment
+-- 14) igva_project_manager_completion
+-- ============================================================================
+
+CREATE TABLE igva_project_manager_completion (
+  tenant_id uuid NOT NULL,
+  project_id uuid NOT NULL,
+  completion_percent numeric(5,2) NOT NULL,
+  comment text NULL,
+  changed_at timestamptz NOT NULL DEFAULT now(),
+  changed_by uuid NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT pk_igva_project_manager_completion PRIMARY KEY (tenant_id, project_id),
+  CONSTRAINT fk_igva_project_manager_completion_project FOREIGN KEY (project_id, tenant_id) REFERENCES project_core(project_id, tenant_id) ON DELETE CASCADE,
+  CONSTRAINT fk_igva_project_manager_completion_changed_by FOREIGN KEY (changed_by, tenant_id) REFERENCES tenant_user(id, tenant_id) ON DELETE RESTRICT,
+  CONSTRAINT ck_igva_project_manager_completion_percent CHECK (completion_percent >= 0 AND completion_percent <= 100),
+  CONSTRAINT ck_igva_project_manager_completion_comment CHECK (comment IS NULL OR char_length(comment) <= 1000)
+);
+
+CREATE INDEX ix_igva_project_manager_completion_changed
+  ON igva_project_manager_completion (tenant_id, changed_at DESC);
+
+CREATE TRIGGER trg_igva_project_manager_completion_set_updated_at
+BEFORE UPDATE ON igva_project_manager_completion
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+-- ============================================================================
+-- 15) igva_project_manager_completion_event
+-- ============================================================================
+
+CREATE TABLE igva_project_manager_completion_event (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id uuid NOT NULL,
+  project_id uuid NOT NULL,
+  previous_completion_percent numeric(5,2) NULL,
+  completion_percent numeric(5,2) NOT NULL,
+  comment text NULL,
+  changed_at timestamptz NOT NULL DEFAULT now(),
+  changed_by uuid NOT NULL,
+  metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+  CONSTRAINT fk_igva_project_manager_completion_event_project FOREIGN KEY (project_id, tenant_id) REFERENCES project_core(project_id, tenant_id) ON DELETE CASCADE,
+  CONSTRAINT fk_igva_project_manager_completion_event_changed_by FOREIGN KEY (changed_by, tenant_id) REFERENCES tenant_user(id, tenant_id) ON DELETE RESTRICT,
+  CONSTRAINT ck_igva_project_manager_completion_event_percent CHECK (completion_percent >= 0 AND completion_percent <= 100),
+  CONSTRAINT ck_igva_project_manager_completion_event_previous_percent CHECK (previous_completion_percent IS NULL OR (previous_completion_percent >= 0 AND previous_completion_percent <= 100)),
+  CONSTRAINT ck_igva_project_manager_completion_event_comment CHECK (comment IS NULL OR char_length(comment) <= 1000),
+  CONSTRAINT ck_igva_project_manager_completion_event_metadata CHECK (jsonb_typeof(metadata) = 'object')
+);
+
+CREATE INDEX ix_igva_project_manager_completion_event_project
+  ON igva_project_manager_completion_event (tenant_id, project_id, changed_at DESC);
+
+CREATE INDEX ix_igva_project_manager_completion_event_actor
+  ON igva_project_manager_completion_event (tenant_id, changed_by, changed_at DESC);
+
+CREATE TRIGGER trg_igva_project_manager_completion_event_prevent_update
+BEFORE UPDATE ON igva_project_manager_completion_event
+FOR EACH ROW
+EXECUTE FUNCTION prevent_update_delete_append_only();
+
+CREATE TRIGGER trg_igva_project_manager_completion_event_prevent_delete
+BEFORE DELETE ON igva_project_manager_completion_event
+FOR EACH ROW
+EXECUTE FUNCTION prevent_update_delete_append_only();
+
+-- ============================================================================
+-- 16) igva_project_summary
+-- ============================================================================
+
+CREATE TABLE igva_project_summary (
+  tenant_id uuid NOT NULL,
+  project_id uuid NOT NULL,
+  calculated_at timestamptz NOT NULL DEFAULT now(),
+  source_synced_at timestamptz NULL,
+  freshness_policy_key text NOT NULL DEFAULT 'sync_worker_cadence',
+  budget_completion_percent numeric(7,4) NULL,
+  expected_completion_percent numeric(7,4) NULL,
+  manager_completion_percent numeric(5,2) NULL,
+  labor_completion_percent numeric(7,4) NULL,
+  material_completion_percent numeric(7,4) NULL,
+  revenue_actual numeric(14,2) NULL,
+  revenue_expected numeric(14,2) NULL,
+  cost_actual numeric(14,2) NULL,
+  cost_expected numeric(14,2) NULL,
+  contribution_margin_expected numeric(14,2) NULL,
+  coverage_expected numeric(7,4) NULL,
+  quality_status text NULL,
+  economy_status text NOT NULL DEFAULT 'not_calculated',
+  summary_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+  source_metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+  last_error text NULL,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT pk_igva_project_summary PRIMARY KEY (tenant_id, project_id),
+  CONSTRAINT fk_igva_project_summary_project FOREIGN KEY (project_id, tenant_id) REFERENCES project_core(project_id, tenant_id) ON DELETE CASCADE,
+  CONSTRAINT ck_igva_project_summary_economy_status CHECK (economy_status IN ('not_calculated', 'calculated', 'partial', 'failed')),
+  CONSTRAINT ck_igva_project_summary_budget_completion CHECK (budget_completion_percent IS NULL OR (budget_completion_percent >= 0 AND budget_completion_percent <= 100)),
+  CONSTRAINT ck_igva_project_summary_expected_completion CHECK (expected_completion_percent IS NULL OR (expected_completion_percent >= 0 AND expected_completion_percent <= 100)),
+  CONSTRAINT ck_igva_project_summary_manager_completion CHECK (manager_completion_percent IS NULL OR (manager_completion_percent >= 0 AND manager_completion_percent <= 100)),
+  CONSTRAINT ck_igva_project_summary_labor_completion CHECK (labor_completion_percent IS NULL OR (labor_completion_percent >= 0 AND labor_completion_percent <= 100)),
+  CONSTRAINT ck_igva_project_summary_material_completion CHECK (material_completion_percent IS NULL OR (material_completion_percent >= 0 AND material_completion_percent <= 100)),
+  CONSTRAINT ck_igva_project_summary_summary_json CHECK (jsonb_typeof(summary_json) = 'object'),
+  CONSTRAINT ck_igva_project_summary_source_metadata CHECK (jsonb_typeof(source_metadata) = 'object')
+);
+
+CREATE INDEX ix_igva_project_summary_tenant_calculated
+  ON igva_project_summary (tenant_id, calculated_at DESC);
+
+CREATE INDEX ix_igva_project_summary_tenant_synced
+  ON igva_project_summary (tenant_id, source_synced_at DESC);
+
+CREATE INDEX ix_igva_project_summary_status
+  ON igva_project_summary (tenant_id, economy_status, calculated_at DESC);
+
+CREATE TRIGGER trg_igva_project_summary_set_updated_at
+BEFORE UPDATE ON igva_project_summary
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+-- ============================================================================
+-- 17) project_assignment
 -- ============================================================================
 
 CREATE TABLE project_assignment (

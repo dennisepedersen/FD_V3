@@ -179,11 +179,11 @@ Current POC guardrail:
 
 Financialposts remain useful for voucher/accounting provenance and turnover, not as the primary material total.
 
-## Future Persistence
+## Current Foundation Persistence
 
-No migration is included in this POC.
+Migration `0048_igva_foundation_summary.sql` adds tenant/project-scoped IGVA manager completion, append-only manager completion history, and a lightweight `igva_project_summary` cache for overview surfaces. It deliberately does not persist full purchase-line source rows yet.
 
-A later persisted model should be tenant-scoped and likely keyed by:
+A later source-row persistence model should be tenant-scoped and likely keyed by:
 
 ```text
 tenant_id
