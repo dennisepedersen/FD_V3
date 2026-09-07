@@ -51,6 +51,23 @@ async function listProjectsForUser(client, { tenantId, userId }) {
         pm.is_subproject,
         pm.total_turn_over_exp,
         pm.source_updated_at,
+        ips.calculated_at AS igva_summary_calculated_at,
+        ips.source_synced_at AS igva_summary_source_synced_at,
+        ips.freshness_policy_key AS igva_summary_freshness_policy_key,
+        ips.budget_completion_percent AS igva_summary_budget_completion_percent,
+        ips.expected_completion_percent AS igva_summary_expected_completion_percent,
+        ips.manager_completion_percent AS igva_summary_manager_completion_percent,
+        ips.labor_completion_percent AS igva_summary_labor_completion_percent,
+        ips.material_completion_percent AS igva_summary_material_completion_percent,
+        ips.revenue_actual AS igva_summary_revenue_actual,
+        ips.revenue_expected AS igva_summary_revenue_expected,
+        ips.cost_actual AS igva_summary_cost_actual,
+        ips.cost_expected AS igva_summary_cost_expected,
+        ips.contribution_margin_expected AS igva_summary_contribution_margin_expected,
+        ips.coverage_expected AS igva_summary_coverage_expected,
+        ips.quality_status AS igva_summary_quality_status,
+        ips.economy_status AS igva_summary_economy_status,
+        ips.last_error AS igva_summary_last_error,
         pc.owner_user_id,
         pc.responsible_code,
         pc.responsible_name,
@@ -71,6 +88,9 @@ async function listProjectsForUser(client, { tenantId, userId }) {
       LEFT JOIN project_masterdata_v4 pm
         ON pm.project_id = pc.project_id
        AND pm.tenant_id = pc.tenant_id
+      LEFT JOIN igva_project_summary ips
+        ON ips.project_id = pc.project_id
+       AND ips.tenant_id = pc.tenant_id
       WHERE pc.tenant_id = $1
         AND (
           (COALESCE(pc.is_closed, false) = false AND pc.has_v4 = true)
@@ -129,6 +149,23 @@ async function listProjectsForUser(client, { tenantId, userId }) {
       is_subproject,
       total_turn_over_exp,
       source_updated_at,
+      igva_summary_calculated_at,
+      igva_summary_source_synced_at,
+      igva_summary_freshness_policy_key,
+      igva_summary_budget_completion_percent,
+      igva_summary_expected_completion_percent,
+      igva_summary_manager_completion_percent,
+      igva_summary_labor_completion_percent,
+      igva_summary_material_completion_percent,
+      igva_summary_revenue_actual,
+      igva_summary_revenue_expected,
+      igva_summary_cost_actual,
+      igva_summary_cost_expected,
+      igva_summary_contribution_margin_expected,
+      igva_summary_coverage_expected,
+      igva_summary_quality_status,
+      igva_summary_economy_status,
+      igva_summary_last_error,
       owner_user_id,
       responsible_code,
       responsible_name,
@@ -200,6 +237,23 @@ async function findProjectForUser(client, { tenantId, userId, projectId }) {
       pm.is_subproject,
       pm.total_turn_over_exp,
       pm.source_updated_at,
+        ips.calculated_at AS igva_summary_calculated_at,
+        ips.source_synced_at AS igva_summary_source_synced_at,
+        ips.freshness_policy_key AS igva_summary_freshness_policy_key,
+        ips.budget_completion_percent AS igva_summary_budget_completion_percent,
+        ips.expected_completion_percent AS igva_summary_expected_completion_percent,
+        ips.manager_completion_percent AS igva_summary_manager_completion_percent,
+        ips.labor_completion_percent AS igva_summary_labor_completion_percent,
+        ips.material_completion_percent AS igva_summary_material_completion_percent,
+        ips.revenue_actual AS igva_summary_revenue_actual,
+        ips.revenue_expected AS igva_summary_revenue_expected,
+        ips.cost_actual AS igva_summary_cost_actual,
+        ips.cost_expected AS igva_summary_cost_expected,
+        ips.contribution_margin_expected AS igva_summary_contribution_margin_expected,
+        ips.coverage_expected AS igva_summary_coverage_expected,
+        ips.quality_status AS igva_summary_quality_status,
+        ips.economy_status AS igva_summary_economy_status,
+        ips.last_error AS igva_summary_last_error,
       pc.owner_user_id,
       pc.responsible_code,
       pc.responsible_name,
@@ -220,6 +274,9 @@ async function findProjectForUser(client, { tenantId, userId, projectId }) {
     LEFT JOIN project_masterdata_v4 pm
       ON pm.project_id = pc.project_id
      AND pm.tenant_id = pc.tenant_id
+    LEFT JOIN igva_project_summary ips
+      ON ips.project_id = pc.project_id
+     AND ips.tenant_id = pc.tenant_id
     WHERE pc.tenant_id = $1
       AND pc.project_id = $2
       AND (

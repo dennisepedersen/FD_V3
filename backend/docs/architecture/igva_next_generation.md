@@ -10,7 +10,7 @@ Scope: IGVA foundation, background economy sync, persisted summary, and future a
 
 `verified`: Project manager completion is tenant/project-scoped in Fielddesk DB with an append-only history table and an `audit_event` entry for each change.
 
-`verified`: The summary is tenant/project-scoped and stores calculated/freshness timestamps plus compact economy fields. It must not store full purchase-line or expected-history payloads.
+`verified`: The summary is tenant/project-scoped and stores calculated/freshness timestamps plus compact economy fields. It must not store full purchase-line or expected-history payloads. Top-level typed columns are the current lightweight read model for UI surfaces.
 
 ## Background Economy Sync
 
@@ -39,9 +39,9 @@ Future source materialization can use endpoint delta capabilities such as `updat
 `igva_project_summary` is the read model for:
 
 - `/oekonomi`
-- future case overview progressbars
-- future Quick View economy snippets
-- future project Overblik economy snippets
+- case overview progressbars
+- Quick View economy snippets
+- project Overblik economy snippets
 - dashboard economy widgets later
 
 The summary stores only compact fields such as:
@@ -54,6 +54,16 @@ The summary stores only compact fields such as:
 - quality/status metadata
 
 Full detail remains an on-demand IGVA detail read-through and calculator response.
+
+`summary_json` is a compact calculation snapshot. Mutable project manager completion is owned by `igva_project_manager_completion` and projected into the top-level `igva_project_summary.manager_completion_percent` column. Normal writes remove any legacy embedded manager-completion keys from `summary_json` so typed columns and embedded payload cannot drift as duplicate truths.
+
+Field ownership:
+
+- `igva_project_manager_completion`: current manager completion source of truth and comment.
+- `igva_project_manager_completion_event`: append-only manager completion history.
+- `igva_project_summary.*_percent`, revenue/cost/DB/coverage columns: lightweight current read model for overview surfaces.
+- `igva_project_summary.summary_json`: compact calculator provenance and non-mutable calculation snapshot only.
+- full purchase lines, expected-history rows and future scope/EA/material-control rows: owned by their own domains, not by summary.
 
 ## Freshness
 

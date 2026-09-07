@@ -1523,6 +1523,33 @@
         rgba(9, 17, 34, 0.72);
     }
 
+    .projectIgvaSummary {
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+      padding: 8px 0 2px;
+    }
+
+    .projectIgvaSummaryTop {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      min-width: 0;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .projectIgvaSummaryTop strong {
+      color: var(--text);
+      font-family: Consolas, ui-monospace, monospace;
+      white-space: nowrap;
+    }
+
+    .projectIgvaSummaryTop.muted strong {
+      color: var(--muted);
+    }
     .projectCardActions {
       display: flex;
       align-items: center;

@@ -1,4 +1,4 @@
-(function () {
+﻿(function () {
   'use strict';
   const TOKEN_KEY = 'fielddesk_access_token';
   const state = {
@@ -363,7 +363,7 @@
     body.appendChild(saveBtn);
     body.appendChild(feedback);
     return completionCard({
-      title: 'Projektleder',
+      title: 'Projektlederens vurdering',
       value: currentValue,
       caption: 'Manuel vurdering gemmes på sagen.',
       tone: 'amber',
@@ -380,13 +380,13 @@
     const budget = calc.budget_completion || {};
     const expected = calc.expected_completion || {};
     cards.appendChild(completionCard({
-      title: 'Budget',
+      title: 'Budget færdiggørelsesgrad',
       value: budget.status === 'N/A' ? null : budget.percent,
-      caption: 'Budget-perspektivet. Viser N/A når budget mangler eller er 0.',
+      caption: 'Budgetperspektivet vises kun, når budgettet findes i E-Komplet.',
       tone: 'neutral',
     }));
     cards.appendChild(completionCard({
-      title: 'Forventet',
+      title: 'Forventet færdiggørelsesgrad',
       value: expected.percent,
       caption: 'Automatisk økonomisk vægtet færdiggørelse.',
       tone: 'blue',
@@ -569,13 +569,13 @@
     const panel = el('section', 'igvaPanel');
     const title = el('div', 'igvaSectionTitle');
     title.appendChild(el('h2', null, 'Datagrundlag'));
-    title.appendChild(createBadge(project.data_quality, { human: quality.label }));
+    title.appendChild(el('span', 'igvaMuted', 'E-Komplet'));
     panel.appendChild(title);
     panel.appendChild(el('p', 'igvaCaption', quality.detail));
-    panel.appendChild(createExplainLine('Realiseret løn', `${text(dataSources.actual_labor && dataSources.actual_labor.status)} via midlertidig EK V3 legacy-kilde`));
-    panel.appendChild(createExplainLine('Materialer', text(dataSources.actual_materials && dataSources.actual_materials.status)));
-    panel.appendChild(createExplainLine('Intern / Lager-Bil', `${formatMoney(source.lager_bil_actual_candidate, 2)} · Sandsynlig kilde`));
-    panel.appendChild(createExplainLine('Expected history', `${text(dataSources.expected_history && dataSources.expected_history.status)} · ${text(dataSources.expected_history && dataSources.expected_history.total_rows_observed, '0')} rows`));
+    panel.appendChild(createExplainLine('Realiseret løn', 'E-Komplet'));
+    panel.appendChild(createExplainLine('Materialer', 'E-Komplet'));
+    panel.appendChild(createExplainLine('Intern / Lager-Bil', `${formatMoney(source.lager_bil_actual_candidate, 2)} · Sandsynlig`));
+    panel.appendChild(createExplainLine('Expected history', `${text(dataSources.expected_history && dataSources.expected_history.total_rows_observed, '0')} historikrækker`));
     return panel;
   }
   function renderHistorySummary(project) {
@@ -627,7 +627,7 @@
     card.appendChild(el('p', 'igvaMiniTitle', 'Materialeberegning'));
     card.appendChild(createMoneyLine('Kreditor/material køb', source.materials_actual_creditor, { digits: 2 }));
     card.appendChild(createMoneyLine('Intern / Lager/Bil', source.lager_bil_actual_candidate, { digits: 2 }));
-    card.appendChild(createExplainLine('Kilde', dataSource.lager_bil_candidate_confidence ? 'Sandsynlig kilde' : 'N/A'));
+    card.appendChild(createExplainLine('Kilde', dataSource.lager_bil_candidate_confidence ? 'Sandsynlig' : 'N/A'));
     card.appendChild(createMoneyLine('Realiserede materialer', source.materials_actual, { digits: 2 }));
     card.appendChild(createMoneyLine('EK reference', source.materials_actual_reference, { digits: 2 }));
     card.appendChild(createMoneyLine('Afstemningsdifference', source.materials_actual_reference_difference, { digits: 2 }));
@@ -635,7 +635,7 @@
       ? (source.materials_actual_reference_difference / source.materials_actual_reference) * 100
       : null;
     card.appendChild(createExplainLine('Difference %', formatPercent(pct, 4)));
-    card.appendChild(el('p', 'igvaCaption', 'Lager/Bil-kilden er sandsynligt identificeret ud fra EKs interne poster: FinancialAccount=null, StatusEnum=4 og direct ProjectID purchase line. Beløbet er konkret; det er mappingen, der er sandsynlig.'));
+    card.appendChild(el('p', 'igvaCaption', 'Lager/Bil er identificeret via en sandsynlig EK V4-regel, ikke et officielt dokumenteret Lager/Bil-felt. Beløbet er konkret; det er mappingen, der er sandsynlig.'));
     return card;
   }
   function renderWeightingCard(project) {
@@ -692,11 +692,11 @@
     diff.appendChild(el('p', 'igvaCaption', 'Der anvendes ingen automatisk afrundingsregel. Difference og procent vises som datapunkt.'));
     const sources = el('section', 'igvaDrawerCard');
     sources.appendChild(el('p', 'igvaMiniTitle', 'Datakilder'));
-    sources.appendChild(createExplainLine('Expected', `${text(dataSources.expected_values && dataSources.expected_values.source)} · ${text(dataSources.expected_values && dataSources.expected_values.status)}`));
-    sources.appendChild(createExplainLine('Budget', `${text(dataSources.budget && dataSources.budget.source)} · ${text(dataSources.budget && dataSources.budget.status)}`));
-    sources.appendChild(createExplainLine('Omsætning actual', `EK V4 financialposts · ${text(dataSources.actual_turnover && dataSources.actual_turnover.status)}`));
-    sources.appendChild(createExplainLine('Løn actual', `EK V3 legacy fitterhours · ${text(dataSources.actual_labor && dataSources.actual_labor.status)}`));
-    sources.appendChild(createExplainLine('Realiserede materialer', `EK V4 purchaseinvoicelines · ${text(dataSources.actual_materials && dataSources.actual_materials.status)}`));
+    sources.appendChild(createExplainLine('Expected', 'E-Komplet'));
+    sources.appendChild(createExplainLine('Budget', 'E-Komplet'));
+    sources.appendChild(createExplainLine('Realiseret omsætning', 'E-Komplet'));
+    sources.appendChild(createExplainLine('Realiseret løn', 'E-Komplet'));
+    sources.appendChild(createExplainLine('Realiserede materialer', 'E-Komplet'));
     const wrap = el('div', 'igvaMainColumn');
     wrap.appendChild(labor);
     wrap.appendChild(renderMaterialDetailsCard(project));
@@ -705,8 +705,8 @@
     wrap.appendChild(sources);
     openDrawer({
       meta: 'Beregningsdetaljer',
-      title: `Forventet f?rdigg?relsesgrad ${formatPercent(calc.expected_completion && calc.expected_completion.percent, 1)}`,
-      footer: 'Datakilder: EK V4 expected/budget/financialposts/purchase lines + EK V3 legacy lønactual.',
+      title: `Forventet færdiggørelsesgrad ${formatPercent(calc.expected_completion && calc.expected_completion.percent, 1)}`,
+      footer: 'Datakilder: E-Komplet. Tekniske kilder og rå status ses under Tekniske detaljer.',
       content: wrap,
     });
   }
@@ -749,7 +749,7 @@
   function renderDebugDetails(project) {
     const details = el('details', 'igvaDetails');
     const summary = document.createElement('summary');
-    summary.textContent = 'Debug beregning';
+    summary.textContent = 'Teknisk beregning';
     details.appendChild(summary);
     const body = el('div', 'igvaDetailsBody');
     const calc = project.calculation || {};
@@ -777,6 +777,7 @@
       `  Expected totalPurchases: ${formatMoney(source.materials_expected_total)}`,
       `  Creditor/material actual: ${formatMoney(source.materials_actual_creditor, 2)}`,
       `  Lager/Bil actual: ${formatMoney(source.lager_bil_actual_candidate, 2)} (${text(source.lager_bil_actual_candidate_confidence)}) rows=${text(source.lager_bil_actual_candidate_rows, '0')}`,
+      '  Lager/Bil candidate rule: direct ProjectID purchase line AND FinancialAccount=null AND StatusEnum=4',
       `  Realiserede materialer: ${formatMoney(source.materials_actual, 2)}`,
       `  Lager/Bil expected bucket: ${formatMoney(source.lager_bil_expected)}`,
       `  Expected breakdown total: ${formatMoney(expectedMaterials.breakdown_total)}`,

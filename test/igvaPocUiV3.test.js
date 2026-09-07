@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -19,10 +19,10 @@ test('IGVA POC uses Fielddesk shell, dashboard primary surface and collapsed tec
 test('IGVA POC exposes project search, project selection and the three completion perspectives', () => {
   assert.match(html, /id="igvaProjectSearch"/);
   assert.match(html, /id="igvaProjectSelect"/);
-  assert.match(js, /title: 'Budget'/);
-  assert.match(js, /title: 'Forventet'/);
-  assert.match(js, /title: 'Projektleder'/);
-  assert.match(js, /Budget-perspektivet\. Viser N\/A/);
+  assert.ok(js.includes('Budget færdiggørelsesgrad'));
+  assert.ok(js.includes('Forventet færdiggørelsesgrad'));
+  assert.match(js, /title: 'Projektlederens vurdering'/);
+  assert.match(js, /Budgetperspektivet vises kun/);
   assert.match(js, /Valgfri kommentar/);
 });
 

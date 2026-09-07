@@ -2984,6 +2984,11 @@
     .igvaDrawerCard { padding: 14px; box-shadow: none; }
 
     @media (max-width: 767px) {
+      .igvaContentGrid, .igvaCompletionGrid, .igvaFinanceSplit, .igvaFinanceHighlightGrid, .igvaMetaGrid { grid-template-columns: 1fr; }
+      .igvaProjectHeader { grid-template-columns: 1fr; }
+      .igvaSectionTitle, .igvaBreakdownTop, .igvaBreakdownNumbers, .igvaMoneyLine, .igvaExplainLine { align-items: flex-start; }
+      .igvaDrawerPanel { top: auto; bottom: 0; width: 100vw; height: min(92vh, 720px); border-radius: 20px 20px 0 0; transform: translateY(100%); }
+      .igvaDrawerShell.open .igvaDrawerPanel { transform: translateY(0); }
       .igvaProjectHeader, .igvaSectionTitle, .igvaBreakdownTop, .igvaBreakdownNumbers, .igvaMoneyLine, .igvaExplainLine { flex-wrap: wrap; }
       .igvaHeaderActions, .igvaBtn { width: 100%; }
       .igvaMoneyLine strong, .igvaExplainLine strong { text-align: left; }
@@ -3696,7 +3701,35 @@
       <h2 class="sectionTitle">Økonomi</h2>
       <div class="fieldGrid">
         <div class="field">
-          <span class="fieldLabel">Margin</span>
+          <span class="fieldLabel">Forventet færdiggørelsesgrad</span>
+          <span id="detailIgvaExpectedCompletion" class="fieldValue">-</span>
+        </div>
+        <div class="field">
+          <span class="fieldLabel">Projektlederens vurdering</span>
+          <span id="detailIgvaManagerCompletion" class="fieldValue">-</span>
+        </div>
+        <div class="field">
+          <span class="fieldLabel">Omsætning</span>
+          <span id="detailIgvaRevenue" class="fieldValue">-</span>
+        </div>
+        <div class="field">
+          <span class="fieldLabel">Omkostninger</span>
+          <span id="detailIgvaCost" class="fieldValue">-</span>
+        </div>
+        <div class="field">
+          <span class="fieldLabel">Forventet DB</span>
+          <span id="detailIgvaContribution" class="fieldValue">-</span>
+        </div>
+        <div class="field">
+          <span class="fieldLabel">Dækningsgrad</span>
+          <span id="detailIgvaCoverage" class="fieldValue">-</span>
+        </div>
+        <div class="field fieldSubtle">
+          <span class="fieldLabel">IGVA sidst opdateret</span>
+          <span id="detailIgvaFreshness" class="fieldValue">-</span>
+        </div>
+        <div class="field">
+          <span class="fieldLabel">DB fra WIP</span>
           <span id="detailMargin" class="fieldValue">-</span>
         </div>
         <div class="field">
@@ -3763,8 +3796,8 @@
                   <th>Budget</th>
                   <th>Expected</th>
                   <th>Projektleder</th>
-                  <th>Oms?tning</th>
-                  <th>Labor</th>
+                  <th>Omsætning</th>
+                  <th>Løn/timer</th>
                   <th>Materialer</th>
                   <th>Historik</th>
                   <th>Datakvalitet</th>

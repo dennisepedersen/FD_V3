@@ -7,6 +7,7 @@ const fs = require('node:fs');
 const migration = fs.readFileSync('migrations/0048_igva_foundation_summary.sql', 'utf8');
 const schema = fs.readFileSync('schema.sql', 'utf8');
 const queries = fs.readFileSync('backend/src/db/queries/igvaPoc.js', 'utf8');
+const projectQueries = fs.readFileSync('backend/src/db/queries/project.js', 'utf8');
 const routes = fs.readFileSync('backend/src/routes/tenantSurfaceRoutes.js', 'utf8');
 const syncWorker = fs.readFileSync('backend/src/services/syncWorker.js', 'utf8');
 const docs = fs.readFileSync('backend/docs/architecture/igva_next_generation.md', 'utf8');
@@ -42,6 +43,16 @@ test('IGVA summary queries join by project and tenant', () => {
   assert.match(queries, /WHERE pc\.tenant_id = \$1/);
   assert.match(queries, /INSERT INTO igva_project_summary/);
   assert.match(queries, /ON CONFLICT \(tenant_id, project_id\) DO UPDATE/);
+  assert.match(queries, /\$3::boolean = true/);
+  assert.match(queries, /summary_json = COALESCE\(summary_json, '\{\}'::jsonb\) - 'project_manager_completion' - 'project_manager_completion_percent'/);
+});
+
+test('normal project queries expose lightweight IGVA summary with tenant-scoped joins', () => {
+  assert.match(projectQueries, /LEFT JOIN igva_project_summary ips[\s\S]+?ON ips\.project_id = pc\.project_id[\s\S]+?AND ips\.tenant_id = pc\.tenant_id/);
+  assert.match(projectQueries, /ips\.expected_completion_percent AS igva_summary_expected_completion_percent/);
+  assert.match(projectQueries, /ips\.manager_completion_percent AS igva_summary_manager_completion_percent/);
+  assert.match(projectQueries, /ips\.source_synced_at AS igva_summary_source_synced_at/);
+  assert.doesNotMatch(projectQueries, /ips\.summary_json AS/);
 });
 
 test('manager completion routes are authenticated, DEP gated and project scoped', () => {
@@ -107,7 +118,8 @@ test('summary payload keeps overview data compact and excludes heavy expected hi
   assert.equal(summary.expected_completion_percent, 66.5);
   assert.equal(summary.manager_completion_percent, 65);
   assert.equal(summary.material_completion_percent, 64.6);
-  assert.equal(summary.summary_json.project_manager_completion.completion_percent, 65);
+  assert.equal(Object.hasOwn(summary.summary_json, 'project_manager_completion'), false);
+  assert.equal(Object.hasOwn(summary.summary_json, 'project_manager_completion_percent'), false);
   assert.equal(summary.summary_json.data_sources.expected_history.status, 'VERIFIED');
   assert.equal(Object.hasOwn(summary.summary_json.data_sources.expected_history, 'rows'), false);
   assert.equal(Object.hasOwn(summary.summary_json.data_sources.expected_history, 'events'), false);
@@ -125,6 +137,8 @@ test('manager completion validation bounds percent and comment size', () => {
 test('IGVA foundation documentation records design intent without future feature implementation', () => {
   assert.match(docs, /lightweight `igva_project_summary`/);
   assert.match(docs, /Project manager completion/);
+  assert.match(docs, /summary_json/);
+  assert.match(docs, /source_synced_at/);
   assert.match(docs, /ETC\/EAC/);
   assert.match(docs, /Selective Material Control/);
   assert.match(purchaseLineDocs, /Current Foundation Persistence/);

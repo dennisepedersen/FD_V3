@@ -287,6 +287,8 @@ router.get("/api/igva-poc/projects", requireTenantHost, requireAuth("access"), r
     return next(createHttpError(400, "igva_project_ref_required_for_detail"));
   }
 
+  const includeClosed = req.query.include_closed === "true" || req.query.include_completed === "true";
+
   const client = await pool.connect();
   try {
     const result = await igvaPocService.listIgvaPocProjects(client, {
@@ -294,6 +296,7 @@ router.get("/api/igva-poc/projects", requireTenantHost, requireAuth("access"), r
       userId: req.auth.sub,
       projectRef,
       includeEconomy: Boolean(projectRef),
+      includeClosed,
     });
 
     if (projectRef && (!Array.isArray(result.projects) || result.projects.length === 0)) {
@@ -345,6 +348,7 @@ router.get("/api/projects/:projectId/igva", requireTenantHost, requireAuth("acce
       userId: req.auth.sub,
       projectRef,
       includeEconomy: true,
+      includeClosed: true,
     });
 
     if (!Array.isArray(result.projects) || result.projects.length === 0) {

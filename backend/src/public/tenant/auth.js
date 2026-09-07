@@ -169,10 +169,35 @@
       statusLabel = `Stille (${daysSinceActivity} dage)`;
     }
 
+    const igvaSummary = {
+      hasSummary: raw.igva_summary_calculated_at != null
+        || raw.igva_summary_expected_completion_percent != null
+        || raw.igva_summary_manager_completion_percent != null
+        || raw.igva_summary_revenue_expected != null
+        || raw.igva_summary_cost_expected != null,
+      calculatedAt: asDate(raw.igva_summary_calculated_at),
+      sourceSyncedAt: asDate(raw.igva_summary_source_synced_at),
+      freshnessPolicyKey: asString(raw.igva_summary_freshness_policy_key),
+      budgetCompletionPercent: asNumber(raw.igva_summary_budget_completion_percent),
+      expectedCompletionPercent: asNumber(raw.igva_summary_expected_completion_percent),
+      managerCompletionPercent: asNumber(raw.igva_summary_manager_completion_percent),
+      laborCompletionPercent: asNumber(raw.igva_summary_labor_completion_percent),
+      materialCompletionPercent: asNumber(raw.igva_summary_material_completion_percent),
+      revenueActual: asNumber(raw.igva_summary_revenue_actual),
+      revenueExpected: asNumber(raw.igva_summary_revenue_expected),
+      costActual: asNumber(raw.igva_summary_cost_actual),
+      costExpected: asNumber(raw.igva_summary_cost_expected),
+      contributionMarginExpected: asNumber(raw.igva_summary_contribution_margin_expected),
+      coverageExpected: asNumber(raw.igva_summary_coverage_expected),
+      economyStatus: asString(raw.igva_summary_economy_status),
+      qualityStatus: asString(raw.igva_summary_quality_status),
+      lastError: asString(raw.igva_summary_last_error),
+    };
+
     const hasWip = raw.coverage != null || raw.margin != null || raw.costs != null
       || raw.ongoing != null || raw.billed != null || raw.ready_to_bill != null
       || raw.last_registration != null || raw.last_fitter_hour_date != null
-      || raw.hours_budget != null;
+      || raw.hours_budget != null || igvaSummary.hasSummary;
 
     return {
       projectId: asString(raw.project_id),
@@ -205,6 +230,7 @@
       economy: {
         _hasWip: hasWip,
         coveragePercent: asNumber(raw.coverage),
+        igvaSummary,
         budget: {
           hours: asNumber(raw.hours_budget),
           totalExpected: asNumber(raw.total_turn_over_exp),
@@ -859,7 +885,7 @@
         loading: false,
         loaded: false,
         loadError: "",
-        includeCompleted: window.localStorage.getItem("fielddesk_igva_finance_show_completed") === "true",
+        includeCompleted: false,
       },
       calendar: {
         activeTab: "requests",
@@ -6550,6 +6576,7 @@
 
       const lineTwo = document.createElement("div");
       lineTwo.className = "projectLineTwo";
+      const igvaSummary = mapIgvaSummaryFromRaw(project);
 
       const activity = document.createElement("span");
       activity.className = "activityText";
@@ -6585,6 +6612,16 @@
 
       card.appendChild(header);
       card.appendChild(lineTwo);
+      const igvaLine = document.createElement("div");
+      igvaLine.className = "projectIgvaSummary";
+      if (igvaSummary.hasSummary) {
+        igvaLine.innerHTML = '<div class="projectIgvaSummaryTop"><span>Forventet færdiggørelsesgrad</span><strong>'
+          + escapeHtml(formatPercentValue(igvaSummary.expectedCompletionPercent) || "--")
+          + '</strong></div>' + renderProgressBar(igvaSummary.expectedCompletionPercent, false);
+      } else {
+        igvaLine.innerHTML = '<div class="projectIgvaSummaryTop muted"><span>Økonomidata opdateres</span><strong>--</strong></div>';
+      }
+      card.appendChild(igvaLine);
       card.appendChild(actions);
 
       if (hasChildren) {
@@ -6826,7 +6863,8 @@
       state.finance.loadError = "";
       renderIgvaFinanceOverview();
       try {
-        const response = await apiFetch("/api/igva-poc/projects", { method: "GET" });
+        const url = state.finance.includeCompleted ? "/api/igva-poc/projects?include_closed=true" : "/api/igva-poc/projects";
+        const response = await apiFetch(url, { method: "GET" });
         state.finance.projects = response && Array.isArray(response.projects) ? response.projects : [];
         state.finance.loaded = true;
       } catch (error) {
@@ -7036,6 +7074,34 @@
       return formatActivityDate(date);
     }
 
+    function mapIgvaSummaryFromRaw(raw) {
+      if (!raw) {
+        return { hasSummary: false };
+      }
+      return {
+        hasSummary: raw.igva_summary_calculated_at != null
+          || raw.igva_summary_expected_completion_percent != null
+          || raw.igva_summary_manager_completion_percent != null
+          || raw.igva_summary_revenue_expected != null
+          || raw.igva_summary_cost_expected != null,
+        calculatedAt: toDate(raw.igva_summary_calculated_at),
+        sourceSyncedAt: toDate(raw.igva_summary_source_synced_at),
+        expectedCompletionPercent: firstNumber(raw.igva_summary_expected_completion_percent),
+        managerCompletionPercent: firstNumber(raw.igva_summary_manager_completion_percent),
+        laborCompletionPercent: firstNumber(raw.igva_summary_labor_completion_percent),
+        materialCompletionPercent: firstNumber(raw.igva_summary_material_completion_percent),
+        revenueActual: firstNumber(raw.igva_summary_revenue_actual),
+        revenueExpected: firstNumber(raw.igva_summary_revenue_expected),
+        costActual: firstNumber(raw.igva_summary_cost_actual),
+        costExpected: firstNumber(raw.igva_summary_cost_expected),
+        contributionMarginExpected: firstNumber(raw.igva_summary_contribution_margin_expected),
+        coverageExpected: firstNumber(raw.igva_summary_coverage_expected),
+        economyStatus: firstText(raw.igva_summary_economy_status),
+        qualityStatus: firstText(raw.igva_summary_quality_status),
+        lastError: firstText(raw.igva_summary_last_error),
+      };
+    }
+
     function buildLocation(raw) {
       const direct = firstText(raw && raw.location, raw && raw.address, raw && raw.associatedAddress);
       const zip = firstText(raw && raw.zip, raw && raw.zip_code, raw && raw.postal_code);
@@ -7094,7 +7160,8 @@
       const backendCritical = String(firstText(raw && raw.operational_attention, raw && raw.status) || "").toLowerCase().includes("critical");
       const closed = isClosedStatus(raw);
       const status = backendCritical ? "kritisk" : (!closed && ((typeof obsDays === "number" && obsDays > 30) || backendObs) ? "obs" : "aktiv");
-      const progressPercent = clampPercent(firstNumber(raw && raw.coverage, raw && raw.coverageInPercent, raw && raw.progressPercent));
+      const igvaSummary = mapIgvaSummaryFromRaw(raw);
+      const progressPercent = clampPercent(firstNumber(igvaSummary.expectedCompletionPercent, raw && raw.coverage, raw && raw.coverageInPercent, raw && raw.progressPercent));
       const spentPercent = clampPercent(firstNumber(raw && raw.coverage, raw && raw.spent_percent, raw && raw.spentPercent));
       const activityDate = getActivityDate(raw);
       return {
@@ -7105,7 +7172,7 @@
         obsDays: typeof obsDays === "number" ? obsDays : null,
         status,
         phase: firstText(raw && raw.phase, raw && raw.activity_status),
-        budget: formatMoney(firstNumber(raw && raw.budget_total, raw && raw.projectBudget, raw && raw.total_turn_over_exp)),
+        budget: formatMoney(firstNumber(igvaSummary.revenueExpected, raw && raw.budget_total, raw && raw.projectBudget, raw && raw.total_turn_over_exp)),
         spentPercent,
         deadline: formatCaseDate(firstText(raw && raw.end_date, raw && raw.endDate, raw && raw.deadline)),
         location: buildLocation(raw),
@@ -7114,6 +7181,7 @@
         documentsCount: firstNumber(raw && raw.documents_count, raw && raw.documentsCount),
         commentsCount: firstNumber(raw && raw.comments_count, raw && raw.commentsCount),
         progressPercent,
+        igvaSummary,
         description: firstText(raw && raw.projectDescription, raw && raw.description),
         milestones: Array.isArray(raw && raw.milestones) ? raw.milestones : [],
         activity: [],
@@ -7483,6 +7551,13 @@
       if (!panel) return;
       const item = mapProjectToCaseOverviewItem(project || {});
       const tone = progressToneClass(item.progressPercent);
+      const igvaSummary = item.igvaSummary || mapIgvaSummaryFromRaw(project);
+      const revenueText = igvaSummary.hasSummary
+        ? [formatMoney(igvaSummary.revenueActual), formatMoney(igvaSummary.revenueExpected)].filter(Boolean).join(" / ")
+        : "--";
+      const costText = igvaSummary.hasSummary
+        ? [formatMoney(igvaSummary.costActual), formatMoney(igvaSummary.costExpected)].filter(Boolean).join(" / ")
+        : "--";
       const totalHours = summary && summary.total_project_relevant_hours !== null && summary.total_project_relevant_hours !== undefined
         ? Number(summary.total_project_relevant_hours).toLocaleString("da-DK", { maximumFractionDigits: 1 }) + " t."
         : null;
@@ -7495,13 +7570,14 @@
         '</div>' +
         '<div class="fdSheetBody">' +
           '<div class="fdSheetStatGrid">' +
-            '<div class="fdSheetStat"><span data-icon="euro"></span><span class="fdSheetLabel">Budget</span><span class="fdSheetStatValue">' + escapeHtml(item.budget || "--") + '</span></div>' +
-            '<div class="fdSheetStat"><span data-icon="chart"></span><span class="fdSheetLabel">Forbrug</span><span class="fdSheetStatValue">' + escapeHtml(typeof item.spentPercent === "number" ? Math.round(item.spentPercent) + "%" : "--") + '</span></div>' +
-            '<div class="fdSheetStat"><span data-icon="clock"></span><span class="fdSheetLabel">Deadline</span><span class="fdSheetStatValue">' + escapeHtml(item.deadline || "--") + '</span></div>' +
-            '<div class="fdSheetStat"><span data-icon="leaf"></span><span class="fdSheetLabel">CO2</span><span class="fdSheetStatValue">' + escapeHtml(item.co2 || "--") + '</span></div>' +
+            '<div class="fdSheetStat"><span data-icon="chart"></span><span class="fdSheetLabel">Forventet færdiggørelsesgrad</span><span class="fdSheetStatValue">' + escapeHtml(formatPercentValue(igvaSummary.expectedCompletionPercent) || "--") + '</span></div>' +
+            '<div class="fdSheetStat"><span data-icon="clock"></span><span class="fdSheetLabel">Projektleder</span><span class="fdSheetStatValue">' + escapeHtml(formatPercentValue(igvaSummary.managerCompletionPercent) || "--") + '</span></div>' +
+            '<div class="fdSheetStat"><span data-icon="euro"></span><span class="fdSheetLabel">Omsætning</span><span class="fdSheetStatValue">' + escapeHtml(revenueText) + '</span></div>' +
+            '<div class="fdSheetStat"><span data-icon="leaf"></span><span class="fdSheetLabel">Dækningsgrad</span><span class="fdSheetStatValue">' + escapeHtml(formatPercentValue(igvaSummary.coverageExpected) || "--") + '</span></div>' +
           '</div>' +
           '<section class="fdSheetSection"><div class="fdSheetProgressTop"><p class="fdTinyLabel">Fremdrift</p><span class="fdProgressText ' + tone + '">' + escapeHtml(progressLabel(item)) + '</span></div>' + renderProgressBar(item.progressPercent, true) + '</section>' +
           '<section class="fdSheetTeamRow"><div><p class="fdTinyLabel">Team</p>' + renderAvatarGroup(item.team) + '</div><div class="fdSheetCounters"><span data-icon="paperclip"></span><span>' + escapeHtml(item.documentsCount !== null ? item.documentsCount : 0) + '</span><span data-icon="message"></span><span>' + escapeHtml(item.commentsCount !== null ? item.commentsCount : 0) + '</span></div></section>' +
+          '<section class="fdSheetSection"><p class="fdTinyLabel">IGVA økonomi</p><p class="fdSheetPanel">Omkostninger ' + escapeHtml(costText) + ' · Forventet DB ' + escapeHtml(formatMoney(igvaSummary.contributionMarginExpected) || "--") + ' · ' + escapeHtml(formatIgvaFreshness(igvaSummary.sourceSyncedAt || igvaSummary.calculatedAt)) + '</p></section>' +
           (totalHours ? '<section class="fdSheetSection"><p class="fdTinyLabel">Timer</p><p class="fdSheetPanel">' + escapeHtml(totalHours) + ' syncede timer. ' + escapeHtml(summary && summary.definition && summary.definition.description ? summary.definition.description : "") + '</p></section>' : '') +
           '<div class="fdSheetTabs" role="tablist"><button class="fdSheetTab active" type="button" data-sheet-tab="overview">Overblik</button><button class="fdSheetTab" type="button" data-sheet-tab="activity">Aktivitet</button><button class="fdSheetTab" type="button" data-sheet-tab="docs">Dokumenter</button></div>' +
           '<div class="fdSheetPanel" data-sheet-panel></div>' +
@@ -7545,8 +7621,8 @@
       igvaFinanceShowCompleted.checked = Boolean(state.finance.includeCompleted);
       igvaFinanceShowCompleted.addEventListener("change", () => {
         state.finance.includeCompleted = Boolean(igvaFinanceShowCompleted.checked);
-        window.localStorage.setItem("fielddesk_igva_finance_show_completed", state.finance.includeCompleted ? "true" : "false");
-        renderIgvaFinanceOverview();
+        state.finance.loaded = false;
+        loadIgvaFinanceOverview({ force: true });
       });
     }
     if (igvaFinanceRefreshBtn) {
@@ -8072,6 +8148,30 @@
       })} kr.`;
     }
 
+    function formatPercent(value) {
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed)) {
+        return null;
+      }
+      return `${parsed.toLocaleString("da-DK", { maximumFractionDigits: 1, minimumFractionDigits: 0 })} %`;
+    }
+
+    function formatMoneyPair(actual, expected) {
+      const actualText = formatMoney(actual);
+      const expectedText = formatMoney(expected);
+      if (actualText && expectedText) {
+        return `${actualText} / ${expectedText}`;
+      }
+      return actualText || expectedText || null;
+    }
+
+    function formatIgvaSummaryFreshness(summary) {
+      if (!summary || (!summary.sourceSyncedAt && !summary.calculatedAt)) {
+        return null;
+      }
+      return `Sidst opdateret ${formatDate(summary.sourceSyncedAt || summary.calculatedAt)}`;
+    }
+
     const headerRef = el("projectHeaderRef");
     const headerName = el("projectHeaderName");
     const statusBadge = el("projectStatusBadge");
@@ -8128,16 +8228,26 @@
         : null
     );
 
+    const igvaSummary = vm && vm.economy ? vm.economy.igvaSummary : null;
+
     if (economySection) {
       const hasVisibleEconomy = Boolean(vm && vm.economy && (
         vm.economy.wip.margin !== null
         || vm.economy.wip.costs !== null
         || vm.economy.wip.ongoing !== null
         || vm.economy.wip.billed !== null
+        || (igvaSummary && igvaSummary.hasSummary)
       ));
       economySection.hidden = !hasVisibleEconomy;
     }
 
+    setValue("detailIgvaExpectedCompletion", igvaSummary && igvaSummary.hasSummary ? formatPercent(igvaSummary.expectedCompletionPercent) : null);
+    setValue("detailIgvaManagerCompletion", igvaSummary && igvaSummary.hasSummary ? formatPercent(igvaSummary.managerCompletionPercent) : null);
+    setValue("detailIgvaRevenue", igvaSummary && igvaSummary.hasSummary ? formatMoneyPair(igvaSummary.revenueActual, igvaSummary.revenueExpected) : null);
+    setValue("detailIgvaCost", igvaSummary && igvaSummary.hasSummary ? formatMoneyPair(igvaSummary.costActual, igvaSummary.costExpected) : null);
+    setValue("detailIgvaContribution", igvaSummary && igvaSummary.hasSummary ? formatMoney(igvaSummary.contributionMarginExpected) : null);
+    setValue("detailIgvaCoverage", igvaSummary && igvaSummary.hasSummary ? formatPercent(igvaSummary.coverageExpected) : null);
+    setValue("detailIgvaFreshness", igvaSummary && igvaSummary.hasSummary ? formatIgvaSummaryFreshness(igvaSummary) : null);
     setValue("detailMargin", vm && vm.economy ? formatMoney(vm.economy.wip.margin) : null);
     setValue("detailCost", vm && vm.economy ? formatMoney(vm.economy.wip.costs) : null);
     setValue("detailOngoing", vm && vm.economy ? formatMoney(vm.economy.wip.ongoing) : null);
@@ -8615,6 +8725,7 @@
     let projectDetailContext = null;
     let igvaEmbeddedLoading = false;
     let igvaEmbeddedLoaded = false;
+    let igvaEmbeddedDeferred = false;
 
     function compactProjectUserName(name) {
       const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
@@ -8664,15 +8775,28 @@
       if (window.location.pathname !== path) window.history.pushState({}, "", path);
     }
 
+    function scheduleDeferredProjectIgvaLoad() {
+      if (igvaEmbeddedDeferred) return;
+      igvaEmbeddedDeferred = true;
+      window.setTimeout(() => {
+        igvaEmbeddedDeferred = false;
+        if (projectModuleState.active === "igva" && !igvaEmbeddedLoaded) {
+          ensureProjectIgvaLoaded();
+        }
+      }, 0);
+    }
+
     async function ensureProjectIgvaLoaded() {
       if (igvaEmbeddedLoaded || igvaEmbeddedLoading) return;
       const status = document.getElementById("igvaStatus");
       if (!projectDetailContext) {
         if (status) status.textContent = "Henter sag før IGVA kan åbnes.";
+        scheduleDeferredProjectIgvaLoad();
         return;
       }
       if (!window.FielddeskIgvaPoc || typeof window.FielddeskIgvaPoc.initEmbeddedProject !== "function") {
-        if (status) status.textContent = "IGVA-modulet kunne ikke indlæses.";
+        if (status) status.textContent = "IGVA-modulet indlæses.";
+        scheduleDeferredProjectIgvaLoad();
         return;
       }
       igvaEmbeddedLoading = true;

@@ -1,6 +1,6 @@
 'use strict';
 
-async function listIgvaPocProjectsForUser(client, { tenantId, userId }) {
+async function listIgvaPocProjectsForUser(client, { tenantId, userId, includeClosed = false }) {
   const sql = `
     WITH current_actor AS (
       SELECT lower(nullif(btrim(username), '')) AS username_ci
@@ -87,6 +87,8 @@ async function listIgvaPocProjectsForUser(client, { tenantId, userId }) {
         AND (
           (COALESCE(pc.is_closed, false) = false AND pc.has_v4 = true)
           OR (
+            $3::boolean = true
+            AND
             pc.is_closed = true
             AND pc.closed_observed_at IS NOT NULL
             AND pc.closed_observed_at > (now() - interval '6 months')
@@ -116,7 +118,7 @@ async function listIgvaPocProjectsForUser(client, { tenantId, userId }) {
     ORDER BY updated_at DESC, name ASC
   `;
 
-  const { rows } = await client.query(sql, [tenantId, userId]);
+  const { rows } = await client.query(sql, [tenantId, userId, Boolean(includeClosed)]);
   return rows;
 }
 
@@ -365,7 +367,10 @@ async function updateSummaryManagerCompletion(client, { tenantId, projectId, com
   await client.query(
     `
       UPDATE igva_project_summary
-      SET manager_completion_percent = $3, updated_at = now()
+      SET
+        manager_completion_percent = $3,
+        summary_json = COALESCE(summary_json, '{}'::jsonb) - 'project_manager_completion' - 'project_manager_completion_percent',
+        updated_at = now()
       WHERE tenant_id = $1 AND project_id = $2
     `,
     [tenantId, projectId, completionPercent]

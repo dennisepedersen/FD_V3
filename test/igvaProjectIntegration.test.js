@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -9,6 +9,8 @@ const appHtml = fs.readFileSync('backend/src/public/tenant/app.html', 'utf8');
 const authJs = fs.readFileSync('backend/src/public/tenant/auth.js', 'utf8');
 const igvaJs = fs.readFileSync('backend/src/public/tenant/igva-poc.js', 'utf8');
 const routeSource = fs.readFileSync('backend/src/routes/tenantSurfaceRoutes.js', 'utf8');
+const projectQueries = fs.readFileSync('backend/src/db/queries/project.js', 'utf8');
+const igvaQueries = fs.readFileSync('backend/src/db/queries/igvaPoc.js', 'utf8');
 
 function indexOfOrThrow(source, needle) {
   const index = source.indexOf(needle);
@@ -79,6 +81,9 @@ test('direct project IGVA route renders after project context is ready', () => {
   const loadIndex = indexOfOrThrow(initBody, 'if (projectModuleState.active === "igva")');
   assert.ok(renderIndex < loadIndex);
   assert.match(initBody.slice(loadIndex, loadIndex + 120), /await ensureProjectIgvaLoaded\(\)/);
+  assert.match(authJs, /function scheduleDeferredProjectIgvaLoad/);
+  assert.match(authJs, /scheduleDeferredProjectIgvaLoad\(\)/);
+  assert.ok(authJs.includes('IGVA-modulet indlæses'));
 });
 
 test('project IGVA API is DEP-gated and derives project_ref from server project access', () => {
@@ -107,7 +112,9 @@ test('left nav economy opens IGVA overview with active projects as default and o
   assert.match(authJs, /if \(view === "finance"\) return "\/oekonomi";/);
   assert.match(authJs, /caseOverviewActive", activeView === "projects" \|\| activeView === "finance"/);
   assert.match(authJs, /path === "\/oekonomi"/);
-  assert.match(authJs, /includeCompleted: window\.localStorage\.getItem\("fielddesk_igva_finance_show_completed"\) === "true"/);
+  assert.match(authJs, /includeCompleted: false/);
+  assert.doesNotMatch(authJs, /fielddesk_igva_finance_show_completed/);
+  assert.match(authJs, /include_closed=true/);
   assert.match(authJs, /const activeProjects = sortProjects\(all\.filter\(\(project\) => !isIgvaFinanceClosed\(project\)\)\)/);
 });
 
@@ -151,7 +158,8 @@ test('IGVA overview does not bulk fetch project economy details', () => {
   const start = indexOfOrThrow(authJs, 'async function loadIgvaFinanceOverview');
   const end = indexOfOrThrow(authJs.slice(start), '\n    function renderDashboard') + start;
   const body = authJs.slice(start, end);
-  assert.match(body, /apiFetch\("\/api\/igva-poc\/projects", \{ method: "GET" \}\)/);
+  assert.match(body, /const url = state\.finance\.includeCompleted \? "\/api\/igva-poc\/projects\?include_closed=true" : "\/api\/igva-poc\/projects"/);
+  assert.match(body, /apiFetch\(url, \{ method: "GET" \}\)/);
   assert.doesNotMatch(body, /project_ref|economy=detail|\/api\/projects\/[^"]+\/igva/);
   assert.match(routeSource, /includeEconomy: Boolean\(projectRef\)/);
 });
@@ -191,6 +199,33 @@ test('project detail and dashboard surfaces use Q&A copy', () => {
   assert.match(appHtml, /Q&amp;A der afventer mig/);
   assert.doesNotMatch(projectHtml, />\s*QA\s*</);
   assert.doesNotMatch(appHtml, />\s*QA\s*</);
+});
+
+
+test('normal project list and project detail use the same lightweight IGVA summary read model', () => {
+  assert.match(projectQueries, /LEFT JOIN igva_project_summary ips[\s\S]+?AND ips\.tenant_id = pc\.tenant_id/);
+  assert.match(projectQueries, /igva_summary_expected_completion_percent/);
+  assert.match(projectQueries, /igva_summary_manager_completion_percent/);
+  assert.match(authJs, /function mapIgvaSummaryFromRaw/);
+  assert.match(authJs, /const progressPercent = clampPercent\(firstNumber\(igvaSummary\.expectedCompletionPercent/);
+  assert.match(authJs, /projectIgvaSummary/);
+  assert.match(authJs, /detailIgvaExpectedCompletion/);
+  assert.match(projectHtml, /id="detailIgvaExpectedCompletion"/);
+  assert.match(projectHtml, /id="detailIgvaManagerCompletion"/);
+});
+
+test('IGVA project scope excludes completed projects by default and includes them only by explicit toggle', () => {
+  assert.match(igvaQueries, /includeClosed = false/);
+  assert.match(igvaQueries, /\$3::boolean = true[\s\S]+?pc\.is_closed = true/);
+  assert.match(routeSource, /includeClosed = req\.query\.include_closed === "true" \|\| req\.query\.include_completed === "true"/);
+  assert.match(routeSource, /includeClosed,/);
+  assert.match(authJs, /includeCompleted: false/);
+});
+
+test('IGVA mobile layout stacks and uses a bottom sheet drawer on narrow screens', () => {
+  assert.match(projectHtml, /@media \(max-width: 767px\)[\s\S]+?igvaContentGrid[\s\S]+?grid-template-columns: 1fr/);
+  assert.match(projectHtml, /igvaDrawerPanel[\s\S]+?bottom: 0[\s\S]+?translateY\(100%\)/);
+  assert.match(projectHtml, /igvaDrawerShell\.open \.igvaDrawerPanel \{ transform: translateY\(0\); \}/);
 });
 
 test('standalone POC shell is deprecated and hidden from normal navigation', () => {

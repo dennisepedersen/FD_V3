@@ -144,8 +144,6 @@ function buildIgvaSummaryPayload(project, row, calculatedAt = new Date()) {
     calculation: project.calculation || null,
     data_sources: compactDataSources(project.data_sources || {}),
     data_quality: project.data_quality || null,
-    project_manager_completion: manager,
-    project_manager_completion_percent: manager ? manager.completion_percent : null,
     summary: {
       calculated_at: calculatedIso,
       source_synced_at: calculatedIso,
@@ -233,8 +231,8 @@ function buildIgvaPocProjectSummary(row) {
     name: base.name,
     responsible: persisted.responsible || base.responsible,
     lifecycle: persisted.lifecycle || base.lifecycle,
-    project_manager_completion: manager || persisted.project_manager_completion || null,
-    project_manager_completion_percent: manager ? manager.completion_percent : (persisted.project_manager_completion_percent ?? base.project_manager_completion_percent),
+    project_manager_completion: manager,
+    project_manager_completion_percent: manager ? manager.completion_percent : base.project_manager_completion_percent,
     data_quality: row.igva_summary_quality_status || persisted.data_quality || null,
     economy_detail: 'summary',
     summary: {
@@ -293,8 +291,13 @@ async function listIgvaPocProjects(client, {
   projectRef = null,
   ekClient: injectedEkClient = null,
   includeEconomy = Boolean(projectRef),
+  includeClosed = false,
 } = {}) {
-  const rows = await igvaPocQueries.listIgvaPocProjectsForUser(client, { tenantId, userId });
+  const rows = await igvaPocQueries.listIgvaPocProjectsForUser(client, {
+    tenantId,
+    userId,
+    includeClosed: Boolean(includeClosed || projectRef),
+  });
   const scopedRows = filterProjectsByRef(rows, projectRef);
   const shouldReadEconomy = Boolean(includeEconomy);
   const ekClient = shouldReadEconomy ? await buildEkClient(client, tenantId, injectedEkClient) : null;
