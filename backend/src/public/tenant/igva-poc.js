@@ -135,6 +135,12 @@
   function component(project, key) {
     return ((project.calculation || {}).components || []).find((item) => item.key === key) || null;
   }
+  function canonicalExpectedCompletionPercent(project) {
+    const summary = project && project.summary ? project.summary : {};
+    const summaryValue = toNumber(summary.expected_completion_percent);
+    if (summaryValue !== null) return summaryValue;
+    return toNumber(project && project.calculation && project.calculation.expected_completion && project.calculation.expected_completion.percent);
+  }
   function expectedIncluded(project, key) {
     const included = (((project.calculation || {}).expected_completion || {}).included || []);
     return included.find((item) => item.key === key) || null;
@@ -387,7 +393,7 @@
     }));
     cards.appendChild(completionCard({
       title: 'Forventet færdiggørelsesgrad',
-      value: expected.percent,
+      value: canonicalExpectedCompletionPercent(project),
       caption: 'Automatisk økonomisk vægtet færdiggørelse.',
       tone: 'blue',
       primary: true,
@@ -437,7 +443,7 @@
     const expected = calc.expected_completion || {};
     const panel = el('section', 'igvaPanel');
     const title = el('div', 'igvaSectionTitle');
-    title.appendChild(el('h2', null, `Hvad udgør ${formatPercent(expected.percent, 1)}?`));
+    title.appendChild(el('h2', null, `Hvad udgør ${formatPercent(canonicalExpectedCompletionPercent(project), 1)}?`));
     title.appendChild(el('span', 'igvaMuted', 'Vægtet bidrag = færdiggørelse × økonomisk andel'));
     panel.appendChild(title);
     const list = el('div', 'igvaBreakdownList');
@@ -538,8 +544,9 @@
     list.appendChild(attentionItem('Materialer', `Rest mod expected: ${formatMoney(safeSubtract(materials.expected_cost, materials.actual_cost))}.`));
     list.appendChild(attentionItem('Løn', `Rest mod expected: ${formatMoney(safeSubtract(labor.expected_cost, labor.actual_cost))}.`));
     list.appendChild(attentionItem('Omsætning', `Rest mod expected: ${formatMoney(safeSubtract(source.turnover_expected, source.turnover_actual))}.`));
-    if (pmValue !== null && toNumber(expected.percent) !== null) {
-      list.appendChild(attentionItem('Projektledervurdering', `Manuel vurdering afviger ${formatPercent(pmValue - expected.percent, 1)}-point fra forventet færdiggørelsesgrad.`));
+    const canonicalExpected = canonicalExpectedCompletionPercent(project);
+    if (pmValue !== null && canonicalExpected !== null) {
+      list.appendChild(attentionItem('Projektledervurdering', `Manuel vurdering afviger ${formatPercent(pmValue - canonicalExpected, 1)}-point fra forventet færdiggørelsesgrad.`));
     }
     const panel = el('section', 'igvaPanel');
     const title = el('div', 'igvaSectionTitle');
@@ -648,7 +655,7 @@
     card.appendChild(createExplainLine('Total inkluderet vægt', formatMoney(expected.included_weight)));
     card.appendChild(createExplainLine('Løn-vægt', formatRatio(labor.expected_weight, 1)));
     card.appendChild(createExplainLine('Materiale-vægt', formatRatio(materials.expected_weight, 1)));
-    card.appendChild(createExplainLine('Vægtet færdiggørelsesgrad', formatPercent(expected.percent, 2)));
+    card.appendChild(createExplainLine('Vægtet færdiggørelsesgrad', formatPercent(canonicalExpectedCompletionPercent(project), 1)));
     card.appendChild(el('p', 'igvaCaption', text(expected.formula, 'Formel ikke tilgængelig')));
     return card;
   }
@@ -703,7 +710,7 @@
     wrap.appendChild(sources);
     openDrawer({
       meta: 'Beregningsdetaljer',
-      title: `Forventet færdiggørelsesgrad ${formatPercent(calc.expected_completion && calc.expected_completion.percent, 1)}`,
+      title: `Forventet færdiggørelsesgrad ${formatPercent(canonicalExpectedCompletionPercent(project), 1)}`,
       footer: 'Datakilder: E-Komplet. Tekniske kilder og rå status ses under Tekniske detaljer.',
       content: wrap,
     });

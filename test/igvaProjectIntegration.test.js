@@ -11,6 +11,7 @@ const igvaJs = fs.readFileSync('backend/src/public/tenant/igva-poc.js', 'utf8');
 const routeSource = fs.readFileSync('backend/src/routes/tenantSurfaceRoutes.js', 'utf8');
 const projectQueries = fs.readFileSync('backend/src/db/queries/project.js', 'utf8');
 const igvaQueries = fs.readFileSync('backend/src/db/queries/igvaPoc.js', 'utf8');
+const igvaService = fs.readFileSync('backend/src/services/igvaPocService.js', 'utf8');
 
 function indexOfOrThrow(source, needle) {
   const index = source.indexOf(needle);
@@ -214,6 +215,16 @@ test('normal project list and project detail use the same lightweight IGVA summa
   assert.match(authJs, /detailIgvaExpectedCompletion/);
   assert.match(projectHtml, /id="detailIgvaExpectedCompletion"/);
   assert.match(projectHtml, /id="detailIgvaManagerCompletion"/);
+});
+
+test('IGVA surfaces prefer canonical persisted summary completion over live calculation fallback', () => {
+  assert.match(igvaService, /summaryFields[\s\S]+expected_completion_percent: toFiniteNumber\(calc\.expected_completion && calc\.expected_completion\.percent\)/);
+  assert.match(igvaService, /summary: summary\.summary_json\.summary/);
+  assert.match(authJs, /const expectedPercent = firstNumber\(summary\.expected_completion_percent, calc\.expected_completion && calc\.expected_completion\.percent\)/);
+  assert.match(igvaJs, /function canonicalExpectedCompletionPercent/);
+  assert.match(igvaJs, /summaryValue = toNumber\(summary\.expected_completion_percent\)/);
+  assert.match(igvaJs, /value: canonicalExpectedCompletionPercent\(project\)/);
+  assert.match(igvaJs, /formatPercent\(canonicalExpectedCompletionPercent\(project\), 1\)/);
 });
 
 test('IGVA project scope excludes completed projects by default and includes them only by explicit toggle', () => {

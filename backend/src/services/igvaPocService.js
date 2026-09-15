@@ -140,25 +140,7 @@ function buildIgvaSummaryPayload(project, row, calculatedAt = new Date()) {
   const contributionMarginExpected = revenueExpected !== null && expectedCost !== null ? revenueExpected - expectedCost : null;
   const coverageExpected = revenueExpected && contributionMarginExpected !== null ? (contributionMarginExpected / revenueExpected) * 100 : null;
   const manager = mapManagerCompletion(row);
-  const compactProject = {
-    project_id: project.project_id,
-    ek_project_id: project.ek_project_id || null,
-    external_project_ref: project.external_project_ref || null,
-    name: project.name || null,
-    responsible: project.responsible || null,
-    lifecycle: project.lifecycle || null,
-    source_totals: project.source_totals || null,
-    calculation: project.calculation || null,
-    data_sources: compactDataSources(project.data_sources || {}),
-    data_quality: project.data_quality || null,
-    summary: {
-      calculated_at: calculatedIso,
-      source_synced_at: calculatedIso,
-      freshness_policy_key: 'sync_worker_cadence',
-    },
-  };
-
-  return {
+  const summaryFields = {
     calculated_at: calculatedIso,
     source_synced_at: calculatedIso,
     freshness_policy_key: 'sync_worker_cadence',
@@ -175,6 +157,24 @@ function buildIgvaSummaryPayload(project, row, calculatedAt = new Date()) {
     coverage_expected: coverageExpected,
     quality_status: project.data_quality || null,
     economy_status: project.data_quality === 'PARTIAL' ? 'partial' : 'calculated',
+    last_error: null,
+  };
+  const compactProject = {
+    project_id: project.project_id,
+    ek_project_id: project.ek_project_id || null,
+    external_project_ref: project.external_project_ref || null,
+    name: project.name || null,
+    responsible: project.responsible || null,
+    lifecycle: project.lifecycle || null,
+    source_totals: project.source_totals || null,
+    calculation: project.calculation || null,
+    data_sources: compactDataSources(project.data_sources || {}),
+    data_quality: project.data_quality || null,
+    summary: summaryFields,
+  };
+
+  return {
+    ...summaryFields,
     summary_json: compactProject,
     source_metadata: {
       source: 'igva_poc_calculator',
@@ -185,13 +185,36 @@ function buildIgvaSummaryPayload(project, row, calculatedAt = new Date()) {
       actual_labor_status: project.data_sources && project.data_sources.actual_labor ? project.data_sources.actual_labor.status : null,
       source_project_updated_at: row.source_updated_at || row.updated_at || null,
     },
-    last_error: null,
   };
 }
 
 function buildIgvaPocProjectSummary(row) {
   const persisted = parseJsonValue(row.igva_summary_json);
+  const persistedSummary = persisted && persisted.summary ? persisted.summary : {};
   const manager = mapManagerCompletion(row);
+  function summaryNumber(rowKey, summaryKey) {
+    const rowValue = toFiniteNumber(row[rowKey]);
+    return rowValue === null ? toFiniteNumber(persistedSummary[summaryKey]) : rowValue;
+  }
+  const summaryFields = {
+    calculated_at: row.igva_summary_calculated_at || persistedSummary.calculated_at || null,
+    source_synced_at: row.igva_summary_source_synced_at || persistedSummary.source_synced_at || null,
+    freshness_policy_key: row.igva_summary_freshness_policy_key || persistedSummary.freshness_policy_key || 'sync_worker_cadence',
+    budget_completion_percent: summaryNumber('igva_summary_budget_completion_percent', 'budget_completion_percent'),
+    expected_completion_percent: summaryNumber('igva_summary_expected_completion_percent', 'expected_completion_percent'),
+    manager_completion_percent: manager ? manager.completion_percent : summaryNumber('igva_summary_manager_completion_percent', 'manager_completion_percent'),
+    labor_completion_percent: summaryNumber('igva_summary_labor_completion_percent', 'labor_completion_percent'),
+    material_completion_percent: summaryNumber('igva_summary_material_completion_percent', 'material_completion_percent'),
+    revenue_actual: summaryNumber('igva_summary_revenue_actual', 'revenue_actual'),
+    revenue_expected: summaryNumber('igva_summary_revenue_expected', 'revenue_expected'),
+    cost_actual: summaryNumber('igva_summary_cost_actual', 'cost_actual'),
+    cost_expected: summaryNumber('igva_summary_cost_expected', 'cost_expected'),
+    contribution_margin_expected: summaryNumber('igva_summary_contribution_margin_expected', 'contribution_margin_expected'),
+    coverage_expected: summaryNumber('igva_summary_coverage_expected', 'coverage_expected'),
+    quality_status: row.igva_summary_quality_status || persistedSummary.quality_status || null,
+    economy_status: row.igva_summary_economy_status || persistedSummary.economy_status || (persisted ? 'calculated' : 'pending'),
+    last_error: row.igva_summary_last_error || persistedSummary.last_error || null,
+  };
   const base = {
     project_id: row.project_id,
     ek_project_id: row.ek_project_id || null,
@@ -209,13 +232,7 @@ function buildIgvaPocProjectSummary(row) {
     },
     project_manager_completion: manager,
     project_manager_completion_percent: manager ? manager.completion_percent : toFiniteNumber(row.igva_summary_manager_completion_percent),
-    summary: {
-      calculated_at: row.igva_summary_calculated_at || null,
-      source_synced_at: row.igva_summary_source_synced_at || null,
-      freshness_policy_key: row.igva_summary_freshness_policy_key || 'sync_worker_cadence',
-      economy_status: row.igva_summary_economy_status || (persisted ? 'calculated' : 'pending'),
-      last_error: row.igva_summary_last_error || null,
-    },
+    summary: summaryFields,
   };
 
   if (!persisted) {
@@ -244,11 +261,8 @@ function buildIgvaPocProjectSummary(row) {
     economy_detail: 'summary',
     summary: {
       ...(persisted.summary || {}),
-      calculated_at: row.igva_summary_calculated_at || (persisted.summary && persisted.summary.calculated_at) || null,
-      source_synced_at: row.igva_summary_source_synced_at || (persisted.summary && persisted.summary.source_synced_at) || null,
-      freshness_policy_key: row.igva_summary_freshness_policy_key || (persisted.summary && persisted.summary.freshness_policy_key) || 'sync_worker_cadence',
-      economy_status: row.igva_summary_economy_status || 'calculated',
-      last_error: row.igva_summary_last_error || null,
+      ...summaryFields,
+      economy_status: summaryFields.economy_status || 'calculated',
     },
   };
 }
@@ -359,7 +373,10 @@ async function listIgvaPocProjects(client, {
           summary,
         });
       }
-      return project;
+      return {
+        ...project,
+        summary: summary.summary_json.summary,
+      };
     })
     : scopedRows.map(buildIgvaPocProjectSummary);
 

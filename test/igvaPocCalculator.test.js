@@ -675,6 +675,20 @@ test('case 36: IGVA online project list does not read through EK without project
   assert.deepEqual(Object.values(calls), [0, 0, 0, 0, 0, 0]);
 });
 
+test('case 36b: persisted IGVA summary exposes canonical completion separately from stored live calculation', () => {
+  const project = igvaServiceTest.buildIgvaPocProjectSummary(baseIgvaRow({
+    igva_summary_calculated_at: '2026-09-15T10:00:00.000Z',
+    igva_summary_expected_completion_percent: 67.31,
+    igva_summary_json: JSON.stringify({
+      calculation: { expected_completion: { percent: 67.39 } },
+      summary: { expected_completion_percent: 67.39 },
+    }),
+  }));
+
+  assert.equal(project.economy_detail, 'summary');
+  assert.equal(project.summary.expected_completion_percent, 67.31);
+  assert.equal(project.calculation.expected_completion.percent, 67.39);
+});
 test('case 37: IGVA online project_ref reads EK economy only for scoped matching project', async (t) => {
   const original = igvaPocQueries.listIgvaPocProjectsForUser;
   t.after(() => { igvaPocQueries.listIgvaPocProjectsForUser = original; });
@@ -696,6 +710,8 @@ test('case 37: IGVA online project_ref reads EK economy only for scoped matching
   assert.equal(result.projects.length, 1);
   assert.equal(result.projects[0].external_project_ref, '80396-003');
   assert.ok(result.projects[0].calculation);
+  assert.equal(result.projects[0].summary.expected_completion_percent, result.projects[0].calculation.expected_completion.percent);
+  assert.equal(result.projects[0].summary.freshness_policy_key, 'sync_worker_cadence');
   assert.deepEqual(Object.values(calls), [1, 1, 1, 1, 1, 1]);
 });
 
