@@ -33,6 +33,47 @@ test('case 2: component completion is capped at 100 percent but raw overrun is p
   assert.equal(result.budget_completion.percent, 100);
 });
 
+test('case 2b: expected completion preserves raw ratios and caps contribution centrally', () => {
+  const under = calculateIgvaProjectEconomy({
+    components: [{ key: 'materials', expected_cost: 100, actual_cost: 50 }],
+  });
+  assert.equal(under.components[0].expected_progress_raw, 0.5);
+  assert.equal(under.components[0].expected_progress_capped, 0.5);
+  assert.equal(under.expected_completion.percent, 50);
+
+  const exact = calculateIgvaProjectEconomy({
+    components: [{ key: 'materials', expected_cost: 100, actual_cost: 100 }],
+  });
+  assert.equal(exact.components[0].expected_progress_raw, 1);
+  assert.equal(exact.components[0].expected_progress_capped, 1);
+  assert.equal(exact.expected_completion.percent, 100);
+
+  const overrun = calculateIgvaProjectEconomy({
+    components: [
+      { key: 'labor', expected_cost: 100, actual_cost: 50 },
+      { key: 'materials', expected_cost: 100, actual_cost: 125 },
+    ],
+  });
+  const material = overrun.components.find((item) => item.key === 'materials');
+  assert.equal(material.expected_progress_raw, 1.25);
+  assert.equal(material.expected_progress_capped, 1);
+  assert.equal(overrun.expected_completion.percent, 75);
+
+  const zeroExpected = calculateIgvaProjectEconomy({
+    components: [{ key: 'materials', expected_cost: 0, actual_cost: 25 }],
+  });
+  assert.equal(zeroExpected.components[0].expected_progress_raw, null);
+  assert.equal(zeroExpected.components[0].expected_progress_capped, null);
+  assert.equal(zeroExpected.expected_completion.status, 'N/A');
+
+  const negativeActual = calculateIgvaProjectEconomy({
+    components: [{ key: 'materials', expected_cost: 100, actual_cost: -25 }],
+  });
+  assert.equal(negativeActual.components[0].expected_progress_raw, -0.25);
+  assert.equal(negativeActual.components[0].expected_progress_capped, 0);
+  assert.equal(negativeActual.expected_completion.percent, 0);
+});
+
 test('case 3: expected labor increase lowers expected completion', () => {
   const baseline = calculateIgvaProjectEconomy({
     components: [{ key: 'labor', budget_cost: 600000, expected_cost: 600000, actual_cost: 300000 }],

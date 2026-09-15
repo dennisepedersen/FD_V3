@@ -126,8 +126,8 @@ function compactDataSources(dataSources = {}) {
 
 function componentCompletion(project, key) {
   const component = (((project || {}).calculation || {}).components || []).find((item) => item.key === key) || null;
-  const raw = component ? toFiniteNumber(component.expected_progress_raw) : null;
-  return raw === null ? null : Math.round(raw * 10000) / 100;
+  const capped = component ? toFiniteNumber(component.expected_progress_capped) : null;
+  return capped === null ? null : Math.round(capped * 10000) / 100;
 }
 
 function buildIgvaSummaryPayload(project, row, calculatedAt = new Date()) {

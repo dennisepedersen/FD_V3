@@ -108,8 +108,8 @@ test('summary payload keeps overview data compact and excludes heavy expected hi
       budget_completion: { percent: null },
       expected_completion: { percent: 66.5 },
       components: [
-        { key: 'labor', expected_progress_raw: 0.695 },
-        { key: 'materials', expected_progress_raw: 0.646 },
+        { key: 'labor', expected_progress_raw: 0.695, expected_progress_capped: 0.695 },
+        { key: 'materials', expected_progress_raw: 0.646, expected_progress_capped: 0.646 },
       ],
       totals: { actual_cost: 3261962.67, expected_cost: 4934568 },
     },
@@ -132,6 +132,41 @@ test('summary payload keeps overview data compact and excludes heavy expected hi
   assert.equal(Object.hasOwn(summary.summary_json.data_sources.expected_history, 'rows'), false);
   assert.equal(Object.hasOwn(summary.summary_json.data_sources.expected_history, 'events'), false);
   assert.equal(summary.source_metadata.actual_materials_rows, 17);
+});
+
+test('summary payload caps component completion percent but preserves raw overrun', () => {
+  const calculatedAt = new Date('2026-09-15T12:00:00.000Z');
+  const project = {
+    project_id: 'project-overrun',
+    ek_project_id: 38364,
+    external_project_ref: '38364',
+    name: 'Material overrun regression',
+    source_totals: {
+      turnover_expected: 1000,
+      materials_actual: 125,
+      materials_expected_total: 100,
+    },
+    data_quality: 'PARTIAL',
+    data_sources: {},
+    calculation: {
+      budget_completion: { percent: null },
+      expected_completion: { percent: 100 },
+      components: [
+        { key: 'materials', expected_progress_raw: 1.25, expected_progress_capped: 1, actual_cost: 125, expected_cost: 100 },
+      ],
+      totals: { actual_cost: 125, expected_cost: 100 },
+    },
+  };
+
+  const summary = igvaPocService._test.buildIgvaSummaryPayload(project, {}, calculatedAt);
+  const material = summary.summary_json.calculation.components.find((item) => item.key === 'materials');
+
+  assert.equal(summary.expected_completion_percent, 100);
+  assert.equal(summary.material_completion_percent, 100);
+  assert.equal(material.expected_progress_raw, 1.25);
+  assert.equal(material.expected_progress_capped, 1);
+  assert.equal(summary.cost_actual, 125);
+  assert.equal(summary.cost_expected, 100);
 });
 
 test('manager completion validation bounds percent and comment size', () => {
