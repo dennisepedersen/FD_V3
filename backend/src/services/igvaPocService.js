@@ -470,6 +470,7 @@ async function refreshIgvaProjectSummaries(client, {
   tenantId,
   projectIds = null,
   limit = SUMMARY_REFRESH_PROJECT_LIMIT,
+  selectionMode = null,
   ekClient: injectedEkClient = null,
 } = {}) {
   const rows = await igvaPocQueries.listIgvaProjectsForSummaryRefresh(client, {
@@ -477,6 +478,7 @@ async function refreshIgvaProjectSummaries(client, {
     projectIds,
     limit,
     freshnessMaxAgeHours: SUMMARY_FRESHNESS_MAX_AGE_HOURS,
+    selectionMode,
   });
   const ekClient = await buildEkClient(client, tenantId, injectedEkClient);
   const results = [];
@@ -564,6 +566,7 @@ async function refreshIgvaProjectSummaries(client, {
 }
 
 module.exports = {
+  SUMMARY_REFRESH_SELECTION_MODES: igvaPocQueries.SUMMARY_REFRESH_SELECTION_MODES,
   listIgvaPocProjects,
   saveProjectManagerCompletion,
   listProjectManagerCompletionHistory,
@@ -579,5 +582,6 @@ module.exports = {
     buildIgvaSummaryPayload,
     normalizeCompletionPercent,
     normalizeOptionalComment,
+    SUMMARY_REFRESH_SELECTION_MODES: igvaPocQueries.SUMMARY_REFRESH_SELECTION_MODES,
   },
 };

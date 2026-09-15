@@ -12,6 +12,7 @@ const routes = fs.readFileSync('backend/src/routes/tenantSurfaceRoutes.js', 'utf
 const syncWorker = fs.readFileSync('backend/src/services/syncWorker.js', 'utf8');
 const docs = fs.readFileSync('backend/docs/architecture/igva_next_generation.md', 'utf8');
 const purchaseLineDocs = fs.readFileSync('backend/docs/mappings/fd_purchase_line_model.md', 'utf8');
+const igvaPocQueries = require('../backend/src/db/queries/igvaPoc');
 const igvaPocService = require('../backend/src/services/igvaPocService');
 
 function getFunctionSource(source, name) {
@@ -190,7 +191,8 @@ test('IGVA foundation documentation records design intent without future feature
 
 
 test('IGVA summary bootstrap is tenant/project based with missing and stale summaries first', () => {
-  assert.ok(queries.includes('async function listIgvaProjectsForSummaryRefresh(client, { tenantId, projectIds = null, limit = 10, freshnessMaxAgeHours = 24 } = {})'));
+  const summaryRefreshSource = getFunctionSource(queries, 'listIgvaProjectsForSummaryRefresh');
+  assert.ok(summaryRefreshSource.includes('selectionMode = null'));
   assert.ok(queries.includes('WHERE pc.tenant_id = $1'));
   assert.ok(queries.includes('pm.ek_project_id IS NOT NULL'));
   assert.ok(queries.includes('ips.project_id IS NULL'));
@@ -198,7 +200,44 @@ test('IGVA summary bootstrap is tenant/project based with missing and stale summ
   assert.ok(queries.includes("ips.economy_status = 'partial' AND ips.last_error = 'ek_rate_limited_429'"));
   assert.ok(queries.includes('pm.source_updated_at IS NOT NULL AND pm.source_updated_at > COALESCE(ips.source_synced_at'));
   assert.ok(queries.includes('ips.source_synced_at < (now() - make_interval(secs => $4))'));
-  assert.doesNotMatch(getFunctionSource(queries, 'listIgvaProjectsForSummaryRefresh'), /tenant_user|userId|responsible_code =/);
+  assert.doesNotMatch(summaryRefreshSource, /tenant_user|userId|responsible_code =/);
+});
+
+test('IGVA summary refresh selection modes default to active-only but keep targeted closed on demand', async () => {
+  const calls = [];
+  const client = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      return { rows: [] };
+    },
+  };
+
+  await igvaPocQueries.listIgvaProjectsForSummaryRefresh(client, { tenantId: 'tenant-1', limit: 25 });
+  assert.equal(calls[0].params[1], 25);
+  assert.equal(calls[0].params[2], null);
+  assert.equal(calls[0].params[4], igvaPocQueries.SUMMARY_REFRESH_SELECTION_MODES.ACTIVE_ONLY);
+  assert.match(calls[0].sql, /COALESCE\(pc\.is_closed, false\) = false/);
+  assert.match(calls[0].sql, /pc\.has_v4 = true/);
+
+  await igvaPocQueries.listIgvaProjectsForSummaryRefresh(client, {
+    tenantId: 'tenant-1',
+    projectIds: ['00000000-0000-0000-0000-000000000001'],
+  });
+  assert.deepEqual(calls[1].params[2], ['00000000-0000-0000-0000-000000000001']);
+  assert.equal(calls[1].params[4], igvaPocQueries.SUMMARY_REFRESH_SELECTION_MODES.CLOSED_ON_DEMAND);
+  assert.match(calls[1].sql, /\$5::text = 'CLOSED_ON_DEMAND'[\s\S]+?\$3::uuid\[\] IS NOT NULL[\s\S]+?pc\.is_closed = true/);
+
+  await igvaPocQueries.listIgvaProjectsForSummaryRefresh(client, {
+    tenantId: 'tenant-1',
+    selectionMode: igvaPocQueries.SUMMARY_REFRESH_SELECTION_MODES.ACTIVE_AND_RECENT_CLOSED,
+  });
+  assert.equal(calls[2].params[4], igvaPocQueries.SUMMARY_REFRESH_SELECTION_MODES.ACTIVE_AND_RECENT_CLOSED);
+  assert.match(calls[2].sql, /\$5::text = 'ACTIVE_AND_RECENT_CLOSED'[\s\S]+?closed_observed_at > \(now\(\) - interval '6 months'\)/);
+
+  assert.throws(
+    () => igvaPocQueries.normalizeSummaryRefreshSelectionMode(igvaPocQueries.SUMMARY_REFRESH_SELECTION_MODES.CLOSED_ON_DEMAND),
+    /igva_closed_on_demand_requires_project_ids/
+  );
 });
 
 test('IGVA summary refresh is bounded, throttled and defers 429 without stopping queue', () => {
@@ -218,6 +257,12 @@ test('sync worker reports IGVA summary rate limits as deferred endpoint state', 
   assert.ok(syncWorker.includes('pendingBacklogCount: result.deferred || 0'));
   assert.ok(syncWorker.includes('lastHttpStatus: result.rate_limited ? 429 : null'));
   assert.match(syncWorker, /igva_summary_deferred_rate_limited/);
+});
+
+test('normal IGVA summary worker uses active-only policy and does not fall through to closed backlog', () => {
+  const workerRefreshSource = getFunctionSource(syncWorker, 'runIgvaProjectSummaryEndpoint');
+  assert.match(workerRefreshSource, /selectionMode: igvaPocService\.SUMMARY_REFRESH_SELECTION_MODES\.ACTIVE_ONLY/);
+  assert.doesNotMatch(workerRefreshSource, /ACTIVE_AND_RECENT_CLOSED|CLOSED_ON_DEMAND/);
 });
 
 test('purchase invoice line client exposes updatedAfter for safe delta change detection', () => {

@@ -1,5 +1,24 @@
 'use strict';
 
+const SUMMARY_REFRESH_SELECTION_MODES = Object.freeze({
+  ACTIVE_ONLY: 'ACTIVE_ONLY',
+  ACTIVE_AND_RECENT_CLOSED: 'ACTIVE_AND_RECENT_CLOSED',
+  CLOSED_ON_DEMAND: 'CLOSED_ON_DEMAND',
+});
+
+function normalizeSummaryRefreshSelectionMode(selectionMode, { hasProjectIds = false } = {}) {
+  const mode = selectionMode || (hasProjectIds
+    ? SUMMARY_REFRESH_SELECTION_MODES.CLOSED_ON_DEMAND
+    : SUMMARY_REFRESH_SELECTION_MODES.ACTIVE_ONLY);
+  if (!Object.values(SUMMARY_REFRESH_SELECTION_MODES).includes(mode)) {
+    throw new Error('invalid_igva_summary_refresh_selection_mode');
+  }
+  if (mode === SUMMARY_REFRESH_SELECTION_MODES.CLOSED_ON_DEMAND && !hasProjectIds) {
+    throw new Error('igva_closed_on_demand_requires_project_ids');
+  }
+  return mode;
+}
+
 async function listIgvaPocProjectsForUser(client, { tenantId, userId, includeClosed = false }) {
   const sql = `
     WITH current_actor AS (
@@ -122,8 +141,15 @@ async function listIgvaPocProjectsForUser(client, { tenantId, userId, includeClo
   return rows;
 }
 
-async function listIgvaProjectsForSummaryRefresh(client, { tenantId, projectIds = null, limit = 10, freshnessMaxAgeHours = 24 } = {}) {
+async function listIgvaProjectsForSummaryRefresh(client, {
+  tenantId,
+  projectIds = null,
+  limit = 10,
+  freshnessMaxAgeHours = 24,
+  selectionMode = null,
+} = {}) {
   const normalizedProjectIds = Array.isArray(projectIds) && projectIds.length ? projectIds : null;
+  const normalizedSelectionMode = normalizeSummaryRefreshSelectionMode(selectionMode, { hasProjectIds: Boolean(normalizedProjectIds) });
   const maxAgeSeconds = Math.max(1, Number(freshnessMaxAgeHours) || 24) * 60 * 60;
   const sql = `
     SELECT
@@ -184,11 +210,21 @@ async function listIgvaProjectsForSummaryRefresh(client, { tenantId, projectIds 
       AND pm.ek_project_id IS NOT NULL
       AND ($3::uuid[] IS NULL OR pc.project_id = ANY($3::uuid[]))
       AND (
-        (COALESCE(pc.is_closed, false) = false AND pc.has_v4 = true)
+        (
+          $5::text IN ('ACTIVE_ONLY', 'ACTIVE_AND_RECENT_CLOSED', 'CLOSED_ON_DEMAND')
+          AND COALESCE(pc.is_closed, false) = false
+          AND pc.has_v4 = true
+        )
         OR (
-          pc.is_closed = true
+          $5::text = 'ACTIVE_AND_RECENT_CLOSED'
+          AND pc.is_closed = true
           AND pc.closed_observed_at IS NOT NULL
           AND pc.closed_observed_at > (now() - interval '6 months')
+        )
+        OR (
+          $5::text = 'CLOSED_ON_DEMAND'
+          AND $3::uuid[] IS NOT NULL
+          AND pc.is_closed = true
         )
       )
       AND (
@@ -213,7 +249,13 @@ async function listIgvaProjectsForSummaryRefresh(client, { tenantId, projectIds 
       pc.project_id ASC
     LIMIT $2
   `;
-  const { rows } = await client.query(sql, [tenantId, Math.max(1, Number(limit) || 10), normalizedProjectIds, Math.floor(maxAgeSeconds)]);
+  const { rows } = await client.query(sql, [
+    tenantId,
+    Math.max(1, Number(limit) || 10),
+    normalizedProjectIds,
+    Math.floor(maxAgeSeconds),
+    normalizedSelectionMode,
+  ]);
   return rows;
 }
 
@@ -402,6 +444,8 @@ async function updateSummaryManagerCompletion(client, { tenantId, projectId, com
 }
 
 module.exports = {
+  SUMMARY_REFRESH_SELECTION_MODES,
+  normalizeSummaryRefreshSelectionMode,
   listIgvaPocProjectsForUser,
   listIgvaProjectsForSummaryRefresh,
   getProjectManagerCompletionForUpdate,

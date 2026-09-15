@@ -24,7 +24,7 @@ Scope: IGVA foundation, background economy sync, persisted summary, and future a
 
 The system must not intentionally leave detail as a newer truth while summary remains stale without freshness metadata.
 
-`verified`: Background bootstrap is tenant/project based in the existing sync-worker endpoint `igva_project_summary`. It is not bound to one named production user. The default candidate population is active V4 projects with an EK project id, plus recently closed projects only for lightweight closed-history continuity.
+`verified`: Background bootstrap is tenant/project based in the existing sync-worker endpoint `igva_project_summary`. It is not bound to one named production user. In IGVA v1 the unattended worker policy is explicitly `ACTIVE_ONLY`: active V4 projects with an EK project id. Recently closed projects are not part of unattended v1 background bootstrap. They remain a future option for an approved closed bootstrap or an explicit targeted/on-demand refresh.
 
 `verified`: The queue selects missing summaries first, then failed or rate-limited partial summaries, then source-changed/stale summaries by oldest `source_synced_at`. Concurrency, project limit, throttle and freshness max age are environment-configurable.
 
@@ -47,6 +47,14 @@ Incremental source notes:
 IGVA summary refresh is modelled as the endpoint key `igva_project_summary` in the existing sync-worker/job architecture.
 
 The worker should refresh a controlled batch of projects selected by tenant and oldest `source_synced_at` first. It follows the existing sync cadence and can be tuned by environment configuration, instead of defining a hard business age threshold in UI.
+
+Selection modes are explicit policy, not sort-order side effects:
+
+- `ACTIVE_ONLY`: unattended IGVA v1 worker default. Closed projects are outside the candidate set.
+- `ACTIVE_AND_RECENT_CLOSED`: future approved policy for active plus recently closed continuity.
+- `CLOSED_ON_DEMAND`: explicit project-targeted refresh only, for a user-opened closed project or a targeted operational refresh.
+
+`closed_observed_at` means when Fielddesk observed a project as closed in imported project state. It is not necessarily the business/project closed date and must not be used as an economic or lifecycle truth without separate evidence.
 
 External E-Komplet access is read-only. Financial writes, EK creates, updates, deletes, or status changes are out of scope.
 

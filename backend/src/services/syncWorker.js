@@ -4589,6 +4589,7 @@ async function runIgvaProjectSummaryEndpoint({ job, mode }) {
 
     result = await igvaPocService.refreshIgvaProjectSummaries(client, {
       tenantId: job.tenant_id,
+      selectionMode: igvaPocService.SUMMARY_REFRESH_SELECTION_MODES.ACTIVE_ONLY,
     });
     status = (result.failed > 0 || result.deferred > 0) ? "partial" : "success";
     await markEndpointState(client, {
