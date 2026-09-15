@@ -12,6 +12,36 @@ Scope: IGVA foundation, background economy sync, persisted summary, and future a
 
 `verified`: The summary is tenant/project-scoped and stores calculated/freshness timestamps plus compact economy fields. It must not store full purchase-line or expected-history payloads. Top-level typed columns are the current lightweight read model for UI surfaces.
 
+
+## V1 Stabilisation Model
+
+`verified`: The lightweight `igva_project_summary` is the canonical read model for overview surfaces. `/oekonomi`, the case overview, Quick View and project Overblik must read the same persisted summary columns so equal-precision values cannot drift between surfaces.
+
+`verified`: IGVA detail may perform a read-through calculation for one project, but when it does, the compact summary is updated in the same request path. The intended lifecycle is therefore:
+
+`summary current` -> normal overview truth
+`detail read-through` -> authoritative recalculation for one project -> compact summary update
+
+The system must not intentionally leave detail as a newer truth while summary remains stale without freshness metadata.
+
+`verified`: Background bootstrap is tenant/project based in the existing sync-worker endpoint `igva_project_summary`. It is not bound to one named production user. The default candidate population is active V4 projects with an EK project id, plus recently closed projects only for lightweight closed-history continuity.
+
+`verified`: The queue selects missing summaries first, then failed/deferred/source-changed/stale summaries by oldest `source_synced_at`. Concurrency, project limit, throttle and freshness max age are environment-configurable.
+
+`verified`: A 429 from any required EK source defers that project instead of retrying aggressively in the same run. One project failure does not stop the rest of the queue.
+
+Freshness fields:
+
+- `source_synced_at`: when the relevant EK/legacy source set was last checked for the summary.
+- `calculated_at`: when the IGVA calculator produced the persisted summary.
+
+Incremental source notes:
+
+- `purchaseinvoicelines` supports `updatedAfter` and the client exposes it for future cheap change detection.
+- Current material actual still uses a full direct ProjectID line read for recalculation because Fielddesk does not yet persist the complete raw purchase-line source model.
+- `projects_v4`, `fitterhours` and `worksheets` are already delta-capable in the broader sync architecture.
+- Expected latest, budget, expected history and financial-post turnover remain project reads in the current POC calculator path.
+
 ## Background Economy Sync
 
 IGVA summary refresh is modelled as the endpoint key `igva_project_summary` in the existing sync-worker/job architecture.

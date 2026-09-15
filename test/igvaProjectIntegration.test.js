@@ -150,6 +150,7 @@ test('completed IGVA overview grouping uses observed close date only and no gues
   assert.match(closedDateFunction, /closed_observed_at/);
   assert.doesNotMatch(closedDateFunction, /updated_at|source_updated_at/);
   assert.match(authJs, /function groupCompletedIgvaProjects/);
+  assert.match(authJs, /Afslutningsdato ukendt/);
   assert.match(authJs, /closedDate\.getFullYear\(\)/);
   assert.match(authJs, /bDate\.getTime\(\) - aDate\.getTime\(\)/);
 });
@@ -158,7 +159,7 @@ test('IGVA overview does not bulk fetch project economy details', () => {
   const start = indexOfOrThrow(authJs, 'async function loadIgvaFinanceOverview');
   const end = indexOfOrThrow(authJs.slice(start), '\n    function renderDashboard') + start;
   const body = authJs.slice(start, end);
-  assert.match(body, /const url = state\.finance\.includeCompleted \? "\/api\/igva-poc\/projects\?include_closed=true" : "\/api\/igva-poc\/projects"/);
+  assert.match(body, /const url = "\/api\/igva-poc\/projects\?include_closed=true"/);
   assert.match(body, /apiFetch\(url, \{ method: "GET" \}\)/);
   assert.doesNotMatch(body, /project_ref|economy=detail|\/api\/projects\/[^"]+\/igva/);
   assert.match(routeSource, /includeEconomy: Boolean\(projectRef\)/);
@@ -166,7 +167,8 @@ test('IGVA overview does not bulk fetch project economy details', () => {
 
 test('IGVA overview uses persisted summary freshness instead of NOT_LOADED main cards', () => {
   const cardBody = getFunctionBody(authJs, 'renderIgvaFinanceProject');
-  assert.match(cardBody, /economy_detail === "summary"/);
+  assert.match(authJs, /economy_detail === "summary"/);
+  assert.match(cardBody, /metrics\.hasSummary/);
   assert.match(cardBody, /formatIgvaFreshness/);
   assert.match(cardBody, /Afventer første IGVA-synkronisering/);
   assert.doesNotMatch(cardBody, /NOT_LOADED|PROBABLE|PARTIAL|VERIFIED_WITH_PROBABLE_COMPONENT/);
@@ -190,7 +192,7 @@ test('normal IGVA UI uses Danish business labels and keeps technical statuses ou
   assert.match(primaryBodies, /Forventet færdiggørelsesgrad/);
   assert.match(primaryBodies, /Realiseret løn|Løn/);
   assert.match(primaryBodies, /Realiserede materialer|Materialer/);
-  assert.doesNotMatch(primaryBodies, /NOT_LOADED|PROBABLE|PARTIAL|VERIFIED_WITH_PROBABLE_COMPONENT|Weighted completion|Beregnet lønactual|Beregnet materialeactual|Materialer actual|Lønactual|Marginal %/);
+  assert.doesNotMatch(primaryBodies, /Økonomi: Neutral|NOT_LOADED|PROBABLE|PARTIAL|VERIFIED_WITH_PROBABLE_COMPONENT|Weighted completion|Beregnet lønactual|Beregnet materialeactual|Materialer actual|Lønactual|Marginal %/);
 });
 
 test('project detail and dashboard surfaces use Q&A copy', () => {
@@ -233,4 +235,27 @@ test('standalone POC shell is deprecated and hidden from normal navigation', () 
   assert.match(routeSource, /router\.get\("\/igva-poc"/);
   assert.doesNotMatch(appHtml, /href="\/igva-poc"/);
   assert.doesNotMatch(projectHtml, /href="\/igva-poc"/);
+});
+
+
+test('IGVA overview portfolio shows coverage and uses total-based DG', () => {
+  assert.match(appHtml, /id="igvaFinanceSummaryCoverage"/);
+  assert.match(appHtml, /id="igvaFinanceRevenueExpected"/);
+  assert.match(appHtml, /id="igvaFinanceCostExpected"/);
+  assert.match(appHtml, /id="igvaFinanceDbExpected"/);
+  assert.match(appHtml, /id="igvaFinanceDgExpected"/);
+  const body = getFunctionBody(authJs, 'setIgvaFinancePortfolio');
+  assert.match(body, /summarized\.length \+ " \/ " \+ active\.length/);
+  assert.match(body, /totalRevenue - totalCost/);
+  assert.match(body, /totalDb \/ totalRevenue/);
+  assert.doesNotMatch(body, /average|avg/);
+  assert.doesNotMatch(body, /complete\.length[^\n]+coverageExpected|coverageExpected[^\n]+complete\.length/);
+});
+
+test('IGVA overview loads lightweight active and closed scope so closed count is independent of toggle', () => {
+  assert.match(authJs, /const url = "\/api\/igva-poc\/projects\?include_closed=true"/);
+  const renderBody = getFunctionBody(authJs, 'renderIgvaFinanceOverview');
+  assert.match(renderBody, /const activeProjects = sortProjects\(all\.filter\(\(project\) => !isIgvaFinanceClosed\(project\)\)\)/);
+  assert.match(renderBody, /const completedProjects = all\.filter\(isIgvaFinanceClosed\)/);
+  assert.match(renderBody, /setText\(igvaFinanceCompletedCount, String\(completedProjects\.length\)\)/);
 });

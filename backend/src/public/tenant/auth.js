@@ -6732,30 +6732,53 @@
       return project && project.project_id ? "/sager/" + encodeURIComponent(String(project.project_id)) + "/igva" : "/oekonomi";
     }
 
+    function readIgvaFinanceMetrics(project) {
+      const summary = project && project.summary ? project.summary : {};
+      const calc = project && project.calculation ? project.calculation : {};
+      const source = project && project.source_totals ? project.source_totals : {};
+      const totals = calc.totals || {};
+      const expectedPercent = firstNumber(summary.expected_completion_percent, calc.expected_completion && calc.expected_completion.percent);
+      const materialActual = firstNumber(summary.material_actual, source.materials_actual);
+      const revenueExpected = firstNumber(summary.revenue_expected, source.turnover_expected);
+      const revenueActual = firstNumber(summary.revenue_actual, source.turnover_actual);
+      const costExpected = firstNumber(summary.cost_expected, totals.expected_cost, source.expected_total_from_components);
+      const costActual = firstNumber(summary.cost_actual, totals.actual_cost);
+      const contributionMarginExpected = firstNumber(summary.contribution_margin_expected, revenueExpected !== null && costExpected !== null ? revenueExpected - costExpected : null);
+      const coverageExpected = firstNumber(summary.coverage_expected, revenueExpected ? (contributionMarginExpected / revenueExpected) * 100 : null);
+      const sourceSyncedAt = summary.source_synced_at || summary.calculated_at || null;
+      const hasSummary = Boolean(project && project.economy_detail === "summary" && (project.calculation || project.source_totals));
+      return {
+        hasSummary,
+        expectedPercent,
+        materialActual,
+        revenueExpected,
+        revenueActual,
+        costExpected,
+        costActual,
+        contributionMarginExpected,
+        coverageExpected,
+        sourceSyncedAt,
+      };
+    }
+
     function renderIgvaFinanceProject(project) {
       const ref = getIgvaFinanceProjectRef(project);
       const closed = isIgvaFinanceClosed(project);
       const status = closed ? "Lukket" : "Igangværende";
-      const summary = project && project.summary ? project.summary : {};
-      const calc = project && project.calculation ? project.calculation : {};
-      const source = project && project.source_totals ? project.source_totals : {};
-      const expectedPercent = firstNumber(summary.expected_completion_percent, calc.expected_completion && calc.expected_completion.percent);
-      const materialActual = firstNumber(summary.material_actual, source.materials_actual);
-      const revenueExpected = firstNumber(summary.revenue_expected, source.turnover_expected);
-      const freshness = formatIgvaFreshness(summary.source_synced_at || summary.calculated_at);
-      const hasSummary = Boolean(project && project.economy_detail === "summary" && (project.calculation || project.source_totals));
-      const middle = hasSummary
-        ? '<div class="fdRowProgress">' + renderProgressBar(clampPercent(expectedPercent), false) + '</div><span class="fdProgressText">Forventet færdiggørelsesgrad ' + escapeHtml(formatPercentValue(expectedPercent) || '--') + '</span><span class="fdSortHint"><span data-icon="euro"></span><span>Materialer ' + escapeHtml(formatMoney(materialActual) || '--') + '</span></span><span class="fdSortHint"><span data-icon="chart"></span><span>Forventet omsætning ' + escapeHtml(formatMoney(revenueExpected) || '--') + '</span></span>'
+      const metrics = readIgvaFinanceMetrics(project);
+      const freshness = formatIgvaFreshness(metrics.sourceSyncedAt);
+      const middle = metrics.hasSummary
+        ? '<div class="fdRowProgress">' + renderProgressBar(clampPercent(metrics.expectedPercent), false) + '</div><span class="fdProgressText">Forventet færdiggørelsesgrad ' + escapeHtml(formatPercentValue(metrics.expectedPercent, 1) || '--') + '</span><span class="fdSortHint"><span data-icon="euro"></span><span>Materialer ' + escapeHtml(formatMoney(metrics.materialActual) || '--') + '</span></span><span class="fdSortHint"><span data-icon="chart"></span><span>Forventet omsætning ' + escapeHtml(formatMoney(metrics.revenueExpected) || '--') + '</span></span>'
         : '<span class="fdSortHint"><span data-icon="chart"></span><span>Afventer første IGVA-synkronisering</span></span>';
       const article = document.createElement("article");
       article.className = "fdCaseRow";
-      article.dataset.igvaFinanceSource = hasSummary ? "summary" : "pending";
+      article.dataset.igvaFinanceSource = metrics.hasSummary ? "summary" : "pending";
       article.innerHTML =
         '<div class="fdCaseRowLeft">' +
           '<span class="fdStatusDot ' + (closed ? 'neutral' : 'aktiv') + '"></span>' +
           '<div class="fdCaseRowTitleWrap">' +
             '<p class="fdCaseName">' + escapeHtml(project && project.name ? project.name : 'Uden navn') + '</p>' +
-            '<div class="fdCaseMetaLine"><span class="fdCaseNumber">Sag ' + escapeHtml(ref) + '</span><span>·</span><span>IGVA ' + escapeHtml(status) + '</span><span>·</span><span>' + escapeHtml(freshness) + '</span></div>' +
+            '<div class="fdCaseMetaLine"><span class="fdCaseNumber">Sag ' + escapeHtml(ref) + '</span><span> - </span><span>IGVA ' + escapeHtml(status) + '</span><span> - </span><span>' + escapeHtml(freshness) + '</span></div>' +
           '</div>' +
         '</div>' +
         '<div class="fdCaseRowMiddle">' + middle + '</div>' +
@@ -6768,13 +6791,13 @@
       const groups = new Map();
       (Array.isArray(projects) ? projects : []).forEach((project) => {
         const closedDate = getIgvaFinanceClosedDate(project);
-        const key = closedDate ? String(closedDate.getFullYear()) : "Uden lukningsdato";
+        const key = closedDate ? String(closedDate.getFullYear()) : "Afslutningsdato ukendt";
         if (!groups.has(key)) groups.set(key, []);
         groups.get(key).push(project);
       });
       return Array.from(groups.entries()).sort((a, b) => {
-        if (a[0] === "Uden lukningsdato") return 1;
-        if (b[0] === "Uden lukningsdato") return -1;
+        if (a[0] === "Afslutningsdato ukendt") return 1;
+        if (b[0] === "Afslutningsdato ukendt") return -1;
         return Number(b[0]) - Number(a[0]);
       }).map(([year, items]) => ({
         year,
@@ -6787,6 +6810,21 @@
           return getIgvaFinanceProjectRef(a).localeCompare(getIgvaFinanceProjectRef(b), "da", { numeric: true });
         }),
       }));
+    }
+
+    function setIgvaFinancePortfolio(projects) {
+      const active = (Array.isArray(projects) ? projects : []).filter((project) => !isIgvaFinanceClosed(project));
+      const summarized = active.filter((project) => readIgvaFinanceMetrics(project).hasSummary);
+      const complete = summarized.map(readIgvaFinanceMetrics).filter((metrics) => metrics.revenueExpected !== null && metrics.costExpected !== null);
+      const totalRevenue = complete.reduce((sum, metrics) => sum + metrics.revenueExpected, 0);
+      const totalCost = complete.reduce((sum, metrics) => sum + metrics.costExpected, 0);
+      const totalDb = complete.length ? totalRevenue - totalCost : null;
+      const dg = totalRevenue ? (totalDb / totalRevenue) * 100 : null;
+      setText(document.getElementById("igvaFinanceSummaryCoverage"), summarized.length + " / " + active.length);
+      setText(document.getElementById("igvaFinanceRevenueExpected"), complete.length ? formatMoney(totalRevenue) : "--");
+      setText(document.getElementById("igvaFinanceCostExpected"), complete.length ? formatMoney(totalCost) : "--");
+      setText(document.getElementById("igvaFinanceDbExpected"), complete.length ? formatMoney(totalDb) : "--");
+      setText(document.getElementById("igvaFinanceDgExpected"), complete.length && dg !== null ? formatPercentValue(dg, 1) : "--");
     }
 
     function setIgvaFinanceStatus(message) {
@@ -6806,6 +6844,7 @@
       setText(igvaFinanceActiveCount, String(activeProjects.length));
       setText(igvaFinanceCompletedCount, String(completedProjects.length));
       setText(igvaFinanceScopeValue, state.finance.includeCompleted ? "Aktive + afsluttede" : "Aktive");
+      setIgvaFinancePortfolio(all);
 
       if (state.finance.loading) {
         setIgvaFinanceStatus("Indlæser IGVA-projekter...");
@@ -6832,7 +6871,8 @@
         return;
       }
 
-      setIgvaFinanceStatus("Projektlisten er letvægtsdata. Økonomi hentes først, når en sag åbnes.");
+      const summarizedCount = activeProjects.filter((project) => readIgvaFinanceMetrics(project).hasSummary).length;
+      setIgvaFinanceStatus("Økonomidata: " + summarizedCount + " / " + activeProjects.length + " aktive projekter opdateret.");
       if (activeProjects.length) {
         activeProjects.forEach((project) => igvaFinanceProjects.appendChild(renderIgvaFinanceProject(project)));
       } else if (!state.finance.includeCompleted) {
@@ -6863,7 +6903,7 @@
       state.finance.loadError = "";
       renderIgvaFinanceOverview();
       try {
-        const url = state.finance.includeCompleted ? "/api/igva-poc/projects?include_closed=true" : "/api/igva-poc/projects";
+        const url = "/api/igva-poc/projects?include_closed=true";
         const response = await apiFetch(url, { method: "GET" });
         state.finance.projects = response && Array.isArray(response.projects) ? response.projects : [];
         state.finance.loaded = true;
@@ -7049,10 +7089,11 @@
       }
     }
 
-    function formatPercentValue(value) {
+    function formatPercentValue(value, digits = 1) {
       const parsed = Number(value);
       if (!Number.isFinite(parsed)) return null;
-      return new Intl.NumberFormat("da-DK", { maximumFractionDigits: 1, minimumFractionDigits: 0 }).format(parsed) + " %";
+      const decimals = Math.max(0, Math.min(Number(digits) || 0, 4));
+      return new Intl.NumberFormat("da-DK", { maximumFractionDigits: decimals, minimumFractionDigits: decimals }).format(parsed) + " %";
     }
 
     function formatIgvaFreshness(value) {
@@ -8153,7 +8194,7 @@
       if (!Number.isFinite(parsed)) {
         return null;
       }
-      return `${parsed.toLocaleString("da-DK", { maximumFractionDigits: 1, minimumFractionDigits: 0 })} %`;
+      return `${parsed.toLocaleString("da-DK", { maximumFractionDigits: 1, minimumFractionDigits: 1 })} %`;
     }
 
     function formatMoneyPair(actual, expected) {

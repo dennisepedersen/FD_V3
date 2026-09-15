@@ -403,7 +403,6 @@
     return text(value);
   }
   function renderHeader(project) {
-    const health = evaluateEconomyHealth(project);
     const header = el('section', 'igvaProjectHeader');
     const main = el('div');
     main.appendChild(el('p', 'igvaProjectRef', `Projekt ${text(project.external_project_ref, '-')}`));
@@ -416,7 +415,6 @@
     main.appendChild(meta);
     header.appendChild(main);
     const actions = el('aside', 'igvaHeaderActions');
-    actions.appendChild(createBadge(health.status, { human: `Økonomi: ${health.label}`, className: health.status }));
     const calcButton = el('button', 'igvaBtn', 'Vis beregning');
     calcButton.type = 'button';
     if (!project.calculation) {

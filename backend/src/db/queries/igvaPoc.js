@@ -122,8 +122,9 @@ async function listIgvaPocProjectsForUser(client, { tenantId, userId, includeClo
   return rows;
 }
 
-async function listIgvaProjectsForSummaryRefresh(client, { tenantId, projectIds = null, limit = 10 }) {
+async function listIgvaProjectsForSummaryRefresh(client, { tenantId, projectIds = null, limit = 10, freshnessMaxAgeHours = 24 } = {}) {
   const normalizedProjectIds = Array.isArray(projectIds) && projectIds.length ? projectIds : null;
+  const maxAgeSeconds = Math.max(1, Number(freshnessMaxAgeHours) || 24) * 60 * 60;
   const sql = `
     SELECT
       pc.tenant_id,
@@ -160,6 +161,10 @@ async function listIgvaProjectsForSummaryRefresh(client, { tenantId, projectIds 
       imc.comment AS project_manager_completion_comment,
       imc.changed_at AS project_manager_completion_changed_at,
       imc.changed_by AS project_manager_completion_changed_by,
+      ips.calculated_at AS igva_summary_calculated_at,
+      ips.source_synced_at AS igva_summary_source_synced_at,
+      ips.economy_status AS igva_summary_economy_status,
+      ips.last_error AS igva_summary_last_error,
       pc.created_at,
       pc.updated_at
     FROM project_core pc
@@ -186,10 +191,28 @@ async function listIgvaProjectsForSummaryRefresh(client, { tenantId, projectIds 
           AND pc.closed_observed_at > (now() - interval '6 months')
         )
       )
-    ORDER BY COALESCE(ips.source_synced_at, to_timestamp(0)) ASC, pc.updated_at DESC, pc.project_id ASC
+      AND (
+        $3::uuid[] IS NOT NULL
+        OR ips.project_id IS NULL
+        OR ips.source_synced_at IS NULL
+        OR ips.economy_status IN ('failed', 'deferred')
+        OR (pm.source_updated_at IS NOT NULL AND pm.source_updated_at > COALESCE(ips.source_synced_at, to_timestamp(0)))
+        OR ips.source_synced_at < (now() - make_interval(secs => $4))
+      )
+    ORDER BY
+      CASE
+        WHEN ips.project_id IS NULL THEN 0
+        WHEN ips.economy_status IN ('failed', 'deferred') THEN 1
+        WHEN pm.source_updated_at IS NOT NULL AND pm.source_updated_at > COALESCE(ips.source_synced_at, to_timestamp(0)) THEN 2
+        ELSE 3
+      END ASC,
+      COALESCE(ips.source_synced_at, to_timestamp(0)) ASC,
+      COALESCE(pc.is_closed, false) ASC,
+      pc.updated_at DESC,
+      pc.project_id ASC
     LIMIT $2
   `;
-  const { rows } = await client.query(sql, [tenantId, Math.max(1, Number(limit) || 10), normalizedProjectIds]);
+  const { rows } = await client.query(sql, [tenantId, Math.max(1, Number(limit) || 10), normalizedProjectIds, Math.floor(maxAgeSeconds)]);
   return rows;
 }
 
@@ -345,20 +368,20 @@ async function upsertIgvaProjectSummary(client, { tenantId, projectId, summary }
   return rows[0] || null;
 }
 
-async function markIgvaProjectSummaryFailed(client, { tenantId, projectId, calculatedAt, errorMessage }) {
+async function markIgvaProjectSummaryFailed(client, { tenantId, projectId, calculatedAt, errorMessage, economyStatus = 'failed' }) {
   const { rows } = await client.query(
     `
       INSERT INTO igva_project_summary (
         tenant_id, project_id, calculated_at, economy_status, summary_json, source_metadata, last_error
-      ) VALUES ($1, $2, $3, 'failed', '{}'::jsonb, '{}'::jsonb, $4)
+      ) VALUES ($1, $2, $3, $5, '{}'::jsonb, '{}'::jsonb, $4)
       ON CONFLICT (tenant_id, project_id) DO UPDATE SET
         calculated_at = EXCLUDED.calculated_at,
-        economy_status = 'failed',
+        economy_status = EXCLUDED.economy_status,
         last_error = EXCLUDED.last_error,
         updated_at = now()
       RETURNING *
     `,
-    [tenantId, projectId, calculatedAt, String(errorMessage || 'igva_summary_refresh_failed').slice(0, 2000)]
+    [tenantId, projectId, calculatedAt, String(errorMessage || 'igva_summary_refresh_failed').slice(0, 2000), economyStatus === 'deferred' ? 'deferred' : 'failed']
   );
   return rows[0] || null;
 }

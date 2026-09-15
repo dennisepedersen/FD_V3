@@ -281,7 +281,7 @@ async function readActualTurnover(fetchImpl, config, ekProjectId) {
   }
 }
 
-async function readPurchaseInvoiceLinesByProject(fetchImpl, config, ekProjectId) {
+async function readPurchaseInvoiceLinesByProject(fetchImpl, config, ekProjectId, options = {}) {
   try {
     const allRows = [];
     const pages = [];
@@ -292,6 +292,9 @@ async function readPurchaseInvoiceLinesByProject(fetchImpl, config, ekProjectId)
         page: String(page),
         pageSize: String(DEFAULT_PAGE_SIZE),
       });
+      if (options.updatedAfter) {
+        params.set('updatedAfter', String(options.updatedAfter));
+      }
       const result = await fetchEkJson(fetchImpl, config, `/api/v4/purchaseinvoicelines?${params.toString()}`);
       const rows = findRows(result.json);
       pages.push({
@@ -387,7 +390,7 @@ function createIgvaPocEkClient(config, options = {}) {
     readBudget: (ekProjectId) => readBudget(fetchImpl, config, ekProjectId),
     readExpectedHistory: (ekProjectId) => readExpectedHistory(fetchImpl, config, ekProjectId),
     readActualTurnover: (ekProjectId) => readActualTurnover(fetchImpl, config, ekProjectId),
-    readPurchaseInvoiceLinesByProject: (ekProjectId) => readPurchaseInvoiceLinesByProject(fetchImpl, config, ekProjectId),
+    readPurchaseInvoiceLinesByProject: (ekProjectId, options) => readPurchaseInvoiceLinesByProject(fetchImpl, config, ekProjectId, options),
     readLegacyFitterhours: (ekProjectId) => readLegacyFitterhours(fetchImpl, config, ekProjectId),
   };
 }

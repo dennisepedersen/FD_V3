@@ -14,6 +14,14 @@ const docs = fs.readFileSync('backend/docs/architecture/igva_next_generation.md'
 const purchaseLineDocs = fs.readFileSync('backend/docs/mappings/fd_purchase_line_model.md', 'utf8');
 const igvaPocService = require('../backend/src/services/igvaPocService');
 
+function getFunctionSource(source, name) {
+  const marker = 'function ' + name;
+  const start = source.indexOf(marker);
+  assert.notEqual(start, -1, 'Expected function ' + name);
+  const nextFunction = source.slice(start + marker.length).search(/\n(?:async )?function /);
+  return nextFunction === -1 ? source.slice(start) : source.slice(start, start + marker.length + nextFunction);
+}
+
 test('IGVA foundation migration is additive and tenant scoped', () => {
   assert.match(migration, /CREATE TABLE IF NOT EXISTS igva_project_manager_completion/);
   assert.match(migration, /CREATE TABLE IF NOT EXISTS igva_project_manager_completion_event/);
@@ -143,4 +151,52 @@ test('IGVA foundation documentation records design intent without future feature
   assert.match(docs, /Selective Material Control/);
   assert.match(purchaseLineDocs, /Current Foundation Persistence/);
   assert.match(purchaseLineDocs, /does not persist full purchase-line source rows yet/);
+});
+
+
+test('IGVA summary bootstrap is tenant/project based with missing and stale summaries first', () => {
+  assert.ok(queries.includes('async function listIgvaProjectsForSummaryRefresh(client, { tenantId, projectIds = null, limit = 10, freshnessMaxAgeHours = 24 } = {})'));
+  assert.ok(queries.includes('WHERE pc.tenant_id = $1'));
+  assert.ok(queries.includes('pm.ek_project_id IS NOT NULL'));
+  assert.ok(queries.includes('ips.project_id IS NULL'));
+  assert.ok(queries.includes("ips.economy_status IN ('failed', 'deferred')"));
+  assert.ok(queries.includes('pm.source_updated_at IS NOT NULL AND pm.source_updated_at > COALESCE(ips.source_synced_at'));
+  assert.ok(queries.includes('ips.source_synced_at < (now() - make_interval(secs => $4))'));
+  assert.doesNotMatch(getFunctionSource(queries, 'listIgvaProjectsForSummaryRefresh'), /tenant_user|userId|responsible_code =/);
+});
+
+test('IGVA summary refresh is bounded, throttled and defers 429 without stopping queue', () => {
+  const serviceSource = fs.readFileSync('backend/src/services/igvaPocService.js', 'utf8');
+  assert.ok(serviceSource.includes('IGVA_SUMMARY_REFRESH_PROJECT_LIMIT) || 50'));
+  assert.match(serviceSource, /IGVA_SUMMARY_REFRESH_CONCURRENCY/);
+  assert.match(serviceSource, /IGVA_SUMMARY_REFRESH_THROTTLE_MS/);
+  assert.match(serviceSource, /function findRateLimitedSource/);
+  assert.match(serviceSource, /status: 'rate_limited'/);
+  assert.match(serviceSource, /economyStatus: 'deferred'/);
+  assert.match(serviceSource, /finally \{\s*await delay\(SUMMARY_REFRESH_THROTTLE_MS\)/);
+  assert.equal(igvaPocService._test.classifySummaryRefreshError(Object.assign(new Error('http 429'), { statusCode: 429 })).economyStatus, 'deferred');
+});
+
+test('sync worker reports IGVA summary rate limits as deferred endpoint state', () => {
+  assert.ok(syncWorker.includes('result.failed > 0 || result.deferred > 0'));
+  assert.ok(syncWorker.includes('pendingBacklogCount: result.deferred || 0'));
+  assert.ok(syncWorker.includes('lastHttpStatus: result.rate_limited ? 429 : null'));
+  assert.match(syncWorker, /igva_summary_deferred_rate_limited/);
+});
+
+test('purchase invoice line client exposes updatedAfter for safe delta change detection', () => {
+  const ekClientSource = fs.readFileSync('backend/src/services/igvaPocEkClient.js', 'utf8');
+  assert.ok(ekClientSource.includes('readPurchaseInvoiceLinesByProject(fetchImpl, config, ekProjectId, options = {})'));
+  assert.ok(ekClientSource.includes("params.set('updatedAfter', String(options.updatedAfter))"));
+  assert.match(docs, /purchaseinvoicelines.*updatedAfter/);
+  assert.match(docs, /full direct ProjectID line read for recalculation/);
+});
+
+test('IGVA detail read-through updates the persisted compact summary to avoid live-detail drift', () => {
+  const serviceSource = fs.readFileSync('backend/src/services/igvaPocService.js', 'utf8');
+  const listBody = getFunctionSource(serviceSource, 'listIgvaPocProjects');
+  assert.ok(listBody.includes('buildIgvaSummaryPayload(project, row, calculatedAt)'));
+  assert.match(listBody, /refresh_trigger: 'detail_read_through'/);
+  assert.ok(listBody.includes('upsertIgvaProjectSummary(client, {'));
+  assert.match(docs, /detail read-through[\s\S]+compact summary update/);
 });

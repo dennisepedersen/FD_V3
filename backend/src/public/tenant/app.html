@@ -2428,6 +2428,13 @@
       font-family: "DM Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     }
 
+    .fdCaseStatValue,
+    .fdSheetStatValue,
+    .fdSheetPanel {
+      overflow-wrap: anywhere;
+      white-space: normal;
+    }
+
     .fdCaseView {
       min-height: 100%;
       color: #0e1018;
@@ -4233,6 +4240,26 @@
                 <article class="fdCaseStatCard">
                   <p class="fdCaseStatLabel">Visning</p>
                   <p id="igvaFinanceScopeValue" class="fdCaseStatValue fdScopeValue">Aktive</p>
+                </article>
+                <article class="fdCaseStatCard">
+                  <p class="fdCaseStatLabel">Økonomidata</p>
+                  <p id="igvaFinanceSummaryCoverage" class="fdCaseStatValue">-</p>
+                </article>
+                <article class="fdCaseStatCard">
+                  <p class="fdCaseStatLabel">Forv. omsætning</p>
+                  <p id="igvaFinanceRevenueExpected" class="fdCaseStatValue">-</p>
+                </article>
+                <article class="fdCaseStatCard">
+                  <p class="fdCaseStatLabel">Forv. omkostninger</p>
+                  <p id="igvaFinanceCostExpected" class="fdCaseStatValue">-</p>
+                </article>
+                <article class="fdCaseStatCard">
+                  <p class="fdCaseStatLabel">Forv. DB</p>
+                  <p id="igvaFinanceDbExpected" class="fdCaseStatValue">-</p>
+                </article>
+                <article class="fdCaseStatCard">
+                  <p class="fdCaseStatLabel">DG</p>
+                  <p id="igvaFinanceDgExpected" class="fdCaseStatValue">-</p>
                 </article>
               </section>
 

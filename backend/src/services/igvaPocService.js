@@ -7,8 +7,10 @@ const { createIgvaPocEkClient, resolveTenantEkConfig } = require('./igvaPocEkCli
 
 const POC_MATERIAL_ADJUSTMENTS = Object.freeze([]);
 const ENRICHMENT_CONCURRENCY = 3;
-const SUMMARY_REFRESH_PROJECT_LIMIT = Math.max(1, Number(process.env.IGVA_SUMMARY_REFRESH_PROJECT_LIMIT) || 5);
-const SUMMARY_REFRESH_CONCURRENCY = Math.max(1, Math.min(Number(process.env.IGVA_SUMMARY_REFRESH_CONCURRENCY) || 1, 2));
+const SUMMARY_REFRESH_PROJECT_LIMIT = Math.max(1, Number(process.env.IGVA_SUMMARY_REFRESH_PROJECT_LIMIT) || 50);
+const SUMMARY_REFRESH_CONCURRENCY = Math.max(1, Math.min(Number(process.env.IGVA_SUMMARY_REFRESH_CONCURRENCY) || 1, 3));
+const SUMMARY_REFRESH_THROTTLE_MS = Math.max(0, Number(process.env.IGVA_SUMMARY_REFRESH_THROTTLE_MS) || 350);
+const SUMMARY_FRESHNESS_MAX_AGE_HOURS = Math.max(1, Number(process.env.IGVA_SUMMARY_FRESHNESS_MAX_AGE_HOURS) || 24);
 
 function normalizeProjectRef(value) {
   return String(value || '').trim().toLowerCase();
@@ -72,6 +74,11 @@ async function mapWithConcurrency(items, limit, mapper) {
   const workers = Array.from({ length: Math.min(limit, Math.max(items.length, 1)) }, () => worker());
   await Promise.all(workers);
   return results;
+}
+
+function delay(ms) {
+  const wait = Number(ms);
+  return wait > 0 ? new Promise((resolve) => setTimeout(resolve, wait)) : Promise.resolve();
 }
 
 async function buildEkClient(client, tenantId, injectedClient) {
@@ -285,6 +292,35 @@ async function readProjectEconomy(ekClient, row, options = {}) {
   return { expectedLatest, budget, expectedHistory, actualTurnover, legacyFitterhours, purchaseInvoiceLines };
 }
 
+function findRateLimitedSource(ekEconomy) {
+  const sources = Object.entries(ekEconomy || {});
+  return sources.find(([, source]) => {
+    const status = Number(source && source.http_status);
+    const error = String((source && source.error) || '');
+    return status === 429 || /\b429\b|rate.?limit/i.test(error);
+  }) || null;
+}
+
+function assertNoRateLimitedSource(ekEconomy) {
+  const match = findRateLimitedSource(ekEconomy);
+  if (!match) return;
+  const [key, source] = match;
+  const error = new Error(`igva_summary_rate_limited:${key}`);
+  error.statusCode = 429;
+  error.sourceKey = key;
+  error.httpStatus = Number(source && source.http_status) || 429;
+  throw error;
+}
+
+function classifySummaryRefreshError(error) {
+  const status = Number(error && (error.statusCode || error.httpStatus || error.status));
+  const message = String(error && error.message ? error.message : 'igva_summary_refresh_failed');
+  if (status === 429 || /rate.?limit|\b429\b/i.test(message)) {
+    return { status: 'rate_limited', economyStatus: 'deferred', retryable: true, httpStatus: 429, message };
+  }
+  return { status: 'failed', economyStatus: 'failed', retryable: false, httpStatus: Number.isFinite(status) ? status : null, message };
+}
+
 async function listIgvaPocProjects(client, {
   tenantId,
   userId,
@@ -304,11 +340,26 @@ async function listIgvaPocProjects(client, {
 
   const projects = shouldReadEconomy
     ? await mapWithConcurrency(scopedRows, ENRICHMENT_CONCURRENCY, async (row) => {
+      const calculatedAt = new Date();
       const ekEconomy = await readProjectEconomy(ekClient, row);
-      return buildIgvaPocProject(row, {
+      assertNoRateLimitedSource(ekEconomy);
+      const project = buildIgvaPocProject(row, {
         materialAdjustments: POC_MATERIAL_ADJUSTMENTS,
         ekEconomy,
       });
+      const summary = buildIgvaSummaryPayload(project, row, calculatedAt);
+      summary.source_metadata = {
+        ...(summary.source_metadata || {}),
+        refresh_trigger: 'detail_read_through',
+      };
+      if (client && typeof client.query === 'function') {
+        await igvaPocQueries.upsertIgvaProjectSummary(client, {
+          tenantId,
+          projectId: row.project_id,
+          summary,
+        });
+      }
+      return project;
     })
     : scopedRows.map(buildIgvaPocProjectSummary);
 
@@ -421,7 +472,12 @@ async function refreshIgvaProjectSummaries(client, {
   limit = SUMMARY_REFRESH_PROJECT_LIMIT,
   ekClient: injectedEkClient = null,
 } = {}) {
-  const rows = await igvaPocQueries.listIgvaProjectsForSummaryRefresh(client, { tenantId, projectIds, limit });
+  const rows = await igvaPocQueries.listIgvaProjectsForSummaryRefresh(client, {
+    tenantId,
+    projectIds,
+    limit,
+    freshnessMaxAgeHours: SUMMARY_FRESHNESS_MAX_AGE_HOURS,
+  });
   const ekClient = await buildEkClient(client, tenantId, injectedEkClient);
   const results = [];
 
@@ -430,6 +486,7 @@ async function refreshIgvaProjectSummaries(client, {
     try {
       if (!ekClient) throw new Error('igva_ek_config_not_available');
       const ekEconomy = await readProjectEconomy(ekClient, row, { sequential: true });
+      assertNoRateLimitedSource(ekEconomy);
       const project = buildIgvaPocProject(row, {
         materialAdjustments: POC_MATERIAL_ADJUSTMENTS,
         ekEconomy,
@@ -460,12 +517,14 @@ async function refreshIgvaProjectSummaries(client, {
       });
       results.push({ project_id: row.project_id, external_project_ref: row.external_project_ref || null, status: 'success' });
     } catch (error) {
-      const message = String(error && error.message ? error.message : 'igva_summary_refresh_failed');
+      const classification = classifySummaryRefreshError(error);
+      const message = classification.message;
       await igvaPocQueries.markIgvaProjectSummaryFailed(client, {
         tenantId,
         projectId: row.project_id,
         calculatedAt: calculatedAt.toISOString(),
         errorMessage: message,
+        economyStatus: classification.economyStatus,
       });
       await auditService.logAuditEvent({
         client,
@@ -483,9 +542,13 @@ async function refreshIgvaProjectSummaries(client, {
         metadata: {
           ek_project_id: row.ek_project_id || null,
           external_project_ref: row.external_project_ref || null,
+          retryable: classification.retryable,
+          http_status: classification.httpStatus,
         },
       });
-      results.push({ project_id: row.project_id, external_project_ref: row.external_project_ref || null, status: 'failed', error: message });
+      results.push({ project_id: row.project_id, external_project_ref: row.external_project_ref || null, status: classification.status, error: message });
+    } finally {
+      await delay(SUMMARY_REFRESH_THROTTLE_MS);
     }
   });
 
@@ -494,6 +557,8 @@ async function refreshIgvaProjectSummaries(client, {
     rows_considered: rows.length,
     refreshed: results.filter((item) => item.status === 'success').length,
     failed: results.filter((item) => item.status === 'failed').length,
+    deferred: results.filter((item) => item.status === 'rate_limited').length,
+    rate_limited: results.filter((item) => item.status === 'rate_limited').length,
     results,
   };
 }
@@ -509,6 +574,8 @@ module.exports = {
     normalizeProjectRef,
     buildIgvaPocProjectSummary,
     readProjectEconomy,
+    findRateLimitedSource,
+    classifySummaryRefreshError,
     buildIgvaSummaryPayload,
     normalizeCompletionPercent,
     normalizeOptionalComment,

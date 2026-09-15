@@ -4590,7 +4590,7 @@ async function runIgvaProjectSummaryEndpoint({ job, mode }) {
     result = await igvaPocService.refreshIgvaProjectSummaries(client, {
       tenantId: job.tenant_id,
     });
-    status = result.failed > 0 ? "partial" : "success";
+    status = (result.failed > 0 || result.deferred > 0) ? "partial" : "success";
     await markEndpointState(client, {
       tenantId: job.tenant_id,
       endpointKey: IGVA_SUMMARY_ENDPOINT_KEY,
@@ -4609,13 +4609,13 @@ async function runIgvaProjectSummaryEndpoint({ job, mode }) {
       rowsPersistedDelta: result.refreshed,
       pagesProcessedLastJob: 1,
       rowsFetchedLastJob: result.rows_considered,
-      retryCount: 0,
-      pendingBacklogCount: 0,
+      retryCount: result.rate_limited || 0,
+      pendingBacklogCount: result.deferred || 0,
       failedPageCount: result.failed,
-      lastHttpStatus: null,
+      lastHttpStatus: result.rate_limited ? 429 : null,
       heartbeatAt: nowIso(),
       nextPlannedAt: null,
-      errorMessage: result.failed ? "igva_summary_partial_failure" : null,
+      errorMessage: result.failed ? "igva_summary_partial_failure" : (result.deferred ? "igva_summary_deferred_rate_limited" : null),
     });
     return { rowsProcessed: result.refreshed, pagesProcessed: 1, result };
   } catch (error) {
