@@ -159,7 +159,8 @@ test('IGVA summary bootstrap is tenant/project based with missing and stale summ
   assert.ok(queries.includes('WHERE pc.tenant_id = $1'));
   assert.ok(queries.includes('pm.ek_project_id IS NOT NULL'));
   assert.ok(queries.includes('ips.project_id IS NULL'));
-  assert.ok(queries.includes("ips.economy_status IN ('failed', 'deferred')"));
+  assert.ok(queries.includes("ips.economy_status = 'failed'"));
+  assert.ok(queries.includes("ips.economy_status = 'partial' AND ips.last_error = 'ek_rate_limited_429'"));
   assert.ok(queries.includes('pm.source_updated_at IS NOT NULL AND pm.source_updated_at > COALESCE(ips.source_synced_at'));
   assert.ok(queries.includes('ips.source_synced_at < (now() - make_interval(secs => $4))'));
   assert.doesNotMatch(getFunctionSource(queries, 'listIgvaProjectsForSummaryRefresh'), /tenant_user|userId|responsible_code =/);
@@ -172,9 +173,9 @@ test('IGVA summary refresh is bounded, throttled and defers 429 without stopping
   assert.match(serviceSource, /IGVA_SUMMARY_REFRESH_THROTTLE_MS/);
   assert.match(serviceSource, /function findRateLimitedSource/);
   assert.match(serviceSource, /status: 'rate_limited'/);
-  assert.match(serviceSource, /economyStatus: 'deferred'/);
+  assert.match(serviceSource, /economyStatus: 'partial'/);
   assert.match(serviceSource, /finally \{\s*await delay\(SUMMARY_REFRESH_THROTTLE_MS\)/);
-  assert.equal(igvaPocService._test.classifySummaryRefreshError(Object.assign(new Error('http 429'), { statusCode: 429 })).economyStatus, 'deferred');
+  assert.equal(igvaPocService._test.classifySummaryRefreshError(Object.assign(new Error('http 429'), { statusCode: 429 })).economyStatus, 'partial');
 });
 
 test('sync worker reports IGVA summary rate limits as deferred endpoint state', () => {

@@ -316,7 +316,7 @@ function classifySummaryRefreshError(error) {
   const status = Number(error && (error.statusCode || error.httpStatus || error.status));
   const message = String(error && error.message ? error.message : 'igva_summary_refresh_failed');
   if (status === 429 || /rate.?limit|\b429\b/i.test(message)) {
-    return { status: 'rate_limited', economyStatus: 'deferred', retryable: true, httpStatus: 429, message };
+    return { status: 'rate_limited', economyStatus: 'partial', retryable: true, httpStatus: 429, message };
   }
   return { status: 'failed', economyStatus: 'failed', retryable: false, httpStatus: Number.isFinite(status) ? status : null, message };
 }

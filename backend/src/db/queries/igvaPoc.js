@@ -195,14 +195,15 @@ async function listIgvaProjectsForSummaryRefresh(client, { tenantId, projectIds 
         $3::uuid[] IS NOT NULL
         OR ips.project_id IS NULL
         OR ips.source_synced_at IS NULL
-        OR ips.economy_status IN ('failed', 'deferred')
+        OR ips.economy_status = 'failed'
+        OR (ips.economy_status = 'partial' AND ips.last_error = 'ek_rate_limited_429')
         OR (pm.source_updated_at IS NOT NULL AND pm.source_updated_at > COALESCE(ips.source_synced_at, to_timestamp(0)))
         OR ips.source_synced_at < (now() - make_interval(secs => $4))
       )
     ORDER BY
       CASE
         WHEN ips.project_id IS NULL THEN 0
-        WHEN ips.economy_status IN ('failed', 'deferred') THEN 1
+        WHEN ips.economy_status = 'failed' OR (ips.economy_status = 'partial' AND ips.last_error = 'ek_rate_limited_429') THEN 1
         WHEN pm.source_updated_at IS NOT NULL AND pm.source_updated_at > COALESCE(ips.source_synced_at, to_timestamp(0)) THEN 2
         ELSE 3
       END ASC,
@@ -381,7 +382,7 @@ async function markIgvaProjectSummaryFailed(client, { tenantId, projectId, calcu
         updated_at = now()
       RETURNING *
     `,
-    [tenantId, projectId, calculatedAt, String(errorMessage || 'igva_summary_refresh_failed').slice(0, 2000), economyStatus === 'deferred' ? 'deferred' : 'failed']
+    [tenantId, projectId, calculatedAt, String(errorMessage || 'igva_summary_refresh_failed').slice(0, 2000), economyStatus === 'partial' ? 'partial' : 'failed']
   );
   return rows[0] || null;
 }

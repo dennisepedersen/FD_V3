@@ -26,7 +26,7 @@ The system must not intentionally leave detail as a newer truth while summary re
 
 `verified`: Background bootstrap is tenant/project based in the existing sync-worker endpoint `igva_project_summary`. It is not bound to one named production user. The default candidate population is active V4 projects with an EK project id, plus recently closed projects only for lightweight closed-history continuity.
 
-`verified`: The queue selects missing summaries first, then failed/deferred/source-changed/stale summaries by oldest `source_synced_at`. Concurrency, project limit, throttle and freshness max age are environment-configurable.
+`verified`: The queue selects missing summaries first, then failed or rate-limited partial summaries, then source-changed/stale summaries by oldest `source_synced_at`. Concurrency, project limit, throttle and freshness max age are environment-configurable.
 
 `verified`: A 429 from any required EK source defers that project instead of retrying aggressively in the same run. One project failure does not stop the rest of the queue.
 
