@@ -126,6 +126,8 @@ async function processDueEmails({
 
       const providerResult = await sendEmailFn({
         to: row.recipient_email,
+        cc: row.payload_json?.cc_emails,
+        from: row.payload_json && row.payload_json.sender ? row.payload_json.sender : undefined,
         subject: row.subject,
         html: row.html_body,
         text: row.text_body,

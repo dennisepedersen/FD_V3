@@ -9,6 +9,7 @@ const rootOnboardingRoutes = require("./routes/rootOnboardingRoutes");
 const tenantAuthRoutes = require("./routes/tenantAuthRoutes");
 const tenantSurfaceRoutes = require("./routes/tenantSurfaceRoutes");
 const { startSyncWorker } = require("./services/syncWorker");
+const { startTimeControlScheduler } = require("./modules/timeControl/timeControl.scheduler");
 
 const app = express();
 
@@ -58,5 +59,6 @@ app.use((req, res, next) => {
 app.use(errorHandler);
 
 startSyncWorker();
+startTimeControlScheduler();
 
 module.exports = app;

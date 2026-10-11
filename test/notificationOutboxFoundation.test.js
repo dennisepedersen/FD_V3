@@ -248,6 +248,84 @@ test("processor classifies transient provider errors for retry and permanent 4xx
   }, { attempt_count: 5, max_attempts: 5 }).retry, false);
 });
 
+test("email enqueue normalizes CC and dead-letters unusable copies without dropping them", async () => {
+  const calls = [];
+  const audits = [];
+  await withPatches([
+    [templateRepository, "findActiveTemplate", async () => ({
+      id: uuid(50), locale: "da-DK", subject_template: "Hej",
+      html_template: "<p>Hej</p>", text_template: "Hej", allowed_variables_json: [],
+    })],
+    [outboxRepository, "upsertEmail", async (_client, args) => {
+      calls.push(args);
+      return { id: uuid(60), status: args.status };
+    }],
+    [auditService, "logAuditEvent", async (event) => audits.push(event)],
+  ], async () => {
+    for (const cc of [[" DEP@Example.Test ", "dep@example.test"], ["invalid"], [""]]) {
+      await emailOutboxService.enqueueEmail(createClient(), {
+        tenantId: uuid(1), actorId: uuid(2), templateKey: "time_control.missing_hours.employee",
+        recipientEmail: " Employee@Example.Test ", variables: {},
+        payload: { cc_emails: cc, sender: "Timekontrol <mail@example.test>" },
+        sourceType: "time_control", sourceId: uuid(10), idempotencyKey: `cc-${calls.length}`,
+      });
+    }
+  });
+  assert.equal(calls[0].status, "queued");
+  assert.equal(calls[0].recipientEmail, "employee@example.test");
+  assert.deepEqual(calls[0].payload.cc_emails, ["dep@example.test"]);
+  assert.equal(calls[1].status, "dead_letter");
+  assert.equal(calls[1].lastErrorCode, "recipient_cc_email_invalid");
+  assert.deepEqual(calls[1].payload.cc_emails, ["invalid"]);
+  assert.equal(calls[2].lastErrorCode, "recipient_cc_email_missing");
+  assert.deepEqual(audits.map((event) => event.outcome), ["success", "fail", "fail"]);
+});
+
+test("outbox processor forwards payload sender and CC to the mail adapter", async () => {
+  const sent = [];
+  const marked = [];
+  const client = { query: async () => ({ rows: [] }), release() {} };
+  const row = {
+    id: uuid(10), recipient_email: "employee@example.test",
+    subject: "Timekontrol", html_body: "<p>Hej</p>", text_body: "Hej",
+    template_key: "time_control.missing_hours.employee",
+    payload_json: { sender: "Fielddesk Timekontrol <timekontrol@fielddesk.dk>", cc_emails: ["dep@example.test"] },
+  };
+  await withPatches([
+    [pool, "connect", async () => client],
+    [outboxRepository, "claimDueBatch", async () => [row, { ...row, id: uuid(11), payload_json: null }]],
+    [outboxRepository, "markSent", async (_client, args) => { marked.push(args); return row; }],
+    [auditService, "logAuditEvent", async () => {}],
+  ], async () => {
+    const result = await emailOutboxProcessor.processDueEmails({
+      tenantId: uuid(1),
+      sendEmailFn: async (args) => { sent.push(args); return { provider: "test", providerMessageId: "test-id" }; },
+    });
+    assert.equal(result.sent, 2);
+    assert.deepEqual(result.failures, []);
+  });
+  assert.equal(sent[0].to, row.recipient_email);
+  assert.equal(sent[0].from, row.payload_json.sender);
+  assert.deepEqual(sent[0].cc, ["dep@example.test"]);
+  assert.equal(sent[0].tenantId, uuid(1));
+  assert.equal(sent[1].from, undefined);
+  assert.equal(sent[1].cc, undefined);
+  assert.equal(marked.length, 2);
+});
+
+test("outbox repository serializes CC and sender into payload_json without discarding either", async () => {
+  const payload = { cc_emails: ["dep@example.test", "lke@example.test"], sender: "Timekontrol <mail@example.test>" };
+  const client = createClient([{ id: uuid(10), payload_json: payload }]);
+  const row = await outboxRepository.upsertEmail(client, {
+    tenantId: uuid(1), templateId: uuid(50), templateKey: "time_control.friday_manager_summary",
+    recipientEmail: "dep@example.test", subject: "Timekontrol", textBody: "Hej",
+    payload, sourceType: "time_control", sourceId: uuid(20), idempotencyKey: "cc-payload",
+  });
+  assert.deepEqual(JSON.parse(client.calls[0].params[10]), payload);
+  assert.match(client.calls[0].sql, /payload_json = EXCLUDED\.payload_json/);
+  assert.deepEqual(row.payload_json, payload);
+});
+
 test("tenant template override cannot extend system allowlist", () => {
   assert.throws(
     () => templateRepository._test.assertTenantOverrideAllowed({

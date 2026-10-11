@@ -21,6 +21,7 @@ const absenceRoutes = require("../modules/absence/absence.routes");
 const specialWindowRoutes = require("../modules/absence/specialWindow.routes");
 const resourceGroupRoutes = require("../modules/resourceGroups/resourceGroup.routes");
 const tenantAdminRoutes = require("../modules/tenantAdmin/tenantAdmin.routes");
+const timeControlRoutes = require("../modules/timeControl/timeControl.routes");
 const projectEquipmentRoutes = require("../modules/projectEquipment/projectEquipment.routes");
 const restarbejdeRoutes = require("../modules/restarbejde/restarbejde.routes");
 const { createHttpError } = require("../middleware/errorHandler");
@@ -182,6 +183,7 @@ router.use(absenceRoutes);
 router.use(specialWindowRoutes);
 router.use(resourceGroupRoutes);
 router.use(tenantAdminRoutes);
+router.use(timeControlRoutes);
 router.use(projectEquipmentRoutes);
 router.use(restarbejdeRoutes);
 

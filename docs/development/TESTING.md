@@ -53,6 +53,38 @@ For absence request backend slices, the focused Node tests are:
 - `node --test test/notificationOutboxFoundation.test.js`
 
 These cover PR2 schema/static contracts, PR3 employee-own request flows, PR4 notification/outbox foundation, and PR5 manager pending/detail/approve/reject behavior. They are unit/static tests and do not connect to production, run migrations, call Render, or send mail.
+## Isolated Timekontrol PostgreSQL Verification
+
+`test/timeControlPostgres.integration.js` is opt-in and rejects non-loopback or
+non-dedicated database targets. The ordinary test suite skips it; that skip is
+not PostgreSQL verification. It never uses the production `DATABASE_URL`.
+Create a disposable local PostgreSQL database, apply the repository migrations
+there, then explicitly run:
+
+```powershell
+$env:FIELD_DESK_LOCAL_PG_TEST = "1"
+$env:FIELDDESK_TIME_CONTROL_TEST_DATABASE_URL = "postgres://tc_validation@127.0.0.1:55432/fielddesk_tc_validation"
+$env:FIELDDESK_TC_EVIDENCE_PATH = "<absolute-path-to-trusted-day-evidence>"
+node --test test\timeControlPostgres.integration.js
+```
+
+This test writes fixture tenants, fitters, approvals, immutable datasets,
+runs/results/previews and audits only to the isolated local database. Provider
+enqueue is blocked, scheduler is not started, and no EK or Render call occurs.
+The optional evidence file tests an actual captured day; omitting it uses
+synthetic test evidence and must not be reported as external source verification.
+Stop only the disposable server after testing; do not restart existing services.
+
+The approved-rules demo case executes the actual 0053 SQL for a local fixture
+tenant with slug `hoyrup-clemmensen`, checks a separate tenant is unchanged,
+and repeats the migration SQL to check row identity/count preservation.
+With the trusted March evidence, daily and Friday snapshot controls both use
+March 27's seven-hour norm: five fulfilled results and fitter 290 with six
+counted hours, six excluded allowance hours and one missing hour. Repeating
+the controls must preserve run/result/preview identities and create no
+provider-outbox or sync jobs. Fixture identity/mail approval is local only;
+it does not demonstrate that Render has been configured.
+
 ## Failure Fixture Checks
 
 Use temporary directories outside the repo, for example under `C:\tmp` or `/tmp`, when testing failure behavior:

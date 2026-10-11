@@ -1,4 +1,5 @@
 const ENV = require("../config/env");
+const { emailFailureFor, emailListFailureFor } = require("./emailRecipients");
 
 function normalizeProvider(value) {
   return String(value || "disabled").trim().toLowerCase();
@@ -19,10 +20,20 @@ function requireText(value, code) {
   return normalized;
 }
 
-function buildMessage({ to, subject, html, text, tenantId, template }) {
+function buildMessage({ to, cc, from, subject, html, text, tenantId, template }) {
+  const recipient = emailFailureFor(to);
+  if (recipient.errorCode) {
+    const code = recipient.errorCode === "recipient_email_missing" ? "mail_to_required" : "mail_to_invalid";
+    throw makeMailError(code, code, 400);
+  }
+  const copies = emailListFailureFor(cc);
+  if (copies.errorCode) {
+    throw makeMailError("mail_cc_invalid", "mail_cc_invalid", 400);
+  }
   return {
-    to: requireText(to, "mail_to_required"),
-    from: requireText(ENV.MAIL_FROM, "mail_from_required"),
+    to: recipient.email,
+    cc: copies.emails.length ? copies.emails : undefined,
+    from: requireText(from || ENV.MAIL_FROM, "mail_from_required"),
     replyTo: ENV.MAIL_REPLY_TO || undefined,
     subject: requireText(subject, "mail_subject_required"),
     html: html || undefined,
@@ -79,6 +90,7 @@ async function sendEmail(input) {
       body: {
         from: message.from,
         to: [message.to],
+        cc: message.cc,
         subject: message.subject,
         html: message.html,
         text: message.text,
@@ -102,6 +114,7 @@ async function sendEmail(input) {
       body: {
         From: message.from,
         To: message.to,
+        Cc: message.cc?.join(","),
         Subject: message.subject,
         HtmlBody: message.html,
         TextBody: message.text,

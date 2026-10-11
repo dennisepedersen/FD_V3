@@ -4,38 +4,11 @@ const auditService = require("../../services/auditService");
 const templateRepository = require("./emailTemplate.repository");
 const outboxRepository = require("./emailOutbox.repository");
 const { renderTemplate } = require("./templateRenderer");
+const { normalizeEmail, emailFailureFor, emailListFailureFor } = require("../../services/emailRecipients");
 
 const MODULE_KEY = "notifications";
 const RESOURCE_TYPE = "email_outbox";
 const DEFAULT_LOCALE = "da-DK";
-
-function normalizeEmail(value) {
-  const normalized = value == null ? "" : String(value).trim().toLowerCase();
-  return normalized || null;
-}
-
-function emailFailureFor(value) {
-  const normalized = normalizeEmail(value);
-  if (!normalized) {
-    return {
-      email: null,
-      errorCode: "recipient_email_missing",
-      errorMessage: "Recipient email is missing or inactive.",
-    };
-  }
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
-    return {
-      email: normalized,
-      errorCode: "recipient_email_invalid",
-      errorMessage: "Recipient email is invalid.",
-    };
-  }
-  return {
-    email: normalized,
-    errorCode: null,
-    errorMessage: null,
-  };
-}
 
 function normalizeName(value) {
   const normalized = value == null ? "" : String(value).trim();
@@ -80,6 +53,7 @@ async function enqueueEmail(client, {
   recipientName,
   variables,
   payload,
+  sourceType = "absence_request",
   sourceId,
   idempotencyKey,
 }) {
@@ -90,11 +64,12 @@ async function enqueueEmail(client, {
 
   const rendered = renderTemplate(template, variables);
   const emailState = emailFailureFor(recipientEmail);
+  const ccState = emailListFailureFor(payload?.cc_emails);
   const normalizedEmail = emailState.email;
   const normalizedName = normalizeName(recipientName);
-  const status = emailState.errorCode ? "dead_letter" : "queued";
-  const errorCode = emailState.errorCode;
-  const errorMessage = emailState.errorMessage;
+  const errorCode = emailState.errorCode || (ccState.errorCode ? ccState.errorCode.replace("recipient_email", "recipient_cc_email") : null);
+  const errorMessage = emailState.errorMessage || (ccState.errorCode ? `CC: ${ccState.errorMessage}` : null);
+  const status = errorCode ? "dead_letter" : "queued";
   const row = await outboxRepository.upsertEmail(client, {
     tenantId,
     templateId: template.id,
@@ -106,11 +81,11 @@ async function enqueueEmail(client, {
     subject: rendered.subject,
     htmlBody: rendered.html,
     textBody: rendered.text,
-    payload,
+    payload: payload?.cc_emails == null || ccState.errorCode ? payload : { ...payload, cc_emails: ccState.emails },
     status,
     lastErrorCode: errorCode,
     lastError: errorMessage,
-    sourceType: "absence_request",
+    sourceType,
     sourceId,
     idempotencyKey,
   });

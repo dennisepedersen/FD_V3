@@ -65,6 +65,14 @@ const JOBS = {
     acceptsProjectRef: false,
     acceptsLimit: true,
   },
+  'time-control-run': {
+    script: 'backend/scripts/run_time_control.js',
+    modes: new Set(['dry-run']),
+    requiresEkProjectId: false,
+    acceptsProjectRef: false,
+    acceptsDate: true,
+    acceptsControlType: true,
+  },
 };
 const TENANT_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const ACTOR_PATTERN = /^[a-zA-Z0-9._@-]{1,128}$/;
@@ -90,6 +98,7 @@ function usage() {
     '  node scripts/fd_maintenance_job.js --job email-outbox-process --mode status-only --tenant hoyrup-clemmensen',
     '  node scripts/fd_maintenance_job.js --job email-outbox-process --mode dry-run --tenant hoyrup-clemmensen --limit 25',
     '  node scripts/fd_maintenance_job.js --job email-outbox-process --mode apply --tenant hoyrup-clemmensen --limit 25 --confirm APPLY:email-outbox-process:hoyrup-clemmensen',
+    '  node scripts/fd_maintenance_job.js --job time-control-run --mode dry-run --tenant hoyrup-clemmensen --date 2026-10-08 --control-type manual',
     '',
     'Allowed jobs:',
     '  project-v4-is-internal-resync',
@@ -100,6 +109,7 @@ function usage() {
     '  user-project-fitterhours-refresh',
     '  project-activity-materialize',
     '  email-outbox-process',
+    '  time-control-run',
     '',
     'Allowed modes:',
     '  status-only',
@@ -118,6 +128,8 @@ function parseArgs(argv) {
     projectRef: null,
     projectId: null,
     limit: null,
+    date: null,
+    controlType: null,
     confirm: null,
     actor: process.env.FD_MAINTENANCE_ACTOR || 'unknown',
   };
@@ -142,6 +154,10 @@ function parseArgs(argv) {
       args.userId = argv[++i] || null;
     } else if (arg === '--limit') {
       args.limit = argv[++i] || null;
+    } else if (arg === '--date' || arg === '--controlled-date') {
+      args.date = argv[++i] || null;
+    } else if (arg === '--control-type') {
+      args.controlType = argv[++i] || null;
     } else if (arg === '--confirm') {
       args.confirm = argv[++i] || null;
     } else if (arg === '--actor') {
@@ -223,6 +239,18 @@ function validateArgs(args) {
   if (args.limit && (Number(args.limit) < 1 || Number(args.limit) > 100)) {
     throw new Error('--limit must be between 1 and 100.');
   }
+  if (args.date && !job.acceptsDate) {
+    throw new Error(`${args.job} does not accept --date.`);
+  }
+  if (job.acceptsDate && !/^\d{4}-\d{2}-\d{2}$/.test(String(args.date || ''))) {
+    throw new Error(`${args.job} requires --date YYYY-MM-DD.`);
+  }
+  if (args.controlType && !job.acceptsControlType) {
+    throw new Error(`${args.job} does not accept --control-type.`);
+  }
+  if (job.acceptsControlType && args.controlType && !['daily_09', 'friday_12', 'manual'].includes(args.controlType)) {
+    throw new Error('--control-type must be daily_09, friday_12, or manual.');
+  }
   if (args.job === 'project-targeted-fitterhours-refresh-dry-run'
       && !args.ekProjectId
       && !args.projectRef
@@ -268,6 +296,12 @@ function childArgsFor({ job, args }) {
   }
   if (job.acceptsLimit && args.limit) {
     childArgs.push('--limit', args.limit);
+  }
+  if (job.acceptsDate && args.date) {
+    childArgs.push('--date', args.date);
+  }
+  if (job.acceptsControlType && args.controlType) {
+    childArgs.push('--control-type', args.controlType);
   }
 
   if (args.mode === 'status-only') {
