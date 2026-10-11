@@ -33,6 +33,7 @@ Scope: points to docs; does not replace them
 
 | Doc | Use For | Status |
 | --- | --- | --- |
+| [Timekontrol weekly reminder](modules/time-control/TIME_CONTROL_WEEKLY_REMINDER.md) | Reglement, approved Friday 37-hour weekly reminder decision, coverage/idempotency and next-version backlog | Decided 2026-10-11; not implemented; daily POC/demo unchanged |
 | `docs/modules/qa/QA_STATUS_MODEL.md` | Manual QA status model v1 and future v2 responsibility direction | Current decision |
 | `docs/modules/qa/QA_V2_DATA_FOUNDATION.md` | QA participants, assignment flag, and per-user read-state foundation | Implemented foundation |
 | `docs/modules/calendar/CALENDAR_RESOURCE_ABSENCE_MVP.md` | Calendar / Resource Absence MVP foundation, backlog, and non-goals | PR1 foundation started |

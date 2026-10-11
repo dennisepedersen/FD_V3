@@ -316,6 +316,14 @@ No database control or provider mail was run for this reevaluation.
 
 ### Friday Period Contract
 
+Next-version decision, approved 2026-10-11: Friday at 12:00 will evaluate
+Monday-Friday approved hours against 37 hours and, below that norm, send one
+reminder to finish registration before 14:30 without asserting a final deficit.
+See the [reglement, decision and backlog](../modules/time-control/TIME_CONTROL_WEEKLY_REMINDER.md)
+for complete-period coverage and tenant/fitter/week/mail-type idempotency.
+This is not implemented and does not change the current day-based POC/demo
+or authorize a weekly-control deploy.
+
 Verified from current scheduler, service and hour query: `friday_12` evaluates
 the single `controlled_date`, scheduled as the current Friday at 12:00
 Europe/Copenhagen. The required amount is 7 hours for that Friday, not a
@@ -531,6 +539,57 @@ this historical snapshot demo.
    inspect the key, dataset and connection/lock state, then retry the same key
    only after diagnosis. Do not disable coverage/identity guards, auto-delete
    records, switch live, execute outbox apply, sync/import EK or send real mail.
+
+## Render Migration Failure and Controlled Retry
+
+observed: deploy `dep-db5t4ec9v7es739f55jg` for commit
+`c261a8bf678f93bedfc96eac0bbfe74279fd9cea` failed in pre-deploy on 0049:
+`check constraint "ck_audit_event_event_type" of relation "audit_event" is violated by some row`.
+The migration transaction rolled back. A subsequent read found 48 successful
+migrations and one failed 0049 tracking row; 0050-0053 had not run. Existing
+IGVA audit events were retained (3 manager completion, 151 summary refreshed,
+1 summary refresh failed). No demo group, recipient, dataset or control writes
+had been performed. The web service still served the previous version.
+
+The failed 0049 checksum recorded by Render is
+`0ec400ce00f91654a6eb94642acd0b04887c8b58a889e476936407717809b77f`.
+Do not delete that row, change successful migration checksums, remove existing
+audit events or relax the database allowlist to arbitrary event types.
+The repair must retain every valid baseline event type, including IGVA and
+`restarbejde.placement_restored`, through both 0049 and 0051.
+
+Before a corrected migration is retried, test the real PostgreSQL upgrade from
+0048 with existing valid audit events and the original failed checksum. Normal
+checksum rejection must remain fail-closed; any authorized retry must identify
+the exact failed migration and previous checksum and retain the failed-attempt
+evidence. Restore the ordinary pre-deploy command after the successful retry.
+Keep `TIME_CONTROL_SCHEDULER_ENABLED=false` before the new web process starts.
+The weekly reminder remains documentation/backlog only.
+
+verified locally: PostgreSQL 17 upgraded from the actual first 48 migrations
+with one existing audit row for each of the 101 baseline event types. The
+original 0049 failed, the normal retry and incorrect explicit checksum were
+rejected, and the corrected explicit retry applied five migrations. All 48
+successful tracking rows and all baseline audit rows were unchanged.
+The exact failed row was archived atomically into append-only
+`schema_migration_retry_history`; failed retry and failed success-tracking
+transactions left neither archive nor partial schema changes. Normal rerun
+applied zero migrations and skipped 53; the archive remained unchanged.
+The real 301-row six-person integration also passed with no provider-outbox
+or sync-job rows.
+
+The authorized one-time pre-deploy command, from Render's backend root, is:
+
+```text
+node scripts/db_migrate.js --retry-failed 0049_time_control_poc --expected-failed-checksum 0ec400ce00f91654a6eb94642acd0b04887c8b58a889e476936407717809b77f
+```
+
+Bind the deploy to the reviewed commit SHA. After migration success, verify
+53 successful tracking rows, the retained original failed row in the archive,
+unchanged earlier checksums and existing audit rows; then restore
+`npm run db:migrate` as the service pre-deploy command. A second deploy with
+the explicit retry command will intentionally fail because 0049 is no longer
+failed. Do not leave this temporary command configured.
 
 ## Template Verification Without Sending Mail
 

@@ -279,6 +279,7 @@ ALTER TABLE audit_event
       'restarbejde.placement_created',
       'restarbejde.placement_updated',
       'restarbejde.placement_archived',
+      'restarbejde.placement_restored',
       'restarbejde.attachment_created',
       'restarbejde.attachment_archived',
       'absence_type.created',
@@ -310,7 +311,10 @@ ALTER TABLE audit_event
       'time_control.mode_changed',
       'storage_object_uploaded',
       'storage_object_downloaded',
-      'storage_object_deleted'
+      'storage_object_deleted',
+      'igva.manager_completion_changed',
+      'igva.summary_refreshed',
+      'igva.summary_refresh_failed'
     )
   );
 

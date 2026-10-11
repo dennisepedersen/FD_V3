@@ -62,6 +62,7 @@ Scope: links to decisions; does not duplicate full decisions
 
 | Decision | Source |
 | --- | --- |
+| 2026-10-11: Next Timekontrol version checks Monday-Friday approved hours against 37 hours Friday at 12:00 Copenhagen; below norm gives one reminder to finish registration before 14:30, not a confirmed deficit. Incomplete/unclassified evidence blocks employee mail. Current daily POC/demo is unchanged. | [Reglement, coverage/idempotency contract and backlog](modules/time-control/TIME_CONTROL_WEEKLY_REMINDER.md) |
 | Fielddesk should become modular with tenant-level module enablement | `docs/AI_BOOTSTRAP_CONTEXT.md` |
 | Modules must document purpose, owner, dependencies, permissions, data ownership, and disable behavior | `docs/AI_BOOTSTRAP_CONTEXT.md` |
 | Restarbejde is currently a draft standard-module definition, not an implementation spec | `docs/modules/restarbejde/MODULE_DEFINITION.md` |

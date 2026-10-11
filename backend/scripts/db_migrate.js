@@ -13,11 +13,28 @@ function parseArgs(argv) {
     mode: "migrate",
     baselineThrough: null,
     envFile: null,
+    retryFailed: null,
+    expectedFailedChecksum: null,
     help: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
+
+    const retryFlag = ["--retry-failed", "--expected-failed-checksum"]
+      .find((flag) => arg === flag || arg.startsWith(`${flag}=`));
+    if (retryFlag) {
+      const key = retryFlag === "--retry-failed" ? "retryFailed" : "expectedFailedChecksum";
+      if (options[key] !== null) {
+        throw new Error(`${retryFlag} must be specified only once`);
+      }
+      const value = arg === retryFlag ? argv[++index] : arg.slice(retryFlag.length + 1);
+      if (!value || value.startsWith("--")) {
+        throw new Error(`${retryFlag} requires a value`);
+      }
+      options[key] = value;
+      continue;
+    }
 
     if (arg === "--help" || arg === "-h") {
       options.help = true;
@@ -53,6 +70,21 @@ function parseArgs(argv) {
     options.mode = "baseline";
   }
 
+  if (options.retryFailed !== null || options.expectedFailedChecksum !== null) {
+    if (!options.retryFailed || !options.expectedFailedChecksum) {
+      throw new Error("--retry-failed and --expected-failed-checksum must be supplied together");
+    }
+    if (!/^\d{4}_[a-z0-9_]+$/.test(options.retryFailed)) {
+      throw new Error("--retry-failed must be the exact migration ID without .sql");
+    }
+    if (!/^[a-f0-9]{64}$/.test(options.expectedFailedChecksum)) {
+      throw new Error("--expected-failed-checksum must be the exact lowercase SHA-256 checksum");
+    }
+    if (options.mode !== "migrate") {
+      throw new Error("Failed migration retry cannot be combined with status or baseline");
+    }
+  }
+
   return options;
 }
 
@@ -64,11 +96,17 @@ Usage:
   node scripts/db_migrate.js --status
   node scripts/db_migrate.js --baseline-through 0019
   node scripts/db_migrate.js --env-file ./path/to/.env
+  node scripts/db_migrate.js --retry-failed 0049_time_control_poc --expected-failed-checksum <previous-failed-sha256>
 
 Notes:
   - Reads DATABASE_URL from the current environment or backend/.env.
   - Does not log DATABASE_URL or secrets.
   - Does not run automatically at app startup.`);
+  console.log(`  - Retry requires an existing failed row with the exact ID, filename and previous checksum.
+  - Retry never permits changing a successful migration checksum.
+  - A failed explicit retry preserves the original failed tracking row.
+  - Successful explicit retries atomically archive the full failed row in append-only schema_migration_retry_history.
+  - After a successful retry, normal migration runs skip its new successful checksum.`);
 }
 
 function loadEnv(options) {
@@ -141,6 +179,40 @@ async function ensureMigrationTable(client) {
       CONSTRAINT ck_schema_migration_id_not_empty CHECK (btrim(id) <> ''),
       CONSTRAINT ck_schema_migration_execution_mode CHECK (execution_mode IN ('applied', 'baseline', 'failed'))
     )
+  `);
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS schema_migration_retry_history (
+      retry_id bigserial PRIMARY KEY,
+      id text NOT NULL,
+      filename text NOT NULL,
+      checksum_sha256 text NOT NULL,
+      applied_at timestamptz NOT NULL,
+      duration_ms integer NOT NULL,
+      success boolean NOT NULL CHECK (success = false),
+      error_message text NULL,
+      execution_mode text NOT NULL CHECK (execution_mode = 'failed'),
+      replacement_checksum_sha256 text NOT NULL,
+      archived_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE OR REPLACE FUNCTION prevent_schema_migration_retry_history_mutation()
+    RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN
+      RAISE EXCEPTION 'schema_migration_retry_history is append-only';
+    END;
+    $$;
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger
+        WHERE tgrelid = 'schema_migration_retry_history'::regclass
+          AND tgname = 'trg_schema_migration_retry_history_append_only'
+      ) THEN
+        CREATE TRIGGER trg_schema_migration_retry_history_append_only
+        BEFORE UPDATE OR DELETE OR TRUNCATE ON schema_migration_retry_history
+        FOR EACH STATEMENT EXECUTE FUNCTION prevent_schema_migration_retry_history_mutation();
+      END IF;
+    END;
+    $$;
   `);
 }
 
@@ -221,7 +293,7 @@ function printStatus(migrations, appliedMap) {
 }
 
 async function recordMigrationResult(client, migration, result) {
-  await client.query(`
+  const recorded = await client.query(`
     INSERT INTO schema_migration (
       id,
       filename,
@@ -241,6 +313,7 @@ async function recordMigrationResult(client, migration, result) {
       success = EXCLUDED.success,
       error_message = EXCLUDED.error_message,
       execution_mode = EXCLUDED.execution_mode
+    WHERE schema_migration.success = false
   `, [
     migration.id,
     migration.filename,
@@ -250,6 +323,9 @@ async function recordMigrationResult(client, migration, result) {
     result.errorMessage || null,
     result.executionMode,
   ]);
+  if (recorded.rowCount !== 1) {
+    throw new Error(`Cannot replace successful migration history: ${migration.filename}`);
+  }
 }
 
 async function baselineThrough(client, migrations, appliedMap, sequence) {
@@ -297,13 +373,36 @@ async function baselineThrough(client, migrations, appliedMap, sequence) {
   }
 }
 
-async function runMigration(client, migration) {
+async function runMigration(client, migration, retry = null) {
   const startedAt = Date.now();
   const executableSql = stripOuterTransaction(migration.sql);
 
   try {
     await client.query("BEGIN");
+    if (retry) {
+      const { rows } = await client.query(
+        "SELECT id, filename, checksum_sha256, success, execution_mode FROM schema_migration WHERE id = $1 FOR UPDATE",
+        [migration.id]
+      );
+      validateFailedRetry([migration], new Map(rows.map((row) => [row.id, row])), retry);
+    }
     await client.query(executableSql);
+    if (retry) {
+      const archived = await client.query(`
+        INSERT INTO schema_migration_retry_history (
+          id, filename, checksum_sha256, applied_at, duration_ms,
+          success, error_message, execution_mode, replacement_checksum_sha256
+        )
+        SELECT id, filename, checksum_sha256, applied_at, duration_ms,
+               success, error_message, execution_mode, $2
+        FROM schema_migration
+        WHERE id = $1 AND success = false AND execution_mode = 'failed'
+          AND checksum_sha256 = $3 AND filename = $4
+      `, [migration.id, migration.checksum, retry.expectedFailedChecksum, migration.filename]);
+      if (archived.rowCount !== 1) {
+        throw new Error(`Failed migration history archive mismatch: ${migration.filename}`);
+      }
+    }
     await recordMigrationResult(client, migration, {
       durationMs: Date.now() - startedAt,
       success: true,
@@ -321,17 +420,35 @@ async function runMigration(client, migration) {
     }
 
     const message = error && error.message ? String(error.message) : "migration_failed";
-    await recordMigrationResult(client, migration, {
-      durationMs: Date.now() - startedAt,
-      success: false,
-      errorMessage: message.slice(0, 1000),
-      executionMode: "failed",
-    });
+    if (!retry) {
+      await recordMigrationResult(client, migration, {
+        durationMs: Date.now() - startedAt,
+        success: false,
+        errorMessage: message.slice(0, 1000),
+        executionMode: "failed",
+      });
+    }
     throw error;
   }
 }
 
-async function runPendingMigrations(client, migrations, appliedMap) {
+function validateFailedRetry(migrations, appliedMap, options) {
+  if (!options.retryFailed) return;
+  const migration = migrations.find((item) => item.id === options.retryFailed);
+  const row = appliedMap.get(options.retryFailed);
+  if (!migration) {
+    throw new Error(`Retry migration ID not found: ${options.retryFailed}`);
+  }
+  if (!row || row.success !== false || row.execution_mode !== "failed") {
+    throw new Error(`Retry requires an existing failed migration row: ${options.retryFailed}`);
+  }
+  if (row.filename !== migration.filename || row.checksum_sha256 !== options.expectedFailedChecksum) {
+    throw new Error(`Failed migration retry identity/checksum mismatch: ${migration.filename}`);
+  }
+}
+
+async function runPendingMigrations(client, migrations, appliedMap, options = {}) {
+  validateFailedRetry(migrations, appliedMap, options);
   const mismatches = getChecksumMismatches(migrations, appliedMap)
     .filter((mismatch) => {
       const row = appliedMap.get(mismatch.id);
@@ -340,6 +457,12 @@ async function runPendingMigrations(client, migrations, appliedMap) {
 
   if (mismatches.length > 0) {
     throw new Error(`Checksum mismatch for already applied migration: ${mismatches.map((item) => item.filename).join(", ")}`);
+  }
+
+  const failedMismatches = getChecksumMismatches(migrations, appliedMap)
+    .filter((item) => !appliedMap.get(item.id).success && item.id !== options.retryFailed);
+  if (failedMismatches.length > 0) {
+    throw new Error(`Checksum mismatch for failed migration row: ${failedMismatches.map((item) => item.filename).join(", ")}`);
   }
 
   let appliedCount = 0;
@@ -352,11 +475,7 @@ async function runPendingMigrations(client, migrations, appliedMap) {
       console.log(`skip ${migration.filename} (${row.execution_mode})`);
       continue;
     }
-    if (row && !row.success && row.checksum_sha256 !== migration.checksum) {
-      throw new Error(`Checksum mismatch for failed migration row: ${migration.filename}`);
-    }
-
-    await runMigration(client, migration);
+    await runMigration(client, migration, migration.id === options.retryFailed ? options : null);
     appliedCount += 1;
   }
 
@@ -394,14 +513,28 @@ async function main() {
       return;
     }
 
-    await runPendingMigrations(client, migrations, appliedMap);
+    await runPendingMigrations(client, migrations, appliedMap, options);
   } finally {
     await client.end();
   }
 }
 
-main().catch((error) => {
-  const message = error && error.message ? error.message : "migration_runner_failed";
-  console.error(`migration failed: ${message}`);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((error) => {
+    const message = error && error.message ? error.message : "migration_runner_failed";
+    console.error(`migration failed: ${message}`);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  parseArgs,
+  getMigrationFiles,
+  stripOuterTransaction,
+  ensureMigrationTable,
+  getAppliedMap,
+  recordMigrationResult,
+  runMigration,
+  runPendingMigrations,
+  validateFailedRetry,
+};

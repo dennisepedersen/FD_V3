@@ -129,9 +129,10 @@ function runTimeControlCli({ tenantSlug, controlledDate, controlType, datasetId 
     "--hours-dataset-id", datasetId,
     "--historical-snapshot",
   ];
+  const connectionString = safeDatabaseUrl();
   const env = {
     ...process.env,
-    DATABASE_URL: DEFAULT_DATABASE_URL,
+    DATABASE_URL: connectionString,
     NODE_ENV: "test",
     JWT_SECRET: process.env.JWT_SECRET,
     ROOT_DOMAIN: "example.test",
@@ -162,7 +163,8 @@ function safeDatabaseUrl() {
   assert.equal(url.protocol, "postgres:");
   assert.equal(url.hostname, "127.0.0.1", "integration tests must use IPv4 loopback only");
   assert.equal(url.port, "55432", "integration tests must use the disposable local cluster port");
-  assert.equal(url.pathname, "/fielddesk_tc_validation", "integration tests must use their dedicated database");
+  assert.match(url.pathname, /^\/fielddesk_tc_validation(?:_upgrade_[a-f0-9]{24})?$/,
+    "integration tests must use their dedicated database or an isolated upgrade-test database");
   assert.equal(decodeURIComponent(url.username), "tc_validation");
   assert.equal(url.password, "", "the disposable loopback cluster uses no reusable credential");
   return value;
@@ -187,7 +189,7 @@ test("Timekontrol storage and dry-run service against disposable PostgreSQL 17",
     const { rows: [connection] } = await pool.query(
       "SELECT current_database() AS database, host(inet_server_addr()) AS address, inet_server_port() AS port, version() AS version"
     );
-    assert.equal(connection.database, "fielddesk_tc_validation");
+    assert.equal(connection.database, new URL(connectionString).pathname.slice(1));
     assert.equal(connection.address, "127.0.0.1");
     assert.equal(connection.port, 55432);
     assert.match(connection.version, /^PostgreSQL 17\./);
@@ -203,6 +205,12 @@ test("Timekontrol storage and dry-run service against disposable PostgreSQL 17",
     );
     assert.ok(tenant, "0053 must be applied against the exact local target tenant slug");
     const tenantId = tenant.id;
+    await pool.query(
+      `UPDATE time_control_employee_config SET is_enabled = false
+       WHERE tenant_id = $1 AND fitter_id IS NULL
+         AND internal_ref = ANY($2::text[])`,
+      [tenantId, ["MHJ", "MUM", "JSK", "PEP", "MBO", "MPJ"]]
+    );
     let { rows: [controlTenant] } = await pool.query(
       "SELECT id, slug FROM tenant WHERE slug = 'timecontrol-migration-control-fixture'"
     );
@@ -700,6 +708,14 @@ test("Timekontrol storage and dry-run service against disposable PostgreSQL 17",
         secondSnapshot.previews.map((preview) => preview.idempotency_key),
         firstSnapshot.previews.map((preview) => preview.idempotency_key)
       );
+      const thirdCli = runTimeControlCli({
+        tenantSlug: "hoyrup-clemmensen", controlledDate: DAY, controlType, datasetId: firstCapture.id,
+      });
+      assert.equal(thirdCli.mode, "dry_run");
+      assert.equal(thirdCli.result_count, 6);
+      assert.equal(thirdCli.mail_count, firstCli.mail_count);
+      assert.deepEqual(await inspectCliRun(controlType), firstSnapshot,
+        `${controlType} third dry-run must preserve run, result and preview identities`);
     }
     const localOutbox = await pool.query("SELECT count(*)::int AS count FROM email_outbox");
     assert.equal(localOutbox.rows[0].count, 0, "the whole disposable database must have no provider outbox rows");
