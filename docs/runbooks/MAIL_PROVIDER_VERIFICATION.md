@@ -593,6 +593,29 @@ failed. Do not leave this temporary command configured.
 
 ## Template Verification Without Sending Mail
 
+### Friday Preview Routing and Existing Demo Logs
+
+Friday manager previews and provider-backed logs must record the first
+normalized manager as To and the remaining managers as CC, matching the
+provider payload. Employee To/CC remains unchanged.
+
+Rerunning the same tenant/control/date and historical dataset uses the
+existing mail-log idempotency key and upsert, so it repairs an unsent
+`dry_run` Friday preview in place (`would_send`, or `skipped` by the run's
+preview reset before reevaluation). When routing differs,
+the same evaluation transaction records `tenant_config_changed` with reason
+`preview_recipient_routing_corrected`, the log/run/dataset IDs, key,
+previous update timestamp and old/new To/CC before updating the preview.
+If audit fails, the evaluation transaction rolls back. Repeating the corrected
+run does not create another correction audit. No deletion or new preview key
+is needed. Provider-linked or sent Friday logs are returned unchanged and do
+not trigger enqueue or recipient rewriting.
+
+Verify the existing Render demo rather than merely checking new previews:
+the two run IDs, twelve result IDs and three preview IDs must remain unchanged,
+with employee To MBO/CC DEP and manager To DEP/CC LKE, and no new outbox or
+sync-job IDs. This correction does not implement the weekly reminder.
+
 Render the pure helper with dummy data:
 
 - subject is `Opret din Fielddesk-adgang`

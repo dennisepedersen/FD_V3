@@ -416,7 +416,7 @@ test("Timekontrol storage and dry-run service against disposable PostgreSQL 17",
          is_enabled = true, mode = 'dry_run', resource_group_external_id = '61',
          internal_error_emails = '["tc-internal@local-validation.invalid"]'::jsonb,
          employee_cc_emails = '[]'::jsonb,
-         friday_manager_emails = '["tc-manager@local-validation.invalid"]'::jsonb`,
+         friday_manager_emails = '["tc-manager@local-validation.invalid","tc-manager-cc@local-validation.invalid"]'::jsonb`,
       [tenantId]
     );
 
@@ -643,7 +643,7 @@ test("Timekontrol storage and dry-run service against disposable PostgreSQL 17",
         [tenantId, run.id]
       );
       const { rows: previews } = await pool.query(
-        `SELECT id, mail_type, status, idempotency_key
+        `SELECT id, mail_type, status, idempotency_key, recipient_emails, cc_emails, email_outbox_id
          FROM time_control_mail_log WHERE tenant_id = $1 AND run_id = $2 ORDER BY mail_type`,
         [tenantId, run.id]
       );
@@ -685,6 +685,18 @@ test("Timekontrol storage and dry-run service against disposable PostgreSQL 17",
       assert.deepEqual(fitter290.excluded_pay_codes, [{ pay_code: "9070", hours: 6 }]);
       assert.equal(firstSnapshot.previews.length, controlType === "friday_12" ? 2 : 1);
       assert.ok(firstSnapshot.previews.every((preview) => preview.status === "would_send"));
+      if (controlType === "friday_12") {
+        const summary = firstSnapshot.previews.find(x => x.mail_type === "friday_manager_summary");
+        assert.deepEqual(summary.recipient_emails, ["tc-manager@local-validation.invalid"]);
+        assert.deepEqual(summary.cc_emails, ["tc-manager-cc@local-validation.invalid"]);
+        assert.equal(summary.email_outbox_id, null);
+        // Reproduce the old preview on this local fixture, then repair it through the real CLI.
+        await pool.query(
+          `UPDATE time_control_mail_log SET recipient_emails = recipient_emails || cc_emails, cc_emails = '[]'::jsonb
+           WHERE tenant_id = $1 AND id = $2 AND mode = 'dry_run' AND email_outbox_id IS NULL`,
+          [tenantId, summary.id]
+        );
+      }
 
       const secondCli = runTimeControlCli({
         tenantSlug: "hoyrup-clemmensen", controlledDate: DAY, controlType, datasetId: firstCapture.id,
@@ -716,6 +728,18 @@ test("Timekontrol storage and dry-run service against disposable PostgreSQL 17",
       assert.equal(thirdCli.mail_count, firstCli.mail_count);
       assert.deepEqual(await inspectCliRun(controlType), firstSnapshot,
         `${controlType} third dry-run must preserve run, result and preview identities`);
+      if (controlType === "friday_12") {
+        const summary = firstSnapshot.previews.find(x => x.mail_type === "friday_manager_summary");
+        const { rows: corrections } = await pool.query(
+          `SELECT metadata FROM audit_event WHERE tenant_id=$1 AND target_id=$2
+           AND event_type='tenant_config_changed' AND reason='preview_recipient_routing_corrected'`,
+          [tenantId, summary.id]
+        );
+        assert.equal(corrections.length, 1, "legacy preview repair is audited once across repeated runs");
+        assert.deepEqual(corrections[0].metadata.old_recipient_emails,
+          ["tc-manager@local-validation.invalid", "tc-manager-cc@local-validation.invalid"]);
+        assert.deepEqual(corrections[0].metadata.new_cc_emails, ["tc-manager-cc@local-validation.invalid"]);
+      }
     }
     const localOutbox = await pool.query("SELECT count(*)::int AS count FROM email_outbox");
     assert.equal(localOutbox.rows[0].count, 0, "the whole disposable database must have no provider outbox rows");

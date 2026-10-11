@@ -237,6 +237,8 @@ async function runMailScenario({
   hourRows = [{ fitter_category_reference: "3300", hours: 6 }],
   resolvedEmployee = [approvedEmployee()],
   existingMail = null,
+  existingManagerMail = null,
+  auditFailure = null,
   storedRunDate = "2026-10-09",
   hoursDataset = null,
   hoursDatasetId = null,
@@ -245,6 +247,7 @@ async function runMailScenario({
   const mailLogs = [];
   const outbox = [];
   const results = [];
+  const audits = [];
   let runResult;
   let createdMode;
   const settings = {
@@ -293,16 +296,20 @@ async function runMailScenario({
       };
     }],
     [repository, "upsertMailLog", async (_client, args) => { mailLogs.push(args); return { id: uuid(50), ...args }; }],
-    [repository, "findEmployeeMailLog", async () => existingMail],
+    [repository, "findEmployeeMailLog", async (_client, args) =>
+      args.idempotencyKey.endsWith(":friday_manager_summary") ? existingManagerMail : existingMail],
     [repository, "finishRun", async (_client, args) => ({ id: uuid(10), ...args, mode: createdMode })],
     [emailOutboxService, "enqueueEmail", async (_client, args) => { outbox.push(args); return { id: uuid(60), status: "queued" }; }],
-    [auditService, "logAuditEvent", async () => {}],
+    [auditService, "logAuditEvent", async (args) => {
+      if (auditFailure && args.reason === "preview_recipient_routing_corrected") throw auditFailure;
+      audits.push(args);
+    }],
   ], async () => {
     runResult = await service.runTimeControl({ query: async () => ({ rows: [] }) }, {
       tenantId: uuid(1), controlType, controlledDate: "2026-10-09", dryRun,
     }, { hoursDataset, hoursDatasetId, allowHistoricalSnapshot });
   });
-  return { mailLogs, outbox, createdMode, settings, results, runResult };
+  return { mailLogs, outbox, createdMode, settings, results, runResult, audits };
 }
 
 test("Friday dry-run records employee plus DEP copy and DEP/LKE summary without enqueue", async () => {
@@ -312,8 +319,52 @@ test("Friday dry-run records employee plus DEP copy and DEP/LKE summary without 
   assert.deepEqual(mailLogs[0].recipientEmails, ["mikkel@example.test"]);
   assert.deepEqual(mailLogs[0].ccEmails, ["dep@hoyrup-clemmensen.dk"]);
   assert.equal(mailLogs[1].mailType, "friday_manager_summary");
-  assert.deepEqual(mailLogs[1].recipientEmails, ["dep@hoyrup-clemmensen.dk", "lke@hoyrup-clemmensen.dk"]);
+  assert.deepEqual(mailLogs[1].recipientEmails, ["dep@hoyrup-clemmensen.dk"]);
+  assert.deepEqual(mailLogs[1].ccEmails, ["lke@hoyrup-clemmensen.dk"]);
   assert.ok(mailLogs.every((mail) => mail.status === "would_send" && mail.mode === "dry_run"));
+});
+
+test("Friday preview rerun corrects legacy To/CC with audit and preserves the log key", async () => {
+  const existingManagerMail = {
+    id: uuid(51), mode: "dry_run", status: "skipped", email_outbox_id: null,
+    recipient_emails: ["dep@hoyrup-clemmensen.dk", "lke@hoyrup-clemmensen.dk"], cc_emails: [],
+    updated_at: "2026-10-11T18:53:41Z",
+  };
+  const first = await runMailScenario({ mode: "dry_run", existingManagerMail });
+  const correction = first.audits.filter(x => x.reason === "preview_recipient_routing_corrected");
+  assert.equal(correction.length, 1);
+  assert.equal(correction[0].tenantId, uuid(1));
+  assert.equal(correction[0].resourceId, existingManagerMail.id);
+  assert.deepEqual(correction[0].metadata.old_recipient_emails, existingManagerMail.recipient_emails);
+  assert.deepEqual(correction[0].metadata.old_cc_emails, []);
+  assert.deepEqual(correction[0].metadata.new_recipient_emails, ["dep@hoyrup-clemmensen.dk"]);
+  assert.deepEqual(correction[0].metadata.new_cc_emails, ["lke@hoyrup-clemmensen.dk"]);
+  const summary = first.mailLogs.find(x => x.mailType === "friday_manager_summary");
+  const repeated = await runMailScenario({ mode: "dry_run", existingManagerMail: {
+    ...existingManagerMail, recipient_emails: summary.recipientEmails, cc_emails: summary.ccEmails,
+  } });
+  assert.equal(repeated.audits.filter(x => x.reason === "preview_recipient_routing_corrected").length, 0);
+  assert.equal(repeated.mailLogs[1].idempotencyKey, summary.idempotencyKey);
+  assert.equal(first.outbox.length + repeated.outbox.length, 0);
+});
+
+test("Friday routing correction fails closed without audit and never rewrites provider-linked logs", async () => {
+  const existingManagerMail = {
+    id: uuid(51), mode: "dry_run", status: "would_send", email_outbox_id: null,
+    recipient_emails: ["dep@hoyrup-clemmensen.dk", "lke@hoyrup-clemmensen.dk"], cc_emails: [],
+  };
+  await assert.rejects(runMailScenario({ mode: "dry_run", existingManagerMail,
+    auditFailure: new Error("audit_unavailable") }), /audit_unavailable/);
+  await assert.rejects(runMailScenario({ mode: "dry_run",
+    existingManagerMail: { ...existingManagerMail, mode: "live", status: "failed" } }),
+  /correction_requires_unsent_dry_run/);
+  for (const mode of ["dry_run", "live"]) {
+    const result = await runMailScenario({ mode,
+      existingManagerMail: { ...existingManagerMail, mode: "live", status: "queued", email_outbox_id: uuid(61) } });
+    assert.ok(result.mailLogs.every(x => x.mailType !== "friday_manager_summary"));
+    assert.ok(result.outbox.every(x => x.templateKey !== "time_control.friday_manager_summary"));
+    assert.equal(result.audits.filter(x => x.reason === "preview_recipient_routing_corrected").length, 0);
+  }
 });
 
 test("unknown, absent and invalid hours are distinct from explicitly excluded pay codes", () => {
@@ -414,12 +465,14 @@ test("repository persists data uncertainty and unknown rows without a fabricated
 });
 
 test("mocked live mail construction queues employee/DEP and Friday DEP/LKE as actual recipients", async () => {
-  const { outbox } = await runMailScenario({ mode: "live" });
+  const { outbox, mailLogs } = await runMailScenario({ mode: "live" });
   assert.equal(outbox.length, 2);
   assert.equal(outbox[0].recipientEmail, "mikkel@example.test");
   assert.deepEqual(outbox[0].payload.cc_emails, ["dep@hoyrup-clemmensen.dk"]);
   assert.equal(outbox[1].recipientEmail, "dep@hoyrup-clemmensen.dk");
   assert.deepEqual(outbox[1].payload.cc_emails, ["lke@hoyrup-clemmensen.dk"]);
+  assert.deepEqual(mailLogs[1].recipientEmails, [outbox[1].recipientEmail]);
+  assert.deepEqual(mailLogs[1].ccEmails, outbox[1].payload.cc_emails);
   assert.ok(outbox.every((mail) => mail.payload.sender === service.SENDER && mail.sourceType === "time_control"));
 });
 

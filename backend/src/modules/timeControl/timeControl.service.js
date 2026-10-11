@@ -250,10 +250,33 @@ async function logFridayManagerMail(client, { tenantId, run, settings, dateLabel
   if (!summaryLines) return null;
   const subject = `Timekontrol: manglende fredagstimer for ${dateLabel}`;
   const idempotencyKey = `time_control:${tenantId}:${run.control_type}:${run.controlled_date}:friday_manager_summary`;
+  const recipientEmails = recipients.slice(0, 1);
+  const ccEmails = recipients.slice(1);
+  const existing = await repository.findEmployeeMailLog(client, { tenantId, idempotencyKey });
+  if (existing?.email_outbox_id || existing?.sent_at) return existing;
   if (run.mode === "dry_run") {
+    if (existing && (JSON.stringify(existing.recipient_emails) !== JSON.stringify(recipientEmails) ||
+        JSON.stringify(existing.cc_emails) !== JSON.stringify(ccEmails))) {
+      if (existing.mode !== "dry_run" || !["would_send", "skipped"].includes(existing.status)) {
+        throw new Error("time_control_preview_routing_correction_requires_unsent_dry_run");
+      }
+      await auditService.logAuditEvent({
+        client, tenantId, actorId: run.triggered_by_user_id || "system:time_control",
+        actorType: run.triggered_by_user_id ? "tenant_user" : "system", actorScope: "tenant",
+        moduleKey: "time_control", eventType: "tenant_config_changed",
+        resourceType: "time_control_mail_log", resourceId: existing.id, outcome: "success",
+        reason: "preview_recipient_routing_corrected",
+        metadata: {
+          run_id: run.id, hours_dataset_id: run.hours_dataset_id || null, idempotency_key: idempotencyKey,
+          previous_updated_at: existing.updated_at,
+          old_recipient_emails: existing.recipient_emails, old_cc_emails: existing.cc_emails,
+          new_recipient_emails: recipientEmails, new_cc_emails: ccEmails,
+        },
+      });
+    }
     return repository.upsertMailLog(client, {
       tenantId, runId: run.id, mailType: "friday_manager_summary", mode: run.mode, status: "would_send",
-      recipientEmails: recipients, subject, bodyPreview: summaryLines, idempotencyKey,
+      recipientEmails, ccEmails, subject, bodyPreview: summaryLines, idempotencyKey,
     });
   }
   const outbox = await emailOutboxService.enqueueEmail(client, {
@@ -270,7 +293,7 @@ async function logFridayManagerMail(client, { tenantId, run, settings, dateLabel
   });
   return repository.upsertMailLog(client, {
     tenantId, runId: run.id, mailType: "friday_manager_summary", mode: run.mode,
-    status: outbox.status === "queued" ? "queued" : "failed", recipientEmails: recipients,
+    status: outbox.status === "queued" ? "queued" : "failed", recipientEmails, ccEmails,
     subject, bodyPreview: summaryLines, emailOutboxId: outbox.id, idempotencyKey,
   });
 }
