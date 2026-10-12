@@ -1,5 +1,37 @@
 # Mail Provider Verification Runbook
 
+## Production migration and pre-send validation (2026-10-12)
+
+`verified`: Render/Linux status job `job-db68al0473hc73dhbfog` ran
+`node scripts/db_migrate.js --status` successfully: 58 applied, 0 pending,
+0 failed, 0 checksum mismatch. Migration 0058 was already applied at
+`2026-10-12T06:23:51.852Z`; no migration rerun was needed. The replacement-key
+constraint exists and is validated. Tenant `hoyrup-clemmensen` remains in
+`dry_run`, with employee CC and manager recipients both DEP alone, and
+`TIME_CONTROL_SCHEDULER_ENABLED=false`.
+
+`verified`: job `job-db68c5g473hc73dhgtl0` exercised the deployed sender's
+validation against old test `a331f1cb-dd8b-4c9f-a93b-dd4e30f3aa15`, with
+all database writes and provider calls blocked and the transaction rolled back.
+It rejected the old test with `time_control_poc_locked_message_superseded`,
+with 0 provider calls. The old locked record remains historical and unsent.
+
+The same production check found that raw `JSON.stringify` hashing changed
+after a PostgreSQL JSONB roundtrip because object key order changed. This
+would reject a newly prepared test at send validation. The narrow repair
+sorts object keys when hashing, preserves array order and all message fields,
+and leaves the replacement key and old immutable rows untouched. A regression
+checks reordered stored content through the sender and detects changed fields.
+No replacement existed at preflight; preparation waits for this repair to be
+deployed and verified. No mail, scheduler activation or live-mode change is
+authorized by preparation.
+
+Local validation of the repair: `node --test test/timeControl.test.js` passed
+69/69. `npm run check` passed all gates: 491 tests passed, 6 opt-in tests
+skipped, 0 failed; 58 migrations and 18 static assertions passed. The initial
+sandboxed focused test hit the known Windows `EPERM`; the checks above ran
+successfully outside that sandbox. `git diff --check` passed.
+
 ## Timekontrol POC name-safe mail replacement (deployed, 2026-10-12)
 
 `verified`: Render service `srv-d6h0h8fgi27c73a99jgg` reports live deploy

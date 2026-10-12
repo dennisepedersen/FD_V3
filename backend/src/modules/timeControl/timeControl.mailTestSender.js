@@ -9,7 +9,11 @@ const service = require("./timeControl.service");
 
 const HC_TENANT_ID = "f1f51c07-2d88-4ee4-a766-78eac833a9d0";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const contentHash = message => createHash("sha256").update(JSON.stringify(message)).digest("hex");
+// JSONB does not preserve object key order; hash the same content after storage.
+const contentHash = message => createHash("sha256").update(JSON.stringify(message, (_key, value) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  return Object.fromEntries(Object.keys(value).sort().map(key => [key, value[key]]));
+})).digest("hex");
 const TEST_KEY = /^time_control_poc_mail:v1:([0-9a-f-]{36}):([0-9a-f-]{36}):dep_delivery(?::[0-9a-f]{12})?$/i;
 
 function fail(code, statusCode = 409) {

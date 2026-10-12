@@ -373,6 +373,23 @@ test("bounded capture failure blocks employee mail and records only an internal 
   assert.deepEqual(mailLogs[0].recipientEmails, ["dep@hoyrup-clemmensen.dk"]);
 });
 
+test("POC content hash ignores JSONB object ordering but preserves every message field and array order", () => {
+  const { contentHash } = require("../backend/src/modules/timeControl/timeControl.mailTestSender");
+  const message = {
+    stage: "dep_delivery", to: "dep@hoyrup-clemmensen.dk", toName: "Dennis",
+    cc: [], ccNames: [], subject: "[POC-TEST] Mailtest til Dennis", text: "Hej Dennis",
+    from: service.SENDER, testKey: "locked-test-key", replyTo: "admin@fielddesk.dk",
+    disposition: "requires_send_approval",
+  };
+  const reordered = Object.fromEntries(Object.entries(message).reverse());
+  assert.equal(contentHash(message), contentHash(reordered));
+  for (const [key, value] of Object.entries(message)) {
+    const changed = Array.isArray(value) ? ["changed"] : `${value} changed`;
+    assert.notEqual(contentHash(message), contentHash({ ...message, [key]: changed }), key);
+  }
+  assert.notEqual(contentHash({ cc: ["first", "second"] }), contentHash({ cc: ["second", "first"] }));
+});
+
 test("POC sender preparation persists a locked DEP-only test record without queueing a provider mail", async () => {
   const sender = require("../backend/src/modules/timeControl/timeControl.mailTestSender");
   const tx = require("../backend/src/db/tx");
@@ -395,7 +412,7 @@ test("POC sender preparation persists a locked DEP-only test record without queu
       testKey: `time_control_poc_mail:v1:${tenantId}:${uuid(7)}:dep_delivery`,
     }],
   };
-  const persisted = { id: uuid(9), tenant_id: tenantId, test_key: planned.messages[0].testKey, content_hash: createHash("sha256").update(JSON.stringify({ ...planned.messages[0], replyTo: null })).digest("hex"), status: "prepared" };
+  const persisted = { id: uuid(9), tenant_id: tenantId, test_key: planned.messages[0].testKey, content_hash: sender.contentHash({ ...planned.messages[0], replyTo: null }), status: "prepared" };
   const queries = [];
   const previousScheduler = process.env.TIME_CONTROL_SCHEDULER_ENABLED;
   process.env.TIME_CONTROL_SCHEDULER_ENABLED = "false";
@@ -445,19 +462,11 @@ test("POC sender claims once and passes resend idempotency data without a duplic
       replyTo: null,
       testKey: `time_control_poc_mail:v1:${tenantId}:${uuid(7)}:dep_delivery`,
     },
-    content_hash: createHash("sha256").update(JSON.stringify({
-      stage: "dep_delivery",
-      disposition: "requires_send_approval",
-      to: "dep@hoyrup-clemmensen.dk",
-      cc: [],
-      subject: "[POC-TEST – ingen handling] Fielddesk Timekontrol: mailtest til DEP",
-      text: "Hej DEP\n\nTest.\n",
-      from: service.SENDER,
-      replyTo: null,
-      testKey: `time_control_poc_mail:v1:${tenantId}:${uuid(7)}:dep_delivery`,
-    })).digest("hex"),
     status: "prepared",
   };
+  const currentMessage = row.message_json;
+  row.content_hash = sender.contentHash(currentMessage);
+  row.message_json = Object.fromEntries(Object.entries(currentMessage).reverse());
   const queryLog = [];
   const sendCalls = [];
   let claimed = false;
@@ -486,7 +495,7 @@ test("POC sender claims once and passes resend idempotency data without a duplic
       })],
       [auditService, "logAuditEvent", async () => {}],
       [service, "getPocMailPlanForClient", async () => ({
-        messages: [{ ...row.message_json, replyTo: undefined }],
+        messages: [{ ...currentMessage, replyTo: undefined }],
       })],
       [require("../backend/src/config/env"), "MAIL_PROVIDER", "resend"],
       [require("../backend/src/config/env"), "MAIL_API_KEY", "dummy"],
