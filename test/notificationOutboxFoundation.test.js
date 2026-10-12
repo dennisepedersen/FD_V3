@@ -315,12 +315,14 @@ test("outbox processor forwards payload sender and CC to the mail adapter", asyn
 
 test("Timekontrol daily outbox invokes its dispatch guard before forwarding sender and CC", async () => {
   const dispatch = require("../backend/src/modules/timeControl/timeControl.dispatch");
+  const automation = require("../backend/src/modules/timeControl/timeControl.automation");
   const events = [];
   const client = { query: async () => ({ rows: [] }), release() {} };
   const row = {
     id: uuid(10), tenant_id: uuid(1), recipient_email: "employee@example.test",
     subject: "Timekontrol", html_body: "<p>Hej</p>", text_body: "Hej",
     template_key: "time_control.missing_hours.employee",
+    idempotency_key: "daily-test-key",
     payload_json: {
       sender: "Fielddesk Timekontrol <timekontrol@fielddesk.dk>", cc_emails: ["dep@example.test"],
       controlled_date: "2026-10-08", run_id: uuid(20), result_id: uuid(30),
@@ -329,6 +331,8 @@ test("Timekontrol daily outbox invokes its dispatch guard before forwarding send
   await withPatches([
     [pool, "connect", async () => client],
     [outboxRepository, "claimDueBatch", async () => [row]],
+    [dispatch, "validateAutomatic", async () => { events.push("automatic"); }],
+    [automation, "requireSendingEnabled", () => {}],
     [dispatch, "validateDaily", async (_client, input) => {
       assert.equal(input.tenantId, uuid(1));
       assert.equal(input.row, row);
@@ -342,15 +346,16 @@ test("Timekontrol daily outbox invokes its dispatch guard before forwarding send
         events.push("provider");
         assert.equal(args.from, row.payload_json.sender);
         assert.deepEqual(args.cc, ["dep@example.test"]);
-        return { provider: "test" };
+        return { provider: "resend", providerMessageId: "mock-id" };
       },
     });
     assert.equal(result.sent, 1);
-    assert.deepEqual(events, ["guard", "provider", "sent"]);
+    assert.deepEqual(events, ["automatic", "guard", "provider", "sent"]);
   });
 });
 
 test("expired Timekontrol daily outbox fails its real dispatch guard before any provider call", async () => {
+  const dispatch = require("../backend/src/modules/timeControl/timeControl.dispatch");
   const operation = require("../backend/src/modules/timeControl/timeControl.operation");
   const deadLetters = [];
   const client = { query: async () => ({ rows: [] }), release() {} };
@@ -362,6 +367,7 @@ test("expired Timekontrol daily outbox fails its real dispatch guard before any 
   await withPatches([
     [pool, "connect", async () => client],
     [outboxRepository, "claimDueBatch", async () => [row]],
+    [dispatch, "validateAutomatic", async () => {}],
     [operation, "dispatchWindow", (controlType, day) => {
       assert.equal(controlType, "daily_09");
       assert.equal(day, "2026-10-08");
@@ -402,6 +408,7 @@ async function withDailyDispatchFixture(fn) {
     status: "missing_hours", coverage_status: "complete", required_hours: "7.75", valid_hours: "5",
     missing_hours: "2.75" };
   const settings = { is_enabled: true, mode: "live", sync_freshness_minutes: 180,
+    monday_thursday_required_hours: 7.75,
     employee_cc_emails: ["dep@example.test", "lke@example.test"] };
   const row = { id: uuid(10), tenant_id: uuid(1), recipient_email: result.employee_email,
     template_key: "time_control.missing_hours.employee", idempotency_key: "daily-immutable-key",
@@ -420,6 +427,7 @@ async function withDailyDispatchFixture(fn) {
   } };
   await withPatches([
     [operation, "dispatchWindow", () => true],
+    [operation, "requireActiveIdentity", async () => ({ operation_id: uuid(70), receipt_id: uuid(71) })],
     [storage, "loadHoursDataset", async (_client, args) => {
       assert.equal(args.tenantId, uuid(1));
       assert.equal(args.datasetId, proof.dataset_id);
@@ -429,7 +437,7 @@ async function withDailyDispatchFixture(fn) {
     [repository, "resolveEmployeeConfig", async () => []],
     [repository, "listPayCodeRules", async () => []],
     [service._test, "classifyResolvedEmployee", () => ({
-      ok: true, employee: { email: identity.approved_email, identitySnapshot: structuredClone(identity) },
+      ok: true, employee: { name: "Montør", email: identity.approved_email, identitySnapshot: structuredClone(identity) },
     })],
     [coverage, "evaluateFitterDay", () => ({ evaluation: { status: "missing_hours", validHours: 5 } })],
   ], async () => fn({ dispatch, client, row, result, settings, identity, proof }));
@@ -499,6 +507,7 @@ test("daily routing revocation and rerun replacement dead-letter before provider
       await withPatches([
         [pool, "connect", async () => fixture.client],
         [outboxRepository, "claimDueBatch", async () => [fixture.row]],
+        [fixture.dispatch, "validateAutomatic", async () => {}],
         [outboxRepository, "markDeadLetter", async (_client, args) => { deadLetters.push(args); return fixture.row; }],
         [auditService, "logAuditEvent", async () => {}],
       ], async () => {

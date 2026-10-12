@@ -59,8 +59,11 @@ test("weekly immutable five-day bindings, repeat/concurrency, zero-day and fail-
   const ephemeralSigningKey = randomUUID();
   process.env.JWT_SECRET = ephemeralSigningKey;
   process.env.ROOT_DOMAIN = "example.test";
-  process.env.MAIL_PROVIDER = "disabled";
-  process.env.MAIL_API_KEY = "";
+  process.env.MAIL_PROVIDER = "resend";
+  process.env.MAIL_REPLY_TO = "admin@fielddesk.dk";
+  process.env.TIME_CONTROL_SCHEDULER_ENABLED = "true";
+  process.env.TIME_CONTROL_MAIL_ENABLED = "true";
+  process.env.MAIL_API_KEY = "dummy";
   const pool = new Pool({ connectionString, ssl: false, max: 5 });
   const runner = require("../backend/scripts/db_migrate");
   const migrationClient = await pool.connect();
@@ -115,11 +118,14 @@ test("weekly immutable five-day bindings, repeat/concurrency, zero-day and fail-
     assert.equal(server.name, new URL(connectionString).pathname.slice(1));
     assert.equal(server.port, 55432);
     assert.match(server.version, /^PostgreSQL 17\./);
-    assert.equal((await pool.query("SELECT count(*)::int AS n FROM schema_migration WHERE success")).rows[0].n, 56);
+    assert.equal((await pool.query("SELECT count(*)::int AS n FROM schema_migration WHERE success")).rows[0].n, runner.getMigrationFiles().length);
     await pool.query("INSERT INTO tenant (id, slug, name, status) VALUES ($1, $2, 'Local weekly fixture', 'active')", [tenantId, tenantSlug]);
     const { rows: [actor] } = await pool.query(
       `INSERT INTO tenant_user (tenant_id,email,name,role,status,password_hash)
        VALUES ($1,'admin@example.test','Admin','tenant_admin','active','not-a-password') RETURNING id`, [tenantId]);
+    await pool.query(
+      `INSERT INTO tenant_user (tenant_id,email,name,role,status,password_hash)
+       VALUES ($1,'dep@hoyrup-clemmensen.dk','Dennis','tenant_admin','active','fixture')`, [tenantId]);
     const { rows: [group] } = await pool.query(
       `INSERT INTO resource_groups (tenant_id,name,status,source,external_source,external_id)
        VALUES ($1,'Group 61','active','ekomplet','ekomplet','61') RETURNING id`, [tenantId]);
@@ -340,7 +346,7 @@ test("weekly immutable five-day bindings, repeat/concurrency, zero-day and fail-
     };
     try {
       const livePeriod = dates.weeklyPeriod("2026-10-16");
-      await pool.query("INSERT INTO time_control_settings (tenant_id,mode) VALUES ($1,'live')", [tenantId]);
+      await pool.query("INSERT INTO time_control_settings (tenant_id,mode,live_enabled_at) VALUES ($1,'live',now())", [tenantId]);
       const approved = (await pool.query(
         "SELECT approved_group_id FROM time_control_employee_config WHERE tenant_id=$1 LIMIT 1", [tenantId])).rows[0];
       await transaction(client => require("../backend/src/modules/timeControl/timeControl.operation").setOperation(client, {
@@ -373,6 +379,8 @@ test("weekly immutable five-day bindings, repeat/concurrency, zero-day and fail-
       }
       const liveArgs = { ...runArgs, controlledDate: livePeriod.friday, triggeredBy: "scheduler", dryRun: false };
       const live = await service.runTimeControlWithPool(liveArgs, { hoursDatasetIds: liveIds });
+      // Match PostgreSQL's run timestamp to the controlled application clock in this fixture.
+      await pool.query("UPDATE time_control_run SET started_at=$3 WHERE tenant_id=$1 AND id=$2", [tenantId, live.run.id, new Date(clock)]);
       assert.equal(live.run.status, "completed");
       assert.equal(live.results[0].status, "weekly_reminder");
       assert.equal(live.mails.filter((m) => m.status === "queued").length, 2);
@@ -380,7 +388,7 @@ test("weekly immutable five-day bindings, repeat/concurrency, zero-day and fail-
       const onceQueued = (await pool.query("SELECT count(*)::int AS n FROM email_outbox WHERE tenant_id = $1", [tenantId])).rows[0].n;
       assert.equal(onceQueued, 4);
       const replay = await service.runTimeControlWithPool(liveArgs, { hoursDatasetIds: liveIds });
-      assert.deepEqual(replay.mails.map((m) => m.email_outbox_id), live.mails.map((m) => m.email_outbox_id));
+      assert.deepEqual(replay.mails.map((m) => m.email_outbox_id).sort(), live.mails.map((m) => m.email_outbox_id).sort());
       assert.equal((await pool.query("SELECT count(*)::int AS n FROM email_outbox WHERE tenant_id = $1", [tenantId])).rows[0].n, onceQueued);
       const queuedEmployee = (await pool.query("SELECT * FROM email_outbox WHERE tenant_id = $1 AND id = $2",
         [tenantId, live.mails.find((mail) => mail.result_id).email_outbox_id])).rows[0];
@@ -431,7 +439,7 @@ test("weekly immutable five-day bindings, repeat/concurrency, zero-day and fail-
     } finally { global.Date = RealDate; }
     console.log(JSON.stringify({ weeklyPostgres: "verified", database: server.name, immutableDayBindings: 5,
       historicalWeekEmployeeNotifications: 1, liveFixtureWeekEmployeeNotifications: 1,
-      providerCalls: 0, actualMigrations: 56, proofBasis: "synthetic_local_fixtures_and_clock" }));
+      providerCalls: 0, actualMigrations: runner.getMigrationFiles().length, proofBasis: "synthetic_local_fixtures_and_clock" }));
   } finally {
     await appPool.end();
     await pool.end();

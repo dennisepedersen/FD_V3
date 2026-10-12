@@ -7,6 +7,58 @@ const coverage = require("./timeControl.coverage");
 const logic = require("./timeControl.logic");
 const { isDeepStrictEqual } = require("node:util");
 const { emailFailureFor, emailListFailureFor } = require("../../services/emailRecipients");
+const automation = require("./timeControl.automation");
+const ENV = require("../../config/env");
+
+async function validateAutomatic(client, { tenantId, row }) {
+  automation.requireSendingEnabled();
+  if (ENV.MAIL_PROVIDER !== "resend" || !ENV.MAIL_API_KEY) throw new Error("time_control_automatic_resend_required");
+  const templates = ["time_control.missing_hours.employee", "time_control.employee_weekly_reminder_v1",
+    "time_control.friday_weekly_summary_v1", "time_control.internal_error"];
+  const payload = row.payload_json || {};
+  if (row.tenant_id !== tenantId || row.source_type !== "time_control" || !templates.includes(row.template_key) ||
+      payload.sender !== require("./timeControl.service").SENDER || payload.reply_to !== ENV.MAIL_REPLY_TO ||
+      ENV.MAIL_REPLY_TO !== "admin@fielddesk.dk") throw new Error("time_control_automatic_message_invalid");
+  const settings = (await client.query(
+    `SELECT s.* FROM time_control_settings s JOIN tenant t ON t.id=s.tenant_id
+     WHERE s.tenant_id=$1 AND t.status='active' FOR SHARE OF s,t`, [tenantId])).rows[0];
+  if (!settings || settings.is_enabled !== true || settings.mode !== "live" || !settings.live_enabled_at) {
+    throw new Error("time_control_automatic_settings_invalid");
+  }
+  // This rollout preserves the explicitly approved HC routing, including diagnostic mail.
+  if (tenantId === "f1f51c07-2d88-4ee4-a766-78eac833a9d0") {
+    for (const field of ["employee_cc_emails", "friday_manager_emails", "internal_error_emails"]) {
+      const list = emailListFailureFor(settings[field]);
+      if (list.errorCode || JSON.stringify(list.emails) !== '["dep@hoyrup-clemmensen.dk"]') {
+        throw new Error("time_control_automatic_routing_changed");
+      }
+    }
+  }
+  const run = (await client.query(
+    `SELECT *,controlled_date::text AS controlled_day FROM time_control_run
+     WHERE tenant_id=$1 AND id=$2 FOR SHARE`, [tenantId, payload.run_id])).rows[0];
+  if (!run || run.mode !== "live" || run.triggered_by !== "scheduler" ||
+      !["daily_09", "friday_weekly_v1"].includes(run.control_type) ||
+      !operation.scheduledStart(run.control_type, run.controlled_day, new Date(run.started_at)) ||
+      !operation.dispatchWindow(run.control_type, run.controlled_day)) throw new Error("time_control_automatic_run_invalid");
+  const diagnostic = row.template_key === "time_control.internal_error";
+  if (diagnostic) {
+    if (!["completed", "blocked"].includes(run.status) || row.source_id !== run.id) {
+      throw new Error("time_control_automatic_diagnostic_invalid");
+    }
+    validateRouting(row, { to: settings.internal_error_emails[0], cc: settings.internal_error_emails.slice(1) }, "time_control_automatic");
+    const active = (await client.query(
+      `SELECT o.id FROM time_control_operation_state s JOIN time_control_operation o
+       ON o.tenant_id=s.tenant_id AND o.group_id=s.group_id AND o.id=s.operation_id
+       WHERE s.tenant_id=$1 AND s.status='active' AND o.covered_from <= $2::date FOR SHARE OF s,o`,
+      [tenantId, run.controlled_day])).rows;
+    if (!active.length) throw new Error("time_control_operation_not_active");
+  } else {
+    if (run.status !== "completed") throw new Error("time_control_automatic_run_invalid");
+    await operation.requireCurrentCohorts(client, { tenantId, controlledDate: run.controlled_day });
+  }
+  automation.requireSendingEnabled();
+}
 
 function resultBinding(result) {
   return JSON.parse(JSON.stringify({
@@ -54,6 +106,7 @@ async function validateDaily(client, { tenantId, row }) {
     [tenantId, payload.result_id, payload.run_id, day])).rows[0];
   if (!result?.hours_dataset_id || !matchesResultBinding(result, payload.result_binding) ||
       payload.result_binding.result_id !== payload.result_id) throw new Error("time_control_daily_dispatch_binding_invalid");
+  await operation.requireActiveIdentity(client, { tenantId, identity: result.identity_snapshot, controlledDate: day, runId: payload.run_id });
   const settings = (await client.query(
     `SELECT s.* FROM time_control_settings s JOIN tenant t ON t.id=s.tenant_id
      WHERE s.tenant_id=$1 AND t.status='active' FOR SHARE OF s,t`, [tenantId])).rows[0];
@@ -70,7 +123,11 @@ async function validateDaily(client, { tenantId, row }) {
   const resolution = config && require("./timeControl.service")._test.classifyResolvedEmployee(config,
     await repository.resolveEmployeeConfig(client, { tenantId, config }));
   if (!resolution?.ok || !matchesIdentity(resolution.employee.identitySnapshot, payload.result_binding.identity_snapshot) ||
+      resolution.employee.name !== result.employee_name ||
       emailFailureFor(resolution.employee.email).email !== emailFailureFor(row.recipient_email).email) throw new Error("time_control_daily_dispatch_identity_changed");
+  if (require("./timeControl.dates").requiredHoursForDate(day, settings) !== Number(result.required_hours)) {
+    throw new Error("time_control_daily_dispatch_evaluation_changed");
+  }
   const rules = logic.normalizePayCodeRules(await repository.listPayCodeRules(client, { tenantId }));
   const evaluated = coverage.evaluateFitterDay(current.dataset, { tenantId, controlledDate: day,
     fitterId: result.fitter_id, payCodeRules: rules, requiredHours: Number(result.required_hours) });
@@ -79,4 +136,4 @@ async function validateDaily(client, { tenantId, row }) {
   if (!operation.dispatchWindow("daily_09", day)) throw new Error("time_control_daily_dispatch_window_expired");
 }
 
-module.exports = { validateDaily, resultBinding, matchesResultBinding, matchesIdentity, validateRouting };
+module.exports = { validateAutomatic, validateDaily, resultBinding, matchesResultBinding, matchesIdentity, validateRouting };

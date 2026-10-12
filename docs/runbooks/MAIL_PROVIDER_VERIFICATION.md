@@ -1,6 +1,55 @@
 # Mail Provider Verification Runbook
 
-## Mikkel locked test prepared; NOT sent (2026-10-12)
+## Mail transport passed; automatic operation not activated (2026-10-12)
+
+`observed` (user-confirmed): Dennis explicitly confirmed both actual inbox
+receipts for test `275bfde9-41d2-47fa-ae12-1950e1f18c68`: Mikkel received
+the To message and Dennis received the CC. The message is dated 12 October
+2026 at 12:38 Europe/Copenhagen (10:38 UTC, minute precision). This records
+the user's confirmation, not an independent inspection of either mailbox.
+
+The bounded mail transport test is passed: provider acceptance and actual
+receipt at both intended recipients are now documented. No test resend is
+authorized or needed. The next approved work is readiness implementation,
+tests/deploy and current-data verification without employee mail; scheduler,
+live-mode and automatic sending must remain disabled pending a separate
+verified activation-plan approval. LKE stays excluded; no general EK sync or
+rule-profile extension is authorized.
+
+The concrete next approval boundary, six-person routing, first Tuesday slot,
+Friday eligibility conditions, observation and stop procedures are maintained
+in [Timekontrol HC Activation Plan](TIME_CONTROL_ACTIVATION.md). Current-data
+preflight and dry-run evidence are recorded there; neither qualifies the week.
+
+## Mikkel authorized send accepted; inbox confirmations pending (2026-10-12)
+
+`verified`: after explicit user approval for one send, the documented Mikkel
+send command ran once in Render job `job-db6bhavlot8c739jbh10` (succeeded).
+It used the existing locked test `275bfde9-41d2-47fa-ae12-1950e1f18c68`;
+no new test was prepared. Resend accepted the message with provider ID
+`01a12fb1-81f8-7cdb-abbe-050b0f33480e`.
+
+Read-only post-send job `job-db6bhs0473hc73dsvta0` succeeded and verified:
+
+- Durable status: `accepted`.
+- Attempt started: `2026-10-12T10:38:44.522Z`.
+- Completed: `2026-10-12T10:38:44.834Z` (12:38:44 Europe/Copenhagen).
+- To: `mhj@hoyrup-clemmensen.dk`; CC: `dep@hoyrup-clemmensen.dk` only.
+- From/Reply-To and locked content hash unchanged from the approved record.
+- Exactly one Mikkel record; four total POC records remain.
+- Original DEP acceptance timestamps, hash and provider ID unchanged; no DEP
+  resend. Both historical DEP records remain unattempted.
+- Scheduler `false`, tenant `mode=dry_run`, `live_enabled_at=NULL`; saved
+  manager recipients/employee CC remain DEP alone. LKE remains excluded.
+- Existing outbox remains 60 queued rows; no outbox apply or dispatch occurred.
+
+Provider acceptance is NOT actual inbox receipt. Confirmation is still pending
+from both Mikkel (To) and Dennis (CC). No automatic resend is allowed, including
+for an uncertain result. Do not run the historical send command below again.
+No code, schema, deployment or production configuration was changed in this
+send operation. The post-send check ran inside `BEGIN READ ONLY`.
+
+## Historical Mikkel preparation before the authorized send (2026-10-12)
 
 `verified`: commit `e2a00f75fe1bcc4f6aeff911ff154a5ed7bd9e6c` was pushed
 and deployed by Render as `dep-db69s6favr4c73fqprk0`, live at
@@ -24,9 +73,9 @@ record is:
 - Reply-To: `admin@fielddesk.dk`.
 - Subject/body: exactly the approved Mikkel mail below, with no action required.
 
-The following command is for a separately approved future send of this exact
-record, from Render's backend root. **It has NOT been executed.** Do not create
-another test or reuse the DEP send command.
+The following command was presented for separate approval, then executed once
+as recorded above. It is retained as history, NOT a command to run again.
+Do not create another test or reuse the DEP send command.
 
 ```sh
 TIME_CONTROL_POC_APPROVED_ACTOR_ID=8eaddbc0-8fc7-414a-9c5c-064617972394 node scripts/time_control_poc_mhj.js send 275bfde9-41d2-47fa-ae12-1950e1f18c68 SEND:timekontrol-poc-mhj:275bfde9-41d2-47fa-ae12-1950e1f18c68

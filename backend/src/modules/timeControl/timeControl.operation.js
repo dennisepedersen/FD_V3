@@ -33,7 +33,7 @@ function dispatchWindow(controlType, controlledDate, now = new Date()) {
     : require("./timeControl.weekly").reminderWindow(controlledDate, now);
 }
 
-async function setOperation(client, { tenantId, groupId, actorId, coveredFrom, status, now = new Date() }) {
+async function setOperation(client, { tenantId, groupId, actorId, coveredFrom, status, now = null }) {
   if (!["active", "paused"].includes(status)) fail("status_invalid");
   const actor = (await client.query(
     "SELECT id FROM tenant_user WHERE tenant_id=$1 AND id=$2 AND role='tenant_admin' AND status='active' FOR SHARE",
@@ -43,16 +43,14 @@ async function setOperation(client, { tenantId, groupId, actorId, coveredFrom, s
   const current = (await client.query(
     "SELECT * FROM time_control_operation_state WHERE tenant_id=$1 AND group_id=$2 FOR UPDATE",
     [tenantId, groupId])).rows[0];
+  let changedAt;
   if (status === "paused") {
     if (!current) fail("not_started");
     await client.query("UPDATE time_control_operation_state SET status='paused',updated_at=now() WHERE tenant_id=$1 AND group_id=$2", [tenantId, groupId]);
+    changedAt = now || new Date();
   } else {
     if (current?.status === "active") fail("already_active");
     const day = dates.normalizeIsoDate(coveredFrom);
-    const local = dates.getCopenhagenParts(now).isoDate;
-    const weekday = dates.weekdayIndexForIsoDate(local);
-    const monday = dates.addDaysIso(local, 1 - (weekday || 7));
-    if (day < monday || day > local) fail("coverage_start_invalid");
     const configs = (await repository.listEmployeeConfigs(client, { tenantId })).filter(config => config.approved_group_id === groupId);
     if (!configs.length) fail("approved_cohort_missing");
     const cohort = [];
@@ -63,10 +61,16 @@ async function setOperation(client, { tenantId, groupId, actorId, coveredFrom, s
       const identity = resolution.employee.identitySnapshot;
       cohort.push({ fitter_id: identity.fitter_id, identity_hash: identityHash(identity) });
     }
+    // Timestamp admission only after lock waits and identity validation have finished.
+    changedAt = now || new Date();
+    const local = dates.getCopenhagenParts(changedAt).isoDate;
+    const weekday = dates.weekdayIndexForIsoDate(local);
+    const monday = dates.addDaysIso(local, 1 - (weekday || 7));
+    if (day < monday || day > local) fail("coverage_start_invalid");
     const op = (await client.query(
       `INSERT INTO time_control_operation(tenant_id,group_id,covered_from,started_at,started_by_user_id,cohort_json)
        VALUES($1,$2,$3::date,$4,$5,$6::jsonb) RETURNING id`,
-      [tenantId, groupId, day, now, actorId, JSON.stringify(cohort)])).rows[0];
+      [tenantId, groupId, day, changedAt, actorId, JSON.stringify(cohort)])).rows[0];
     await client.query(
       `INSERT INTO time_control_operation_state(tenant_id,group_id,operation_id,status)
        VALUES($1,$2,$3,'active') ON CONFLICT(tenant_id,group_id) DO UPDATE
@@ -75,7 +79,7 @@ async function setOperation(client, { tenantId, groupId, actorId, coveredFrom, s
   await audit.logAuditEvent({ client, tenantId, actorId, actorType: "tenant_user", actorScope: "tenant",
     moduleKey: "time_control", eventType: "time_control.mode_changed", resourceType: "time_control_operation",
     resourceId: groupId, outcome: "success", reason: `operation_${status}`,
-    metadata: { group_id: groupId, covered_from: coveredFrom || null, started_at: now.toISOString(), status } });
+    metadata: { group_id: groupId, covered_from: coveredFrom || null, started_at: changedAt.toISOString(), status } });
   return getOperation(client, { tenantId, groupId });
 }
 
@@ -84,6 +88,60 @@ async function getOperation(client, { tenantId, groupId }) {
     `SELECT o.*,o.covered_from::text AS covered_day,s.status FROM time_control_operation_state s
      JOIN time_control_operation o ON o.id=s.operation_id AND o.tenant_id=s.tenant_id AND o.group_id=s.group_id
      WHERE s.tenant_id=$1 AND s.group_id=$2 FOR SHARE OF s,o`, [tenantId, groupId])).rows[0] || null;
+}
+
+async function admitOperations(client, { tenantId }) {
+  return (await client.query(
+    "SELECT operation_id FROM time_control_operation_state WHERE tenant_id=$1 AND status='active' FOR SHARE", [tenantId]
+  )).rows.map(row => row.operation_id);
+}
+
+async function requireCurrentCohorts(client, { tenantId, controlledDate }) {
+  const operations = (await client.query(
+    `SELECT o.*,o.covered_from::text AS covered_day FROM time_control_operation_state s
+     JOIN time_control_operation o ON o.tenant_id=s.tenant_id AND o.group_id=s.group_id AND o.id=s.operation_id
+     WHERE s.tenant_id=$1 AND s.status='active' AND o.covered_from <= $2::date FOR SHARE OF s,o`,
+    [tenantId, dates.normalizeIsoDate(controlledDate)])).rows;
+  if (!operations.length) fail("not_active");
+  for (const op of operations) {
+    const configs = (await client.query(
+      `SELECT * FROM time_control_employee_config WHERE tenant_id=$1 AND approved_group_id=$2
+       AND is_enabled=true ORDER BY id FOR SHARE`, [tenantId, op.group_id])).rows;
+    const current = [];
+    for (const config of configs) {
+      const resolved = require("./timeControl.service")._test.classifyResolvedEmployee(config,
+        await repository.resolveEmployeeConfig(client, { tenantId, config }));
+      if (!resolved.ok) fail("cohort_changed");
+      current.push(`${resolved.employee.fitterId}:${identityHash(resolved.employee.identitySnapshot)}`);
+    }
+    const expected = op.cohort_json.map(member => `${member.fitter_id}:${member.identity_hash}`).sort();
+    if (JSON.stringify(current.sort()) !== JSON.stringify(expected)) fail("cohort_changed");
+  }
+  return operations;
+}
+
+async function requireActiveIdentity(client, { tenantId, identity, controlledDate, runId = null, startedAt = null, operationIds = null }) {
+  if (!identity?.group_id || !identity?.fitter_id) fail("approved_identity_missing");
+  const day = dates.normalizeIsoDate(controlledDate);
+  const op = await getOperation(client, { tenantId, groupId: identity.group_id });
+  if (!op || op.status !== "active") fail("not_active");
+  if (startedAt && new Date(op.started_at) > startedAt || operationIds && !operationIds.includes(op.id)) fail("not_active_at_scheduled_start");
+  const hash = identityHash(identity);
+  if (!op.cohort_json.some(member => member.fitter_id === identity.fitter_id && member.identity_hash === hash)) {
+    fail("cohort_changed");
+  }
+  if (op.covered_day > day) fail("coverage_start_after_controlled_date");
+  if (runId === null) return { operation_id: op.id, receipt_ids: [] };
+  const receipts = (await client.query(
+    `SELECT c.id FROM time_control_operational_check c
+     JOIN time_control_run r ON r.tenant_id=c.tenant_id AND r.id=c.run_id
+     WHERE c.tenant_id=$1 AND c.operation_id=$2 AND c.group_id=$3 AND c.fitter_id=$4
+       AND c.run_id=$5 AND c.controlled_date=$6::date AND c.control_type='daily_09' AND c.identity_hash=$7
+       AND r.status='completed' AND r.mode='live' AND r.triggered_by='scheduler'
+       AND r.control_type=c.control_type AND r.controlled_date=c.controlled_date
+     FOR SHARE OF c,r`, [tenantId, op.id, identity.group_id, identity.fitter_id, runId, day, hash])).rows;
+  if (!receipts.length) fail("daily_receipt_missing");
+  return { operation_id: op.id, receipt_ids: receipts.map(receipt => receipt.id) };
 }
 
 async function checkGate(client, { tenantId, identity, friday, requireWeekly = false, snapshotId = null }) {
@@ -130,7 +188,7 @@ async function recordChecks(client, { tenantId, run, results, execution }) {
     const identity = result.identity_snapshot;
     const op = await getOperation(client, { tenantId, groupId: identity.group_id });
     const hash = identityHash(identity);
-    if (!op || op.status !== "active" || new Date(op.started_at) > execution.startedAt ||
+    if (!op || op.status !== "active" || !execution.operationIds?.includes(op.id) || new Date(op.started_at) > execution.startedAt ||
         op.covered_day > execution.controlledDate ||
         !op.cohort_json.some(member => member.fitter_id === result.fitter_id && member.identity_hash === hash)) continue;
     const row = (await client.query(
@@ -146,4 +204,5 @@ async function recordChecks(client, { tenantId, run, results, execution }) {
   return checks;
 }
 
-module.exports = { setOperation, getOperation, checkGate, recordChecks, identityHash, scheduledStart, completionWindow, dispatchWindow };
+module.exports = { setOperation, getOperation, admitOperations, requireCurrentCohorts, requireActiveIdentity,
+  checkGate, recordChecks, identityHash, scheduledStart, completionWindow, dispatchWindow };

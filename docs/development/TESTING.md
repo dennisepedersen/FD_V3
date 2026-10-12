@@ -60,6 +60,17 @@ Daily capture/startup additions:
 - `node --test test\timeControlCapture.test.js test\timeControlOperation.test.js`
   covers the bounded v4 adapter with mocked requests, API errors/retries/pagination
   and controlled Copenhagen timing/startup/RBAC. No real EK reads or mails.
+- `node --test test/timeControlAutomation.test.js test/timeControlAutomaticMail.test.js`
+  covers default-off automatic gates, exact-run outbox selection, verified
+  sender/Reply-To, current-epoch checks and terminal uncertain delivery without
+  changing other modules' retries. Provider calls are mocked.
+- `test/timeControlAutomaticPostgres.integration.js` uses the same opt-in and
+  guarded local database URL as the operational test. It applies the current
+  actual migrations and verifies exact-ID claim/concurrency and one-attempt
+  persistence. Its provider and domain validation fixtures are mocked; the
+  operational PostgreSQL test separately exercises real domain guards and
+  the automatic bridge with four daily and two Friday simulated deliveries.
+  No real EK/provider network calls occur in these isolated tests.
 - Full-terminal actual-source replay uses
   `FIELDDESK_TC_TERMINAL_EVIDENCE_PATH=<retained ek_terminal_zero_20261012.json>`.
   The capture test then replays both actual September 26 passes (30 distinct
@@ -69,7 +80,7 @@ Daily capture/startup additions:
 - `test\timeControlOperationalPostgres.integration.js` is opt-in with
   `FIELD_DESK_LOCAL_PG_TEST=1` and `FIELDDESK_TIME_CONTROL_TEST_DATABASE_URL`.
   Like weekly/October/upgrade tests it creates a fresh guarded loopback DB and
-  applies all **56** actual migration files. Source captures and clock are
+  applies all current actual migration files. Source captures and clock are
   synthetic; operational/gate/revision/dispatch persistence is real PostgreSQL.
   Local queued fixture mails are never sent. Dry-run/backfill cannot qualify.
 - The legacy daily PostgreSQL test needs a **prepared HC fixture database**, not

@@ -29,7 +29,7 @@ function classifySendError(error, row) {
   return {
     code: String(code).slice(0, 120),
     message: String(error?.message || code).slice(0, 500),
-    retry: !isPermanent && !exhausted,
+    retry: !repository.isTimeControlEmail(row) && !isPermanent && !exhausted,
   };
 }
 
@@ -61,6 +61,7 @@ async function statusOnly({ tenantId }) {
   return withTransaction(async (client) => ({
     tenant_id: tenantId,
     stats: await repository.getQueueStats(client, { tenantId }),
+    unclear_time_control: await repository.listTimeControlUncertain(client, { tenantId }),
   }));
 }
 
@@ -81,14 +82,14 @@ async function processDueEmails({
   limit = 25,
   processingTimeoutMinutes = 20,
   sendEmailFn = mailService.sendEmail,
+  timeControlOutboxIds,
 } = {}) {
   if (!tenantId) throw new Error("tenant_id_required");
   const normalizedLimit = clampLimit(limit);
-  const claimed = await withTransaction((client) => repository.claimDueBatch(client, {
-    tenantId,
-    limit: normalizedLimit,
-    processingTimeoutMinutes,
-  }));
+  if (timeControlOutboxIds !== undefined) repository.validateTimeControlOutboxIds(tenantId, timeControlOutboxIds);
+  const claimed = await withTransaction((client) => timeControlOutboxIds !== undefined
+    ? repository.claimTimeControlBatch(client, { tenantId, outboxIds: timeControlOutboxIds })
+    : repository.claimDueBatch(client, { tenantId, limit: normalizedLimit, processingTimeoutMinutes }));
 
   const summary = {
     tenant_id: tenantId,
@@ -100,7 +101,10 @@ async function processDueEmails({
   };
 
   for (const row of claimed) {
+    const timeControl = repository.isTimeControlEmail(row);
+    let providerStarted = false;
     try {
+      if (timeControl && row.tenant_id !== tenantId) throw new Error("time_control_dispatch_tenant_invalid");
       if (["time_control.employee_weekly_reminder_v1", "time_control.friday_weekly_summary_v1"].includes(row.template_key) &&
           !require("../timeControl/timeControl.weekly").reminderWindow(row.payload_json?.friday)) {
         await withTransaction(async (client) => {
@@ -139,32 +143,49 @@ async function processDueEmails({
         continue;
       }
 
-      const send = () => sendEmailFn({
+      const message = {
         to: row.recipient_email,
         cc: row.payload_json?.cc_emails,
         from: row.payload_json && row.payload_json.sender ? row.payload_json.sender : undefined,
+        ...(timeControl ? { replyTo: row.payload_json?.reply_to } : {}),
         subject: row.subject,
         html: row.html_body,
         text: row.text_body,
         tenantId,
         template: row.template_key,
-      });
+      };
+      const send = () => {
+        if (!timeControl) return sendEmailFn(message);
+        if (typeof row.idempotency_key !== "string" || !/^[a-zA-Z0-9:_-]{1,256}$/.test(row.idempotency_key)) {
+          throw new Error("time_control_provider_idempotency_invalid");
+        }
+        require("../timeControl/timeControl.automation").requireSendingEnabled();
+        providerStarted = true;
+        return sendEmailFn(message, { idempotencyKey: row.idempotency_key, timeoutMs: 15000 });
+      };
       let providerResult;
-      if (["time_control.employee_weekly_reminder_v1", "time_control.friday_weekly_summary_v1", "time_control.missing_hours.employee"].includes(row.template_key)) {
+      if (timeControl) {
         try {
           providerResult = await withTransaction(async (client) => {
             const weekly = require("../timeControl/timeControl.weekly");
+            const dispatch = require("../timeControl/timeControl.dispatch");
+            if (typeof dispatch.validateAutomatic !== "function") throw new Error("time_control_automatic_dispatch_unavailable");
+            await dispatch.validateAutomatic(client, { tenantId, row });
             if (row.template_key === "time_control.missing_hours.employee") {
-              await require("../timeControl/timeControl.dispatch").validateDaily(client, { tenantId, row });
-            } else {
+              await dispatch.validateDaily(client, { tenantId, row });
+            } else if (["time_control.employee_weekly_reminder_v1", "time_control.friday_weekly_summary_v1"].includes(row.template_key)) {
               await weekly.validateDispatchSnapshot(client, { tenantId, row });
               if (!weekly.reminderWindow(row.payload_json?.friday)) throw new Error("time_control_weekly_reminder_expired");
             }
             // Keep current run/results and dataset heads stable until the provider call completes.
-            return send();
+            const receipt = await send();
+            if (receipt?.provider !== "resend" || typeof receipt.providerMessageId !== "string" || !receipt.providerMessageId.trim()) {
+              throw new Error("provider_acceptance_unclear");
+            }
+            return receipt;
           });
         } catch (error) {
-          if (!error.message.startsWith("time_control_")) throw error;
+          if (providerStarted || !error.message.startsWith("time_control_")) throw error;
           await withTransaction(async (client) => {
             const dead = await repository.markDeadLetter(client, {
               tenantId, id: row.id, errorCode: error.message,
@@ -189,6 +210,7 @@ async function processDueEmails({
           provider: providerResult?.provider || null,
           providerMessageId: providerResult?.providerMessageId || null,
         });
+        if (timeControl && !sent) throw new Error("provider_acceptance_unclear");
         if (sent) {
           await logProcessorAudit(client, {
             tenantId,
@@ -204,7 +226,9 @@ async function processDueEmails({
       });
       summary.sent += 1;
     } catch (error) {
-      const classified = classifySendError(error, row);
+      const classified = timeControl && providerStarted
+        ? { code: "provider_acceptance_unclear", message: "Timekontrol provider acceptance is unclear; automatic retries are disabled.", retry: false }
+        : classifySendError(error, row);
       await withTransaction(async (client) => {
         if (classified.retry) {
           const retry = await repository.markRetry(client, {
@@ -253,7 +277,8 @@ async function processDueEmails({
       });
       if (classified.retry) summary.retry += 1;
       else summary.dead_letter += 1;
-      summary.failures.push({ id: row.id, code: classified.code });
+      summary.failures.push({ id: row.id, code: classified.code,
+        ...(timeControl && providerStarted ? { delivery_state: "unclear" } : {}) });
     }
   }
 

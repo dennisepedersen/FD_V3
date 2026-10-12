@@ -607,6 +607,7 @@ async function runMailScenario({
   resolvedEmployee = [approvedEmployee()],
   existingMail = null,
   existingManagerMail = null,
+  operationCohort = null,
   auditFailure = null,
   storedRunDate = "2026-10-09",
   hoursDataset = null,
@@ -635,6 +636,7 @@ async function runMailScenario({
   };
   await withPatches([
     [repository, "getSettings", async () => settings],
+    [repository, "findActiveTenantUserByEmail", async () => ({ name: "Dennis", email: "dep@hoyrup-clemmensen.dk" })],
     [repository, "upsertRun", async (_client, args) => {
       createdMode = args.mode;
       return { id: uuid(10), tenant_id: uuid(1), control_type: controlType, controlled_date: storedRunDate, mode: args.mode };
@@ -667,6 +669,11 @@ async function runMailScenario({
       [operation, "dispatchWindow", () => true],
     ] : []),
     [operation, "recordChecks", async (_client, args) => { receipts.push(args); return []; }],
+    [operation, "requireActiveIdentity", async () => ({ operation_id: uuid(90), receipt_ids: [] })],
+    [operation, "admitOperations", async () => [uuid(90)]],
+    [operation, "requireCurrentCohorts", async () => [{ id: uuid(90), group_id: uuid(70), cohort_json: operationCohort || results.filter(result => result.identitySnapshot?.group_id).map(result => ({
+      fitter_id: result.fitterId, identity_hash: operation.identityHash(result.identitySnapshot),
+    })) }]],
     [repository, "upsertResult", async (_client, args) => {
       results.push(args);
       return {
@@ -855,6 +862,13 @@ test("daily transport fixture with mocked scheduling queues employee and DEP cop
   assert.deepEqual(mailLogs[0].recipientEmails, [outbox[0].recipientEmail]);
   assert.deepEqual(mailLogs[0].ccEmails, outbox[0].payload.cc_emails);
   assert.ok(outbox.every((mail) => mail.payload.sender === service.SENDER && mail.sourceType === "time_control"));
+});
+
+test("a reduced configured cohort blocks the whole live control and cannot issue valid planned receipts", async () => {
+  const { runResult, receipts } = await runMailScenario({ mode: "live", controlType: "daily_09",
+    operationCohort: [{ fitter_id: "another-approved-member", identity_hash: "different" }] });
+  assert.equal(runResult.run.status, "blocked");
+  assert.equal(receipts[0].run.status, "blocked");
 });
 
 test("Friday summary preserves every additional manager as normalized CC without duplicates", async () => {
@@ -1112,6 +1126,7 @@ test("pool scheduler creates the execution clock internally and forwards the bou
     }],
     [datasetStorage, "loadHoursDataset", async () => ({ dataset: {}, proof: { status: "complete" } })],
     [repository, "listEmployeeConfigs", async () => []],
+    [repository, "findEmployeeMailLog", async () => ({ email_outbox_id: uuid(60) })],
     [repository, "listPayCodeRules", async () => []],
     [operation, "recordChecks", async (_client, input) => { observedExecution = input.execution; return []; }],
     [repository, "finishRun", async (_client, input) => ({

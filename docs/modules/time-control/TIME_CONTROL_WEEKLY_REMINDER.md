@@ -1,9 +1,34 @@
 # Timekontrol: fredagens ugepaamindelse
 
-Status: implementeret lokalt; migration 0054 og runtimevalidering lokalt; ikke deployed eller aktiveret
+Status: driftsgrundlag og migrationer 0054-0059 er i produktion; automatisk afsendelse klargoeres, ikke aktiveret
 Beslutningsdato: 2026-10-11
 Godkendt af: Dennis Espersen Pedersen
 Scope: fredagens medarbejderpaamindelse og lederoverblik i Timekontrol v1
+
+## Aktuel HC-aktiveringsgraense (2026-10-12)
+
+Den konkrete [aktiveringsplan](../../runbooks/TIME_CONTROL_ACTIVATION.md)
+gaelder den eksisterende gruppe paa seks teknikere. Den bevarer DEP alene
+som medarbejder-CC, ledermodtager og intern fejlmodtager; LKE er fravalgt.
+From er `Fielddesk Timekontrol <timekontrol@mail.fielddesk.dk>`, Reply-To
+`admin@fielddesk.dk`. Generel EK-sync og regelprofiler aendres ikke.
+
+Schedulerens nye automatiske forbindelse behandler kun den afsluttede
+kontrols konkrete Timekontrol-outbox-ID'er, aldrig andre modulers koeer.
+`TIME_CONTROL_MAIL_ENABLED=true` er en ny, saerskilt og som standard
+slukket gate; scheduler, tenant-live og aktiv drifts-epoch kraeves ogsaa.
+Timekontrol-providerforsog genproeves ikke automatisk; uklare resultater
+bevares og diagnosticeres. Andre modulers retry-politik bevares.
+
+Genstart i samme planlagte minut genbruger en afsluttet live-kontrol uden
+nyt capture. Dagsafsendelse kraever den aktuelle epochs kvittering, og en
+aendret/ufuldstaendig kontrolgruppe blokerer koerslen. Fredag kraever
+fortsat alle fire faktiske planlagte dagskontroller plus fredagsgrundlag;
+historiske og manuelle koersler kvalificerer aldrig ugen.
+
+De nedenstaaende lokale implementeringsnotater og tidligere ikke-deployed
+statusser er historisk evidens. Den aktuelle rollout-status dokumenteres i
+aktiveringsplanen og mail-runbookens seneste sektion.
 
 HC-specifik godkendelse: migration 0055 gemmer reference 9043
 `Formandstillæg 4` og 9076 `Funktionstillæg` som kendte, ekskluderede tillæg

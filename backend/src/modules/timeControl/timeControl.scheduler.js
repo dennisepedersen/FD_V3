@@ -4,6 +4,7 @@ const pool = require("../../db/pool");
 const env = require("../../config/env");
 const { determineScheduledControl } = require("./timeControl.dates");
 const { runTimeControlWithPool, compactError } = require("./timeControl.service");
+const automation = require("./timeControl.automation");
 
 let timer = null;
 let lastKey = null;
@@ -11,7 +12,7 @@ let running = false;
 const TENANT_CONCURRENCY = 4;
 
 function schedulerEnabled() {
-  return ["1", "true", "yes", "on"].includes(String(process.env.TIME_CONTROL_SCHEDULER_ENABLED || "").trim().toLowerCase());
+  return automation.schedulerEnabled();
 }
 
 async function listEnabledTenantIds() {
@@ -22,6 +23,7 @@ async function listEnabledTenantIds() {
 }
 
 async function tick(now = new Date()) {
+  if (!schedulerEnabled()) return { skipped: true, reason: "scheduler_disabled" };
   const scheduled = determineScheduledControl(now);
   if (!scheduled) return { skipped: true, reason: "no_scheduled_control" };
   const key = `${scheduled.controlType}:${scheduled.controlledDate}:${scheduled.localHour}:${scheduled.localMinute}`;
@@ -37,7 +39,7 @@ async function tick(now = new Date()) {
 }
 
 async function runTenantControls(tenantIds, scheduled, {
-  runControl = runTimeControlWithPool, now = () => new Date(),
+  runControl = runTimeControlWithPool, now = () => new Date(), dispatch = automation.dispatchRun,
 } = {}) {
   const results = new Array(tenantIds.length);
   let nextIndex = 0;
@@ -57,7 +59,14 @@ async function runTenantControls(tenantIds, scheduled, {
           triggeredBy: "scheduler",
           waitForSync: true,
         });
-        results[index] = { tenant_id: tenantId, ok: true, run_id: result.run?.id || null };
+        const delivery = await dispatch({ tenantId, result });
+        results[index] = { tenant_id: tenantId, ok: result.run?.status === "completed" &&
+            !delivery?.dead_letter && !delivery?.failures?.length,
+          run_id: result.run?.id || null, status: result.run?.status || null,
+          error: result.run?.error_reason || null, delivery };
+        console.log(JSON.stringify({ event: "time_control_scheduled_finished", ...results[index],
+          control_type: scheduled.controlType, controlled_date: scheduled.controlledDate,
+          at: new Date().toISOString() }));
       } catch (error) {
         console.error("[timeControl.scheduler] tenant_run_failed", { tenant_id: tenantId, error_message: compactError(error) });
         results[index] = { tenant_id: tenantId, ok: false, error: compactError(error) };

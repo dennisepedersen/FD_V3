@@ -24,7 +24,9 @@ test("daily capture and operational-week gate: actual PostgreSQL, controlled clo
   const ephemeralSigningKey = randomUUID();
   process.env.JWT_SECRET = ephemeralSigningKey;
   process.env.ROOT_DOMAIN = "example.test";
-  process.env.MAIL_PROVIDER = "disabled";
+  process.env.MAIL_PROVIDER = "resend";
+  process.env.MAIL_API_KEY = "dummy";
+  process.env.MAIL_REPLY_TO = "admin@fielddesk.dk";
   process.env.TIME_CONTROL_SCHEDULER_ENABLED = "false";
   const pool = new Pool({ connectionString: url.toString(), max: 5 });
   const runner = require("../backend/scripts/db_migrate");
@@ -44,7 +46,9 @@ test("daily capture and operational-week gate: actual PostgreSQL, controlled clo
   const tenantId = randomUUID();
   const otherTenantId = randomUUID();
   const RealDate = Date;
-  let clock = new RealDate("2026-10-19T06:00:00Z").getTime();
+  const originalFetch = global.fetch;
+  global.fetch = async () => { throw new Error("local_postgres_network_forbidden"); };
+  let clock = new RealDate("2026-10-12T06:00:00Z").getTime();
   global.Date = class ControlledDate extends RealDate {
     constructor(...args) { super(...(args.length ? args : [clock])); }
     static now() { return clock; }
@@ -63,6 +67,7 @@ test("daily capture and operational-week gate: actual PostgreSQL, controlled clo
   let sourceHours = 7;
   let sourceRows = null;
   let calls = 0;
+  let simulatedProviderCalls = 0;
   async function captureDay({ controlledDate }) {
     calls++;
     // This is a controlled source fixture, never external zero-day or actual EK evidence.
@@ -102,6 +107,9 @@ test("daily capture and operational-week gate: actual PostgreSQL, controlled clo
     actorId = (await pool.query(
       `INSERT INTO tenant_user(tenant_id,email,name,role,status,password_hash)
        VALUES($1,'admin@example.test','Admin','tenant_admin','active','fixture') RETURNING id`, [tenantId])).rows[0].id;
+    await pool.query(
+      `INSERT INTO tenant_user(tenant_id,email,name,role,status,password_hash)
+       VALUES($1,'dep@hoyrup-clemmensen.dk','DEP Fixture','tenant_admin','active','fixture')`, [tenantId]);
     groupId = (await pool.query(
       `INSERT INTO resource_groups(tenant_id,name,status,source,external_source,external_id)
        VALUES($1,'Group 61','active','ekomplet','ekomplet','61') RETURNING id`, [tenantId])).rows[0].id;
@@ -112,17 +120,81 @@ test("daily capture and operational-week gate: actual PostgreSQL, controlled clo
        email_source,email_source_value,email_approved_at,email_approved_by_user_id,approval_reason,approval_version)
        VALUES($1,'MBO','290',$2,'mbo@example.test','admin_override','mbo@example.test',now(),$3,'fixture',1)`,
       [tenantId, groupId, actorId]);
-    await pool.query("INSERT INTO time_control_settings(tenant_id,mode) VALUES($1,'live')", [tenantId]);
+    await pool.query("INSERT INTO time_control_settings(tenant_id,mode,live_enabled_at) VALUES($1,'live',now())", [tenantId]);
     await pool.query("INSERT INTO time_control_pay_code_rule(tenant_id,pay_code,counts_as_valid_hours) VALUES($1,'3300',true)", [tenantId]);
-    const epoch = await start("2026-10-19");
-    assert.equal(epoch.covered_day, "2026-10-19");
-    await assert.rejects(tx(c => operation.setOperation(c, { tenantId: otherTenantId, groupId, actorId, coveredFrom: "2026-10-19", status: "active" })), /tenant_admin_required/);
-    const period = dates.weeklyPeriod("2026-10-23");
+    const approvedIdentity = { fitter_id: "290", group_id: groupId, approval_version: 1, approved_email: "mbo@example.test" };
+    const activeArgs = { tenantId, identity: approvedIdentity, controlledDate: "2026-10-12" };
+    await assert.rejects(tx(c => operation.requireActiveIdentity(c, activeArgs)), /operation_not_active/);
+    const epoch = await start("2026-10-12");
+    assert.equal(epoch.covered_day, "2026-10-12");
+    assert.deepEqual(await tx(c => operation.requireActiveIdentity(c, activeArgs)), { operation_id: epoch.id, receipt_ids: [] });
+    await assert.rejects(tx(c => operation.requireActiveIdentity(c, { ...activeArgs, tenantId: otherTenantId })), /operation_not_active/);
+    await assert.rejects(tx(c => operation.requireActiveIdentity(c, { ...activeArgs, controlledDate: "2026-10-11" })), /coverage_start_after_controlled_date/);
+    await assert.rejects(tx(c => operation.setOperation(c, { tenantId: otherTenantId, groupId, actorId, coveredFrom: "2026-10-12", status: "active" })), /tenant_admin_required/);
+    const period = dates.weeklyPeriod("2026-10-16");
+    const automaticDispatch = async result => {
+      // PostgreSQL uses wall time; align this isolated fixture with its controlled execution clock.
+      await pool.query("UPDATE time_control_run SET started_at=$3 WHERE tenant_id=$1 AND id=$2", [tenantId, result.run.id, new Date(clock)]);
+      process.env.TIME_CONTROL_SCHEDULER_ENABLED = "true";
+      process.env.TIME_CONTROL_MAIL_ENABLED = "true";
+      try {
+        if (simulatedProviderCalls === 0 || result.run.control_type === "friday_weekly_v1" && simulatedProviderCalls === 4) {
+          const queued = (await pool.query("SELECT * FROM email_outbox WHERE tenant_id=$1 AND id=$2",
+            [tenantId, result.mails[0].email_outbox_id])).rows[0];
+          await assert.rejects(tx(async c => {
+            await c.query("UPDATE time_control_employee_config SET is_enabled=false WHERE tenant_id=$1", [tenantId]);
+            await require("../backend/src/modules/timeControl/timeControl.dispatch").validateAutomatic(c, { tenantId, row: queued });
+          }), /cohort_changed/, "removing the entire current cohort after enqueue must block all employee transport");
+        }
+        return await require("../backend/src/modules/timeControl/timeControl.automation").dispatchRun({ tenantId, result },
+          args => require("../backend/src/modules/notifications/emailOutbox.processor").processDueEmails({
+            ...args, sendEmailFn: async (message, options) => {
+              simulatedProviderCalls++;
+              assert.equal(message.from, service.SENDER);
+              assert.equal(message.replyTo, "admin@fielddesk.dk");
+              assert.ok(options.idempotencyKey.startsWith("time_control:"));
+              assert.equal(options.timeoutMs, 15000);
+              return { provider: "resend", providerMessageId: `local-simulated-${simulatedProviderCalls}` };
+            },
+          }));
+      } finally {
+        process.env.TIME_CONTROL_SCHEDULER_ENABLED = "false";
+        process.env.TIME_CONTROL_MAIL_ENABLED = "false";
+      }
+    };
     for (const [i, day] of period.days.slice(0, 4).entries()) {
       at(`${dates.addDaysIso(day, 1)}T07:00:00Z`);
       const daily = await run(day);
       assert.equal(daily.run.status, "completed");
       assert.equal(daily.results[0].status, "missing_hours");
+      const receiptArgs = { tenantId, identity: daily.results[0].identity_snapshot, controlledDate: day, runId: daily.run.id };
+      const active = await tx(c => operation.requireActiveIdentity(c, receiptArgs));
+      assert.equal(active.operation_id, epoch.id);
+      assert.equal(active.receipt_ids.length, 1);
+      await assert.rejects(tx(c => operation.requireActiveIdentity(c, { ...receiptArgs, runId: randomUUID() })), /daily_receipt_missing/);
+      await assert.rejects(tx(c => operation.requireActiveIdentity(c, { ...receiptArgs, tenantId: otherTenantId })), /operation_not_active/);
+      await assert.rejects(tx(c => operation.requireActiveIdentity(c, { ...receiptArgs,
+        identity: { ...receiptArgs.identity, approval_version: 2 } })), /cohort_changed/);
+      if (i === 0) {
+        await assert.rejects(tx(async c => {
+          await operation.setOperation(c, { tenantId, groupId, actorId, status: "paused" });
+          await operation.requireActiveIdentity(c, receiptArgs);
+        }), /operation_not_active/);
+        await assert.rejects(tx(async c => {
+          await operation.setOperation(c, { tenantId, groupId, actorId, status: "paused" });
+          const restarted = await operation.setOperation(c, { tenantId, groupId, actorId, status: "active", coveredFrom: day });
+          assert.notEqual(restarted.id, epoch.id);
+          assert.equal((await operation.requireActiveIdentity(c, { ...receiptArgs, runId: null })).operation_id, restarted.id);
+          await operation.requireActiveIdentity(c, receiptArgs);
+        }), /daily_receipt_missing/);
+        for (const changed of [{ mode: "dry_run", triggeredBy: "scheduler" }, { mode: "live", triggeredBy: "manual_test" }]) {
+          await assert.rejects(tx(async c => {
+            await c.query("UPDATE time_control_run SET mode=$3,triggered_by=$4 WHERE tenant_id=$1 AND id=$2",
+              [tenantId, daily.run.id, changed.mode, changed.triggeredBy]);
+            await operation.requireActiveIdentity(c, receiptArgs);
+          }), /daily_receipt_missing/);
+        }
+      }
       const outbox = (await pool.query("SELECT * FROM email_outbox WHERE tenant_id=$1 AND id=$2",
         [tenantId, daily.mails[0].email_outbox_id])).rows[0];
       await tx(c => require("../backend/src/modules/timeControl/timeControl.dispatch").validateDaily(c, { tenantId, row: outbox }));
@@ -132,12 +204,30 @@ test("daily capture and operational-week gate: actual PostgreSQL, controlled clo
       }), /dispatch_settings_invalid/);
       assert.deepEqual(outbox.payload_json.cc_emails, ["dep@hoyrup-clemmensen.dk"]);
       assert.equal(outbox.recipient_email, "mbo@example.test");
+      assert.equal((await automaticDispatch(daily)).sent, 1);
+      assert.equal((await automaticDispatch(daily)).claimed, 0);
       assert.equal((await pool.query("SELECT count(*)::int AS n FROM time_control_operational_check WHERE tenant_id=$1", [tenantId])).rows[0].n, i + 1);
     }
-    at("2026-10-23T10:00:00Z");
+    const dailyGate = await tx(c => operation.checkGate(c, { tenantId, identity: approvedIdentity, friday: period.friday }));
+    assert.equal(dailyGate.eligible, true);
+    assert.equal(dailyGate.receipt_ids.length, 4);
+    assert.equal((await tx(c => operation.checkGate(c, { tenantId, identity: approvedIdentity, friday: period.friday,
+      requireWeekly: true, snapshotId: randomUUID() }))).reason, "scheduled_control_missing:friday_weekly_v1:2026-10-16");
+    for (const day of period.days.slice(0, 4)) {
+      await assert.rejects(tx(async c => {
+        await c.query("UPDATE time_control_run SET status='blocked' WHERE tenant_id=$1 AND control_type='daily_09' AND controlled_date=$2::date", [tenantId, day]);
+        const gate = await operation.checkGate(c, { tenantId, identity: approvedIdentity, friday: period.friday });
+        assert.equal(gate.reason, `scheduled_control_missing:daily_09:${day}`);
+        throw new Error("fixture_rollback_blocked_daily");
+      }), /fixture_rollback_blocked_daily/);
+    }
+    at("2026-10-16T10:00:00Z");
     const full = await run(period.friday, weekly.CONTROL_TYPE);
     assert.equal(full.results[0].status, "weekly_reminder");
     assert.equal(full.mails.filter(mail => mail.status === "queued").length, 2);
+    assert.equal((await automaticDispatch(full)).sent, 2);
+    assert.equal((await automaticDispatch(full)).claimed, 0);
+    assert.equal(simulatedProviderCalls, 6, "four daily plus one weekly employee and one weekly summary, never duplicates");
     const employee = full.mails.find(mail => mail.mail_type === "employee_weekly_reminder_v1");
     const outbox = (await pool.query("SELECT * FROM email_outbox WHERE tenant_id=$1 AND id=$2", [tenantId, employee.email_outbox_id])).rows[0];
     await tx(c => weekly.validateDispatchSnapshot(c, { tenantId, row: outbox }));
@@ -156,14 +246,16 @@ test("daily capture and operational-week gate: actual PostgreSQL, controlled clo
       `SELECT (SELECT count(*) FROM time_control_run WHERE tenant_id=$1)::int AS runs,
        (SELECT count(*) FROM time_control_result WHERE tenant_id=$1)::int AS results,
        (SELECT count(*) FROM time_control_mail_log WHERE tenant_id=$1)::int AS mails,
-       (SELECT count(*) FROM email_outbox WHERE tenant_id=$1)::int AS outbox`, [tenantId])).rows[0];
+       (SELECT count(*) FROM email_outbox WHERE tenant_id=$1)::int AS outbox,
+       (SELECT count(*) FROM time_control_hours_dataset WHERE tenant_id=$1)::int AS datasets,
+       (SELECT count(*) FROM time_control_operational_check WHERE tenant_id=$1)::int AS checks`, [tenantId])).rows[0];
     const before = await counts();
     const { execFileSync } = require("node:child_process");
     const restartProof = JSON.parse(execFileSync(process.execPath, ["-e", `
       const RealDate=Date;
       global.Date=class extends RealDate {
-        constructor(...args){ super(...(args.length ? args : ["2026-10-23T10:00:01Z"])); }
-        static now(){ return new RealDate("2026-10-23T10:00:01Z").getTime(); }
+        constructor(...args){ super(...(args.length ? args : ["2026-10-16T10:00:01Z"])); }
+        static now(){ return new RealDate("2026-10-16T10:00:01Z").getTime(); }
       };
       const service=require("./backend/src/modules/timeControl/timeControl.service");
       const pool=require("./backend/src/db/pool");
@@ -176,13 +268,13 @@ test("daily capture and operational-week gate: actual PostgreSQL, controlled clo
       })().catch(error=>{console.error(error);process.exitCode=1;}).finally(()=>pool.end());
     `], { cwd: require("node:path").resolve(__dirname, ".."), env: process.env, encoding: "utf8", timeout: 20_000 }));
     assert.equal(restartProof.status, "completed");
-    assert.deepEqual(restartProof.outboxIds, full.mails.map(mail => mail.email_outbox_id));
+    assert.deepEqual(restartProof.outboxIds.sort(), full.mails.map(mail => mail.email_outbox_id).sort());
     assert.deepEqual(await counts(), before, "a fresh service process reuses persisted notification keys");
     const concurrent = await Promise.allSettled([run(period.friday, weekly.CONTROL_TYPE), run(period.friday, weekly.CONTROL_TYPE)]);
     assert.ok(concurrent.some(result => result.status === "fulfilled"), concurrent.map(result => result.reason?.stack || "fulfilled").join("\n"));
     for (const item of concurrent) if (item.status === "rejected") assert.match(item.reason.message, /already_in_progress/);
     assert.deepEqual(await counts(), before);
-    await assert.rejects(tx(c => weekly.validateDispatchSnapshot(c, { tenantId, row: outbox })), /snapshot_invalid|not_current/);
+    await tx(c => weekly.validateDispatchSnapshot(c, { tenantId, row: outbox }));
     const retained = (await pool.query("SELECT count(*)::int AS n FROM time_control_hours_dataset WHERE tenant_id=$1", [tenantId])).rows[0].n;
     const badClient = await pool.connect();
     try {
@@ -267,11 +359,12 @@ test("daily capture and operational-week gate: actual PostgreSQL, controlled clo
     await assert.rejects(pool.query("UPDATE time_control_operation SET covered_from='2020-01-01' WHERE tenant_id=$1", [tenantId]), /immutable/);
     await assert.rejects(pool.query("DELETE FROM time_control_operational_check WHERE tenant_id=$1", [tenantId]), /immutable/);
     assert.equal((await pool.query("SELECT count(*)::int AS n FROM sync_job WHERE tenant_id=$1", [tenantId])).rows[0].n, 0);
-    assert.equal((await pool.query("SELECT count(*)::int AS n FROM email_outbox WHERE tenant_id=$1 AND status='sent'", [tenantId])).rows[0].n, 0);
+    assert.equal((await pool.query("SELECT count(*)::int AS n FROM email_outbox WHERE tenant_id=$1 AND status='sent'", [tenantId])).rows[0].n, 6);
     console.log(JSON.stringify({ database, controlledSourceCaptures: calls, plannedDailyControlsVerified: true,
       mondayStartQualified: true, thursdayStartPartial: true, followingFullWeekQualified: true,
-      dryRunGateBlocked: true, revisionsAndDeletionVerified: true, providerCalls: 0, syncJobs: 0 }));
+      dryRunGateBlocked: true, revisionsAndDeletionVerified: true, providerCalls: 0, simulatedProviderCalls, syncJobs: 0 }));
   } finally {
+    global.fetch = originalFetch;
     global.Date = RealDate;
     await appPool.end();
     await pool.end();

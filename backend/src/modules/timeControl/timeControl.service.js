@@ -1,6 +1,7 @@
 "use strict";
 
 const pool = require("../../db/pool");
+const ENV = require("../../config/env");
 const { createHash } = require("node:crypto");
 const { withTransaction } = require("../../db/tx");
 const auditService = require("../../services/auditService");
@@ -91,11 +92,19 @@ function classifyResolvedEmployee(config, rows) {
   };
 }
 
+async function recipientName(client, tenantId, email) {
+  const person = await repository.findActiveTenantUserByEmail(client, { tenantId, email });
+  if (!person?.name?.trim()) throw new Error("time_control_recipient_identity_missing");
+  return person.name.trim();
+}
+
 async function logInternalErrorMail(client, { tenantId, run, settings, dateLabel, errorReason }) {
   const recipients = asEmailArray(settings.internal_error_emails);
   const subject = `Timekontrol stoppet: ${dateLabel}`;
   const body = `Timekontrol blev stoppet for ${dateLabel}.\n\nAarsag: ${errorReason}`;
   const idempotencyKey = `time_control:${tenantId}:${run.control_type}:${run.controlled_date}:internal_error`;
+  const existing = await repository.findEmployeeMailLog(client, { tenantId, idempotencyKey });
+  if (existing?.email_outbox_id) return existing;
   if (run.mode === "dry_run") {
     return repository.upsertMailLog(client, {
       tenantId, runId: run.id, mailType: "internal_error", mode: run.mode, status: "would_send",
@@ -107,9 +116,10 @@ async function logInternalErrorMail(client, { tenantId, run, settings, dateLabel
     actorId: "system:time_control",
     templateKey: "time_control.internal_error",
     recipientEmail: recipients[0] || null,
-    recipientName: "DEP",
+    recipientName: await recipientName(client, tenantId, recipients[0]),
     variables: { date_label: dateLabel, error_reason: errorReason },
-    payload: { run_id: run.id, control_type: run.control_type, controlled_date: run.controlled_date, cc_emails: recipients.slice(1), sender: SENDER },
+    payload: { run_id: run.id, control_type: run.control_type, controlled_date: run.controlled_date,
+      cc_emails: recipients.slice(1), sender: SENDER, reply_to: ENV.MAIL_REPLY_TO || null },
     sourceType: "time_control",
     sourceId: run.id,
     idempotencyKey,
@@ -151,7 +161,8 @@ async function logEmployeeMail(client, { tenantId, run, result, settings, dateLa
     recipientEmail: result.employee_email,
     recipientName: result.employee_name,
     variables,
-    payload: { run_id: run.id, result_id: result.id, controlled_date: run.controlled_date, cc_emails: ccEmails, sender: SENDER,
+    payload: { run_id: run.id, result_id: result.id, controlled_date: run.controlled_date, cc_emails: ccEmails,
+      sender: SENDER, reply_to: ENV.MAIL_REPLY_TO || null,
       identity_snapshot: result.identity_snapshot, result_binding: require("./timeControl.dispatch").resultBinding(result) },
     sourceType: "time_control",
     sourceId: result.id,
@@ -236,10 +247,10 @@ async function logWeeklyMail(client, { tenantId, run, result = null, settings, p
     if (!weekly.reminderWindow(period.friday)) throw new Error("time_control_weekly_outside_reminder_window");
     outbox = await emailOutboxService.enqueueEmail(client, {
       tenantId, actorId: "system:time_control", templateKey: `time_control.${mailType}`,
-      recipientEmail: recipients[0], recipientName: summary ? "DEP" : result.employee_name,
+      recipientEmail: recipients[0], recipientName: summary ? await recipientName(client, tenantId, recipients[0]) : result.employee_name,
       variables: { subject: content.subject, body: content.body },
       payload: { run_id: run.id, weekly_snapshot_id: run.weekly_snapshot_id, monday: period.monday,
-        friday: period.friday, cc_emails: ccEmails, sender: SENDER,
+        friday: period.friday, cc_emails: ccEmails, sender: SENDER, reply_to: ENV.MAIL_REPLY_TO || null,
         result_bindings: (summary ? summaryResults : [result]).map(require("./timeControl.dispatch").resultBinding) },
       sourceType: "time_control", sourceId: result?.id || run.id, idempotencyKey,
     });
@@ -309,11 +320,26 @@ async function runTimeControl(client, { tenantId, controlType, controlledDate, a
   }
   if (allowHistoricalSnapshot && (!(hoursDatasetId || hoursDatasetIds) || dryRun !== true)) throw new Error("time_control_historical_snapshot_requires_stored_dry_run");
   const settings = await repository.getSettings(client, { tenantId });
+  if (execution && triggeredBy === "scheduler" && !dryRun && settings.mode === "live") {
+    execution.operationIds = await operation.admitOperations(client, { tenantId });
+  }
   const requiredHours = isWeekly ? 37 : requiredHoursForDate(date, settings);
   const previousRun = (await client.query(
     `SELECT * FROM time_control_run WHERE tenant_id = $1 AND control_type = $2
      AND controlled_date = $3::date FOR UPDATE`, [tenantId, controlType, date]
   )).rows[0] || null;
+  // A process restart in the same scheduled minute must not recapture a completed slot.
+  if (execution && !dryRun && settings.mode === "live" && settings.is_enabled === true &&
+      operation.scheduledStart(controlType, date, execution.startedAt) &&
+      triggeredBy === "scheduler" && previousRun?.mode === "live" &&
+      previousRun.triggered_by === "scheduler" && previousRun.status === "completed") {
+    const results = (await client.query("SELECT * FROM time_control_result WHERE tenant_id=$1 AND run_id=$2 ORDER BY id",
+      [tenantId, previousRun.id])).rows;
+    const mails = (await client.query("SELECT * FROM time_control_mail_log WHERE tenant_id=$1 AND run_id=$2 ORDER BY id",
+      [tenantId, previousRun.id])).rows;
+    return { run: { ...previousRun, controlled_date: date }, results, mails, replayed: true,
+      sync: { ok: true, status: "completed_scheduled_slot_reused" } };
+  }
   if (previousRun) {
     const oldResults = (await client.query("SELECT * FROM time_control_result WHERE tenant_id=$1 AND run_id=$2 ORDER BY id", [tenantId, previousRun.id])).rows;
     await auditTimeControlRun(client, { tenantId, run: { ...previousRun, controlled_date: date, previous_evaluation: {
@@ -456,8 +482,19 @@ async function runTimeControl(client, { tenantId, controlType, controlledDate, a
       weeklySnapshotId: weeklySnapshot?.id || null,
     });
     results.push(result);
+    let operationEligible = true;
+    if (run.mode === "live" && controlType === "daily_09") {
+      try {
+        await operation.requireActiveIdentity(client, { tenantId, identity: result.identity_snapshot, controlledDate: date,
+          startedAt: execution?.startedAt, operationIds: execution?.operationIds });
+      } catch (error) {
+        if (!error.message.startsWith("time_control_operation_")) throw error;
+        operationEligible = false;
+        (run.operation_gates ||= []).push({ fitter_id: result.fitter_id, eligible: false, reason: error.message });
+      }
+    }
     if (evaluation.status === "missing_hours" && triggeredBy !== "backfill" && (run.mode === "dry_run" ||
-        execution && operation.scheduledStart(controlType, date, execution.startedAt) &&
+        operationEligible && execution && operation.scheduledStart(controlType, date, execution.startedAt) &&
         operation.dispatchWindow(controlType, date, execution.now()))) {
       mails.push(await logEmployeeMail(client, { tenantId, run, result, settings, dateLabel }));
     }
@@ -473,9 +510,26 @@ async function runTimeControl(client, { tenantId, controlType, controlledDate, a
     });
     if (leaderMail) mails.push(leaderMail);
   }
-  const uncertain = results.some((result) => ["config_error", "data_incomplete", "unclassified_hours"].includes(result.status));
-  const reason = uncertain ? "time_control_data_or_configuration_incomplete" : null;
-  const finished = await repository.finishRun(client, { runId: run.id, tenantId, status: uncertain ? "blocked" : "completed", errorReason: reason });
+  if (run.mode === "live") {
+    try {
+      const ops = await operation.requireCurrentCohorts(client, { tenantId, controlledDate: date });
+      const current = results.filter(result => result.identity_snapshot?.group_id)
+        .map(result => `${result.identity_snapshot.group_id}:${result.fitter_id}:${operation.identityHash(result.identity_snapshot)}`).sort();
+      const expected = ops.flatMap(op => op.cohort_json.map(member => `${op.group_id}:${member.fitter_id}:${member.identity_hash}`)).sort();
+      if (ops.some(op => !execution?.operationIds?.includes(op.id)) || JSON.stringify(current) !== JSON.stringify(expected)) {
+        throw new Error("time_control_operation_cohort_changed");
+      }
+    } catch (error) {
+      if (!error.message.startsWith("time_control_operation_")) throw error;
+      (run.operation_gates ||= []).push({ eligible: false, reason: error.message });
+    }
+  }
+  const uncertain = run.mode === "live" && !results.length ||
+    results.some((result) => ["config_error", "data_incomplete", "unclassified_hours"].includes(result.status));
+  const operationBlocked = run.operation_gates?.some(gate => !gate.eligible);
+  const reason = uncertain ? "time_control_data_or_configuration_incomplete"
+    : operationBlocked ? "time_control_operation_not_eligible" : null;
+  const finished = await repository.finishRun(client, { runId: run.id, tenantId, status: reason ? "blocked" : "completed", errorReason: reason });
   run.status = finished.status;
   if (isWeekly) {
     const reminders = results.filter((result) => result.status === "weekly_reminder");
@@ -507,7 +561,7 @@ async function runTimeControl(client, { tenantId, controlType, controlledDate, a
     await operation.recordChecks(client, { tenantId, run: { ...run, triggered_by: triggeredBy }, results, execution });
   }
 
-  if (uncertain) {
+  if (uncertain || operationBlocked) {
     mails.push(await logInternalErrorMail(client, { tenantId, run, settings, dateLabel, errorReason: reason }));
   }
   await auditTimeControlRun(client, { tenantId, run: { ...finished, controlled_date: date,
@@ -518,7 +572,7 @@ async function runTimeControl(client, { tenantId, controlType, controlledDate, a
       data_quality_reason: result.data_quality_reason, counted_pay_codes: result.counted_pay_codes,
       excluded_pay_codes: result.excluded_pay_codes, weekly_snapshot_id: result.weekly_snapshot_id,
     })) } : {}),
-  }, outcome: uncertain ? "fail" : "success", reason });
+  }, outcome: reason ? "fail" : "success", reason });
   return { run: finished, results, mails, sync };
 }
 

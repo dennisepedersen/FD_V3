@@ -1,5 +1,26 @@
 "use strict";
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const TIME_CONTROL_TEMPLATES = Object.freeze([
+  "time_control.missing_hours.employee",
+  "time_control.employee_weekly_reminder_v1",
+  "time_control.friday_weekly_summary_v1",
+  "time_control.internal_error",
+]);
+
+function isTimeControlEmail(row) {
+  return row.source_type === "time_control" || String(row.template_key || "").startsWith("time_control.");
+}
+
+function validateTimeControlOutboxIds(tenantId, outboxIds) {
+  if (typeof tenantId !== "string" || !UUID.test(tenantId)) throw new Error("time_control_outbox_tenant_invalid");
+  if (!Array.isArray(outboxIds) || outboxIds.length > 100 ||
+      [...outboxIds].some(id => typeof id !== "string" || !UUID.test(id)) ||
+      new Set(outboxIds.map(id => id.toLowerCase())).size !== outboxIds.length) {
+    throw new Error("time_control_outbox_ids_invalid");
+  }
+}
+
 async function upsertEmail(client, {
   tenantId,
   templateId,
@@ -134,6 +155,20 @@ async function getQueueStats(client, { tenantId }) {
   return rows;
 }
 
+async function listTimeControlUncertain(client, { tenantId }) {
+  const { rows } = await client.query(
+    `SELECT id, template_key, attempt_count, last_attempt_at,
+            'unclear'::text AS delivery_state
+     FROM email_outbox
+     WHERE tenant_id = $1 AND attempt_count > 0
+       AND (status = 'processing' OR (status = 'dead_letter' AND last_error_code = 'provider_acceptance_unclear'))
+       AND (source_type = 'time_control' OR template_key ~ '^time_control[.]')
+     ORDER BY last_attempt_at ASC, id ASC`,
+    [tenantId]
+  );
+  return rows;
+}
+
 async function listDuePreview(client, { tenantId, limit }) {
   const { rows } = await client.query(
     `
@@ -160,6 +195,10 @@ async function claimDueBatch(client, { tenantId, limit, processingTimeoutMinutes
         WHERE tenant_id = $1
           AND attempt_count < max_attempts
           AND (
+            (source_type IS DISTINCT FROM 'time_control' AND template_key !~ '^time_control[.]')
+            OR (status = 'queued' AND attempt_count = 0)
+          )
+          AND (
             (status IN ('queued', 'retry') AND next_attempt_at <= now())
             OR (status = 'processing' AND last_attempt_at < now() - ($3::integer * interval '1 minute'))
           )
@@ -175,7 +214,7 @@ async function claimDueBatch(client, { tenantId, limit, processingTimeoutMinutes
         last_error_code = NULL,
         last_error = NULL
       FROM picked
-      WHERE eo.id = picked.id
+      WHERE eo.id = picked.id AND eo.tenant_id = $1
       RETURNING
         eo.id,
         eo.tenant_id,
@@ -209,6 +248,29 @@ async function claimDueBatch(client, { tenantId, limit, processingTimeoutMinutes
     [tenantId, limit, processingTimeoutMinutes]
   );
 
+  return rows;
+}
+
+async function claimTimeControlBatch(client, { tenantId, outboxIds }) {
+  validateTimeControlOutboxIds(tenantId, outboxIds);
+  if (!outboxIds.length) return [];
+  const { rows } = await client.query(
+    `WITH picked AS (
+       SELECT id FROM email_outbox
+       WHERE tenant_id = $1 AND id = ANY($2::uuid[])
+         AND source_type = 'time_control' AND template_key = ANY($3::text[])
+         AND status = 'queued' AND attempt_count = 0 AND attempt_count < max_attempts
+         AND next_attempt_at <= now()
+       ORDER BY next_attempt_at ASC, created_at ASC, id ASC
+       FOR UPDATE SKIP LOCKED
+     )
+     UPDATE email_outbox eo
+     SET status = 'processing', attempt_count = attempt_count + 1,
+         last_attempt_at = now(), last_error_code = NULL, last_error = NULL
+     FROM picked WHERE eo.id = picked.id AND eo.tenant_id = $1
+     RETURNING eo.*`,
+    [tenantId, outboxIds, TIME_CONTROL_TEMPLATES]
+  );
   return rows;
 }
 
@@ -247,6 +309,8 @@ async function markRetry(client, { tenantId, id, nextAttemptAt, errorCode, error
         AND id = $2
         AND status = 'processing'
         AND attempt_count < max_attempts
+        AND source_type IS DISTINCT FROM 'time_control'
+        AND template_key !~ '^time_control[.]'
       RETURNING id, tenant_id, status, attempt_count, max_attempts, next_attempt_at, last_error_code
     `,
     [tenantId, id, nextAttemptAt, errorCode, errorMessage]
@@ -277,10 +341,14 @@ async function markDeadLetter(client, { tenantId, id, errorCode, errorMessage })
 
 module.exports = {
   claimDueBatch,
+  claimTimeControlBatch,
   getQueueStats,
+  isTimeControlEmail,
   listDuePreview,
+  listTimeControlUncertain,
   markDeadLetter,
   markRetry,
   markSent,
   upsertEmail,
+  validateTimeControlOutboxIds,
 };

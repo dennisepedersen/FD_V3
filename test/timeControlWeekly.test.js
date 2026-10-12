@@ -357,7 +357,7 @@ async function withWeeklyDispatchFixture(fn) {
     repository.resolveEmployeeConfig = async () => [];
     repository.listPayCodeRules = async () => [];
     service._test.classifyResolvedEmployee = config => ({ ok: true, employee: {
-      email: identity.approved_email, identitySnapshot: structuredClone(identity),
+      name: result.employee_name, email: identity.approved_email, identitySnapshot: structuredClone(identity),
     } });
     operation.checkGate = async (_client, args) => {
       gates.push(args.identity.fitter_id);

@@ -96,7 +96,7 @@ function weeklyMail({ name, monday, friday, validHours }) {
 
 function weeklySummary(results, period) {
   return `Ugekontrol ${period.monday} – ${period.friday} fredag kl. 12.00. Ugenormen er 37 timer. Fredagen og registreringen er stadig i gang.\n\n` +
-    results.map((row) => `${row.employee_name} (${row.internal_ref}): ${formatHoursDa(row.valid_hours)} medregnede timer; påmindelse om at færdiggøre ugens registrering inden kl. 14.30.`).join("\n");
+    results.map((row) => `${row.employee_name}: ${formatHoursDa(row.valid_hours)} medregnede timer; påmindelse om at færdiggøre ugens registrering inden kl. 14.30.`).join("\n");
 }
 
 async function validateDispatchSnapshot(client, { tenantId, row }) {
@@ -190,7 +190,8 @@ async function validateDispatchSnapshot(client, { tenantId, row }) {
     const config = await require("./timeControl.repository").lockEmployeeConfig(client, { tenantId, configId: result.employee_config_id });
     const resolution = config && require("./timeControl.service")._test.classifyResolvedEmployee(config,
       await require("./timeControl.repository").resolveEmployeeConfig(client, { tenantId, config }));
-    if (!resolution?.ok || !dispatch.matchesIdentity(resolution.employee.identitySnapshot, result.identity_snapshot) ||
+    if (!resolution?.ok || resolution.employee.name !== result.employee_name ||
+        !dispatch.matchesIdentity(resolution.employee.identitySnapshot, result.identity_snapshot) ||
         employeeMail && row.recipient_email.trim().toLowerCase() !== resolution.employee.email) {
       throw new Error("time_control_weekly_dispatch_identity_changed");
     }
