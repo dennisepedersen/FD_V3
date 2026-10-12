@@ -16,9 +16,9 @@ current plan and rejects both previous keys before claiming a send. Tests
 cover sender-key replacement, legacy/signed supersession, sender/Reply-To
 forwarding and preservation of the generic mail adapter's default sender.
 
-The production record and command in the sections below are historical.
-Their former sender-domain blocker is resolved only after the new code and
-new locked test have been verified. No send, scheduler/live activation,
+The production record and command in the older sections below are historical.
+Their former sender-domain blocker is resolved by the verified replacement
+below. No send, scheduler/live activation,
 outbox apply, EK write, DNS or global mail configuration change is authorized.
 
 `verified` locally: `node --test test/timeControl.test.js test/mailService.test.js`
@@ -29,6 +29,60 @@ Read-only production preflight reverified `mail.fielddesk.dk` as `verified`
 with sending `enabled`; scheduler `false`, Reply-To `admin@fielddesk.dk`,
 and global From `Fielddesk <noreply@mail.fielddesk.dk>`. No active jobs appeared
 in the 20 most recent service jobs.
+
+### Deployed and prepared, awaiting send approval
+
+`verified`: commit `cda1b4fad2a1c7c12688c72ddb71cd5ba4269ecf` is live in
+Render deploy `dep-db699mavcj2c73fcmeug`, finished
+`2026-10-12T08:06:49.976Z`. Backend health returned HTTP 200. The authenticated
+production admin UI preview showed the new sender for all three POC stages.
+The UI then prepared one new test in existing batch
+`7aac3ac3-a4cf-4f2c-bddf-491bcb2b4f45` at `2026-10-12T08:07:54.042Z`.
+
+- Current test ID: `698712b3-1aec-462f-a256-f5921e4fbe7f`.
+- Current test key:
+  `time_control_poc_mail:v1:f1f51c07-2d88-4ee4-a766-78eac833a9d0:7aac3ac3-a4cf-4f2c-bddf-491bcb2b4f45:dep_delivery:d0ca1acbd128`.
+- Content hash:
+  `b228431c93128f05b1a9f043efee4864443bf23c7e0349e6a0b14576430e8359`.
+- Status `prepared`; `attempt_started_at=NULL`; `provider_message_id=NULL`.
+- From `Fielddesk Timekontrol <timekontrol@mail.fielddesk.dk>`; To
+  `Dennis <dep@hoyrup-clemmensen.dk>`; no CC;
+  Reply-To `admin@fielddesk.dk`.
+- Subject `[POC-TEST - ingen handling] Fielddesk Timekontrol: mailtest til Dennis`.
+- The locked body greets Dennis, explains that this is only a mail test with
+  no hour-registration action, and asks for inbox confirmation before the test
+  to Mikkel Hyldebo Jensen.
+
+`verified`: Render job `job-db69b4favr4c73akp8ng` succeeded with exactly one
+current test and three total tenant-scoped historical/current records. Both
+previous records (`a331f1cb-dd8b-4c9f-a93b-dd4e30f3aa15` and
+`6f056355-599e-44f4-9aff-f0d89ddb3757`) retain their recorded hashes and
+unsent prepared states. Both were rejected by the deployed sender with
+`time_control_poc_locked_message_superseded` before claim. The current test
+passed the sender's validation up to the explicit
+`validated_before_claim_no_write` sentinel; all mutations were blocked and
+the transaction rolled back. Provider sends: 0.
+
+The job also exercised the deployed shared mail adapter with its network
+transport replaced by a capture-only stub. The resulting Resend request From,
+To, CC, Reply-To, subject and text matched the current plan/locked record.
+No request was sent to Resend's email endpoint. Global From remains
+`Fielddesk <noreply@mail.fielddesk.dk>`. Tenant `mode=dry_run`,
+`live_enabled_at=NULL`, scheduler `false`, employee CC DEP alone and manager
+recipients DEP alone were reverified. LKE remains excluded. No migrations,
+outbox apply, EK writes or production configuration changes ran.
+
+Reuse this test; do not create another batch. After explicit approval for
+this one send, the exact Render/Linux action from the service's `backend`
+root is:
+
+```sh
+TIME_CONTROL_POC_APPROVED_ACTOR_ID=8eaddbc0-8fc7-414a-9c5c-064617972394 node scripts/send_time_control_poc_dep.js 698712b3-1aec-462f-a256-f5921e4fbe7f SEND:timekontrol-poc-dep:698712b3-1aec-462f-a256-f5921e4fbe7f
+```
+
+This command has not run. Provider acceptance is not inbox receipt. Wait for
+Dennis's inbox confirmation and a separate instruction before Mikkel's test;
+the leader overview remains preview-only. No automatic retries are allowed.
 
 ## Production migration and pre-send validation (2026-10-12)
 
