@@ -61,6 +61,7 @@ async function listPayCodeRules(client, { tenantId }) {
       FROM time_control_pay_code_rule
       WHERE tenant_id = $1
       ORDER BY pay_code ASC
+      FOR SHARE
     `,
     [tenantId]
   );
@@ -213,6 +214,9 @@ async function getSyncJob(client, { tenantId, jobId }) {
 }
 
 function runLockKey({ tenantId, controlType, controlledDate }) {
+  if (controlType === "friday_weekly_v1") {
+    controlledDate = require("./timeControl.dates").weeklyPeriod(controlledDate).monday;
+  }
   return `time_control:${tenantId}:${controlType}:${controlledDate}`;
 }
 
@@ -403,6 +407,7 @@ async function upsertResult(client, {
   unclassifiedRows = [],
   identitySnapshot = {},
   hoursDatasetId = null,
+  weeklySnapshotId = null,
 }) {
   const { rows } = await client.query(
     `
@@ -427,9 +432,10 @@ async function upsertResult(client, {
         unclassified_hours,
         unclassified_rows,
         identity_snapshot,
-        hours_dataset_id
+        hours_dataset_id,
+        weekly_snapshot_id
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13::jsonb, $14, $15, $16, $17, $18, $19::jsonb, $20::jsonb, $21)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13::jsonb, $14, $15, $16, $17, $18, $19::jsonb, $20::jsonb, $21, $22)
       ON CONFLICT (run_id, employee_config_id)
       DO UPDATE SET
         tenant_user_id = EXCLUDED.tenant_user_id,
@@ -449,7 +455,8 @@ async function upsertResult(client, {
         unclassified_hours = EXCLUDED.unclassified_hours,
         unclassified_rows = EXCLUDED.unclassified_rows,
         identity_snapshot = EXCLUDED.identity_snapshot,
-        hours_dataset_id = EXCLUDED.hours_dataset_id
+        hours_dataset_id = EXCLUDED.hours_dataset_id,
+        weekly_snapshot_id = EXCLUDED.weekly_snapshot_id
       RETURNING *
     `,
     [
@@ -474,9 +481,23 @@ async function upsertResult(client, {
       JSON.stringify(unclassifiedRows),
       JSON.stringify(identitySnapshot),
       hoursDatasetId,
+      weeklySnapshotId,
     ]
   );
   return rows[0];
+}
+
+async function bindRunWeeklySnapshot(client, { tenantId, runId, snapshotId }) {
+  await client.query(
+    "UPDATE time_control_run SET weekly_snapshot_id = $3 WHERE tenant_id = $1 AND id = $2 AND control_type = 'friday_weekly_v1'",
+    [tenantId, runId, snapshotId]
+  );
+  await client.query(
+    `UPDATE time_control_mail_log SET status = 'skipped'
+     WHERE tenant_id = $1 AND run_id = $2 AND mode = 'dry_run' AND status = 'would_send'
+       AND email_outbox_id IS NULL AND sent_at IS NULL`,
+    [tenantId, runId]
+  );
 }
 
 async function bindRunDataset(client, { tenantId, runId, datasetId }) {
@@ -573,7 +594,15 @@ async function getStatusOverview(client, { tenantId }) {
     ),
     client.query(
       `
-        SELECT r.*, CASE WHEN r.hours_dataset_id IS NULL THEN NULL
+        SELECT r.*, run.control_type, run.controlled_date, s.monday AS week_monday,
+          s.proof_json AS weekly_proof,
+          CASE WHEN r.weekly_snapshot_id IS NOT NULL THEN
+            (SELECT count(*) = 5 AND bool_and(hd.dataset_id = sd.dataset_id AND hd.invalidated_at IS NULL)
+             FROM time_control_weekly_snapshot_day sd
+             LEFT JOIN time_control_hours_dataset_head hd
+               ON hd.tenant_id = sd.tenant_id AND hd.controlled_date = sd.controlled_date
+             WHERE sd.snapshot_id = r.weekly_snapshot_id AND sd.tenant_id = r.tenant_id)
+          WHEN r.hours_dataset_id IS NULL THEN NULL
           ELSE COALESCE(h.dataset_id = r.hours_dataset_id AND h.invalidated_at IS NULL, false)
           END AS dataset_is_current
         FROM time_control_result r
@@ -582,6 +611,8 @@ async function getStatusOverview(client, { tenantId }) {
          AND run.tenant_id = r.tenant_id
         LEFT JOIN time_control_hours_dataset_head h
           ON h.tenant_id = r.tenant_id AND h.controlled_date = run.controlled_date
+        LEFT JOIN time_control_weekly_snapshot s
+          ON s.id = r.weekly_snapshot_id AND s.tenant_id = r.tenant_id
         WHERE r.tenant_id = $1
         ORDER BY run.started_at DESC, r.internal_ref ASC
         LIMIT 80
@@ -627,6 +658,7 @@ async function getStatusOverview(client, { tenantId }) {
 }
 
 module.exports = {
+  bindRunWeeklySnapshot,
   acquireRunLock,
   approveEmployeeEmail,
   bindRunDataset,

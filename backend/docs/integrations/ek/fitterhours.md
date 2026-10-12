@@ -8,6 +8,88 @@ Consumer: backend/src/services/syncWorker.js, backend/src/db/queries/fitterHour.
 - Store time rows for active projects into fitter_hour.
 - Power project drawer summary/breakdown and /api/fitterhours endpoint.
 
+## Weekly Timekontrol local reader contract (2026-10-11)
+
+Current local implementation: `timeControl.capture.js` reads only
+`GET /api/v4/paginatedfitterhours`, one explicit inclusive day, tenant-wide.
+It reuses the EK client/credential mechanism but not the general import parser
+or sync jobs. The retained positive two-pass October evidence supports coverage
+v2; March's closed-project regression and original v1 evidence remain unchanged.
+New, corrected and deleted source rows are represented by a new complete
+immutable capture, not by updating/deleting old dataset rows.
+
+Fixed bounds: pageSize 10, two stable passes, 1,000 pages/pass, 2,000 logical
+page calls/date, three attempts/request, 120 seconds/date and request timeout
+at most 15 seconds/remaining deadline. Sanitized attempt and actual request/pass
+timings are retained. Retry-After/rate-limit waits consume the same deadline.
+Short and full terminal pages are source-verified. The server reader now issues
+coverage v3; v1/v2 retain their original short-terminal requirement. Zero days
+remain blocked pending actual two-pass tenant-wide empty-day source evidence.
+
+### Full terminal source evidence (2026-10-12)
+
+`verified`: 14 bounded, read-only GETs (eight candidate dates, no broad search)
+found 2026-09-26 with **30 rows / 30 distinct IDs** and two identical complete
+passes. Both had `(currentPage,nextPage,rowCount)` = `(1,2,10)`, `(2,3,10)`,
+`(3,null,10)`, constant `total=30`, HTTP 200, no API errors and every row dated
+`2026-09-26T00:00:00`. Six full-pass requests took 1.024 seconds. Queries used
+only fromDate=toDate, page and pageSize=10; no fitter/project-status filter.
+The retained sanitized artifact is `ek_terminal_zero_20261012.json` in the
+local session evidence directory. Actual-source replay is opt-in via
+`FIELDDESK_TC_TERMINAL_EVIDENCE_PATH` in `timeControlCapture.test.js`.
+Observed passes: 2026-10-12T00:02:13.990Z-00:02:14.528Z and
+00:02:14.528Z-00:02:15.014Z. Both canonical-row hashes were
+`aa4fffd1c82d530d8bc6581d41bfb862870387b10e64f813b2c2a2d863726fa7`;
+both ordered-ID hashes were
+`cc2d2dc0377430a2b3bbab13c42997fd92d9631d1b80e08fd4c1acf995017726`.
+
+`ek_v4_all_projects_single_day_two_pass_v3` accepts a full terminal page only
+with actual null nextPage, consistent total, distinct IDs, in-day rows and two
+stable complete passes. A prematurely terminal full page whose count is below
+total still fails. Version-bound revisions preserve existing v1/v2 evidence.
+
+`unclear`: no tenant-wide zero day was found within the eight-date budget.
+Candidate totals: Oct 10=14, Oct 11=2, Oct 3=23, Sep 27=22, Sep 26=30,
+Sep 25=278, Sep 24=283, Sep 23=277. A fitter absent on one of these positive
+days does not prove a tenant-wide zero day. No empty-day contract was relaxed;
+no synthetic zero fixture is external proof.
+
+`timeControl.orchestration.js` commits head invalidation before network reads,
+then publishes only a valid trusted two-pass dataset. Failed reobservation and
+process interruption therefore block dispatch until a newer valid observation.
+Observation time is capture start, not import/upload time. Dispatch locks and
+rechecks the current heads, freshness, classification and operational-week gate.
+No general full-resync or historical full import is started by this path.
+
+Actual zero-day behavior is **not verified**. The live adapter blocks it;
+`ek_v4_all_projects_empty_day_v1` below describes the historical local/synthetic
+contract only. Fixtures must not be presented as real EK zero-day evidence.
+
+`verified` locally: `captureHoursDataset` validates two complete identical
+single-day reads and issues the server observation timestamp at capture start.
+Only this in-process capture sets `server_captured`; file import time and a
+manually supplied `observed_at` never authorize fresh weekly live controls.
+`friday_weekly_v1` binds five immutable current day datasets (Monday–Friday);
+historical opt-in runs label freshness `explicit_historical_demo`.
+
+A zero-row day is supported separately from a missing day. It requires the
+explicit `ek_v4_all_projects_empty_day_v1` contract: endpoint, inclusive date
+filter, all-project/closed-project scope, nonempty verification reference,
+`emptyCurrentPage=0`, and two request-page-1 responses with `currentPage=0`,
+`total=0`, `nextPage=null`, zero rows and no errors. Both ordered-ID and
+canonical-row hashes must equal SHA-256 of `[]`. This special zero-page shape
+matches the bounded empty-day observation documented below; it is never applied
+to nonempty pages. Migration 0054 permits row count zero only with this evidence.
+
+`unclear` / production dependency: the historical single future-day response
+does not establish two-pass completeness or certify all-project date semantics
+for a real empty evaluated day. No new EK request was made for the local weekly
+implementation. Before live activation, endpoint evidence must substantiate
+the explicit zero-day contract. The bounded positive-day reader is now wired
+locally to capture/publication/invalidation, but has not been deployed or enabled.
+The existing active-project sync does not satisfy that contract. Never fill an
+absent day with an empty array.
+
 ## Timekontrol Period Coverage (Local Inspection 2026-10-11)
 
 verified: the canonical local OpenAPI describes
@@ -108,6 +190,17 @@ not a helper import-order issue. Credential values were not printed.
   hours:3,isClosed:true}`, labelled as an independent prior project-detail
   observation. This records the earlier project-detail response and is not a
   claim about the project's current status.
+- Local follow-up 2026-10-12: positive all-project days can explicitly use
+  `ek_v4_all_projects_single_day_two_pass_v2`. Complete October 5–9 captures
+  have 276/267/261/246/244 distinct IDs, stable totals/terminal nextPage=null
+  and two identical passes; the week union matches all 1,294 rows. No closed
+  project control row is required in each day. The versioned endpoint scope
+  and exact date/pageSize-only request parameters are mandatory; all existing
+  error/pagination/ID/date/hash checks remain. Original v1/March evidence and
+  revisions are unchanged. Project status does not classify approved hours.
+  V2 does not extend the unverified real zero-day contract.
+  Actual retained data, uncertainty and isolated PostgreSQL results:
+  [October evidence](../../../../docs/modules/time-control/evidence/FITTERHOURS_2026-10-05_2026-10-09.md).
 - Recompute artifact hashes in Node as follows. For each EK row, first project
   fields in this exact insertion order into an object:
   `{id: String(row.id), date, hours, fitterId, categoryId, categoryReference,
@@ -181,7 +274,8 @@ historical null `observed_at` does not become fresh merely because it was saved
 recently. Parent-reported implementation and pending local PostgreSQL tests are
 not independently validated here.
 
-Requirements for source/API assurance beyond the local producer:
+Historical March assurance requirements (the v3 contract above supersedes
+the count-based pagination proposal in item 3):
 
 1. Read the whole tenant's explicitly bounded work-date period from the v4
    period endpoint, without active-project filtering, project joins, retention
@@ -194,10 +288,10 @@ Requirements for source/API assurance beyond the local producer:
    period is proven.
 2. Validate the actual work-date and timezone semantics with boundary rows and
    a known row on a closed project. Do not use deletion timestamps as work dates.
-3. Use the existing count-based page rule with a fixed page size: start at 1,
-   continue after full pages, fetch the terminal short/empty page. Record page
-   numbers, row counts, errors and distinct source IDs. `nextPage=null` alone
-   is not a completeness certificate.
+3. Follow the verified actual `nextPage` with fixed page size and progression
+   from 1. A full terminal page is legitimate when nextPage is null and total,
+   distinct rows, dates and two passes reconcile. `nextPage=null` alone is not
+   a completeness certificate; do not request a guessed extra empty page.
 4. Reject repeated pages/IDs, unexpected page numbers, changed/missing total,
    malformed dates/identities, rows outside the requested period, unresolved
    retries and skipped pages. Reconcile the distinct fetched count with the

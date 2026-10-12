@@ -71,6 +71,13 @@ function syntheticEvidence(tenantId) {
     projectReference: "12325-026",
   }));
   rows[0] = { ...rows[0], id: "318942", hours: 3 };
+  const dailyFixtures = [
+    [15, "1220", 7], [295, "3300", 7], [18, "1220", 7], [208, "9000", 7],
+    [498, "3300", 7], [290, "3300", 6], [290, "9070", 6],
+  ];
+  for (const [index, [fitterId, categoryReference, hours]] of dailyFixtures.entries()) {
+    rows[index + 1] = { ...rows[index + 1], fitterId, categoryReference, hours };
+  }
   const pages = makePages(rows.length, 10);
   const projected = projectedRows(rows);
   const orderedIdsHash = hash(projected.map((row) => row.id));
@@ -163,8 +170,8 @@ function safeDatabaseUrl() {
   assert.equal(url.protocol, "postgres:");
   assert.equal(url.hostname, "127.0.0.1", "integration tests must use IPv4 loopback only");
   assert.equal(url.port, "55432", "integration tests must use the disposable local cluster port");
-  assert.match(url.pathname, /^\/fielddesk_tc_validation(?:_upgrade_[a-f0-9]{24})?$/,
-    "integration tests must use their dedicated database or an isolated upgrade-test database");
+  assert.match(url.pathname, /^\/fielddesk_tc_validation_upgrade_[a-f0-9]{24}$/,
+    "integration tests must use a new isolated upgrade-test database");
   assert.equal(decodeURIComponent(url.username), "tc_validation");
   assert.equal(url.password, "", "the disposable loopback cluster uses no reusable credential");
   return value;
@@ -266,12 +273,12 @@ test("Timekontrol storage and dry-run service against disposable PostgreSQL 17",
        FROM time_control_pay_code_rule WHERE tenant_id = $1 ORDER BY pay_code`,
       [tenantId]
     );
-    assert.equal(targetRules.rows.length, 15, "0053 should add ten rules while preserving five target legacy rules");
+    assert.equal(targetRules.rows.length, 17, "0053 must preserve legacy rules and the two HC allowances from 0055");
     const targetRuleMap = new Map(targetRules.rows.map((rule) => [rule.pay_code, rule]));
     for (const payCode of ["9000", "1195", "9315", "9200", "9300", "9320", "1199", "9022"]) {
       assert.equal(targetRuleMap.get(payCode)?.counts_as_valid_hours, true, `${payCode} is a valid-hours rule`);
     }
-    for (const payCode of ["9070", "1244"]) {
+    for (const payCode of ["9070", "1244", "9043", "9076"]) {
       assert.equal(targetRuleMap.get(payCode)?.counts_as_valid_hours, false, `${payCode} is excluded`);
     }
     const legacyAfter = await pool.query(
@@ -298,7 +305,7 @@ test("Timekontrol storage and dry-run service against disposable PostgreSQL 17",
        FROM schema_migration`,
       [createHash("sha256").update(migrationSql).digest("hex")]
     );
-    assert.equal(migrationState.rows[0].successes, 53);
+    assert.equal(migrationState.rows[0].successes, 56);
     assert.equal(migrationState.rows[0].failures, 0);
     assert.equal(migrationState.rows[0].checksum_matches, true);
 

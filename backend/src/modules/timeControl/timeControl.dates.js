@@ -20,7 +20,18 @@ function normalizeIsoDate(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
     throw new Error("time_control_invalid_date");
   }
+  const parsed = new Date(`${normalized}T12:00:00Z`);
+  if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== normalized) {
+    throw new Error("time_control_invalid_date");
+  }
   return normalized;
+}
+
+function weeklyPeriod(friday) {
+  const date = normalizeIsoDate(friday);
+  if (weekdayIndexForIsoDate(date) !== 5) throw new Error("time_control_weekly_requires_friday");
+  const monday = addDaysIso(date, -4);
+  return { monday, friday: date, days: Array.from({ length: 5 }, (_, i) => addDaysIso(monday, i)) };
 }
 
 function getCopenhagenParts(date) {
@@ -90,7 +101,7 @@ function determineScheduledControl(now = new Date()) {
   }
   if (weekday === 5 && parts.hour === 12 && parts.minute === 0) {
     return {
-      controlType: "friday_12",
+      controlType: "friday_weekly_v1",
       controlledDate: parts.isoDate,
       localDate: parts.isoDate,
       localHour: parts.hour,
@@ -122,4 +133,5 @@ module.exports = {
   normalizeIsoDate,
   requiredHoursForDate,
   weekdayIndexForIsoDate,
+  weeklyPeriod,
 };

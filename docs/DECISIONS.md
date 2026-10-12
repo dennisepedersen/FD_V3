@@ -7,6 +7,7 @@ Scope: links to decisions; does not duplicate full decisions
 
 | Decision | Source |
 | --- | --- |
+| 2026-10-11: Timekontrol daily capture is a separate bounded track, not activation of the general FitterHours import. A partial startup week is internal-only. Technician weekly reminders require the first full operational week with four scheduled valid daily controls and the Friday weekly control; historical backfill alone does not qualify. EK owns group definitions/membership, while FD owns leader access/subscriptions. Capture/startup gate and group import remain plans, not implemented behavior. | [Daily capture, operational evidence, group contract gaps and separate backlog](modules/time-control/TIME_CONTROL_WEEKLY_REMINDER.md#dagsvis-capture-og-opstart-godkendt-retning-endnu-ikke-implementeret) |
 | V3 is a clean foundation, not an in-place V2 cleanup | `docs/RESET_DECISION.md` |
 | V3 foundation blueprint governs tenant, auth, RBAC, project, scope, audit, and sync | `docs/V3_FOUNDATION_DESIGN.md` |
 | Backend is source of truth for auth, tenant isolation, RBAC, scope, and entitlements | `docs/V3_FOUNDATION_DESIGN.md`, `docs/AI_BOOTSTRAP_CONTEXT.md` |
@@ -62,7 +63,7 @@ Scope: links to decisions; does not duplicate full decisions
 
 | Decision | Source |
 | --- | --- |
-| 2026-10-11: Next Timekontrol version checks Monday-Friday approved hours against 37 hours Friday at 12:00 Copenhagen; below norm gives one reminder to finish registration before 14:30, not a confirmed deficit. Incomplete/unclassified evidence blocks employee mail. Current daily POC/demo is unchanged. | [Reglement, coverage/idempotency contract and backlog](modules/time-control/TIME_CONTROL_WEEKLY_REMINDER.md) |
+| 2026-10-11: Timekontrol `friday_weekly_v1` checks Monday-Friday approved hours against 37 hours Friday at 12:00 Copenhagen; below norm gives one reminder before 14:30, not a confirmed deficit. Five immutable current day bindings and server-capture freshness are mandatory; incomplete/unclassified evidence blocks employee mail. Leader To DEP/CC LKE reports weekly registration, not missing-hour differences. Implemented locally only; 0054, deployment and scheduler/live activation remain pending. Historical daily POC/demo is unchanged. | [Reglement, local coverage/idempotency/API contract and operational boundaries](modules/time-control/TIME_CONTROL_WEEKLY_REMINDER.md) |
 | Fielddesk should become modular with tenant-level module enablement | `docs/AI_BOOTSTRAP_CONTEXT.md` |
 | Modules must document purpose, owner, dependencies, permissions, data ownership, and disable behavior | `docs/AI_BOOTSTRAP_CONTEXT.md` |
 | Restarbejde is currently a draft standard-module definition, not an implementation spec | `docs/modules/restarbejde/MODULE_DEFINITION.md` |

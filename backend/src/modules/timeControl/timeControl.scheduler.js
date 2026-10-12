@@ -8,13 +8,16 @@ const { runTimeControlWithPool, compactError } = require("./timeControl.service"
 let timer = null;
 let lastKey = null;
 let running = false;
+const TENANT_CONCURRENCY = 4;
 
 function schedulerEnabled() {
   return ["1", "true", "yes", "on"].includes(String(process.env.TIME_CONTROL_SCHEDULER_ENABLED || "").trim().toLowerCase());
 }
 
 async function listEnabledTenantIds() {
-  const { rows } = await pool.query("SELECT tenant_id FROM time_control_settings WHERE is_enabled = true");
+  const { rows } = await pool.query(
+    `SELECT s.tenant_id FROM time_control_settings s JOIN tenant t ON t.id=s.tenant_id
+     WHERE s.is_enabled=true AND t.status='active'`);
   return rows.map((row) => row.tenant_id);
 }
 
@@ -26,26 +29,43 @@ async function tick(now = new Date()) {
   running = true;
   lastKey = key;
   try {
-    const results = [];
-    for (const tenantId of await listEnabledTenantIds()) {
+    const results = await runTenantControls(await listEnabledTenantIds(), scheduled);
+    return { skipped: false, scheduled, results };
+  } finally {
+    running = false;
+  }
+}
+
+async function runTenantControls(tenantIds, scheduled, {
+  runControl = runTimeControlWithPool, now = () => new Date(),
+} = {}) {
+  const results = new Array(tenantIds.length);
+  let nextIndex = 0;
+  const worker = async () => {
+    while (nextIndex < tenantIds.length) {
+      const index = nextIndex++;
+      const tenantId = tenantIds[index];
       try {
-        const result = await runTimeControlWithPool({
+        const current = determineScheduledControl(now());
+        if (current?.controlType !== scheduled.controlType || current?.controlledDate !== scheduled.controlledDate) {
+          throw new Error("time_control_scheduled_start_window_expired");
+        }
+        const result = await runControl({
           tenantId,
           controlType: scheduled.controlType,
           controlledDate: scheduled.controlledDate,
           triggeredBy: "scheduler",
           waitForSync: true,
         });
-        results.push({ tenant_id: tenantId, ok: true, run_id: result.run?.id || null });
+        results[index] = { tenant_id: tenantId, ok: true, run_id: result.run?.id || null };
       } catch (error) {
         console.error("[timeControl.scheduler] tenant_run_failed", { tenant_id: tenantId, error_message: compactError(error) });
-        results.push({ tenant_id: tenantId, ok: false, error: compactError(error) });
+        results[index] = { tenant_id: tenantId, ok: false, error: compactError(error) };
       }
     }
-    return { skipped: false, scheduled, results };
-  } finally {
-    running = false;
-  }
+  };
+  await Promise.all(Array.from({ length: Math.min(TENANT_CONCURRENCY, tenantIds.length) }, worker));
+  return results;
 }
 
 function startTimeControlScheduler() {
@@ -63,7 +83,7 @@ function stopTimeControlScheduler() {
 }
 
 module.exports = {
-  _test: { listEnabledTenantIds, schedulerEnabled, tick },
+  _test: { listEnabledTenantIds, schedulerEnabled, tick, runTenantControls, TENANT_CONCURRENCY },
   startTimeControlScheduler,
   stopTimeControlScheduler,
 };

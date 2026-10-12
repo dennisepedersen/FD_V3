@@ -1,5 +1,259 @@
 # Mail Provider Verification Runbook
 
+## Daily EK capture and operational-week gate (local, not deployed)
+
+This section supersedes earlier rollout gaps concerning on-demand full-resync
+and the missing startup gate; historical March demo evidence below is unchanged.
+The local implementation uses migration 0056 in addition to 0054 and HC's 0055.
+No production migration, deployment, real mail, scheduler activation or EK write
+is authorized by local validation.
+
+- Tuesday-Friday 09:00 Copenhagen: capture the previous workday, all tenant
+  FitterHours, with no project-status/fitter filter; evaluate only approved fitters.
+- Friday 12:00: recapture Monday-Friday individually, then evaluate
+  `friday_weekly_v1`. All five source observations must be fresh both at evaluation
+  and dispatch. Friday's counted total is provisional, never a final deficit.
+- Invalidate the current head in a committed transaction before reobservation.
+  Failure/process interruption leaves it invalid. New complete stable captures
+  publish a new immutable revision; previous datasets/results/audit remain.
+- Manual CLI/API controls are dry-run. Explicit historical datasets still work
+  without a scheduler. Catch-up is internal evaluation, never delayed employee
+  mail or a qualifying planned control.
+- Only live/scheduler controls started in the planned minute and completed before
+  09:15/12:15 issue immutable operational receipts. Daily provider dispatch stops
+  at 09:15; weekly dispatch stops at 14:30.
+- Receipt admission requires a completed run; mixed configuration/data failures
+  block the whole run's receipts. Gate lookup also checks the referenced run is
+  still completed. Scheduler fanout is bounded to four concurrent tenants;
+  queued tenants missing the actual start minute fail explicitly rather than
+  being backdated. Measure pool capacity/start latency before expanding rollout
+  beyond the HC tenant.
+- Friday's gate requires the current active group epoch, unchanged approved
+  identity, four planned daily receipts and a Friday receipt for the **current**
+  weekly snapshot. Repeat calls retain tenant/fitter/week/mailtype deduplication.
+  Every prior mutable evaluation is archived in audit before reevaluation.
+- Employee To/CC remains fitter/DEP; Friday summary To/CC remains DEP/LKE.
+- Dispatch compares the whole normalized queued To/CC route with current locked
+  settings and verifies immutable enqueue-time dataset/evaluation/approval
+  bindings. A stale daily notification cannot borrow a rerun's mutable result.
+  Weekly summaries retain and validate their exact eligible result subset.
+  Changed routing/evaluation rejects rather than rewriting a queued mail or
+  generating another deduplication key. Global provider behavior is unchanged;
+  queue uniqueness tests do not prove exactly-once delivery across a provider
+  acceptance/process-crash boundary.
+- Actual EK zero-day behavior is still unverified: the adapter blocks zero rows.
+  Synthetic empty-day tests are not external evidence.
+
+### Administrative startup and controlled rollout (requires separate approval)
+
+The complete local, uncommitted delivery manifest (38 files, including previous
+weekly/capture work; not just the final review repairs) is:
+
+```text
+backend/docs/integrations/ek/fitterhours.md
+backend/scripts/fd_maintenance_job.js
+backend/scripts/run_time_control.js
+backend/src/modules/notifications/emailOutbox.processor.js
+backend/src/modules/timeControl/timeControl.capture.js
+backend/src/modules/timeControl/timeControl.coverage.js
+backend/src/modules/timeControl/timeControl.dataset.js
+backend/src/modules/timeControl/timeControl.dates.js
+backend/src/modules/timeControl/timeControl.dispatch.js
+backend/src/modules/timeControl/timeControl.operation.js
+backend/src/modules/timeControl/timeControl.orchestration.js
+backend/src/modules/timeControl/timeControl.repository.js
+backend/src/modules/timeControl/timeControl.routes.js
+backend/src/modules/timeControl/timeControl.scheduler.js
+backend/src/modules/timeControl/timeControl.service.js
+backend/src/modules/timeControl/timeControl.weekly.js
+backend/src/public/tenant/app.html
+backend/src/public/tenant/auth.js
+backend/src/public/tenant/time-control.html
+docs/DECISIONS.md
+docs/development/TESTING.md
+docs/DOC_INDEX.md
+docs/modules/time-control/evidence/FITTERHOURS_2026-10-05_2026-10-09.md
+docs/modules/time-control/TIME_CONTROL_WEEKLY_REMINDER.md
+docs/runbooks/MAIL_PROVIDER_VERIFICATION.md
+migrations/0054_time_control_weekly_snapshot.sql
+migrations/0055_time_control_hc_excluded_allowances.sql
+migrations/0056_time_control_operational_capture.sql
+test/dbMigrate.test.js
+test/notificationOutboxFoundation.test.js
+test/timeControl.test.js
+test/timeControlCapture.test.js
+test/timeControlOctoberPostgres.integration.js
+test/timeControlOperation.test.js
+test/timeControlOperationalPostgres.integration.js
+test/timeControlPostgres.integration.js
+test/timeControlWeekly.test.js
+test/timeControlWeeklyPostgres.integration.js
+```
+
+1. Obtain approval for commit/push/deploy and the actual pending migrations.
+   Inspect production migration history first; use the normal runner, never
+   edit applied migrations or delete history/audit. Keep
+   `TIME_CONTROL_SCHEDULER_ENABLED=false`, tenant mode `dry_run` and
+   `MAIL_PROVIDER=disabled`; do not execute outbox apply.
+2. Check `GET /api/tenant/admin/time-control/operation` on the correct tenant
+   host. Validate group/approved fitter/email configuration using existing admin
+   authorization. No body-supplied tenant/actor is authoritative.
+3. Approve one bounded runtime dry-run with an explicit current workday:
+   `node backend\scripts\run_time_control.js --tenant hoyrup-clemmensen --date <YYYY-MM-DD> --control-type daily_09 --dry-run`.
+   This performs authorized EK reads **and local tenant dataset/control writes**,
+   not general sync. An approved Friday test may instead select
+   `--control-type friday_weekly_v1`; it performs five captures.
+4. Inspect actual source totals/distinct IDs/two stable passes, current heads,
+   observation times/freshness, statuses, To/CC and audit. Repeat the same control
+   key and compare notification IDs/counts; newer captures themselves are legitimate
+   immutable observations. Verify zero added provider-outbox/sync-job rows.
+5. Only after separate startup approval, POST
+   `/api/tenant/admin/time-control/operation` with
+   `{group_id, status:"active", covered_from:"YYYY-MM-DD",
+   confirm:"BEKRAEFT:timekontrol-drift:<tenant-slug>:active"}`.
+   `covered_from` must be in the current week and not after today. Actual start
+   time and cohort are server-recorded. Monday coverage plus startup before
+   Tuesday 09 may qualify; later startup cannot qualify that first partial week.
+   Pausing uses `status:"paused"` and the corresponding explicit confirmation.
+6. Provider credentials/sender-domain/recipient delivery tests and any scheduler/
+   live activation need separate approval. Dry-run receipts cannot qualify real
+   dispatch: four actual planned operational controls followed by Friday's valid
+   capture/control are required. A later complete week can qualify after a partial
+   week. Do not enable the historical full import or clean the old general running
+   job as part of this rollout. Runbook
+
+### Read-call budget
+
+For the verified positive-day shape with pageSize 10, a normal daily control
+uses two complete passes: `2 * ceil(dayRows / 10)` successful page calls.
+Friday noon uses the sum for five days, sequentially. With the retained October
+counts this is 56/54/54/50/50 calls per captured day and **264** calls at Friday
+noon, excluding retries. Friday's separate 09:00 Thursday control adds 50:
+314 total Friday calls for that example, not a guaranteed future row count.
+
+Bounds: 1,000 pages per pass, 2,000 successful logical pages per date,
+at most three attempts per page, and 120 seconds overall per date including
+retry waits. Five dates therefore have at most 600 seconds of capture time.
+Each request timeout is at most 15 seconds and never exceeds the remaining
+date deadline. Coverage v3 also accepts an actually verified full terminal page
+(September 26: 30 distinct rows, two stable three-page passes, last page 10 rows,
+nextPage=null). Historical v1/v2 retain their original contracts. Tenant-wide
+zero-day behavior remains unverified and blocks explicitly.
+The theoretical attempt caps are 6,000/date and 30,000/five dates, but the
+deadline/rate-limit waits normally bind first. At the October page counts the
+retry upper limits are 168/162/162/150/150 per date and 792 for Friday noon.
+
+Full-terminal evidence artifact SHA-256:
+`0e101bdba4a491c0b40cdea1b308199a21bb9da366014da47dfdba4be5fdb489`.
+
+### Runtime estimate and freshness admission
+
+The actual six-page September source capture took 1.024 seconds (about 0.17
+seconds/request). Extrapolating that small sample to October's 264 calls suggests
+about 45 seconds of network work for Friday; allow roughly 1-5 minutes plus
+database/evaluation and queue delay. This is an estimate, not measured Render
+runtime or a latency guarantee. The hard capture bound is 10 minutes for five
+dates, before database/evaluation time; planned receipts must finish before
+12:15. Rate limits/errors can therefore block the run instead of sending late.
+
+With the default 180-minute freshness, sequential five-date capture fits the
+capture bound comfortably. A smaller tenant threshold must exceed the oldest
+capture's actual age at evaluation **and dispatch**, including database and
+queue delay. Freshness is checked on all five heads twice; dispatch near 14:30
+may require reobservation if a tighter threshold is configured. The runtime
+dry-run must measure real pass durations/head ages and queue delay before any
+live approval. Do not claim Friday freshness solely from the 45-second estimate.
+
+### Final local review evidence (2026-10-12, not deployed)
+
+All five review findings were repaired with targeted regressions: changed
+To/CC, obsolete daily enqueue binding, blocked-run operational receipts,
+eligible-only weekly summary subset, and serial tenant scheduler starts.
+No general-sync implementation or global mail adapter was changed.
+Migrations 0054-0056 were preserved; no additional schema migration was needed.
+
+Executed from repository root:
+
+```powershell
+# Set retained FIELDDESK_TC_TERMINAL_EVIDENCE_PATH for the actual-source replay.
+node --test test\mailService.test.js test\timeControl.test.js test\timeControlCapture.test.js test\timeControlOperation.test.js test\timeControlWeekly.test.js test\notificationOutboxFoundation.test.js test\tenantUserInvitationEmail.test.js
+# Set FIELD_DESK_LOCAL_PG_TEST=1, guarded loopback test URL and retained March/October paths.
+node --test test\timeControlOctoberPostgres.integration.js test\timeControlOperationalPostgres.integration.js test\timeControlWeeklyPostgres.integration.js test\dbMigrate.test.js test\timeControlOperation.test.js
+npm run check
+git diff --check
+git diff --cached --check
+```
+
+Final results: focused **122/122**, isolated PostgreSQL **18/18**, full gate
+**480 passed / 6 opt-in skipped / 0 failed (486 total)**. The separate focused
+replay and PostgreSQL executions establish the opt-in evidence; skips in the
+ordinary gate do not. Explicit `node --check` passed all eight new untracked JS
+files; editor diagnostics reported no errors on the changed execution paths.
+Whitespace passed, with Git CRLF-to-LF informational warnings only.
+
+PostgreSQL tested full-terminal v3 publication/restore/weekly dispatch with
+controlled synthetic rows, while the adapter replay used the actual retained
+September source. Upgrade regression preserved 101 audit events including
+three IGVA events and all 48 successful old migration histories; repeated
+upgrade applied zero migrations. October reused all 1,294 actual retained rows:
+six 37-hour OK results, MUM's 30 excluded hours, no reminders, provider-outbox
+rows or sync jobs. Repeat/concurrent/restart queue identity remained stable.
+
+An intermediate PostgreSQL fixture failed because a tampered recipient now
+correctly returns `time_control_weekly_dispatch_routing_changed`, while the old
+assertion expected `/dispatch_identity_changed/`; the assertion was updated
+and the complete PostgreSQL suite then passed. Initial `pg_ctl start` without
+explicit test-port options failed to bind localhost (`Permission denied`).
+Starting the same isolated cluster with `-p 55432 -h 127.0.0.1` succeeded;
+no Windows security configuration was changed. The test cluster is stopped
+again, with its databases/evidence retained.
+Retry-After and capped retry waits never extend the deadline. Publication is
+all-or-nothing per date; reaching a bound is a diagnostic, not completeness. Runbook
+
+## Local weekly-control v1 boundary (2026-10-11)
+
+`friday_weekly_v1` is now implemented locally, with new migration
+`0054_time_control_weekly_snapshot.sql`. No Render operation, EK request,
+production migration, deploy, live/scheduler activation or real mail was
+performed for this implementation. Existing `friday_12` day-runs and their
+previews/evidence remain day-based; the historical outcomes below are not
+weekly proof.
+
+The new Friday scheduler selection is weekly at 12:00 Copenhagen, but its
+enabled gate remains false. Before any separately approved activation:
+
+1. Review/apply 0054 through the normal migration runner; never modify deployed
+   SQL or relax the existing 101+Timekontrol audit allowlist.
+2. Supply five immutable current tenant/day datasets for Monday–Friday.
+   A continuous all-project EK reader must be connected to the server-side
+   two-pass capture, publication and invalidation contract. Legacy sync
+   freshness and a March 27 dataset alone cannot authorize employee reminders.
+3. Source observation comes from the server capture reader, not artifact
+   save/import time or `--observed-at`. Historical opt-in dry-run always labels
+   evidence historical and never sends provider mail.
+4. Validate endpoint-specific empty-day evidence: request page 1, response
+   `currentPage=0`, `total=0`, `nextPage=null`, zero rows/errors, identical
+   two-pass hashes and explicit documented all-project/date-filter scope.
+   Existing one-pass future-day evidence is not itself complete-day proof.
+5. Keep To employee/CC DEP and To DEP/CC LKE leader routing. Under 37 hours is
+   midday registration guidance, not a confirmed difference/missing-hours claim.
+6. Review the known scheduler minute-dedupe, tenant-status, retry/catch-up gaps
+   before activation. Live enqueue and dispatch already fail closed outside
+   Friday 12:00–14:30; expired reminders dead-letter without a provider call.
+   These guards do not approve catch-up operation.
+
+The local PostgreSQL upgrade test uses actual first-48 migrations plus 0049–0054,
+retains all 101 baseline audit rows and all 48 successful history rows, archives
+the original failed 0049 retry evidence, and verifies a repeat skips all 54.
+The new weekly integration uses synthetic local fixtures to verify five-day
+bindings, exact/over/under norm, absence/exclusions/unknown codes, complete zero
+days, stale/null observations, invalidation/replacement, concurrent run locks,
+one logical reminder, provider-linked employee/summary log preservation and
+expired dispatch with zero provider calls. These are local runtime checks,
+not EK dataset or production verification.
+
+See [weekly contract and local CLI/admin usage](../modules/time-control/TIME_CONTROL_WEEKLY_REMINDER.md). Runbook
+
 Status: current runbook
 Scope: verifying Fielddesk invitation mail behavior without leaking secrets or sending accidental mail.
 
@@ -59,7 +313,9 @@ node --test test\mailService.test.js test\timeControl.test.js test\notificationO
 
 ### Database-based Timekontrol preconditions
 
-`--dry-run` disables provider enqueue, not database writes or on-demand sync.
+`--dry-run` disables provider enqueue, not dataset/control database writes or
+the bounded single-day capture (five single days for the new weekly control).
+Timekontrol no longer queues the general on-demand full-resync.
 Do not run the CLI during a read-only preflight. It can persist runs, results,
 mail previews and audit events, and queue an EK read/import job when local hours
 are stale. `--no-wait-sync` still queues that job.
@@ -564,7 +820,10 @@ checksum rejection must remain fail-closed; any authorized retry must identify
 the exact failed migration and previous checksum and retain the failed-attempt
 evidence. Restore the ordinary pre-deploy command after the successful retry.
 Keep `TIME_CONTROL_SCHEDULER_ENABLED=false` before the new web process starts.
-The weekly reminder remains documentation/backlog only.
+At the historical retry checkpoint, the weekly reminder remained
+documentation/backlog only. A subsequent separately approved implementation is
+local only; see the versioned weekly-control section below. This does not change
+the historical migration/proof outcomes recorded here.
 
 verified locally: PostgreSQL 17 upgraded from the actual first 48 migrations
 with one existing audit row for each of the 101 baseline event types. The

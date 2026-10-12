@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Timekontrol – Fielddesk</title>
+  <style>
+    body { margin: 0; background: #f0faf5; color: #0e1018; font-family: "Segoe UI", sans-serif; }
+    main { max-width: 1000px; margin: 32px auto; padding: 24px; background: white; border-radius: 16px; }
+    input, textarea, button { font: inherit; padding: 10px; }
+    label { display: block; margin: 16px 0 8px; }
+    textarea { width: 95%; min-height: 100px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 10px; border-bottom: 1px solid #d1fae5; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body data-page="time-control">
+  <main>
+    <a href="/app">Tilbage til Fielddesk</a>
+    <h1>Timekontrol</h1>
+    <p id="timeControlMessage" role="status">Henter adgang og status…</p>
+    <section id="timeControlAdmin" hidden>
+      <p>Fredagens ugekontrol v1 summerer mandag–fredag mod 37 timer. Under 37 timer er en påmindelse ved middag, ikke et konstateret underskud. Historiske dagskontroller vises fortsat som dagskontroller.</p>
+      <p>Denne side kører kun dry-run. Ingen mails afsendes, og scheduler/live ændres ikke.</p>
+      <form id="timeControlWeeklyForm">
+        <label for="timeControlFriday">Fredagens dato</label>
+        <input id="timeControlFriday" type="date" required>
+        <label for="timeControlDatasets">Fem lagrede dataset-UUID'er i rækkefølge mandag–fredag</label>
+        <textarea id="timeControlDatasets" required placeholder="UUID for mandag, tirsdag, onsdag, torsdag, fredag"></textarea>
+        <label><input id="timeControlHistorical" type="checkbox"> Historisk snapshot: ingen påstand om friskhed ved den oprindelige kontrol</label>
+        <button type="submit">Vis ugens dry-run</button>
+      </form>
+      <h2>Seneste kontroller</h2>
+      <table><thead><tr><th>Kontrol</th><th>Dato / uge</th><th>Status</th><th>Medregnede timer / norm</th><th>Databevis</th></tr></thead><tbody id="timeControlResults"></tbody></table>
+      <h2>Mailforhåndsvisninger</h2>
+      <div id="timeControlPreviews"></div>
+    </section>
+  </main>
+  <script src="/tenant/auth.js"></script>
+</body>
+</html>

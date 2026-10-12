@@ -150,7 +150,7 @@ test("0049 and all subsequent audit allowlists preserve every event valid under 
   }
 });
 
-test("real PostgreSQL upgrade retains 0048 audits, explicitly retries failed 0049, then skips all 53", {
+test("real PostgreSQL upgrade retains 0048 audits, explicitly retries failed 0049, then skips all migrations", {
   skip: process.env.FIELD_DESK_LOCAL_PG_TEST !== "1",
 }, async () => {
   const connectionString = process.env.FIELDDESK_TIME_CONTROL_TEST_DATABASE_URL
@@ -159,7 +159,7 @@ test("real PostgreSQL upgrade retains 0048 audits, explicitly retries failed 004
   assert.equal(url.protocol, "postgres:");
   assert.equal(url.hostname, "127.0.0.1");
   assert.equal(url.port, "55432");
-  assert.equal(url.pathname, "/fielddesk_tc_validation");
+  assert.match(url.pathname, /^\/fielddesk_tc_validation_upgrade_[a-f0-9]{24}$/);
   assert.equal(decodeURIComponent(url.username), "tc_validation");
   assert.equal(url.password, "");
 
@@ -173,7 +173,7 @@ test("real PostgreSQL upgrade retains 0048 audits, explicitly retries failed 004
     const { rows: [server] } = await admin.query(
       "SELECT current_database() AS database, host(inet_server_addr()) AS address, inet_server_port() AS port, version()"
     );
-    assert.equal(server.database, "fielddesk_tc_validation");
+    assert.equal(server.database, url.pathname.slice(1));
     assert.equal(server.address, "127.0.0.1");
     assert.equal(server.port, 55432);
     assert.match(server.version, /^PostgreSQL 17\./);
@@ -184,7 +184,7 @@ test("real PostgreSQL upgrade retains 0048 audits, explicitly retries failed 004
     assert.equal((await client.query("SELECT current_database() AS name")).rows[0].name, database);
     await runner.ensureMigrationTable(client);
     const migrations = runner.getMigrationFiles();
-    assert.equal(migrations.length, 53);
+    assert.equal(migrations.length, 56);
     const prior = migrations.filter((item) => Number(item.sequence) <= 48);
     await runner.runPendingMigrations(client, prior, new Map());
     const successfulBefore = [...(await runner.getAppliedMap(client)).values()];
@@ -265,10 +265,10 @@ test("real PostgreSQL upgrade retains 0048 audits, explicitly retries failed 004
     }
     const success = invoke(["--retry-failed", migrationId, "--expected-failed-checksum", oldChecksum]);
     assert.equal(success.status, 0, success.stdout + success.stderr);
-    assert.match(success.stdout, /Migration complete: 5 applied, 48 skipped/);
+    assert.match(success.stdout, /Migration complete: 8 applied, 48 skipped/);
     const after = await runner.getAppliedMap(client);
     for (const row of successfulBefore) assert.deepEqual(after.get(row.id), row);
-    assert.equal(after.size, 53);
+    assert.equal(after.size, migrations.length);
     assert.equal(after.get(migrationId).checksum_sha256, fixed.checksum);
     assert.ok([...after.values()].every((row) => row.success));
     const archived = await client.query(`
@@ -297,7 +297,7 @@ test("real PostgreSQL upgrade retains 0048 audits, explicitly retries failed 004
     ), (error) => error.code === "23514" && error.constraint === "ck_audit_event_event_type");
     const repeated = invoke([]);
     assert.equal(repeated.status, 0, repeated.stdout + repeated.stderr);
-    assert.match(repeated.stdout, /Migration complete: 0 applied, 53 skipped/);
+    assert.match(repeated.stdout, new RegExp(`Migration complete: 0 applied, ${migrations.length} skipped`));
     assert.deepEqual(await runner.getAppliedMap(client), after);
     assert.deepEqual((await client.query("SELECT * FROM schema_migration_retry_history")).rows, archiveBeforeRepeat);
     const staleRetry = invoke(["--retry-failed", migrationId, "--expected-failed-checksum", oldChecksum]);
@@ -309,7 +309,7 @@ test("real PostgreSQL upgrade retains 0048 audits, explicitly retries failed 004
       database, retainedAuditRows: legacyRows.length, retainedIgvaRows: 3,
       successfulHistoryUnchanged: successfulBefore.length,
       archivedFailedAttempts: archived.rows.length,
-      applied: 5, skipped: 48, repeatApplied: 0, repeatSkipped: 53,
+      applied: 8, skipped: 48, repeatApplied: 0, repeatSkipped: migrations.length,
       oldFailedChecksum: oldChecksum, repairedChecksum: fixed.checksum,
     }));
   } finally {

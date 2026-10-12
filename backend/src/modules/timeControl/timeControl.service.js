@@ -23,6 +23,10 @@ const {
 
 const SENDER = "Fielddesk Timekontrol <timekontrol@fielddesk.dk>";
 const datasetStorage = require("./timeControl.dataset");
+const weekly = require("./timeControl.weekly");
+const operation = require("./timeControl.operation");
+const orchestration = require("./timeControl.orchestration");
+const { weeklyPeriod } = require("./timeControl.dates");
 
 function asEmailArray(value) {
   const state = emailListFailureFor(value);
@@ -46,90 +50,6 @@ function isFreshSyncState(state, freshnessMinutes, now = new Date()) {
   if (!Number.isFinite(lastSuccess)) return false;
   const age = now.getTime() - lastSuccess;
   return age >= 0 && age <= Number(freshnessMinutes || 180) * 60 * 1000;
-}
-
-async function sleep(ms) {
-  await new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function ensureFitterhoursFresh(client, { tenantId, actorId, run, settings, wait = true, commitPreparation }) {
-  const freshnessMinutes = Number(settings.sync_freshness_minutes || 180);
-  let state = await repository.getFitterhoursSyncState(client, { tenantId });
-  if (isFreshSyncState(state, freshnessMinutes)) {
-    await repository.updateRunSync(client, {
-      runId: run.id,
-      tenantId,
-      syncStatus: "fresh",
-      syncJobId: state.current_job_id || state.active_job_id || null,
-      syncCompletedAt: state.last_successful_sync_at,
-    });
-    await commitPreparation();
-    return { ok: true, status: "fresh", state };
-  }
-
-  const queued = await repository.queueFitterhoursSync(client, {
-    tenantId,
-    actorId,
-    metadata: {
-      source: "time_control",
-      run_id: run.id,
-      controlled_date: run.controlled_date,
-      control_type: run.control_type,
-    },
-  });
-  await repository.updateRunSync(client, {
-    runId: run.id,
-    tenantId,
-    syncStatus: queued?.status === "running" ? "running" : "queued",
-    syncJobId: queued?.id || null,
-  });
-  await commitPreparation();
-
-  if (!wait) return { ok: false, status: "queued", state, job: queued, reason: "sync_queued_not_waited" };
-
-  const deadline = Date.now() + Number(settings.sync_wait_seconds ?? 900) * 1000;
-  while (Date.now() < deadline) {
-    await sleep(5000);
-    const job = queued?.id ? await repository.getSyncJob(client, { tenantId, jobId: queued.id }) : null;
-    state = await repository.getFitterhoursSyncState(client, { tenantId });
-    if (job?.status === "failed") {
-      const reason = compactError(job.error_message || "fitterhours_sync_job_failed");
-      await repository.updateRunSync(client, {
-        runId: run.id, tenantId, syncStatus: "failed", syncJobId: job.id, errorReason: reason,
-      });
-      return { ok: false, status: "failed", state, job, reason };
-    }
-    if (isFreshSyncState(state, freshnessMinutes)) {
-      await repository.updateRunSync(client, {
-        runId: run.id,
-        tenantId,
-        syncStatus: "fresh",
-        syncJobId: state.current_job_id || state.active_job_id || queued?.id || null,
-        syncCompletedAt: state.last_successful_sync_at,
-      });
-      return { ok: true, status: "fresh", state, job: queued };
-    }
-    if (state?.endpoint_status === "failed" || state?.last_error) {
-      const reason = compactError(state.last_error || "fitterhours_sync_failed");
-      await repository.updateRunSync(client, {
-        runId: run.id,
-        tenantId,
-        syncStatus: "failed",
-        syncJobId: state.current_job_id || state.active_job_id || queued?.id || null,
-        errorReason: reason,
-      });
-      return { ok: false, status: "failed", state, job: queued, reason };
-    }
-  }
-
-  await repository.updateRunSync(client, {
-    runId: run.id,
-    tenantId,
-    syncStatus: "timeout",
-    syncJobId: queued?.id || null,
-    errorReason: "fitterhours_sync_timeout_or_stale",
-  });
-  return { ok: false, status: "timeout", state, job: queued, reason: "fitterhours_sync_timeout_or_stale" };
 }
 
 function classifyResolvedEmployee(config, rows) {
@@ -231,7 +151,8 @@ async function logEmployeeMail(client, { tenantId, run, result, settings, dateLa
     recipientEmail: result.employee_email,
     recipientName: result.employee_name,
     variables,
-    payload: { run_id: run.id, result_id: result.id, controlled_date: run.controlled_date, cc_emails: ccEmails, sender: SENDER, identity_snapshot: result.identity_snapshot },
+    payload: { run_id: run.id, result_id: result.id, controlled_date: run.controlled_date, cc_emails: ccEmails, sender: SENDER,
+      identity_snapshot: result.identity_snapshot, result_binding: require("./timeControl.dispatch").resultBinding(result) },
     sourceType: "time_control",
     sourceId: result.id,
     idempotencyKey,
@@ -260,6 +181,7 @@ async function logFridayManagerMail(client, { tenantId, run, settings, dateLabel
       if (existing.mode !== "dry_run" || !["would_send", "skipped"].includes(existing.status)) {
         throw new Error("time_control_preview_routing_correction_requires_unsent_dry_run");
       }
+
       await auditService.logAuditEvent({
         client, tenantId, actorId: run.triggered_by_user_id || "system:time_control",
         actorType: run.triggered_by_user_id ? "tenant_user" : "system", actorScope: "tenant",
@@ -298,7 +220,41 @@ async function logFridayManagerMail(client, { tenantId, run, settings, dateLabel
   });
 }
 
+async function logWeeklyMail(client, { tenantId, run, result = null, settings, period, summaryResults = null }) {
+  const summary = summaryResults !== null;
+  const mailType = summary ? "friday_weekly_summary_v1" : "employee_weekly_reminder_v1";
+  const idempotencyKey = `time_control:${tenantId}:${summary ? "leaders" : result.fitter_id}:${period.monday}:${mailType}`;
+  const existing = await repository.findEmployeeMailLog(client, { tenantId, idempotencyKey });
+  if (existing?.email_outbox_id || existing?.sent_at) return existing;
+  const recipients = summary ? asEmailArray(settings.friday_manager_emails) : [result.employee_email];
+  const ccEmails = summary ? recipients.slice(1) : asEmailArray(settings.employee_cc_emails);
+  const content = summary
+    ? { subject: `Timekontrol: ugens registrering ${period.monday} – ${period.friday}`, body: weekly.weeklySummary(summaryResults, period) }
+    : weekly.weeklyMail({ name: result.employee_name, ...period, validHours: result.valid_hours });
+  let outbox = null;
+  if (run.mode === "live") {
+    if (!weekly.reminderWindow(period.friday)) throw new Error("time_control_weekly_outside_reminder_window");
+    outbox = await emailOutboxService.enqueueEmail(client, {
+      tenantId, actorId: "system:time_control", templateKey: `time_control.${mailType}`,
+      recipientEmail: recipients[0], recipientName: summary ? "DEP" : result.employee_name,
+      variables: { subject: content.subject, body: content.body },
+      payload: { run_id: run.id, weekly_snapshot_id: run.weekly_snapshot_id, monday: period.monday,
+        friday: period.friday, cc_emails: ccEmails, sender: SENDER,
+        result_bindings: (summary ? summaryResults : [result]).map(require("./timeControl.dispatch").resultBinding) },
+      sourceType: "time_control", sourceId: result?.id || run.id, idempotencyKey,
+    });
+  }
+  return repository.upsertMailLog(client, {
+    tenantId, runId: run.id, resultId: result?.id || null, mailType, mode: run.mode,
+    status: outbox ? outbox.status === "queued" ? "queued" : "failed" : "would_send",
+    recipientEmails: recipients.slice(0, 1), ccEmails, subject: content.subject, bodyPreview: content.body,
+    emailOutboxId: outbox?.id || null, idempotencyKey,
+  });
+}
+
 async function auditTimeControlRun(client, { tenantId, run, outcome, reason = null }) {
+  const controlledDate = typeof run.controlled_date === "string" ? normalizeIsoDate(run.controlled_date)
+    : require("./timeControl.dates").getCopenhagenParts(new Date(run.controlled_date)).isoDate;
   await auditService.logAuditEvent({
     client,
     tenantId,
@@ -313,9 +269,14 @@ async function auditTimeControlRun(client, { tenantId, run, outcome, reason = nu
     reason,
     metadata: {
       control_type: run.control_type,
-      controlled_date: run.controlled_date,
+      controlled_date: controlledDate,
       mode: run.mode,
       sync_status: run.sync_status,
+      weekly_snapshot_id: run.weekly_snapshot_id || null,
+      ...(run.weekly_evaluations ? { evaluations: run.weekly_evaluations } : {}),
+      ...(run.previous_evaluation ? { previous_evaluation: run.previous_evaluation } : {}),
+      ...(run.operation_gates ? { operation_gates: run.operation_gates } : {}),
+      ...(run.control_type === weekly.CONTROL_TYPE ? { period: weeklyPeriod(controlledDate), required_hours: 37, decision: "midday_reminder_not_final_deficit" } : {}),
     },
   });
 }
@@ -325,22 +286,44 @@ async function runTimeControl(client, { tenantId, controlType, controlledDate, a
   beginEvaluation = async () => {},
   hoursDataset = null,
   hoursDatasetId = null,
+  hoursDatasetIds = null,
   allowHistoricalSnapshot = false,
+  execution = null,
+  captureDay = null,
 } = {}) {
   const date = normalizeIsoDate(controlledDate);
+  const isWeekly = controlType === weekly.CONTROL_TYPE;
+  let weeklySnapshot = null;
+  if (isWeekly) {
+    weeklyPeriod(date);
+    if (hoursDatasetId !== null) throw new Error("time_control_weekly_requires_five_dataset_ids");
+    if (hoursDatasetIds !== null) weekly.validateBindings(hoursDatasetIds);
+  } else if (hoursDatasetIds !== null) throw new Error("time_control_weekly_dataset_ids_require_weekly_control");
   let datasetProof = null;
   if (hoursDataset !== null) throw new Error("time_control_dataset_must_be_stored");
   if (hoursDatasetId !== null) {
-    if (dryRun !== true) throw new Error("time_control_snapshot_requires_explicit_dry_run");
+    if (dryRun !== true && !execution) throw new Error("time_control_snapshot_requires_explicit_dry_run");
     if (hoursDatasetId !== null && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(hoursDatasetId)) {
       throw new Error("time_control_dataset_id_invalid");
     }
   }
-  if (allowHistoricalSnapshot && (!hoursDatasetId || dryRun !== true)) throw new Error("time_control_historical_snapshot_requires_stored_dry_run");
+  if (allowHistoricalSnapshot && (!(hoursDatasetId || hoursDatasetIds) || dryRun !== true)) throw new Error("time_control_historical_snapshot_requires_stored_dry_run");
   const settings = await repository.getSettings(client, { tenantId });
-  const requiredHours = requiredHoursForDate(date, settings);
+  const requiredHours = isWeekly ? 37 : requiredHoursForDate(date, settings);
+  const previousRun = (await client.query(
+    `SELECT * FROM time_control_run WHERE tenant_id = $1 AND control_type = $2
+     AND controlled_date = $3::date FOR UPDATE`, [tenantId, controlType, date]
+  )).rows[0] || null;
+  if (previousRun) {
+    const oldResults = (await client.query("SELECT * FROM time_control_result WHERE tenant_id=$1 AND run_id=$2 ORDER BY id", [tenantId, previousRun.id])).rows;
+    await auditTimeControlRun(client, { tenantId, run: { ...previousRun, controlled_date: date, previous_evaluation: {
+      run: previousRun, results: oldResults, result_count: oldResults.length,
+      weekly_snapshot_id: previousRun.weekly_snapshot_id || null,
+    } }, outcome: "success", reason: "previous_evaluation_archived_before_rerun" });
+  }
+  const effectiveDryRun = dryRun || !execution;
   const storedRun = await repository.upsertRun(client, {
-    tenantId, controlType, controlledDate: date, mode: dryRun ? "dry_run" : settings.mode || "dry_run",
+    tenantId, controlType, controlledDate: date, mode: effectiveDryRun ? "dry_run" : settings.mode || "dry_run",
     requiredHours, triggeredBy, triggeredByUserId: actorId,
   });
   // pg can parse SQL date as local-midnight Date; use the requested calendar date for keys.
@@ -353,14 +336,80 @@ async function runTimeControl(client, { tenantId, controlType, controlledDate, a
   }
 
   let sync;
-  if (datasetProof || hoursDatasetId) {
-    await commitPreparation();
+  await commitPreparation();
+  if (hoursDatasetId || hoursDatasetIds) {
     sync = { ok: true, status: "dataset_snapshot", coverage: datasetProof };
   } else {
-    sync = await ensureFitterhoursFresh(client, { tenantId, actorId, run, settings, wait: waitForSync, commitPreparation });
+    try {
+      ({ hoursDatasetId, hoursDatasetIds } = await orchestration.prepare(client, {
+        tenantId, actorId, controlledDate: date, controlType, captureDay,
+      }));
+      sync = { ok: true, status: "daily_capture" };
+    } catch (error) {
+      if (!error.message.startsWith("time_control_")) throw error;
+      sync = { ok: false, status: "capture_failed", reason: compactError(error) };
+    }
   }
   await beginEvaluation();
-  if (hoursDatasetId) {
+  if (!sync.ok) {
+    const reason = sync.reason;
+    const diagnostics = (await client.query(
+      `UPDATE time_control_result SET status='data_incomplete',missing_hours=NULL,coverage_status='incomplete',
+       data_quality_reason=$3,hours_dataset_id=NULL,weekly_snapshot_id=NULL,identity_snapshot=identity_snapshot-'hours_dataset'
+       WHERE tenant_id=$1 AND run_id=$2 RETURNING *`, [tenantId, run.id, reason])).rows;
+    await repository.bindRunDataset(client, { tenantId, runId: run.id, datasetId: null });
+    if (isWeekly) await repository.bindRunWeeklySnapshot(client, { tenantId, runId: run.id, snapshotId: null });
+    const mail = await logInternalErrorMail(client, { tenantId, run, settings, dateLabel, errorReason: reason });
+    const blocked = await repository.finishRun(client, { runId: run.id, tenantId, status: "blocked", errorReason: reason });
+    await auditTimeControlRun(client, { tenantId, run: blocked, outcome: "fail", reason });
+    return { run: blocked, results: diagnostics, mails: [mail], sync };
+  }
+  if (isWeekly) {
+    let reason = null;
+    try {
+      if (run.mode === "dry_run" && !allowHistoricalSnapshot &&
+          require("./timeControl.dates").getCopenhagenParts(new Date()).isoDate !== date) {
+        throw new Error("time_control_weekly_historical_opt_in_required");
+      }
+      weeklySnapshot = await weekly.loadWeeklySnapshot(client, {
+        tenantId, controlledDate: date, datasetIds: hoursDatasetIds,
+        freshnessMinutes: settings.sync_freshness_minutes, allowHistoricalSnapshot,
+      });
+      if (run.mode === "live" && !weekly.reminderWindow(date)) throw new Error("time_control_weekly_outside_reminder_window");
+    } catch (error) {
+      if (!error.message.startsWith("time_control_")) throw error;
+      reason = compactError(error);
+    }
+    if (reason) {
+      const previous = await client.query(
+        "SELECT * FROM time_control_result WHERE tenant_id = $1 AND run_id = $2 ORDER BY id FOR UPDATE",
+        [tenantId, run.id]
+      );
+      await auditTimeControlRun(client, {
+        tenantId, run: { ...run, previous_evaluation: {
+          run: previousRun,
+          weekly_snapshot_id: run.weekly_snapshot_id || null,
+          result_count: previous.rows.length, results: previous.rows,
+        } }, outcome: "fail", reason,
+      });
+      const diagnostics = await client.query(
+        `UPDATE time_control_result SET status = 'data_incomplete', missing_hours = NULL,
+          coverage_status = 'incomplete', data_quality_reason = $3, weekly_snapshot_id = NULL,
+          identity_snapshot = identity_snapshot - 'hours_dataset'
+         WHERE tenant_id = $1 AND run_id = $2 RETURNING *`,
+        [tenantId, run.id, reason]
+      );
+      await repository.bindRunWeeklySnapshot(client, { tenantId, runId: run.id, snapshotId: null });
+      const mail = await logInternalErrorMail(client, { tenantId, run, settings, dateLabel, errorReason: reason });
+      const blocked = await repository.finishRun(client, { runId: run.id, tenantId, status: "blocked", errorReason: reason });
+      await auditTimeControlRun(client, { tenantId, run: { ...blocked, controlled_date: date }, outcome: "fail", reason });
+      return { run: blocked, results: diagnostics.rows, mails: [mail], sync: { ok: false, status: "weekly_snapshot_blocked", reason } };
+    }
+    datasetProof = weeklySnapshot.proof;
+    run.weekly_snapshot_id = weeklySnapshot.id;
+    await repository.bindRunWeeklySnapshot(client, { tenantId, runId: run.id, snapshotId: weeklySnapshot.id });
+    sync = { ok: true, status: "weekly_dataset_snapshot", coverage: datasetProof };
+  } else if (hoursDatasetId) {
     const stored = await datasetStorage.loadHoursDataset(client, {
       tenantId, controlledDate: date, datasetId: hoursDatasetId,
       freshnessMinutes: settings.sync_freshness_minutes, allowHistoricalSnapshot,
@@ -369,16 +418,7 @@ async function runTimeControl(client, { tenantId, controlType, controlledDate, a
     datasetProof = stored.proof;
     sync.coverage = datasetProof;
     await repository.bindRunDataset(client, { tenantId, runId: run.id, datasetId: hoursDatasetId });
-  } else if (storedRun.hours_dataset_id) {
-    await repository.bindRunDataset(client, { tenantId, runId: run.id, datasetId: null });
-  }
-  if (!sync.ok) {
-    const reason = sync.reason || "fitterhours_sync_not_fresh";
-    const mail = await logInternalErrorMail(client, { tenantId, run, settings, dateLabel, errorReason: reason });
-    const blocked = await repository.finishRun(client, { runId: run.id, tenantId, status: "blocked", errorReason: reason });
-    await auditTimeControlRun(client, { tenantId, run: blocked, outcome: "fail", reason });
-    return { run: blocked, results: [], mails: [mail], sync };
-  }
+  } else throw new Error("time_control_complete_dataset_required");
 
   const configs = await repository.listEmployeeConfigs(client, { tenantId });
   const payCodeRules = normalizePayCodeRules(await repository.listPayCodeRules(client, { tenantId }));
@@ -392,17 +432,17 @@ async function runTimeControl(client, { tenantId, controlType, controlledDate, a
         runId: run.id, tenantId, employeeConfigId: config.id, internalRef: config.internal_ref,
         requiredHours, validHours: 0, missingHours: null, status: "config_error", configError: resolution.configError,
         hoursDatasetId, identitySnapshot: datasetProof ? { hours_dataset: datasetProof } : {},
+        weeklySnapshotId: weeklySnapshot?.id || null,
       }));
       continue;
     }
     const employee = resolution.employee;
     const scope = { tenantId, fitterId: employee.fitterId, controlledDate: date };
-    const sourceRows = datasetProof
-      ? hoursCoverage.getFitterDay(hoursDataset, scope).rows
-      : await repository.listHoursForFitterDate(client, scope);
-    const summary = summarizeHours(sourceRows, payCodeRules);
-    const coverage = datasetProof || await repository.getHoursPeriodCoverage(client, scope);
-    const evaluation = evaluateHoursData({ summary, requiredHours, coverage });
+    const sourceRows = isWeekly ? [] : hoursCoverage.getFitterDay(hoursDataset, scope).rows;
+    const weeklyEvaluation = isWeekly ? weekly.evaluateWeeklyFitter(weeklySnapshot, { tenantId, fitterId: employee.fitterId, payCodeRules }) : null;
+    const summary = weeklyEvaluation?.summary || summarizeHours(sourceRows, payCodeRules);
+    const coverage = datasetProof;
+    const evaluation = weeklyEvaluation?.evaluation || evaluateHoursData({ summary, requiredHours, coverage });
     const result = await repository.upsertResult(client, {
       runId: run.id, tenantId, employeeConfigId: config.id, tenantUserId: employee.tenantUserId,
       fitterId: employee.fitterId, internalRef: employee.internalRef, employeeName: employee.name,
@@ -413,32 +453,76 @@ async function runTimeControl(client, { tenantId, controlType, controlledDate, a
       unclassifiedHours: summary.unclassifiedHours, unclassifiedRows: summary.unclassifiedRows,
       identitySnapshot: { ...employee.identitySnapshot, hours_dataset: coverage },
       hoursDatasetId,
+      weeklySnapshotId: weeklySnapshot?.id || null,
     });
     results.push(result);
-    if (evaluation.status === "missing_hours") {
+    if (evaluation.status === "missing_hours" && triggeredBy !== "backfill" && (run.mode === "dry_run" ||
+        execution && operation.scheduledStart(controlType, date, execution.startedAt) &&
+        operation.dispatchWindow(controlType, date, execution.now()))) {
       mails.push(await logEmployeeMail(client, { tenantId, run, result, settings, dateLabel }));
+    }
+    if (evaluation.status === "weekly_reminder" && run.mode === "dry_run") {
+      mails.push(await logWeeklyMail(client, { tenantId, run, result, settings, period: weeklySnapshot.period }));
     }
   }
 
-  if (controlType === "friday_12") {
+  if (controlType === "friday_12" && run.mode === "dry_run") {
     const leaderMail = await logFridayManagerMail(client, {
       tenantId, run, settings, dateLabel,
       missingResults: results.filter((result) => result.status === "missing_hours"),
     });
     if (leaderMail) mails.push(leaderMail);
   }
-
   const uncertain = results.some((result) => ["config_error", "data_incomplete", "unclassified_hours"].includes(result.status));
   const reason = uncertain ? "time_control_data_or_configuration_incomplete" : null;
+  const finished = await repository.finishRun(client, { runId: run.id, tenantId, status: uncertain ? "blocked" : "completed", errorReason: reason });
+  run.status = finished.status;
+  if (isWeekly) {
+    const reminders = results.filter((result) => result.status === "weekly_reminder");
+    if (run.mode === "live") {
+      const gates = [];
+      await operation.recordChecks(client, { tenantId, run: { ...run, triggered_by: triggeredBy }, results, execution });
+      for (const result of results) {
+        const gate = execution && operation.scheduledStart(controlType, date, execution.startedAt) &&
+          operation.completionWindow(controlType, date, execution.now())
+          ? await operation.checkGate(client, { tenantId, identity: result.identity_snapshot, friday: date,
+            requireWeekly: true, snapshotId: weeklySnapshot.id })
+          : { eligible: false, reason: "not_a_timely_scheduled_control" };
+        gates.push({ fitter_id: result.fitter_id, ...gate });
+        if (gate.eligible && result.status === "weekly_reminder" && weekly.reminderWindow(date, execution?.now())) {
+          mails.push(await logWeeklyMail(client, { tenantId, run, result, settings, period: weeklySnapshot.period }));
+        }
+      }
+      run.operation_gates = gates;
+      const eligible = reminders.filter(result => gates.find(gate => gate.fitter_id === result.fitter_id)?.eligible);
+      if (eligible.length && weekly.reminderWindow(date, execution?.now())) {
+        mails.push(await logWeeklyMail(client, { tenantId, run, settings, period: weeklySnapshot.period, summaryResults: eligible }));
+      }
+      if (gates.some(gate => !gate.eligible)) {
+        mails.push(await logInternalErrorMail(client, { tenantId, run, settings, dateLabel,
+          errorReason: `operational_week_not_eligible:${gates.filter(gate => !gate.eligible).map(gate => `${gate.fitter_id}:${gate.reason}`).join(";")}` }));
+      }
+    } else if (reminders.length) mails.push(await logWeeklyMail(client, { tenantId, run, settings, period: weeklySnapshot.period, summaryResults: reminders }));
+  } else {
+    await operation.recordChecks(client, { tenantId, run: { ...run, triggered_by: triggeredBy }, results, execution });
+  }
+
   if (uncertain) {
     mails.push(await logInternalErrorMail(client, { tenantId, run, settings, dateLabel, errorReason: reason }));
   }
-  const finished = await repository.finishRun(client, { runId: run.id, tenantId, status: uncertain ? "blocked" : "completed", errorReason: reason });
-  await auditTimeControlRun(client, { tenantId, run: finished, outcome: uncertain ? "fail" : "success", reason });
+  await auditTimeControlRun(client, { tenantId, run: { ...finished, controlled_date: date,
+    operation_gates: run.operation_gates || [],
+    ...(isWeekly ? { weekly_evaluations: results.map((result) => ({
+      fitter_id: result.fitter_id, valid_hours: result.valid_hours, required_hours: 37,
+      status: result.status, coverage_status: result.coverage_status,
+      data_quality_reason: result.data_quality_reason, counted_pay_codes: result.counted_pay_codes,
+      excluded_pay_codes: result.excluded_pay_codes, weekly_snapshot_id: result.weekly_snapshot_id,
+    })) } : {}),
+  }, outcome: uncertain ? "fail" : "success", reason });
   return { run: finished, results, mails, sync };
 }
 
-async function runTimeControlWithPool(args, { hoursDataset = null, hoursDatasetId = null, allowHistoricalSnapshot = false } = {}) {
+async function runTimeControlWithPool(args, { hoursDataset = null, hoursDatasetId = null, hoursDatasetIds = null, allowHistoricalSnapshot = false, captureDay = null } = {}) {
   if (hoursDataset !== null) throw new Error("time_control_dataset_must_be_stored");
   const lockInput = { ...args, controlledDate: normalizeIsoDate(args.controlledDate) };
   const client = await pool.connect();
@@ -457,7 +541,12 @@ async function runTimeControlWithPool(args, { hoursDataset = null, hoursDatasetI
     const result = await runTimeControl(client, args, {
       hoursDataset,
       hoursDatasetId,
+      hoursDatasetIds,
       allowHistoricalSnapshot,
+      captureDay,
+      execution: args.triggeredBy === "scheduler" ? {
+        startedAt: new Date(), now: () => new Date(), controlledDate: lockInput.controlledDate, historical: allowHistoricalSnapshot,
+      } : null,
       // Publish the run and sync job before waiting; keep results and mail atomic.
       commitPreparation: async () => {
         await client.query("COMMIT");

@@ -1,6 +1,7 @@
 "use strict";
 
 const { createHash } = require("node:crypto");
+const { isDeepStrictEqual } = require("node:util");
 const pool = require("../../db/pool");
 const auditService = require("../../services/auditService");
 const coverage = require("./timeControl.coverage");
@@ -31,18 +32,19 @@ async function storeHoursDataset(client, { tenantId, dataset, observedAt = null,
   const proof = coverage.getDatasetProof(dataset, { tenantId, controlledDate: dataset?.proof?.controlled_date });
   const scope = { tenantId, controlledDate: proof.controlled_date };
   const evidence = coverage.getDatasetEvidence(dataset, scope);
-  const observed = observationTime(observedAt);
-  const key = captureKey(proof, observed);
+  const serverObserved = coverage.getCaptureObservation(dataset);
+  const observed = observationTime(serverObserved || observedAt);
+  const key = captureKey(proof, serverObserved ? `${observed}:server_capture` : observed);
   // Serialize publication per tenant/day; callers must hold a transaction.
   await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
     [`time_control_dataset:${tenantId}:${scope.controlledDate}`]);
   const inserted = await client.query(
     `INSERT INTO time_control_hours_dataset
-       (tenant_id, controlled_date, dataset_revision, rows_hash, capture_key, row_count, evidence_json, proof_json, observed_at)
-     VALUES ($1, $2::date, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::timestamptz)
+       (tenant_id, controlled_date, dataset_revision, rows_hash, capture_key, row_count, evidence_json, proof_json, observed_at, server_captured)
+     VALUES ($1, $2::date, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::timestamptz, $10)
      ON CONFLICT (tenant_id, controlled_date, capture_key) DO NOTHING RETURNING id`,
     [tenantId, scope.controlledDate, proof.dataset_revision, proof.rows_hash, key, proof.row_count,
-      JSON.stringify(evidence), JSON.stringify(proof), observed]
+      JSON.stringify(evidence), JSON.stringify(proof), observed, Boolean(serverObserved)]
   );
   const existing = inserted.rows[0] || (await client.query(
     `SELECT id FROM time_control_hours_dataset
@@ -76,7 +78,7 @@ async function storeHoursDataset(client, { tenantId, dataset, observedAt = null,
     actorType: actorId ? "tenant_user" : "system", actorScope: actorId ? "tenant" : "system",
     moduleKey: "time_control", eventType: "sync_success", resourceType: "time_control_hours_dataset",
     resourceId: existing.id, outcome: "success", reason: "validated_snapshot_stored",
-    metadata: { ...proof, observed_at: observed, previous_dataset_id: head?.dataset_id || null },
+    metadata: { ...proof, observed_at: observed, server_captured: Boolean(serverObserved), previous_dataset_id: head?.dataset_id || null },
   });
   return { id: existing.id, proof, observedAt: observed };
 }
@@ -175,10 +177,14 @@ async function loadHoursDataset(client, {
   if (!row) fail("not_current_or_scope_mismatch");
   const dataset = coverage.createHoursDataset(row.evidence_json);
   const proof = coverage.getDatasetProof(dataset, { tenantId, controlledDate });
+  const observationKey = row.observed_at == null ? null : new Date(row.observed_at).toISOString();
+  const expectedCaptureKey = captureKey(proof, row.server_captured ? `${observationKey}:server_capture` : observationKey);
   if (row.dataset_revision !== proof.dataset_revision || row.rows_hash !== proof.rows_hash ||
       row.row_count !== proof.row_count || row.proof_json.dataset_revision !== proof.dataset_revision ||
       row.proof_json.rows_hash !== proof.rows_hash || row.proof_json.tenant_id !== tenantId ||
-      row.proof_json.controlled_date !== controlledDate || row.proof_json.status !== "complete") fail("integrity_mismatch");
+      row.proof_json.controlled_date !== controlledDate || row.proof_json.status !== "complete" ||
+      (row.capture_key != null && row.capture_key !== expectedCaptureKey) ||
+      !isDeepStrictEqual(row.proof_json, proof)) fail("integrity_mismatch");
   const observed = row.observed_at == null ? NaN : new Date(row.observed_at).getTime();
   const age = now.getTime() - observed;
   if (!Number.isInteger(freshnessMinutes) || freshnessMinutes < 1 || !Number.isFinite(now.getTime())) fail("freshness_invalid");
@@ -187,7 +193,8 @@ async function loadHoursDataset(client, {
   return {
     dataset,
     proof: { ...proof, dataset_id: row.id, observed_at: row.observed_at,
-      freshness: fresh ? "fresh_observation" : "explicit_historical_demo" },
+      server_captured: row.server_captured === true,
+      freshness: allowHistoricalSnapshot ? "explicit_historical_demo" : fresh ? "fresh_observation" : "observation_missing" },
   };
 }
 

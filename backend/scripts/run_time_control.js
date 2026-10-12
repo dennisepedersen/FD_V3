@@ -8,7 +8,7 @@ const { normalizeIsoDate } = require("../src/modules/timeControl/timeControl.dat
 const TENANT_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 
 function parseArgs(argv) {
-  const args = { tenant: null, date: null, controlType: "manual", noWait: false, dryRun: false, hoursDatasetId: null, historicalSnapshot: false };
+  const args = { tenant: null, date: null, controlType: "manual", noWait: false, dryRun: false, hoursDatasetId: null, hoursDatasetIds: null, historicalSnapshot: false };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--tenant") args.tenant = argv[++i] || null;
@@ -17,6 +17,7 @@ function parseArgs(argv) {
     else if (arg === "--no-wait-sync") args.noWait = true;
     else if (arg === "--dry-run") args.dryRun = true;
     else if (arg === "--hours-dataset-id") args.hoursDatasetId = argv[++i] || "";
+    else if (arg === "--hours-dataset-ids") args.hoursDatasetIds = (argv[++i] || "").split(",");
     else if (arg === "--historical-snapshot") args.historicalSnapshot = true;
     else throw new Error(`Unknown argument: ${arg}`);
   }
@@ -26,12 +27,17 @@ function parseArgs(argv) {
 function validateArgs(args) {
   if (!args.tenant || !TENANT_PATTERN.test(args.tenant)) throw new Error("Provide --tenant as a lower-case tenant slug.");
   args.date = normalizeIsoDate(args.date);
-  if (!["daily_09", "friday_12", "manual"].includes(args.controlType)) throw new Error("--control-type must be daily_09, friday_12, or manual.");
+  if (!["daily_09", "friday_12", "manual", "friday_weekly_v1"].includes(args.controlType)) throw new Error("--control-type must be daily_09, friday_12, manual, or friday_weekly_v1.");
+  if (args.controlType === "friday_weekly_v1") {
+    require("../src/modules/timeControl/timeControl.dates").weeklyPeriod(args.date);
+    if (args.hoursDatasetIds !== null) require("../src/modules/timeControl/timeControl.weekly").validateBindings(args.hoursDatasetIds);
+    if (args.hoursDatasetId) throw new Error("Weekly control requires --hours-dataset-ids, not --hours-dataset-id.");
+  } else if (args.hoursDatasetIds) throw new Error("--hours-dataset-ids requires friday_weekly_v1.");
   if (args.hoursDatasetId !== null && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(args.hoursDatasetId)) {
     throw new Error("--hours-dataset-id must be a UUID.");
   }
   if ((args.hoursDatasetId !== null || args.historicalSnapshot) && !args.dryRun) throw new Error("Stored snapshot requires --dry-run.");
-  if (args.historicalSnapshot && !args.hoursDatasetId) throw new Error("--historical-snapshot requires --hours-dataset-id.");
+  if (args.historicalSnapshot && !(args.hoursDatasetId || args.hoursDatasetIds)) throw new Error("--historical-snapshot requires stored dataset IDs.");
 }
 
 async function resolveTenantId(slug) {
@@ -43,6 +49,7 @@ async function resolveTenantId(slug) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   validateArgs(args);
+  if (!args.dryRun) throw new Error("Manual Timekontrol runs require --dry-run; only timely scheduler controls may send.");
   const tenantId = await resolveTenantId(args.tenant);
   const result = await timeControlService.runTimeControlWithPool({
     tenantId,
@@ -51,7 +58,7 @@ async function main() {
     triggeredBy: "maintenance",
     waitForSync: !args.noWait,
     dryRun: args.dryRun,
-  }, { hoursDatasetId: args.hoursDatasetId, allowHistoricalSnapshot: args.historicalSnapshot });
+  }, { hoursDatasetId: args.hoursDatasetId, hoursDatasetIds: args.hoursDatasetIds, allowHistoricalSnapshot: args.historicalSnapshot });
   console.log(JSON.stringify({
     event: "time_control_run_finished",
     at: new Date().toISOString(),

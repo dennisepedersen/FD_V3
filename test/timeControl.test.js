@@ -18,6 +18,8 @@ const emailOutboxService = require("../backend/src/modules/notifications/emailOu
 const auditService = require("../backend/src/services/auditService");
 const hoursCoverage = require("../backend/src/modules/timeControl/timeControl.coverage");
 const datasetStorage = require("../backend/src/modules/timeControl/timeControl.dataset");
+const orchestration = require("../backend/src/modules/timeControl/timeControl.orchestration");
+const operation = require("../backend/src/modules/timeControl/timeControl.operation");
 const { createHash } = require("node:crypto");
 
 const repoRoot = path.resolve(__dirname, "..");
@@ -147,7 +149,7 @@ test("Timekontrol scheduler resolves Copenhagen control windows", () => {
     timezone: "Europe/Copenhagen",
   });
   assert.deepEqual(dates.determineScheduledControl(new Date(Date.UTC(2026, 9, 9, 10, 0))), {
-    controlType: "friday_12",
+    controlType: "friday_weekly_v1",
     controlledDate: "2026-10-09",
     localDate: "2026-10-09",
     localHour: 12,
@@ -183,7 +185,7 @@ test("production Timekontrol startup with scheduler disabled creates no timer or
   }
 });
 
-test("sync failure blocks employee mail and records only an internal dry-run mail", async () => {
+test("bounded capture failure blocks employee mail and records only an internal dry-run mail", async () => {
   const mailLogs = [];
   await withPatches([
     [repository, "getSettings", async () => ({
@@ -195,8 +197,8 @@ test("sync failure blocks employee mail and records only an internal dry-run mai
       employee_cc_emails: ["dep@hoyrup-clemmensen.dk"],
     })],
     [repository, "upsertRun", async () => ({ id: uuid(10), tenant_id: uuid(1), control_type: "daily_09", controlled_date: "2026-10-08", mode: "dry_run" })],
-    [repository, "getFitterhoursSyncState", async () => ({ endpoint_status: "failed", last_error: "ek_timeout" })],
-    [repository, "queueFitterhoursSync", async () => ({ id: uuid(11), status: "queued" })],
+    [orchestration, "prepare", async () => { throw new Error("time_control_capture_timeout"); }],
+    [repository, "queueFitterhoursSync", async () => { throw new Error("general_sync_must_not_queue"); }],
     [repository, "updateRunSync", async () => null],
     [repository, "finishRun", async (_client, args) => ({ id: uuid(10), ...args, mode: "dry_run", control_type: "daily_09", controlled_date: "2026-10-08" })],
     [repository, "upsertMailLog", async (_client, args) => {
@@ -243,11 +245,18 @@ async function runMailScenario({
   hoursDataset = null,
   hoursDatasetId = null,
   allowHistoricalSnapshot = false,
+  execution = mode === "live" && !hoursDatasetId ? {
+    startedAt: new Date("2026-10-10T07:00:00Z"),
+    now: () => new Date("2026-10-10T07:01:00Z"),
+    controlledDate: "2026-10-09",
+  } : null,
+  mockTiming = true,
 }) {
   const mailLogs = [];
   const outbox = [];
   const results = [];
   const audits = [];
+  const receipts = [];
   let runResult;
   let createdMode;
   const settings = {
@@ -263,29 +272,34 @@ async function runMailScenario({
       createdMode = args.mode;
       return { id: uuid(10), tenant_id: uuid(1), control_type: controlType, controlled_date: storedRunDate, mode: args.mode };
     }],
-    [repository, "getFitterhoursSyncState", async () => {
-      assert.ok(!hoursDataset && !hoursDatasetId, "snapshot must not inspect legacy sync state");
-      return syncFailed
-      ? { endpoint_status: "failed", last_error: "ek_timeout" }
-      : { endpoint_status: "success", last_successful_sync_at: new Date().toISOString() };
+    [orchestration, "prepare", async (_client, args) => {
+      assert.equal(args.tenantId, uuid(1));
+      assert.equal(args.controlledDate, "2026-10-09");
+      if (syncFailed) throw new Error("time_control_capture_timeout");
+      return { hoursDatasetId: uuid(80), hoursDatasetIds: null };
     }],
-    [repository, "queueFitterhoursSync", async () => {
-      assert.ok(!hoursDataset && !hoursDatasetId, "snapshot must not queue sync");
-      return { id: uuid(11), status: "queued" };
-    }],
+    ...(!hoursDatasetId ? [
+      [datasetStorage, "loadHoursDataset", async (_client, args) => {
+        assert.equal(args.tenantId, uuid(1));
+        assert.equal(args.datasetId, uuid(80));
+        return { dataset: {}, proof: coverage || { status: "incomplete", reason: "period_coverage_not_verified" } };
+      }],
+      [hoursCoverage, "getFitterDay", () => ({ rows: hourRows })],
+    ] : []),
+    [repository, "getFitterhoursSyncState", async () => { throw new Error("legacy_sync_state_must_not_read"); }],
+    [repository, "queueFitterhoursSync", async () => { throw new Error("general_sync_must_not_queue"); }],
     [repository, "updateRunSync", async () => null],
-    [repository, "bindRunDataset", async (_client, args) => assert.equal(args.datasetId, hoursDatasetId)],
+    [repository, "bindRunDataset", async (_client, args) => assert.equal(args.datasetId, syncFailed && !hoursDatasetId ? null : hoursDatasetId || uuid(80))],
     [repository, "listEmployeeConfigs", async () => [{ id: uuid(20), internal_ref: "MHJ", fitter_id: "35" }]],
     [repository, "listPayCodeRules", async () => [{ pay_code: "3300", counts_as_valid_hours: true }]],
     [repository, "resolveEmployeeConfig", async () => resolvedEmployee],
-    [repository, "listHoursForFitterDate", async () => {
-      assert.ok(!hoursDataset && !hoursDatasetId, "snapshot must not read legacy hours");
-      return hourRows;
-    }],
-    [repository, "getHoursPeriodCoverage", async () => {
-      assert.ok(!hoursDataset && !hoursDatasetId, "snapshot must not read legacy coverage");
-      return coverage;
-    }],
+    [repository, "listHoursForFitterDate", async () => { throw new Error("legacy_hours_must_not_read"); }],
+    [repository, "getHoursPeriodCoverage", async () => { throw new Error("legacy_coverage_must_not_read"); }],
+    ...(mockTiming ? [
+      [operation, "scheduledStart", () => true],
+      [operation, "dispatchWindow", () => true],
+    ] : []),
+    [operation, "recordChecks", async (_client, args) => { receipts.push(args); return []; }],
     [repository, "upsertResult", async (_client, args) => {
       results.push(args);
       return {
@@ -298,7 +312,9 @@ async function runMailScenario({
     [repository, "upsertMailLog", async (_client, args) => { mailLogs.push(args); return { id: uuid(50), ...args }; }],
     [repository, "findEmployeeMailLog", async (_client, args) =>
       args.idempotencyKey.endsWith(":friday_manager_summary") ? existingManagerMail : existingMail],
-    [repository, "finishRun", async (_client, args) => ({ id: uuid(10), ...args, mode: createdMode })],
+    [repository, "finishRun", async (_client, args) => ({
+      id: uuid(10), ...args, mode: createdMode, control_type: controlType, controlled_date: "2026-10-09",
+    })],
     [emailOutboxService, "enqueueEmail", async (_client, args) => { outbox.push(args); return { id: uuid(60), status: "queued" }; }],
     [auditService, "logAuditEvent", async (args) => {
       if (auditFailure && args.reason === "preview_recipient_routing_corrected") throw auditFailure;
@@ -307,9 +323,9 @@ async function runMailScenario({
   ], async () => {
     runResult = await service.runTimeControl({ query: async () => ({ rows: [] }) }, {
       tenantId: uuid(1), controlType, controlledDate: "2026-10-09", dryRun,
-    }, { hoursDataset, hoursDatasetId, allowHistoricalSnapshot });
+    }, { hoursDataset, hoursDatasetId, allowHistoricalSnapshot, execution });
   });
-  return { mailLogs, outbox, createdMode, settings, results, runResult, audits };
+  return { mailLogs, outbox, createdMode, settings, results, runResult, audits, receipts };
 }
 
 test("Friday dry-run records employee plus DEP copy and DEP/LKE summary without enqueue", async () => {
@@ -395,7 +411,7 @@ test("current repository never asserts complete period coverage from local rows 
   assert.deepEqual(coverage, { status: "incomplete", reason: "period_coverage_not_verified:synced_rows_only" });
 });
 
-test("fresh sync with incomplete coverage blocks reminders and records unknown hours separately", async () => {
+test("stored evidence with incomplete coverage blocks reminders and records unknown hours separately", async () => {
   for (const mode of ["dry_run", "live"]) {
     const scenario = await runMailScenario({
       mode, coverage: { status: "incomplete", reason: "closed_projects_not_covered" },
@@ -424,7 +440,7 @@ test("complete coverage but unknown salary code suppresses employee and Friday m
   assert.deepEqual(scenario.mailLogs.map((mail) => mail.mailType), ["internal_error"]);
 });
 
-test("empty and sufficient local hours remain uncertain without a complete period proof", async () => {
+test("empty and sufficient dataset rows remain uncertain without a complete period proof", async () => {
   for (const hourRows of [[], [{ fitter_category_reference: "3300", hours: 7 }]]) {
     const scenario = await runMailScenario({ mode: "dry_run", coverage: null, hourRows });
     assert.equal(scenario.results[0].status, "data_incomplete");
@@ -464,28 +480,27 @@ test("repository persists data uncertainty and unknown rows without a fabricated
   assert.match(call.sql, /unclassified_rows = EXCLUDED.unclassified_rows/);
 });
 
-test("mocked live mail construction queues employee/DEP and Friday DEP/LKE as actual recipients", async () => {
-  const { outbox, mailLogs } = await runMailScenario({ mode: "live" });
-  assert.equal(outbox.length, 2);
+test("daily transport fixture with mocked scheduling queues employee and DEP copy as actual recipients", async () => {
+  const { outbox, mailLogs } = await runMailScenario({ mode: "live", controlType: "daily_09" });
+  assert.equal(outbox.length, 1);
   assert.equal(outbox[0].recipientEmail, "mikkel@example.test");
   assert.deepEqual(outbox[0].payload.cc_emails, ["dep@hoyrup-clemmensen.dk"]);
-  assert.equal(outbox[1].recipientEmail, "dep@hoyrup-clemmensen.dk");
-  assert.deepEqual(outbox[1].payload.cc_emails, ["lke@hoyrup-clemmensen.dk"]);
-  assert.deepEqual(mailLogs[1].recipientEmails, [outbox[1].recipientEmail]);
-  assert.deepEqual(mailLogs[1].ccEmails, outbox[1].payload.cc_emails);
+  assert.deepEqual(mailLogs[0].recipientEmails, [outbox[0].recipientEmail]);
+  assert.deepEqual(mailLogs[0].ccEmails, outbox[0].payload.cc_emails);
   assert.ok(outbox.every((mail) => mail.payload.sender === service.SENDER && mail.sourceType === "time_control"));
 });
 
 test("Friday summary preserves every additional manager as normalized CC without duplicates", async () => {
-  const { outbox } = await runMailScenario({
-    mode: "live",
+  const { mailLogs, outbox } = await runMailScenario({
+    mode: "dry_run",
     managerEmails: ["dep@hoyrup-clemmensen.dk", " LKE@hoyrup-clemmensen.dk ", "manager@example.test", "lke@hoyrup-clemmensen.dk"],
   });
-  assert.equal(outbox[1].recipientEmail, "dep@hoyrup-clemmensen.dk");
-  assert.deepEqual(outbox[1].payload.cc_emails, ["lke@hoyrup-clemmensen.dk", "manager@example.test"]);
+  assert.equal(outbox.length, 0);
+  assert.deepEqual(mailLogs[1].recipientEmails, ["dep@hoyrup-clemmensen.dk"]);
+  assert.deepEqual(mailLogs[1].ccEmails, ["lke@hoyrup-clemmensen.dk", "manager@example.test"]);
 });
 
-test("internal sync-error mail routes first recipient to To and remaining recipients to CC", async () => {
+test("internal capture-error mail routes first recipient to To and remaining recipients to CC", async () => {
   const { outbox, mailLogs } = await runMailScenario({ mode: "live", syncFailed: true });
   assert.equal(outbox.length, 1);
   assert.equal(outbox[0].templateKey, "time_control.internal_error");
@@ -504,65 +519,164 @@ test("explicit dry-run never enqueues internal error mail even with mocked live 
   assert.deepEqual(mailLogs[0].recipientEmails, ["dep@hoyrup-clemmensen.dk", "lke@hoyrup-clemmensen.dk"]);
 });
 
-test("pool runner commits preparation before worker polling and starts result transaction only after sync", async () => {
-  const pool = require("../backend/src/db/pool");
-  const syncJobs = require("../backend/src/db/queries/syncJob");
+test("daily live employee mail requires both scheduled start and a timely dispatch window", async () => {
+  for (const [startAllowed, dispatchAllowed] of [[false, true], [true, false], [true, true]]) {
+    await withPatches([
+      [operation, "scheduledStart", () => startAllowed],
+      [operation, "dispatchWindow", () => dispatchAllowed],
+    ], async () => {
+      const scenario = await runMailScenario({ mode: "live", controlType: "daily_09", mockTiming: false });
+      assert.equal(scenario.results[0].status, "missing_hours");
+      assert.equal(scenario.outbox.length, startAllowed && dispatchAllowed ? 1 : 0);
+      assert.equal(scenario.receipts.length, 1, "operational receipts remain an internal service responsibility");
+      assert.equal(scenario.receipts[0].execution.controlledDate, "2026-10-09");
+    });
+  }
+});
+
+test("manual capture remains dry-run even when tenant settings are live", async () => {
+  const scenario = await runMailScenario({ mode: "live", controlType: "manual", execution: null });
+  assert.equal(scenario.createdMode, "dry_run");
+  assert.equal(scenario.settings.mode, "live");
+  assert.equal(scenario.outbox.length, 0);
+  assert.equal(scenario.results[0].status, "missing_hours");
+});
+
+test("historical Friday manual runtime remains a preview without an internal scheduler execution", async () => {
+  const scenario = await runMailScenario({ mode: "live", mockTiming: false, execution: null });
+  assert.equal(scenario.createdMode, "dry_run");
+  assert.equal(scenario.outbox.length, 0);
+  assert.equal(scenario.results[0].requiredHours, 7);
+});
+
+test("legacy Friday cannot enqueue a leader summary even with an internal live execution", async () => {
+  const scenario = await runMailScenario({ mode: "live", mockTiming: false });
+  assert.equal(scenario.outbox.length, 0);
+  assert.equal(scenario.mailLogs.length, 0);
+  assert.equal(scenario.results[0].requiredHours, 7);
+});
+
+test("bounded preparation captures precisely one daily date or five Friday dates without network transactions", async () => {
+  for (const controlType of ["daily_09", "friday_weekly_v1"]) {
+    const datesCaptured = [];
+    const events = [];
+    let transactionOpen = false;
+    const client = { query: async (sql) => {
+      events.push(sql);
+      if (sql === "BEGIN") transactionOpen = true;
+      if (sql === "COMMIT" || sql === "ROLLBACK") transactionOpen = false;
+      return { rows: [{ locked: true, unlocked: true }] };
+    } };
+    await withPatches([
+      [datasetStorage, "invalidateHoursDataset", async () => assert.equal(transactionOpen, true)],
+      [datasetStorage, "storeHoursDataset", async (_client, args) => {
+        assert.equal(transactionOpen, true);
+        return { id: uuid(80 + datesCaptured.indexOf(args.dataset.controlledDate)) };
+      }],
+      [repository, "queueFitterhoursSync", async () => { throw new Error("general_sync_must_not_queue"); }],
+    ], async () => {
+      const result = await orchestration.prepare(client, {
+        tenantId: uuid(1), controlledDate: "2026-10-09", controlType,
+        captureDay: async (args) => {
+          assert.equal(transactionOpen, false);
+          assert.equal(args.tenantId, uuid(1));
+          datesCaptured.push(args.controlledDate);
+          return { controlledDate: args.controlledDate };
+        },
+      });
+      assert.deepEqual(datesCaptured, controlType === "daily_09"
+        ? ["2026-10-09"] : ["2026-10-05", "2026-10-06", "2026-10-07", "2026-10-08", "2026-10-09"]);
+      assert.equal(result.hoursDatasetId, controlType === "daily_09" ? uuid(80) : null);
+      assert.deepEqual(result.hoursDatasetIds, controlType === "daily_09" ? null : [80, 81, 82, 83, 84].map(uuid));
+      assert.equal(events.filter(sql => sql.includes("pg_advisory_unlock")).length, datesCaptured.length);
+      assert.equal(transactionOpen, false);
+    });
+  }
+});
+
+test("failed bounded publication rolls back SQL, preserves failure invalidation and releases the capture lock", async () => {
   const events = [];
-  let queued = false;
+  const invalidations = [];
+  let transactionOpen = false;
+  const client = { query: async (sql) => {
+    events.push(sql);
+    if (sql === "BEGIN") transactionOpen = true;
+    if (sql === "COMMIT" || sql === "ROLLBACK") transactionOpen = false;
+    return { rows: [{ locked: true, unlocked: true }] };
+  } };
+  await withPatches([
+    [datasetStorage, "invalidateHoursDataset", async (_client, args) => invalidations.push(args)],
+    [datasetStorage, "storeHoursDataset", async () => { throw new Error("publication_sql_failed"); }],
+  ], async () => {
+    await assert.rejects(orchestration.captureAndPublish(client, {
+      tenantId: uuid(1), controlledDate: "2026-10-08",
+      captureDay: async () => {
+        assert.equal(transactionOpen, false);
+        return {};
+      },
+    }), /publication_sql_failed/);
+  });
+  assert.deepEqual(events.filter(sql => ["BEGIN", "COMMIT", "ROLLBACK"].includes(sql)),
+    ["BEGIN", "COMMIT", "BEGIN", "ROLLBACK", "BEGIN", "COMMIT"]);
+  assert.deepEqual(invalidations.map(args => args.reason), ["capture_reobservation_started", "capture_failed:publication_sql_failed"]);
+  assert.ok(invalidations.every(args => args.tenantId === uuid(1) && args.controlledDate === "2026-10-08"));
+  assert.match(events.at(-1), /pg_advisory_unlock/);
+  assert.equal(transactionOpen, false);
+});
+
+test("pool runner commits the run before bounded capture with no transaction open during preparation", async () => {
+  const pool = require("../backend/src/db/pool");
+  const events = [];
+  let runCreated = false;
   let visible = false;
-  let fresh = false;
+  let captured = false;
   let transactionOpen = false;
   const controlClient = {
     query: async (sql) => {
       events.push(`control:${sql}`);
       if (sql === "BEGIN") transactionOpen = true;
       if (sql === "COMMIT") {
-        visible = queued;
+        visible = runCreated;
         transactionOpen = false;
       }
       return { rows: [] };
     },
     release: () => events.push("control:release"),
   };
-  const workerClient = {
-    query: async (sql) => {
-      if (sql.includes("SELECT id, tenant_id")) {
-        assert.equal(visible, true, "worker must see a committed job");
-        assert.equal(transactionOpen, false, "control must not hold a transaction while waiting");
-        events.push("worker:claim");
-        return { rows: [{ id: uuid(11), tenant_id: uuid(1), type: "manual_full_resync", status: "queued" }] };
-      }
-      return { rows: [{ id: uuid(11), status: "running" }] };
-    },
-  };
   let connections = 0;
   await withPatches([
     [pool, "connect", async () => { connections += 1; return controlClient; }],
     [repository, "acquireRunLock", async () => true],
     [repository, "releaseRunLock", async () => {}],
-    [global, "setTimeout", (fn) => { fn(); }],
-    [repository, "getSettings", async () => ({ is_enabled: true, mode: "dry_run", sync_wait_seconds: 1 })],
-    [repository, "upsertRun", async () => ({ id: uuid(10), control_type: "manual", controlled_date: "2026-10-08", mode: "dry_run" })],
-    [repository, "getFitterhoursSyncState", async () => {
-      if (visible) {
-        await syncJobs.claimNextSyncJob(workerClient);
-        fresh = true;
-      }
-      return fresh ? { endpoint_status: "success", last_successful_sync_at: new Date().toISOString() } : null;
+    [repository, "getSettings", async () => ({ is_enabled: true, mode: "live" })],
+    [repository, "upsertRun", async (_client, input) => {
+      runCreated = true;
+      assert.equal(input.mode, "dry_run", "manual capture must not activate live delivery");
+      return { id: uuid(10), control_type: "manual", controlled_date: "2026-10-08", mode: input.mode };
     }],
-    [repository, "queueFitterhoursSync", async (client, input) => {
+    [orchestration, "prepare", async (client, input) => {
       assert.equal(client, controlClient);
       assert.equal(input.tenantId, uuid(1));
-      assert.equal(input.metadata.run_id, uuid(10));
-      assert.equal(visible, false);
-      events.push("control:insert_sync_job");
-      queued = true;
-      return { id: uuid(11), status: "queued" };
+      assert.equal(input.controlledDate, "2026-10-08");
+      assert.equal(input.controlType, "manual");
+      assert.equal(visible, true, "capture must see a committed run");
+      assert.equal(transactionOpen, false, "network preparation must not hold the run transaction");
+      events.push("capture:prepare");
+      captured = true;
+      return { hoursDatasetId: uuid(80), hoursDatasetIds: null };
     }],
+    [repository, "queueFitterhoursSync", async () => { throw new Error("general_sync_must_not_queue"); }],
+    [repository, "getFitterhoursSyncState", async () => { throw new Error("legacy_sync_state_must_not_read"); }],
+    [datasetStorage, "loadHoursDataset", async () => {
+      assert.equal(transactionOpen, true);
+      assert.equal(captured, true);
+      return { dataset: {}, proof: { status: "complete" } };
+    }],
+    [operation, "recordChecks", async () => []],
     [repository, "updateRunSync", async (client) => { assert.equal(client, controlClient); }],
     [repository, "listEmployeeConfigs", async () => {
       assert.equal(transactionOpen, true);
-      assert.equal(fresh, true);
+      assert.equal(captured, true);
       return [];
     }],
     [repository, "listPayCodeRules", async () => []],
@@ -574,17 +688,15 @@ test("pool runner commits preparation before worker polling and starts result tr
       tenantId: uuid(1), controlType: "manual", controlledDate: "2026-10-08", dryRun: true,
     });
     assert.equal(result.run.status, "completed");
-    assert.equal(result.sync.status, "fresh");
+    assert.equal(result.sync.status, "daily_capture");
   });
   assert.equal(connections, 1);
-  assert.deepEqual(events, [
-    "control:BEGIN", "control:insert_sync_job", "control:COMMIT",
-    "control:SELECT id, status, error_message FROM sync_job WHERE tenant_id = $1 AND id = $2",
-    "worker:claim", "control:BEGIN", "control:COMMIT", "control:release",
+  assert.deepEqual(events.filter(event => !event.includes("SELECT") && !event.includes("UPDATE")), [
+    "control:BEGIN", "control:COMMIT", "capture:prepare", "control:BEGIN", "control:COMMIT", "control:release",
   ]);
 });
 
-test("failed sync enqueue rolls back preparation and releases the control connection", async () => {
+test("failed run persistence rolls back before capture and releases the control connection", async () => {
   const pool = require("../backend/src/db/pool");
   const events = [];
   const makeClient = (name) => ({
@@ -598,26 +710,65 @@ test("failed sync enqueue rolls back preparation and releases the control connec
     [repository, "acquireRunLock", async () => true],
     [repository, "releaseRunLock", async () => {}],
     [repository, "getSettings", async () => ({ is_enabled: true, mode: "dry_run" })],
-    [repository, "upsertRun", async () => ({ id: uuid(10), mode: "dry_run" })],
-    [repository, "getFitterhoursSyncState", async () => null],
-    [repository, "queueFitterhoursSync", async () => { throw new Error("sync_enqueue_failed"); }],
+    [repository, "upsertRun", async () => { throw new Error("run_insert_failed"); }],
+    [orchestration, "prepare", async () => { throw new Error("capture_must_not_start"); }],
   ], async () => {
     await assert.rejects(service.runTimeControlWithPool({
       tenantId: uuid(1), controlType: "manual", controlledDate: "2026-10-08", dryRun: true,
-    }), /sync_enqueue_failed/);
+    }), /run_insert_failed/);
   });
   assert.equal(connections, 1);
-  assert.deepEqual(events, ["control:BEGIN", "control:ROLLBACK", "control:release"]);
+  assert.deepEqual(events.filter(event => !event.includes("SELECT")), ["control:BEGIN", "control:ROLLBACK", "control:release"]);
 });
 
-test("timeout, worker failure and loss after preparation retain identifiable runs and release ownership", async () => {
+test("pool scheduler creates the execution clock internally and forwards the bounded capture reader", async () => {
   const pool = require("../backend/src/db/pool");
-  for (const scenario of ["timeout", "worker-failure", "process-loss"]) {
+  const args = {
+    tenantId: uuid(1), controlType: "daily_09", controlledDate: "2026-10-08", triggeredBy: "scheduler",
+  };
+  const reader = async () => { throw new Error("mock_preparation_must_not_call_reader"); };
+  const client = { query: async () => ({ rows: [] }), release() {} };
+  const before = Date.now();
+  let observedExecution = null;
+  await withPatches([
+    [pool, "connect", async () => client],
+    [repository, "acquireRunLock", async () => true],
+    [repository, "releaseRunLock", async () => {}],
+    [repository, "getSettings", async () => ({ is_enabled: true, mode: "live" })],
+    [repository, "upsertRun", async (_client, input) => {
+      assert.equal(input.mode, "live");
+      return { id: uuid(10), mode: input.mode, control_type: args.controlType, controlled_date: args.controlledDate };
+    }],
+    [orchestration, "prepare", async (_client, input) => {
+      assert.equal(input.captureDay, reader);
+      return { hoursDatasetId: uuid(80), hoursDatasetIds: null };
+    }],
+    [datasetStorage, "loadHoursDataset", async () => ({ dataset: {}, proof: { status: "complete" } })],
+    [repository, "listEmployeeConfigs", async () => []],
+    [repository, "listPayCodeRules", async () => []],
+    [operation, "recordChecks", async (_client, input) => { observedExecution = input.execution; return []; }],
+    [repository, "finishRun", async (_client, input) => ({
+      id: uuid(10), ...input, mode: "live", control_type: args.controlType, controlled_date: args.controlledDate,
+    })],
+    [auditService, "logAuditEvent", async () => {}],
+  ], async () => {
+    await service.runTimeControlWithPool(args, { captureDay: reader });
+  });
+  assert.ok(observedExecution.startedAt instanceof Date);
+  assert.ok(observedExecution.startedAt.getTime() >= before);
+  assert.ok(observedExecution.now() instanceof Date);
+  assert.equal(observedExecution.controlledDate, args.controlledDate);
+  assert.equal(observedExecution.historical, false);
+});
+
+test("bounded capture failure and connection loss retain identifiable runs and release ownership", async () => {
+  const pool = require("../backend/src/db/pool");
+  for (const scenario of ["timeout", "capture-failure", "process-loss"]) {
     const events = [];
     const mailLogs = [];
     let persistedRun = null;
     let pendingRun = null;
-    let queued = false;
+    const audits = [];
     const client = {
       query: async (sql) => {
         events.push(sql);
@@ -630,9 +781,8 @@ test("timeout, worker failure and loss after preparation retain identifiable run
       [pool, "connect", async () => client],
       [repository, "acquireRunLock", async () => true],
       [repository, "releaseRunLock", async () => events.push("unlock")],
-      [global, "setTimeout", (fn) => fn()],
       [repository, "getSettings", async () => ({
-        is_enabled: true, mode: "dry_run", sync_wait_seconds: scenario === "timeout" ? 0 : 1,
+        is_enabled: true, mode: "dry_run",
         internal_error_emails: ["dep@example.test"],
       })],
       [repository, "upsertRun", async () => {
@@ -642,26 +792,22 @@ test("timeout, worker failure and loss after preparation retain identifiable run
         };
         return pendingRun;
       }],
-      [repository, "getFitterhoursSyncState", async () => null],
-      [repository, "queueFitterhoursSync", async () => { queued = true; return { id: uuid(11), status: "queued" }; }],
-      [repository, "updateRunSync", async (_client, input) => {
-        Object.assign(pendingRun, { sync_status: input.syncStatus, sync_job_id: input.syncJobId });
-      }],
-      [repository, "getSyncJob", async (_client, input) => {
+      [repository, "queueFitterhoursSync", async () => { throw new Error("general_sync_must_not_queue"); }],
+      [orchestration, "prepare", async (_client, input) => {
         assert.equal(input.tenantId, uuid(1));
-        assert.equal(input.jobId, uuid(11));
+        assert.equal(input.controlledDate, "2026-10-08");
         assert.equal(persistedRun.status, "running");
         if (scenario === "process-loss") throw new Error("connection_lost_after_commit");
-        return { id: uuid(11), status: "failed", error_message: "worker_retries_exhausted" };
+        throw new Error(`time_control_capture_${scenario}`);
       }],
       [repository, "finishRun", async (_client, input) => {
         Object.assign(pendingRun, { status: input.status, finished_at: new Date().toISOString() });
         return { ...pendingRun };
       }],
       [repository, "upsertMailLog", async (_client, input) => { mailLogs.push(input); return input; }],
-      [repository, "listEmployeeConfigs", async () => { throw new Error("uncertain_sync_must_not_evaluate"); }],
+      [repository, "listEmployeeConfigs", async () => { throw new Error("uncertain_capture_must_not_evaluate"); }],
       [emailOutboxService, "enqueueEmail", async () => { throw new Error("dry_run_must_not_enqueue"); }],
-      [auditService, "logAuditEvent", async () => {}],
+      [auditService, "logAuditEvent", async (event) => audits.push(event)],
     ], async () => {
       const args = { tenantId: uuid(1), controlType: "daily_09", controlledDate: "2026-10-08", dryRun: true };
       if (scenario === "process-loss") {
@@ -669,19 +815,20 @@ test("timeout, worker failure and loss after preparation retain identifiable run
         assert.equal(persistedRun.status, "running");
         assert.equal(persistedRun.finished_at, null);
         assert.equal(mailLogs.length, 0);
-        assert.deepEqual(events, ["BEGIN", "COMMIT", "unlock", "release"]);
+        assert.deepEqual(events.filter(event => !event.includes("SELECT")), ["BEGIN", "COMMIT", "unlock", "release"]);
       } else {
         const result = await service.runTimeControlWithPool(args);
         assert.equal(result.run.status, "blocked");
-        assert.equal(result.sync.status, scenario === "timeout" ? "timeout" : "failed");
+        assert.equal(result.sync.status, "capture_failed");
         assert.equal(persistedRun.status, "blocked");
         assert.notEqual(persistedRun.finished_at, null);
         assert.deepEqual(mailLogs.map((mail) => mail.mailType), ["internal_error"]);
-        assert.deepEqual(events, ["BEGIN", "COMMIT", "BEGIN", "COMMIT", "unlock", "release"]);
+        assert.ok(audits.some(event => event.eventType === "time_control.run_blocked" &&
+          event.outcome === "fail" && event.reason === `time_control_capture_${scenario}`));
+        assert.deepEqual(events.filter(event => !event.includes("SELECT") && !event.includes("UPDATE")), ["BEGIN", "COMMIT", "BEGIN", "COMMIT", "unlock", "release"]);
       }
     });
-    assert.equal(queued, true);
-    assert.equal(persistedRun.sync_job_id, uuid(11));
+    assert.equal(persistedRun.sync_job_id, undefined);
   }
 });
 
@@ -808,16 +955,16 @@ test("data-quality migration preserves 0049 and adds diagnostic states without c
   assert.doesNotMatch(migration, /UPDATE|DELETE|INSERT|tenant_user|resource_groups|time_control_settings/i);
 });
 
-test("fresh sync, no-wait sync and evaluation failures preserve the two-phase transaction boundary", async () => {
+test("bounded capture, explicit stored evidence and evaluation failures preserve the two-phase transaction boundary", async () => {
   const pool = require("../backend/src/db/pool");
-  for (const scenario of ["fresh", "no-wait", "evaluation-error"]) {
+  for (const scenario of ["stored", "capture", "evaluation-error"]) {
     const events = [];
-    let jobCommitted = false;
-    let jobQueued = false;
+    let captureCalled = false;
+    let runCommitted = false;
     const client = {
       query: async (sql) => {
         events.push(sql);
-        if (sql === "COMMIT" && jobQueued) jobCommitted = true;
+        if (sql === "COMMIT") runCommitted = true;
         return { rows: [] };
       },
       release: () => events.push("release"),
@@ -828,12 +975,14 @@ test("fresh sync, no-wait sync and evaluation failures preserve the two-phase tr
       [repository, "releaseRunLock", async () => {}],
       [repository, "getSettings", async () => ({ is_enabled: true, mode: "dry_run" })],
       [repository, "upsertRun", async () => ({ id: uuid(10), mode: "dry_run" })],
-      [repository, "getFitterhoursSyncState", async () => scenario === "fresh"
-        ? { endpoint_status: "success", last_successful_sync_at: new Date().toISOString() } : null],
-      [repository, "queueFitterhoursSync", async () => {
-        jobQueued = true;
-        return { id: uuid(11), status: "queued" };
+      [orchestration, "prepare", async () => {
+        assert.equal(runCommitted, true);
+        captureCalled = true;
+        return { hoursDatasetId: uuid(80), hoursDatasetIds: null };
       }],
+      [datasetStorage, "loadHoursDataset", async () => ({ dataset: {}, proof: { status: "complete" } })],
+      [operation, "recordChecks", async () => []],
+      [repository, "queueFitterhoursSync", async () => { throw new Error("general_sync_must_not_queue"); }],
       [repository, "updateRunSync", async () => {}],
       [repository, "listEmployeeConfigs", async () => []],
       [repository, "listPayCodeRules", async () => []],
@@ -851,12 +1000,14 @@ test("fresh sync, no-wait sync and evaluation failures preserve the two-phase tr
       if (scenario === "evaluation-error") {
         await assert.rejects(service.runTimeControlWithPool(args), /evaluation_failed/);
       } else {
-        const result = await service.runTimeControlWithPool(args);
-        assert.equal(result.sync.status, scenario === "fresh" ? "fresh" : "queued");
+        const result = await service.runTimeControlWithPool(args, scenario === "stored" ? { hoursDatasetId: uuid(80) } : {});
+        assert.equal(result.sync.status, scenario === "stored" ? "dataset_snapshot" : "daily_capture");
       }
     });
-    assert.deepEqual(events, ["BEGIN", "COMMIT", "BEGIN", scenario === "evaluation-error" ? "ROLLBACK" : "COMMIT", "release"]);
-    assert.equal(jobCommitted, scenario !== "fresh", "evaluation rollback must not unpublish a committed sync job");
+    assert.deepEqual(events.filter(event => !event.includes("SELECT") && !event.includes("UPDATE")),
+      ["BEGIN", "COMMIT", "BEGIN", scenario === "evaluation-error" ? "ROLLBACK" : "COMMIT", "release"]);
+    assert.equal(captureCalled, scenario !== "stored");
+    assert.equal(runCommitted, true, "evaluation rollback must retain the committed run");
   }
 });
 
@@ -924,13 +1075,17 @@ test("dry-run missing hours logs would-send mails without real outbox enqueue an
       friday_manager_emails: ["dep@hoyrup-clemmensen.dk", "LKE@hoyrup-clemmensen.dk"],
     })],
     [repository, "upsertRun", async () => ({ id: uuid(10), tenant_id: uuid(1), control_type: "daily_09", controlled_date: "2026-10-08", mode: "dry_run" })],
-    [repository, "getFitterhoursSyncState", async () => ({ endpoint_status: "success", last_successful_sync_at: new Date().toISOString() })],
+    [orchestration, "prepare", async () => ({ hoursDatasetId: uuid(80), hoursDatasetIds: null })],
+    [datasetStorage, "loadHoursDataset", async () => ({ dataset: {}, proof: { status: "complete" } })],
+    [hoursCoverage, "getFitterDay", () => ({ rows: [{ fitter_category_reference: "3300", hours: 6 }] })],
+    [operation, "recordChecks", async () => []],
+    [repository, "queueFitterhoursSync", async () => { throw new Error("general_sync_must_not_queue"); }],
     [repository, "updateRunSync", async () => null],
     [repository, "listEmployeeConfigs", async () => [config]],
     [repository, "listPayCodeRules", async () => Array.from(rules.entries()).map(([pay_code, counts_as_valid_hours]) => ({ pay_code, counts_as_valid_hours }))],
     [repository, "resolveEmployeeConfig", async () => resolved],
-    [repository, "listHoursForFitterDate", async () => [{ fitter_category_reference: "3300", hours: 6 }]],
-    [repository, "getHoursPeriodCoverage", async () => ({ status: "complete" })],
+    [repository, "listHoursForFitterDate", async () => { throw new Error("legacy_hours_must_not_read"); }],
+    [repository, "getHoursPeriodCoverage", async () => { throw new Error("legacy_coverage_must_not_read"); }],
     [repository, "upsertResult", async (_client, args) => ({ id: uuid(40), ...args, fitter_id: args.fitterId, employee_name: args.employeeName, employee_email: args.employeeEmail, tenant_user_id: args.tenantUserId })],
     [repository, "findEmployeeMailLog", async () => null],
     [repository, "upsertMailLog", async (_client, args) => {
@@ -1410,8 +1565,8 @@ test("approved salary references preserve existing rules and keep equal-label re
   assert.doesNotMatch(migration, /DELETE|fitter_category_id|INSERT INTO time_control_employee_config|UPDATE time_control_settings/);
 });
 
-test("Friday control evaluates its controlled day with seven-hour requirement, not a week", async () => {
-  const scheduled = dates.determineScheduledControl(new Date("2026-03-27T11:00:00Z"));
+test("historical Friday day control still evaluates seven-hour requirement, not a week", async () => {
+  const scheduled = { controlType: "friday_12", controlledDate: "2026-03-27" };
   assert.equal(scheduled.controlType, "friday_12");
   assert.equal(scheduled.controlledDate, "2026-03-27");
   assert.equal(dates.requiredHoursForDate(scheduled.controlledDate), 7);

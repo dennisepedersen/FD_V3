@@ -12780,6 +12780,90 @@
 
   }
 
+  async function initTimeControlPage() {
+    if (!requireToken()) return;
+    const message = document.getElementById("timeControlMessage");
+    const form = document.getElementById("timeControlWeeklyForm");
+    const labels = {
+      weekly_reminder: "Ugepåmindelse ved middag",
+      missing_hours: "Dagsmangel (historisk dagskontrol)",
+      ok: "Norm opfyldt",
+      config_error: "Konfiguration blokerer",
+      data_incomplete: "Datadækning blokerer",
+      unclassified_hours: "Ukendt lønart blokerer",
+    };
+    async function refresh() {
+      const overview = await apiFetch("/api/tenant/admin/time-control/status", { method: "GET" });
+      const tbody = document.getElementById("timeControlResults");
+      tbody.replaceChildren();
+      for (const result of overview.results || []) {
+        const tr = document.createElement("tr");
+        const isWeekly = result.control_type === "friday_weekly_v1";
+        const values = [
+          isWeekly ? "Ugekontrol v1" : `Dagskontrol: ${result.control_type}`,
+          isWeekly ? `${result.week_monday} – ${result.controlled_date}` : result.controlled_date,
+          labels[result.status] || result.status,
+          `${result.employee_name || result.internal_ref}: ${result.valid_hours} / ${result.required_hours}`,
+          result.dataset_is_current === true
+            ? (result.weekly_proof?.freshness === "explicit_historical_demo" ? "Historisk snapshot; fem aktuelle dagshoveder" : "Aktuelt datasætbundet bevis")
+            : "Manglende eller erstattet bevis",
+        ];
+        for (const value of values) {
+          const td = document.createElement("td");
+          td.textContent = value;
+          tr.append(td);
+        }
+        tbody.append(tr);
+      }
+      const previews = document.getElementById("timeControlPreviews");
+      previews.replaceChildren();
+      for (const mail of overview.mails || []) {
+        const section = document.createElement("section");
+        const title = document.createElement("h3");
+        title.textContent = `${mail.subject} (${mail.mode}, ${mail.status})`;
+        const body = document.createElement("pre");
+        body.textContent = `Til: ${(mail.recipient_emails || []).join(", ")}\nCC: ${(mail.cc_emails || []).join(", ")}\n\n${mail.body_preview}`;
+        section.append(title, body);
+        previews.append(section);
+      }
+    }
+    try {
+      const me = await apiFetch("/api/me", { method: "GET" });
+      if (!isTenantAdmin(me.user)) throw new Error("Kun tenant admin har adgang.");
+      await refresh();
+      document.getElementById("timeControlAdmin").hidden = false;
+      message.textContent = "Dry-run administration. Live/scheduler er uændret.";
+    } catch (error) {
+      if (!handleAuthFailure(error)) message.textContent = getErrorMessage(error, "Kunne ikke hente Timekontrol.");
+      return;
+    }
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const button = form.querySelector("button");
+      button.disabled = true;
+      try {
+        const response = await apiFetch("/api/tenant/admin/time-control/test-runs", {
+          method: "POST",
+          body: JSON.stringify({
+            control_type: "friday_weekly_v1",
+            date: document.getElementById("timeControlFriday").value,
+            hours_dataset_ids: document.getElementById("timeControlDatasets").value.trim().split(/[\s,]+/),
+            historical_snapshot: document.getElementById("timeControlHistorical").checked,
+            dry_run: true,
+          }),
+        });
+        message.textContent = response.run?.status === "blocked" ? `Kontrollen er blokeret: ${response.run.error_reason}` : "Ugens dry-run er klar. Ingen mails afsendt.";
+        await refresh();
+      } catch (error) {
+        if (!handleAuthFailure(error)) message.textContent = getErrorMessage(error, "Kontrollen kunne ikke køres.");
+      } finally { button.disabled = false; }
+    });
+  }
+
+  if (document.body && document.body.dataset.page === "time-control") {
+    initTimeControlPage();
+  }
+
   if (document.body && document.body.dataset.page === "login") {
     initLoginPage();
   }

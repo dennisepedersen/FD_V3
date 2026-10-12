@@ -288,7 +288,7 @@ test("outbox processor forwards payload sender and CC to the mail adapter", asyn
   const row = {
     id: uuid(10), recipient_email: "employee@example.test",
     subject: "Timekontrol", html_body: "<p>Hej</p>", text_body: "Hej",
-    template_key: "time_control.missing_hours.employee",
+    template_key: "absence_request.submitted.employee",
     payload_json: { sender: "Fielddesk Timekontrol <timekontrol@fielddesk.dk>", cc_emails: ["dep@example.test"] },
   };
   await withPatches([
@@ -311,6 +311,224 @@ test("outbox processor forwards payload sender and CC to the mail adapter", asyn
   assert.equal(sent[1].from, undefined);
   assert.equal(sent[1].cc, undefined);
   assert.equal(marked.length, 2);
+});
+
+test("Timekontrol daily outbox invokes its dispatch guard before forwarding sender and CC", async () => {
+  const dispatch = require("../backend/src/modules/timeControl/timeControl.dispatch");
+  const events = [];
+  const client = { query: async () => ({ rows: [] }), release() {} };
+  const row = {
+    id: uuid(10), tenant_id: uuid(1), recipient_email: "employee@example.test",
+    subject: "Timekontrol", html_body: "<p>Hej</p>", text_body: "Hej",
+    template_key: "time_control.missing_hours.employee",
+    payload_json: {
+      sender: "Fielddesk Timekontrol <timekontrol@fielddesk.dk>", cc_emails: ["dep@example.test"],
+      controlled_date: "2026-10-08", run_id: uuid(20), result_id: uuid(30),
+    },
+  };
+  await withPatches([
+    [pool, "connect", async () => client],
+    [outboxRepository, "claimDueBatch", async () => [row]],
+    [dispatch, "validateDaily", async (_client, input) => {
+      assert.equal(input.tenantId, uuid(1));
+      assert.equal(input.row, row);
+      events.push("guard");
+    }],
+    [outboxRepository, "markSent", async () => { events.push("sent"); return row; }],
+    [auditService, "logAuditEvent", async () => {}],
+  ], async () => {
+    const result = await emailOutboxProcessor.processDueEmails({
+      tenantId: uuid(1), sendEmailFn: async (args) => {
+        events.push("provider");
+        assert.equal(args.from, row.payload_json.sender);
+        assert.deepEqual(args.cc, ["dep@example.test"]);
+        return { provider: "test" };
+      },
+    });
+    assert.equal(result.sent, 1);
+    assert.deepEqual(events, ["guard", "provider", "sent"]);
+  });
+});
+
+test("expired Timekontrol daily outbox fails its real dispatch guard before any provider call", async () => {
+  const operation = require("../backend/src/modules/timeControl/timeControl.operation");
+  const deadLetters = [];
+  const client = { query: async () => ({ rows: [] }), release() {} };
+  const row = {
+    id: uuid(10), tenant_id: uuid(1), recipient_email: "employee@example.test",
+    template_key: "time_control.missing_hours.employee",
+    payload_json: { controlled_date: "2026-10-08", run_id: uuid(20), result_id: uuid(30) },
+  };
+  await withPatches([
+    [pool, "connect", async () => client],
+    [outboxRepository, "claimDueBatch", async () => [row]],
+    [operation, "dispatchWindow", (controlType, day) => {
+      assert.equal(controlType, "daily_09");
+      assert.equal(day, "2026-10-08");
+      return false;
+    }],
+    [outboxRepository, "markDeadLetter", async (_client, args) => { deadLetters.push(args); return row; }],
+    [auditService, "logAuditEvent", async () => {}],
+  ], async () => {
+    const result = await emailOutboxProcessor.processDueEmails({
+      tenantId: uuid(1), sendEmailFn: async () => { throw new Error("expired_daily_must_not_call_provider"); },
+    });
+    assert.equal(result.sent, 0);
+    assert.equal(result.dead_letter, 1);
+    assert.deepEqual(result.failures, []);
+  });
+  assert.equal(deadLetters[0].tenantId, uuid(1));
+  assert.equal(deadLetters[0].errorCode, "time_control_daily_dispatch_window_expired");
+});
+
+async function withDailyDispatchFixture(fn) {
+  const dispatch = require("../backend/src/modules/timeControl/timeControl.dispatch");
+  const operation = require("../backend/src/modules/timeControl/timeControl.operation");
+  const storage = require("../backend/src/modules/timeControl/timeControl.dataset");
+  const repository = require("../backend/src/modules/timeControl/timeControl.repository");
+  const coverage = require("../backend/src/modules/timeControl/timeControl.coverage");
+  const service = require("../backend/src/modules/timeControl/timeControl.service");
+  const identity = {
+    fitter_id: "290", group_id: uuid(40), group_external_id: "10", approved_email: "employee@example.test",
+    email_source: "admin_override", approval_version: 1, approved_at: "2026-10-01T12:00:00.000Z",
+    approved_by_user_id: uuid(41),
+  };
+  const proof = { dataset_id: uuid(60), controlled_date: "2026-10-08", tenant_id: uuid(1),
+    dataset_revision: "original-revision", rows_hash: "original-rows", status: "complete", server_captured: true };
+  const result = { id: uuid(30), employee_config_id: uuid(31), fitter_id: "290",
+    hours_dataset_id: proof.dataset_id, weekly_snapshot_id: null,
+    identity_snapshot: { ...identity, hours_dataset: structuredClone(proof) },
+    employee_name: "Montør", employee_email: identity.approved_email, internal_ref: "MBO",
+    status: "missing_hours", coverage_status: "complete", required_hours: "7.75", valid_hours: "5",
+    missing_hours: "2.75" };
+  const settings = { is_enabled: true, mode: "live", sync_freshness_minutes: 180,
+    employee_cc_emails: ["dep@example.test", "lke@example.test"] };
+  const row = { id: uuid(10), tenant_id: uuid(1), recipient_email: result.employee_email,
+    template_key: "time_control.missing_hours.employee", idempotency_key: "daily-immutable-key",
+    subject: "Queued unchanged", text_body: "Original evaluation",
+    payload_json: { run_id: uuid(20), result_id: result.id, controlled_date: proof.controlled_date,
+      cc_emails: [...settings.employee_cc_emails], result_binding: dispatch.resultBinding(result) } };
+  const client = { release() {}, async query(sql, params) {
+    if (["BEGIN", "COMMIT", "ROLLBACK"].includes(sql)) return { rows: [] };
+    assert.equal(params[0], uuid(1));
+    if (sql.includes("SELECT tr.*")) return { rows: [result] };
+    if (sql.includes("FROM time_control_settings")) {
+      assert.match(sql, /FOR SHARE OF s,t/);
+      return { rows: [settings] };
+    }
+    throw new Error(`unexpected_query:${sql}`);
+  } };
+  await withPatches([
+    [operation, "dispatchWindow", () => true],
+    [storage, "loadHoursDataset", async (_client, args) => {
+      assert.equal(args.tenantId, uuid(1));
+      assert.equal(args.datasetId, proof.dataset_id);
+      return { dataset: {}, proof };
+    }],
+    [repository, "lockEmployeeConfig", async () => ({ id: result.employee_config_id })],
+    [repository, "resolveEmployeeConfig", async () => []],
+    [repository, "listPayCodeRules", async () => []],
+    [service._test, "classifyResolvedEmployee", () => ({
+      ok: true, employee: { email: identity.approved_email, identitySnapshot: structuredClone(identity) },
+    })],
+    [coverage, "evaluateFitterDay", () => ({ evaluation: { status: "missing_hours", validHours: 5 } })],
+  ], async () => fn({ dispatch, client, row, result, settings, identity, proof }));
+}
+
+test("daily dispatch normalizes full To/CC and rejects removed or changed employee CC without rewriting mail", async () => {
+  await withDailyDispatchFixture(async ({ dispatch, client, row, settings }) => {
+    row.recipient_email = " Employee@Example.Test ";
+    row.payload_json.cc_emails = [" LKE@Example.Test ", " DEP@Example.Test ", "dep@example.test"];
+    await dispatch.validateDaily(client, { tenantId: uuid(1), row });
+    const queued = structuredClone(row);
+    for (const cc of [[], ["dep@example.test"], ["dep@example.test", "new@example.test"]]) {
+      settings.employee_cc_emails = cc;
+      await assert.rejects(dispatch.validateDaily(client, { tenantId: uuid(1), row }), /dispatch_routing_changed/);
+      assert.deepEqual(row, queued);
+    }
+  });
+});
+
+test("daily queued immutable bindings reject reused result IDs after dataset replacement or same-email reapproval", async () => {
+  for (const mutate of [
+    ({ result, proof }) => {
+      proof.dataset_id = uuid(61);
+      proof.dataset_revision = "replacement-revision";
+      result.hours_dataset_id = proof.dataset_id;
+      result.identity_snapshot.hours_dataset = structuredClone(proof);
+    },
+    ({ result, identity }) => {
+      identity.approval_version += 1;
+      result.identity_snapshot.approval_version = identity.approval_version;
+    },
+    ({ result }) => { result.valid_hours = "6"; result.missing_hours = "1.75"; },
+    ({ result }) => { result.required_hours = "7"; },
+    ({ proof }) => { proof.rows_hash = "replaced-rows"; },
+    ({ identity }) => { identity.approval_version += 1; },
+    ({ identity }) => { identity.approved_at = "2026-10-02T12:00:00.000Z"; },
+    ({ row }) => { delete row.payload_json.result_binding; },
+  ]) {
+    await withDailyDispatchFixture(async fixture => {
+      const queued = structuredClone(fixture.row);
+      const originalId = fixture.result.id;
+      mutate(fixture);
+      await assert.rejects(fixture.dispatch.validateDaily(fixture.client, { tenantId: uuid(1), row: fixture.row }),
+        /dispatch_binding_invalid|dispatch_identity_changed/);
+      assert.equal(fixture.result.id, originalId);
+      assert.equal(fixture.row.recipient_email, queued.recipient_email);
+      assert.equal(fixture.row.idempotency_key, queued.idempotency_key);
+      assert.equal(fixture.row.text_body, queued.text_body);
+    });
+  }
+});
+
+test("daily routing revocation and rerun replacement dead-letter before provider call through the real guard", async () => {
+  for (const mutate of [
+    ({ settings }) => { settings.employee_cc_emails = []; },
+    ({ result, proof }) => {
+      proof.dataset_id = uuid(61);
+      result.hours_dataset_id = proof.dataset_id;
+      result.identity_snapshot.hours_dataset = structuredClone(proof);
+    },
+  ]) {
+    await withDailyDispatchFixture(async fixture => {
+      mutate(fixture);
+      const deadLetters = [];
+      let providerCalls = 0;
+      const queued = structuredClone(fixture.row);
+      await withPatches([
+        [pool, "connect", async () => fixture.client],
+        [outboxRepository, "claimDueBatch", async () => [fixture.row]],
+        [outboxRepository, "markDeadLetter", async (_client, args) => { deadLetters.push(args); return fixture.row; }],
+        [auditService, "logAuditEvent", async () => {}],
+      ], async () => {
+        const processed = await emailOutboxProcessor.processDueEmails({
+          tenantId: uuid(1), sendEmailFn: async () => { providerCalls += 1; },
+        });
+        assert.equal(processed.dead_letter, 1);
+        assert.equal(processed.sent, 0);
+        assert.equal(processed.retry, 0);
+      });
+      assert.equal(providerCalls, 0);
+      assert.match(deadLetters[0].errorCode, /dispatch_routing_changed|dispatch_binding_invalid/);
+      assert.deepEqual(fixture.row, queued);
+    });
+  }
+});
+
+test("daily enqueue stores an independent JSON result binding including dataset proof and approval", () => {
+  const dispatch = require("../backend/src/modules/timeControl/timeControl.dispatch");
+  const result = { id: uuid(30), required_hours: "7.75", valid_hours: "5", missing_hours: "2.75",
+    identity_snapshot: { approval_version: 1, approved_email: "employee@example.test",
+      hours_dataset: { dataset_id: uuid(60), dataset_revision: "original-revision" } } };
+  const binding = dispatch.resultBinding(result);
+  result.identity_snapshot.approval_version = 2;
+  result.identity_snapshot.hours_dataset.dataset_id = uuid(61);
+  assert.equal(binding.identity_snapshot.approval_version, 1);
+  assert.equal(binding.identity_snapshot.hours_dataset.dataset_id, uuid(60));
+  assert.equal(binding.valid_hours, 5);
+  assert.match(read("backend/src/modules/timeControl/timeControl.service.js"),
+    /result_binding: require\("\.\/timeControl\.dispatch"\)\.resultBinding\(result\)/);
 });
 
 test("outbox repository serializes CC and sender into payload_json without discarding either", async () => {

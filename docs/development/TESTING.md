@@ -55,7 +55,40 @@ For absence request backend slices, the focused Node tests are:
 These cover PR2 schema/static contracts, PR3 employee-own request flows, PR4 notification/outbox foundation, and PR5 manager pending/detail/approve/reject behavior. They are unit/static tests and do not connect to production, run migrations, call Render, or send mail.
 ## Isolated Timekontrol PostgreSQL Verification
 
-`test/timeControlPostgres.integration.js` is opt-in and rejects non-loopback or
+Daily capture/startup additions:
+
+- `node --test test\timeControlCapture.test.js test\timeControlOperation.test.js`
+  covers the bounded v4 adapter with mocked requests, API errors/retries/pagination
+  and controlled Copenhagen timing/startup/RBAC. No real EK reads or mails.
+- Full-terminal actual-source replay uses
+  `FIELDDESK_TC_TERMINAL_EVIDENCE_PATH=<retained ek_terminal_zero_20261012.json>`.
+  The capture test then replays both actual September 26 passes (30 distinct
+  rows, terminal page of 10) through the adapter without making EK calls.
+  Without this explicit artifact the actual-source replay is skipped, not
+  verified; ordinary synthetic full-terminal/false-terminal tests still run.
+- `test\timeControlOperationalPostgres.integration.js` is opt-in with
+  `FIELD_DESK_LOCAL_PG_TEST=1` and `FIELDDESK_TIME_CONTROL_TEST_DATABASE_URL`.
+  Like weekly/October/upgrade tests it creates a fresh guarded loopback DB and
+  applies all **56** actual migration files. Source captures and clock are
+  synthetic; operational/gate/revision/dispatch persistence is real PostgreSQL.
+  Local queued fixture mails are never sent. Dry-run/backfill cannot qualify.
+- The legacy daily PostgreSQL test needs a **prepared HC fixture database**, not
+  merely an empty admin database: apply through 0048, insert the HC tenant, then
+  apply pending migrations through 0056. This preserves testing of tenant-bound
+  seeds including 0055. Do not target production or reuse a completed fixture.
+- October regression additionally requires both retained paths:
+  `FIELDDESK_TC_OCTOBER_EVIDENCE_PATH` (all 1,294 October rows) and
+  `FIELDDESK_TC_EVIDENCE_PATH` (March closed-project regression dataset).
+  `FIELDDESK_TC_OCTOBER_RESULT_PATH` must name a new artifact if old result history
+  is to be preserved. Six 37-hour results, MUM's 30 excluded allowance hours,
+  zero previews/outbox/sync jobs and repeat/concurrent counts are asserted.
+
+The opt-in PostgreSQL suite is not part of normal CI proof; skipped tests
+must never be reported as database verification. New untracked JS files also
+need explicit `node --check`, because the existing syntax gate uses tracked files.
+
+`test/timeControlPostgres.integration.js` and
+`test/timeControlWeeklyPostgres.integration.js` are opt-in and reject non-loopback or
 non-dedicated database targets. The ordinary test suite skips it; that skip is
 not PostgreSQL verification. It never uses the production `DATABASE_URL`.
 Create a disposable local PostgreSQL database, apply the repository migrations
@@ -63,17 +96,41 @@ there, then explicitly run:
 
 ```powershell
 $env:FIELD_DESK_LOCAL_PG_TEST = "1"
-$env:FIELDDESK_TIME_CONTROL_TEST_DATABASE_URL = "postgres://tc_validation@127.0.0.1:55432/fielddesk_tc_validation"
+$env:FIELDDESK_TIME_CONTROL_TEST_DATABASE_URL = "postgres://tc_validation@127.0.0.1:55432/fielddesk_tc_validation_upgrade_<24-lowercase-hex>"
 $env:FIELDDESK_TC_EVIDENCE_PATH = "<absolute-path-to-trusted-day-evidence>"
-node --test test\timeControlPostgres.integration.js
+node --test test\dbMigrate.test.js test\timeControlPostgres.integration.js test\timeControlWeeklyPostgres.integration.js
 ```
 
 This test writes fixture tenants, fitters, approvals, immutable datasets,
 runs/results/previews and audits only to the isolated local database. Provider
-enqueue is blocked, scheduler is not started, and no EK or Render call occurs.
+calls are disabled, scheduler is not started, and no EK or Render call occurs.
+Use a NEW database for each verification invocation: previous tests modify
+dataset heads and must not be reused as clean fixtures. Guarded targets require
+IPv4 loopback, port 55432, user `tc_validation`, no password, and the exact
+`fielddesk_tc_validation_upgrade_` plus 24 lowercase hexadecimal suffix.
+Apply all actual migrations to it, creating the local `hoyrup-clemmensen`
+fixture tenant after migration 0048 and before 0049–0055. The upgrade and weekly tests also create their own fresh guarded databases;
+they do not write to a shared fixture.
 The optional evidence file tests an actual captured day; omitting it uses
 synthetic test evidence and must not be reported as external source verification.
 Stop only the disposable server after testing; do not restart existing services.
+
+`test/timeControlOctoberPostgres.integration.js` additionally requires
+`FIELDDESK_TC_OCTOBER_EVIDENCE_PATH` pointing to the retained actual October
+5–9 capture JSON and `FIELDDESK_TC_EVIDENCE_PATH` pointing to the original
+March capture JSON. It creates its own new guarded database using the
+existing guarded local URL only as an admin connection. Set
+`FIELDDESK_TC_OCTOBER_RESULT_PATH` to a session artifact path to preserve
+the derived results. Run `node --test test\timeControlOctoberPostgres.integration.js`.
+The actual-data case verifies v2 nonempty days without closed-project
+controls, v1 March coverage, six weekly results, repeated/concurrent ID
+stability and zero outbox/sync rows. It applies HC-only allowance rules 0055
+after 0054, checks that other tenants and existing rules are unchanged, and
+repeats the SQL without changing rule IDs or timestamps. All six actual
+October results must be `ok`; MUM must have 37 counted and 30 excluded hours.
+Use a new result artifact path, preserving earlier blocked results and
+their databases. It does not fetch EK or prove live
+freshness. Without the opt-in/evidence it skips, not source verification.
 
 The approved-rules demo case executes the actual 0053 SQL for a local fixture
 tenant with slug `hoyrup-clemmensen`, checks a separate tenant is unchanged,
@@ -84,6 +141,22 @@ counted hours, six excluded allowance hours and one missing hour. Repeating
 the controls must preserve run/result/preview identities and create no
 provider-outbox or sync jobs. Fixture identity/mail approval is local only;
 it does not demonstrate that Render has been configured.
+
+Weekly tests use synthetic complete day/zero-day evidence, not actual EK
+verification. They test 37-hour totals without a Friday minimum, five immutable
+tenant/date/dataset bindings, stale/null/server-capture freshness,
+invalidation/replacement, weekly idempotency/concurrent PostgreSQL locks,
+recipient routing and unchanged provider-linked employee/summary logs.
+The weekly integration first verifies no outbox delta for dry-run, then creates
+two explicitly local linked outbox fixtures to prove expiry blocks provider
+calls before delivery. A separate synthetic-Friday-clock scenario captures
+five day datasets, enqueues the real live-path employee/leader outbox rows once,
+replays them without duplication, and invalidates their dataset evidence before
+dispatch without provider calls. These weekly fixture rows are dead-lettered, not sent. A blocked late
+run can still create a local internal-diagnostic outbox row; it is not dispatched.
+Weekly PostgreSQL regression also checks stable result IDs/mail-log references
+through invalidation and recovery, previous evaluation audit evidence, and
+dispatch rejection of cross-tenant, stale and invalidated queued snapshots.
 
 ## Failure Fixture Checks
 

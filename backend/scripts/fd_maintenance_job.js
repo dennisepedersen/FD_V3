@@ -130,6 +130,8 @@ function parseArgs(argv) {
     limit: null,
     date: null,
     controlType: null,
+    hoursDatasetIds: null,
+    historicalSnapshot: false,
     confirm: null,
     actor: process.env.FD_MAINTENANCE_ACTOR || 'unknown',
   };
@@ -158,6 +160,10 @@ function parseArgs(argv) {
       args.date = argv[++i] || null;
     } else if (arg === '--control-type') {
       args.controlType = argv[++i] || null;
+    } else if (arg === '--hours-dataset-ids') {
+      args.hoursDatasetIds = argv[++i] || null;
+    } else if (arg === '--historical-snapshot') {
+      args.historicalSnapshot = true;
     } else if (arg === '--confirm') {
       args.confirm = argv[++i] || null;
     } else if (arg === '--actor') {
@@ -248,8 +254,15 @@ function validateArgs(args) {
   if (args.controlType && !job.acceptsControlType) {
     throw new Error(`${args.job} does not accept --control-type.`);
   }
-  if (job.acceptsControlType && args.controlType && !['daily_09', 'friday_12', 'manual'].includes(args.controlType)) {
-    throw new Error('--control-type must be daily_09, friday_12, or manual.');
+  if (job.acceptsControlType && args.controlType && !['daily_09', 'friday_12', 'manual', 'friday_weekly_v1'].includes(args.controlType)) {
+    throw new Error('--control-type must be daily_09, friday_12, manual, or friday_weekly_v1.');
+  }
+  if (args.hoursDatasetIds || args.historicalSnapshot) {
+    if (args.job !== 'time-control-run' || args.controlType !== 'friday_weekly_v1') {
+      throw new Error('Weekly dataset arguments require time-control-run and friday_weekly_v1.');
+    }
+    require('../src/modules/timeControl/timeControl.weekly').validateBindings((args.hoursDatasetIds || '').split(','));
+    if (args.historicalSnapshot && args.mode !== 'dry-run') throw new Error('Historical snapshots require dry-run.');
   }
   if (args.job === 'project-targeted-fitterhours-refresh-dry-run'
       && !args.ekProjectId
@@ -303,6 +316,8 @@ function childArgsFor({ job, args }) {
   if (job.acceptsControlType && args.controlType) {
     childArgs.push('--control-type', args.controlType);
   }
+  if (args.hoursDatasetIds) childArgs.push('--hours-dataset-ids', args.hoursDatasetIds);
+  if (args.historicalSnapshot) childArgs.push('--historical-snapshot');
 
   if (args.mode === 'status-only') {
     childArgs.push('--status-only');

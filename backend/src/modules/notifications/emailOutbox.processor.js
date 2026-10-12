@@ -101,6 +101,21 @@ async function processDueEmails({
 
   for (const row of claimed) {
     try {
+      if (["time_control.employee_weekly_reminder_v1", "time_control.friday_weekly_summary_v1"].includes(row.template_key) &&
+          !require("../timeControl/timeControl.weekly").reminderWindow(row.payload_json?.friday)) {
+        await withTransaction(async (client) => {
+          const dead = await repository.markDeadLetter(client, {
+            tenantId, id: row.id, errorCode: "time_control_weekly_reminder_expired",
+            errorMessage: "Weekly reminder is outside Friday 12:00–14:30 Europe/Copenhagen.",
+          });
+          if (dead) await logProcessorAudit(client, {
+            tenantId, eventType: "email_outbox.dead_lettered", resourceId: row.id, outcome: "fail",
+            reason: "time_control_weekly_reminder_expired", metadata: { template_key: row.template_key },
+          });
+        });
+        summary.dead_letter += 1;
+        continue;
+      }
       if (!row.recipient_email) {
         await withTransaction(async (client) => {
           const dead = await repository.markDeadLetter(client, {
@@ -124,7 +139,7 @@ async function processDueEmails({
         continue;
       }
 
-      const providerResult = await sendEmailFn({
+      const send = () => sendEmailFn({
         to: row.recipient_email,
         cc: row.payload_json?.cc_emails,
         from: row.payload_json && row.payload_json.sender ? row.payload_json.sender : undefined,
@@ -134,6 +149,38 @@ async function processDueEmails({
         tenantId,
         template: row.template_key,
       });
+      let providerResult;
+      if (["time_control.employee_weekly_reminder_v1", "time_control.friday_weekly_summary_v1", "time_control.missing_hours.employee"].includes(row.template_key)) {
+        try {
+          providerResult = await withTransaction(async (client) => {
+            const weekly = require("../timeControl/timeControl.weekly");
+            if (row.template_key === "time_control.missing_hours.employee") {
+              await require("../timeControl/timeControl.dispatch").validateDaily(client, { tenantId, row });
+            } else {
+              await weekly.validateDispatchSnapshot(client, { tenantId, row });
+              if (!weekly.reminderWindow(row.payload_json?.friday)) throw new Error("time_control_weekly_reminder_expired");
+            }
+            // Keep current run/results and dataset heads stable until the provider call completes.
+            return send();
+          });
+        } catch (error) {
+          if (!error.message.startsWith("time_control_")) throw error;
+          await withTransaction(async (client) => {
+            const dead = await repository.markDeadLetter(client, {
+              tenantId, id: row.id, errorCode: error.message,
+              errorMessage: "Timekontrol evidence or operational eligibility is no longer valid.",
+            });
+            if (dead) await logProcessorAudit(client, {
+              tenantId, eventType: "email_outbox.dead_lettered", resourceId: row.id, outcome: "fail",
+              reason: error.message, metadata: { template_key: row.template_key },
+            });
+          });
+          summary.dead_letter += 1;
+          continue;
+        }
+      } else {
+        providerResult = await send();
+      }
 
       await withTransaction(async (client) => {
         const sent = await repository.markSent(client, {
