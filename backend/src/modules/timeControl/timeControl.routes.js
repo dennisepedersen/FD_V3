@@ -65,6 +65,47 @@ router.patch("/api/tenant/admin/time-control/settings", requireTenantHost, requi
   }
 });
 
+router.patch("/api/tenant/admin/time-control/manager-recipients", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  try {
+    const { tenantId, userId } = getTenantContext(req);
+    requireTenantAdmin(req, "update");
+    const settings = await timeControlService.setManagerRecipients({
+      tenantId, actorId: userId, emails: req.body?.emails,
+      expectedEmails: req.body?.expected_emails, reason: req.body?.reason,
+    });
+    res.status(200).json({ success: true, settings });
+  } catch (error) {
+    logRouteError(req, "/api/tenant/admin/time-control/manager-recipients", "PATCH", error);
+    next(error);
+  }
+});
+
+router.get("/api/tenant/admin/time-control/mail-test-preview", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  try {
+    const { tenantId } = getTenantContext(req);
+    requireTenantAdmin(req, "read");
+    const plan = await timeControlService.getPocMailPlan({ tenantId, batchId: req.query?.batch_id });
+    res.status(200).json({ success: true, plan });
+  } catch (error) {
+    logRouteError(req, "/api/tenant/admin/time-control/mail-test-preview", "GET", error);
+    next(error);
+  }
+});
+
+router.post("/api/tenant/admin/time-control/mail-tests/prepare", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  try {
+    const { tenantId, userId } = getTenantContext(req);
+    requireTenantAdmin(req, "update");
+    const result = await require("./timeControl.mailTestSender").prepare({
+      tenantId, actorId: userId, batchId: req.body?.batch_id,
+    });
+    res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    logRouteError(req, "/api/tenant/admin/time-control/mail-tests/prepare", "POST", error);
+    next(error);
+  }
+});
+
 router.patch("/api/tenant/admin/time-control/employees/:configId/recipient", requireTenantHost, requireAuth("access"), async (req, res, next) => {
   try {
     const { tenantId, userId } = getTenantContext(req);

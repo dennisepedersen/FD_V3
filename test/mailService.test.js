@@ -24,7 +24,7 @@ async function withMailProvider(provider, fn) {
     MAIL_STREAM: "outbound",
   });
   global.fetch = async (url, options) => {
-    calls.push({ url, body: JSON.parse(options.body) });
+    calls.push({ url, options, body: JSON.parse(options.body) });
     return { ok: true, json: async () => ({ id: "resend-test-id", MessageID: "postmark-test-id" }) };
   };
   try {
@@ -97,6 +97,25 @@ for (const provider of ["resend", "postmark"]) {
 test("disabled mail provider fails explicitly without a provider call", async () => {
   await withMailProvider("disabled", async (calls) => {
     await assert.rejects(mailService.sendEmail(message), { code: "mail_provider_disabled" });
+    assert.equal(calls.length, 0);
+  });
+});
+
+test("resend accepts an idempotency key and timeout for a single delivery attempt", async () => {
+  await withMailProvider("resend", async (calls) => {
+    await mailService.sendEmail(message, { idempotencyKey: "time_control_poc_mail:v1:test:dep_delivery", timeoutMs: 1234 });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, "https://api.resend.com/emails");
+    assert.equal(calls[0].options.headers["Idempotency-Key"], "time_control_poc_mail:v1:test:dep_delivery");
+    assert.equal(calls[0].options.signal.aborted, false);
+    assert.equal(calls[0].body.to[0], "employee@example.test");
+    assert.deepEqual(calls[0].body.cc, undefined);
+  });
+});
+
+test("resend rejects invalid idempotency metadata before fetch", async () => {
+  await withMailProvider("resend", async (calls) => {
+    await assert.rejects(mailService.sendEmail(message, { idempotencyKey: "", timeoutMs: 0 }), { code: "mail_idempotency_unsupported_or_invalid" });
     assert.equal(calls.length, 0);
   });
 });

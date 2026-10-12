@@ -648,6 +648,48 @@ async function getOverview({ tenantId }) {
   }
 }
 
+async function setManagerRecipients({ tenantId, actorId, emails, expectedEmails, reason }) {
+  const desired = emailListFailureFor(emails);
+  const expected = emailListFailureFor(expectedEmails);
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(actorId || "") ||
+      desired.errorCode || !desired.emails.length || expected.errorCode ||
+      !Array.isArray(expectedEmails) || typeof reason !== "string" ||
+      !reason.trim() || reason.length > 500) throw approvalError("time_control_recipients_invalid");
+  return withTransaction(async client => {
+    const current = await repository.lockSettings(client, { tenantId });
+    if (!current) throw approvalError("time_control_settings_not_found", 404);
+    const previous = emailListFailureFor(current.friday_manager_emails);
+    if (previous.errorCode) throw approvalError("time_control_current_recipients_invalid", 409);
+    if (JSON.stringify(previous.emails) !== JSON.stringify(expected.emails)) {
+      throw approvalError("time_control_recipients_conflict", 409);
+    }
+    const settings = await repository.updateManagerRecipients(client, { tenantId, emails: desired.emails });
+    await auditService.logAuditEvent({
+      client, tenantId, actorId, actorType: "tenant_user", actorScope: "tenant",
+      moduleKey: "time_control", eventType: "tenant_config_changed",
+      resourceType: "time_control_settings", resourceId: tenantId, outcome: "success",
+      reason: reason.trim(),
+      metadata: { field: "friday_manager_emails", old_emails: previous.emails, new_emails: desired.emails },
+    });
+    return settings;
+  });
+}
+
+async function getPocMailPlan({ tenantId, batchId }) {
+  return withTransaction(async client => {
+    const settings = await repository.lockSettings(client, { tenantId });
+    if (!settings || settings.mode !== "dry_run") throw approvalError("time_control_poc_requires_dry_run", 409);
+    const configs = await repository.listEmployeeConfigs(client, { tenantId });
+    const matches = configs.filter(c => c.internal_ref === "MHJ");
+    if (matches.length !== 1) throw approvalError("time_control_poc_mhj_mapping_missing", 409);
+    const identity = classifyResolvedEmployee(matches[0], await repository.resolveEmployeeConfig(client, { tenantId, config: matches[0] }));
+    if (!identity.ok) throw approvalError(identity.configError, 409);
+    return require("./timeControl.mailTest").buildPlan({
+      tenantId, batchId, from: SENDER, settings, employee: identity.employee,
+    });
+  });
+}
+
 async function setMode({ tenantId, actorId, tenantSlug, mode, confirm }) {
   const normalizedMode = String(mode || "").trim().toLowerCase();
   if (!["dry_run", "live"].includes(normalizedMode)) {
@@ -700,4 +742,6 @@ module.exports = {
   runTimeControl,
   runTimeControlWithPool,
   setMode,
+  setManagerRecipients,
+  getPocMailPlan,
 };

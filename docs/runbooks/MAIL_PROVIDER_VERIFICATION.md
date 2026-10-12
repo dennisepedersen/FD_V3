@@ -1,5 +1,129 @@
 # Mail Provider Verification Runbook
 
+## Admin UI and bounded POC mail preparation (2026-10-12)
+
+Release `b17cfa0f03ac04dfdb8b640f98494990b711974d` is deployed; migrations
+0054–0056 and the repeated historical Render runtime test were verified.
+The admin additions described in this section are local only and need a new
+approved deploy. No mail, production recipient update or scheduler/live change
+was performed during this preparation.
+
+### Browser evidence and exact paths
+
+- `observed`: the deployed navigation target `/tenant/time-control.html`
+  returned HTTP 404 in the integrated browser. `/time-control` also returned
+  404; it is not the canonical navigation target.
+- The local fix adds an explicit tenant-host HTML route for the existing link:
+  tenant login -> `/app` -> admin navigation -> **Timekontrol**.
+- Local browser testing uses loopback-only mocked API data. It verifies rendering,
+  the **Klargør DEP alene (gemmer ikke)** -> reason -> **Gem ledermodtagere**
+  interaction, and **Vis testmailplan – afsender ikke**. It is not an
+  authenticated production admin verification or proof of a production audit.
+- After approved deploy, log in as an authorized tenant admin, open Timekontrol,
+  check six mappings and EK group ID **61** (not name prefix 183), inspect the
+  rules and current recipients, then save `dep@hoyrup-clemmensen.dk` alone with
+  reason `POC-test: DEP alene, LKE fravalgt`. Reload and confirm one address.
+  Do not click weekly dry-run merely to inspect recipients.
+- Under **Kontrolgruppe, normer og regler**, approved email can be reapproved
+  using the existing fitter/group mapping and reason. This UI uses an explicit
+  `admin_override`, optimistic approval version and existing audit. It cannot
+  reassign an already approved fitter or create membership/mappings.
+- The existing resource-group admin entry is `/app#resource-groups`:
+  **Admin / Ressourcegrupper** -> **Tenant admin** -> employees/groups.
+  This is not a dedicated Timekontrol control-cohort editor. Group membership
+  remains in the existing tenant resource-group administration;
+  imported EK membership completeness is still unresolved. This preparation does
+  not add manual membership, import groups, or change the approved cohort.
+- Daily norms (7.5 Monday–Thursday, historical Friday daily norm 7), weekly norm
+  37, Copenhagen schedules and timeart rules are displayed read-only. This UI
+  cannot edit them; rule profiles and norm/time configuration are out of scope.
+- **Lederoversigtens modtagere**: first address is To, remaining addresses are CC.
+  Removing LKE removes that address from future leader routing. Employee To/DEP
+  CC and internal-error recipients are unchanged. Existing historical previews
+  are not rewritten. Dispatch already rejects queued routing changes.
+- The recipient PATCH is tenant-admin protected, locks existing tenant settings,
+  compares the expected old ordered addresses, validates/normalizes/deduplicates
+  emails and audits old/new values via existing `tenant_config_changed`.
+  It changes only `friday_manager_emails`; no migration is needed.
+
+### Preview-only test campaign
+
+Use batch UUID `7aac3ac3-a4cf-4f2c-bddf-491bcb2b4f45`, preserving it across reruns.
+`GET /api/tenant/admin/time-control/mail-test-preview?batch_id=<UUID>` reads
+the current tenant's settings and the authoritative approved MHJ mapping. It
+fails closed for a changed/missing MHJ identity/email or employee CC other than
+DEP alone. DEP is the only allowed leader-test recipient; LKE is never addressed.
+`manager_routing_saved=false` explicitly diagnoses an unsaved DEP-only setting.
+
+Exact subjects and full Danish bodies live in
+`backend/src/modules/timeControl/timeControl.mailTest.js` and are displayed in
+the admin preview. All subjects begin `[POC-TEST`; the leader subject explicitly
+says `kun preview`. Sender is the existing service sender:
+`Fielddesk Timekontrol <timekontrol@fielddesk.dk>`.
+
+| Stage | To | CC | Action |
+| --- | --- | --- | --- |
+| `dep_delivery` | dep@hoyrup-clemmensen.dk | none | Send only after separate approval |
+| `mhj_delivery` | mhj@hoyrup-clemmensen.dk | DEP | Only after DEP confirms stage 1 and separate send approval |
+| `manager_preview` | DEP | none | Preview only; do not send |
+
+Keys are `time_control_poc_mail:v1:<server-tenant-id>:<batch-uuid>:<stage>`.
+They are deterministic on preview rerun, distinct from real control keys and
+from one another. Preview creates no control/result/receipt/mail-log/outbox row.
+There is deliberately no send endpoint or automatic provider call.
+
+**Do not claim persistent send deduplication from deterministic preview keys.**
+The current implementation separates preview and send:
+
+- `POST /api/tenant/admin/time-control/mail-tests/prepare` creates the locked
+  DEP test record and preview plan.
+- A dedicated operator script `backend/scripts/send_time_control_poc_dep.js`
+  can later send the locked DEP test only after explicit confirmation.
+- The locked test record carries a durable test key and immutable recipient /
+  content binding; the broad outbox processor and the normal control run are
+  still not used for this POC path.
+
+Provider idempotency, uncertain acceptance after timeout/crash, and
+restart/rerun behavior must still be tested before any real approval flow is
+considered complete. Automatic retry after unknown acceptance must not resend
+blindly. Provider/sender-domain verification and explicit send approval are
+also required. Provider acceptance is not mailbox receipt: DEP and MHJ must
+confirm their inboxes. Scheduler stays false and tenant stays dry_run during
+this test.
+
+### Transport margin assessment
+
+`observed`: historical Render captures had 628 successful page calls and 24
+transport-error attempts. Every transport failure lasted about 15,000 ms, the
+configured request timeout. Failures occurred in pairs; the first five-day
+capture's Monday took 105.358 seconds, leaving 14.642 seconds of the 120-second
+date budget. This cannot absorb another full 15-second timeout safely.
+No HTTP 429 was evidenced; current safe attempt logs do not preserve the
+underlying transport cause, so a root cause is not verified.
+
+The first 50-page daily capture had no error. Subsequent timeout pairs align
+with roughly each next 50 successful requests. `hypothesis`: a request-window,
+gateway or reused-connection limit. It is not proof of EK's rate-limit contract.
+
+Recommended next bounded change/experiment, not implemented here:
+
+1. Record sanitized error name/cause code and whether the request's AbortController
+   fired; never log URL headers, credentials or arbitrary provider error text.
+2. Measure a paced sequential capture against the same explicit day, preferably
+   with an EK-confirmed request-rate budget. A conservative experimental ceiling
+   of 50 attempts/minute including retries (not a claimed EK contract) implies
+   about 60–70 seconds minimum for 50–56 logical pages, plus actual network time.
+   Check the actual 120-second deadline and five-day scheduling window.
+3. If controlled evidence instead proves connection reuse is responsible, change
+   only this adapter's transport lifecycle and test abort/cleanup/retry behavior.
+4. Preserve two stable passes, all rows/IDs/date/total/terminal checks, Retry-After,
+   max attempts, committed invalidation and dispatch freshness. Do not raise
+   `complete`, discard slow pages or silently use a previous head.
+
+Do not enable live based on a single successful 105/120-second capture.
+Any timeout/rate/total-budget adjustment requires measured validation and an
+explicit scheduling-budget decision rather than a completeness relaxation.
+
 ## Daily EK capture and operational-week gate (local, not deployed)
 
 This section supersedes earlier rollout gaps concerning on-demand full-resync

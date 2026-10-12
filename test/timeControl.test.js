@@ -25,6 +25,138 @@ const { createHash } = require("node:crypto");
 const repoRoot = path.resolve(__dirname, "..");
 const read = (rel) => fs.readFileSync(path.join(repoRoot, rel), "utf8");
 
+test("POC previews keep deterministic separate test keys and never address LKE", () => {
+  const { buildPlan } = require("../backend/src/modules/timeControl/timeControl.mailTest");
+  const input = {
+    tenantId: uuid(1), batchId: uuid(7), from: service.SENDER,
+    settings: { mode: "dry_run", employee_cc_emails: ["DEP@hoyrup-clemmensen.dk"], friday_manager_emails: ["dep@hoyrup-clemmensen.dk"] },
+    employee: { fitterId: "15", email: "mhj@hoyrup-clemmensen.dk" },
+  };
+  const plan = buildPlan(input);
+  assert.deepEqual(buildPlan(input), plan);
+  assert.equal(plan.send_enabled, false);
+  assert.equal(plan.manager_routing_saved, true);
+  assert.equal(new Set(plan.messages.map(m => m.testKey)).size, 3);
+  assert.ok(plan.messages.every(m => m.testKey.startsWith("time_control_poc_mail:v1:")));
+  assert.ok(plan.messages.every(m => m.from === service.SENDER && m.subject.startsWith("[POC-TEST")));
+  assert.deepEqual(plan.messages.map(m => [m.to, m.cc]), [
+    ["dep@hoyrup-clemmensen.dk", []],
+    ["mhj@hoyrup-clemmensen.dk", ["dep@hoyrup-clemmensen.dk"]],
+    ["dep@hoyrup-clemmensen.dk", []],
+  ]);
+  assert.equal(plan.messages[2].disposition, "preview_only");
+  assert.ok(plan.messages.every(m => !/lke@/i.test(JSON.stringify(m))));
+  assert.doesNotMatch(read("backend/src/modules/timeControl/timeControl.mailTest.js"), /sendEmail|enqueue|upsert|INSERT|require\(.+pool/);
+  assert.equal(buildPlan({ ...input, settings: { ...input.settings, friday_manager_emails: ["dep@hoyrup-clemmensen.dk", "lke@hoyrup-clemmensen.dk"] } }).manager_routing_saved, false);
+  for (const patch of [
+    { tenantId: "bad" }, { batchId: "bad" }, { settings: { ...input.settings, mode: "live" } },
+    { employee: { fitterId: "290", email: "mhj@hoyrup-clemmensen.dk" } },
+    { employee: { fitterId: "15", email: "other@example.test" } },
+    { settings: { ...input.settings, employee_cc_emails: ["dep@hoyrup-clemmensen.dk", "lke@hoyrup-clemmensen.dk"] } },
+  ]) assert.throws(() => buildPlan({ ...input, ...patch }), /poc_plan_invalid/);
+});
+
+test("manager routing updates are tenant locked, normalized, audited and optimistic without touching employee CC", async () => {
+  const pool = require("../backend/src/db/pool");
+  const input = { tenantId: uuid(1), actorId: uuid(2), emails: [" DEP@example.test ", "dep@example.test"],
+    expectedEmails: ["dep@example.test", "lke@example.test"], reason: "POC: DEP alene" };
+  for (const scenario of ["success", "conflict", "missing", "audit-failure"]) {
+    const calls = [], client = { query: async sql => { calls.push(sql); return { rows: [] }; }, release: () => calls.push("release") };
+    let saved, audit;
+    await withPatches([
+      [pool, "connect", async () => client],
+      [repository, "lockSettings", async (c, scope) => {
+        assert.equal(c, client); assert.deepEqual(scope, { tenantId: uuid(1) });
+        return scenario === "missing" ? null : { friday_manager_emails: scenario === "conflict" ? ["changed@example.test"] : input.expectedEmails };
+      }],
+      [repository, "updateManagerRecipients", async (_c, value) => { saved = value; return value; }],
+      [auditService, "logAuditEvent", async value => { audit = value; if (scenario === "audit-failure") throw new Error("audit_failed"); }],
+    ], async () => {
+      if (scenario === "success") {
+        await service.setManagerRecipients(input);
+        assert.deepEqual(saved, { tenantId: uuid(1), emails: ["dep@example.test"] });
+        assert.equal(audit.eventType, "tenant_config_changed");
+        assert.equal(audit.actorId, uuid(2));
+        assert.deepEqual(audit.metadata.old_emails, input.expectedEmails);
+        assert.deepEqual(calls, ["BEGIN", "COMMIT", "release"]);
+      } else {
+        await assert.rejects(service.setManagerRecipients(input), /conflict|not_found|audit_failed/);
+        assert.deepEqual(calls, ["BEGIN", "ROLLBACK", "release"]);
+      }
+    });
+  }
+  for (const patch of [{ emails: [] }, { emails: ["bad"] }, { reason: "" }, { actorId: null }, { expectedEmails: null }]) {
+    await assert.rejects(service.setManagerRecipients({ ...input, ...patch }), /recipients_invalid/);
+  }
+  const queries = [];
+  const client = { query: async (sql, values) => { queries.push({ sql, values }); return { rows: [{}] }; } };
+  await repository.lockSettings(client, { tenantId: uuid(1) });
+  await repository.updateManagerRecipients(client, { tenantId: uuid(1), emails: ["dep@example.test"] });
+  assert.match(queries[0].sql, /WHERE tenant_id = \$1 FOR UPDATE/);
+  assert.match(queries[1].sql, /WHERE tenant_id = \$1 RETURNING/);
+  assert.doesNotMatch(queries[1].sql, /employee_cc_emails|mode\s*=|live_enabled/);
+});
+
+test("manager routing and POC preview routes reject foreign tenants and non-admins", async () => {
+  const router = require("../backend/src/modules/timeControl/timeControl.routes");
+  const access = require("../backend/src/services/moduleAccessService");
+  for (const path of ["/api/tenant/admin/time-control/manager-recipients", "/api/tenant/admin/time-control/mail-test-preview"]) {
+    const handler = router.stack.find(layer => layer.route?.path === path).route.stack.at(-1).handle;
+    const errors = [];
+    await withPatches([
+      [access, "requireModuleAccess", () => { const e = new Error("denied"); e.statusCode = 403; throw e; }],
+      [service, "setManagerRecipients", async () => { throw new Error("must_not_write"); }],
+      [service, "getPocMailPlan", async () => { throw new Error("must_not_read"); }],
+      [console, "error", () => {}],
+    ], async () => {
+      for (const tenantId of [uuid(1), uuid(9)]) {
+        await handler({ auth: { sub: uuid(2), tenant_id: tenantId }, context: { tenant: { id: uuid(1) } } }, {}, e => errors.push(e));
+      }
+    });
+    assert.deepEqual(errors.map(e => e.message), ["tenant_admin_access_denied", "tenant_context_mismatch"]);
+  }
+});
+
+test("admin UI target has an explicit tenant HTML route and no POC send action", () => {
+  const routes = read("backend/src/routes/tenantSurfaceRoutes.js");
+  assert.match(routes, /router\.get\("\/tenant\/time-control\.html", requireTenantHost, sendTenantHtml\("time-control\.html"\)\)/);
+  const html = read("backend/src/public/tenant/time-control.html");
+  assert.match(html, /timeControlRecipientsForm/);
+  assert.match(html, /timeControlEmployees/);
+  assert.match(html, /timeControlMailTestForm/);
+  assert.doesNotMatch(read("backend/src/modules/timeControl/timeControl.routes.js"), /post\(".*mail-test.*send/);
+});
+
+test("POC preview resolves current tenant-approved MHJ without creating control or mail rows", async () => {
+  const pool = require("../backend/src/db/pool");
+  for (const scenario of ["success", "live", "mapping", "membership"]) {
+    const queries = [];
+    const client = { query: async sql => { queries.push(sql); return { rows: [] }; }, release: () => queries.push("release") };
+    await withPatches([
+      [pool, "connect", async () => client],
+      [repository, "lockSettings", async (_c, scope) => {
+        assert.deepEqual(scope, { tenantId: uuid(1) });
+        return { mode: scenario === "live" ? "live" : "dry_run",
+          employee_cc_emails: ["dep@hoyrup-clemmensen.dk"], friday_manager_emails: ["dep@hoyrup-clemmensen.dk"] };
+      }],
+      [repository, "listEmployeeConfigs", async () => scenario === "mapping" ? [] : [{ id: uuid(20), internal_ref: "MHJ", fitter_id: "15" }]],
+      [repository, "resolveEmployeeConfig", async () => scenario === "membership" ? [] : [approvedEmployee({
+        fitter_id: "15", approved_email: "mhj@hoyrup-clemmensen.dk", email_source: "admin_override",
+      })]],
+      [emailOutboxService, "enqueueEmail", async () => { throw new Error("must_not_queue"); }],
+    ], async () => {
+      if (scenario === "success") {
+        const plan = await service.getPocMailPlan({ tenantId: uuid(1), batchId: uuid(7) });
+        assert.equal(plan.messages[1].to, "mhj@hoyrup-clemmensen.dk");
+        assert.deepEqual(queries, ["BEGIN", "COMMIT", "release"]);
+      } else {
+        await assert.rejects(service.getPocMailPlan({ tenantId: uuid(1), batchId: uuid(7) }), /requires_dry_run|mapping_missing|verified_fitter_mapping_missing/);
+        assert.deepEqual(queries, ["BEGIN", "ROLLBACK", "release"]);
+      }
+    });
+  }
+});
+
 function uuid(n) {
   return `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 }
@@ -226,6 +358,155 @@ test("bounded capture failure blocks employee mail and records only an internal 
   assert.equal(mailLogs[0].mailType, "internal_error");
   assert.equal(mailLogs[0].status, "would_send");
   assert.deepEqual(mailLogs[0].recipientEmails, ["dep@hoyrup-clemmensen.dk"]);
+});
+
+test("POC sender preparation persists a locked DEP-only test record without queueing a provider mail", async () => {
+  const sender = require("../backend/src/modules/timeControl/timeControl.mailTestSender");
+  const tx = require("../backend/src/db/tx");
+  const tenantId = "f1f51c07-2d88-4ee4-a766-78eac833a9d0";
+  const settingsRow = {
+    mode: "dry_run",
+    employee_cc_emails: ["dep@hoyrup-clemmensen.dk"],
+    friday_manager_emails: ["dep@hoyrup-clemmensen.dk"],
+  };
+  const planned = {
+    manager_routing_saved: true,
+    messages: [{
+      stage: "dep_delivery",
+      disposition: "requires_send_approval",
+      to: "dep@hoyrup-clemmensen.dk",
+      cc: [],
+      subject: "[POC-TEST – ingen handling] Fielddesk Timekontrol: mailtest til DEP",
+      text: "Hej DEP\n\nTest.\n",
+      from: service.SENDER,
+      testKey: `time_control_poc_mail:v1:${tenantId}:${uuid(7)}:dep_delivery`,
+    }],
+  };
+  const persisted = { id: uuid(9), tenant_id: tenantId, test_key: planned.messages[0].testKey, content_hash: createHash("sha256").update(JSON.stringify({ ...planned.messages[0], replyTo: null })).digest("hex"), status: "prepared" };
+  const queries = [];
+  const previousScheduler = process.env.TIME_CONTROL_SCHEDULER_ENABLED;
+  process.env.TIME_CONTROL_SCHEDULER_ENABLED = "false";
+  try {
+    await withPatches([
+      [service, "getPocMailPlan", async () => planned],
+      [tx, "withTransaction", async (fn) => fn({
+        query: async (sql) => {
+          queries.push(sql);
+          if (/SELECT mode,employee_cc_emails,friday_manager_emails FROM time_control_settings/.test(sql)) return { rows: [settingsRow] };
+          if (/INSERT INTO time_control_poc_mail_test/.test(sql)) return { rows: [persisted] };
+          if (/SELECT \* FROM time_control_poc_mail_test/.test(sql)) return { rows: [persisted] };
+          return { rows: [] };
+        },
+      })],
+      [auditService, "logAuditEvent", async () => {}],
+    ], async () => {
+    const result = await sender.prepare({ tenantId, actorId: uuid(2), batchId: uuid(7) });
+    assert.equal(result.test.id, persisted.id);
+    assert.equal(result.test.test_key, persisted.test_key);
+    assert.equal(result.plan.manager_routing_saved, true);
+    assert.ok(queries.some(sql => /INSERT INTO time_control_poc_mail_test/.test(sql)));
+    });
+  } finally {
+    if (previousScheduler === undefined) delete process.env.TIME_CONTROL_SCHEDULER_ENABLED;
+    else process.env.TIME_CONTROL_SCHEDULER_ENABLED = previousScheduler;
+  }
+});
+
+test("POC sender claims once and passes resend idempotency data without a duplicate send", async () => {
+  const sender = require("../backend/src/modules/timeControl/timeControl.mailTestSender");
+  const tx = require("../backend/src/db/tx");
+  const tenantId = "f1f51c07-2d88-4ee4-a766-78eac833a9d0";
+  const now = new Date("2026-10-12T00:00:00Z").toISOString();
+  const row = {
+    id: uuid(9),
+    tenant_id: tenantId,
+    test_key: `time_control_poc_mail:v1:${tenantId}:${uuid(7)}:dep_delivery`,
+    message_json: {
+      stage: "dep_delivery",
+      disposition: "requires_send_approval",
+      to: "dep@hoyrup-clemmensen.dk",
+      cc: [],
+      subject: "[POC-TEST – ingen handling] Fielddesk Timekontrol: mailtest til DEP",
+      text: "Hej DEP\n\nTest.\n",
+      from: service.SENDER,
+      replyTo: null,
+      testKey: `time_control_poc_mail:v1:${tenantId}:${uuid(7)}:dep_delivery`,
+    },
+    content_hash: createHash("sha256").update(JSON.stringify({
+      stage: "dep_delivery",
+      disposition: "requires_send_approval",
+      to: "dep@hoyrup-clemmensen.dk",
+      cc: [],
+      subject: "[POC-TEST – ingen handling] Fielddesk Timekontrol: mailtest til DEP",
+      text: "Hej DEP\n\nTest.\n",
+      from: service.SENDER,
+      replyTo: null,
+      testKey: `time_control_poc_mail:v1:${tenantId}:${uuid(7)}:dep_delivery`,
+    })).digest("hex"),
+    status: "prepared",
+  };
+  const queryLog = [];
+  const sendCalls = [];
+  let claimed = false;
+  const previousScheduler = process.env.TIME_CONTROL_SCHEDULER_ENABLED;
+  process.env.TIME_CONTROL_SCHEDULER_ENABLED = "false";
+  try {
+    await withPatches([
+      [tx, "withTransaction", async (fn) => fn({
+        query: async (sql, values) => {
+          queryLog.push(sql);
+          if (/SELECT mode,employee_cc_emails,friday_manager_emails FROM time_control_settings/.test(sql)) {
+            return { rows: [{ mode: "dry_run", employee_cc_emails: ["dep@hoyrup-clemmensen.dk"], friday_manager_emails: ["dep@hoyrup-clemmensen.dk"] }] };
+          }
+          if (/SELECT \* FROM time_control_poc_mail_test WHERE tenant_id=\$1 AND id=\$2 FOR UPDATE/.test(sql)) {
+            return { rows: [claimed ? { ...row, status: "sending" } : row] };
+          }
+          if (/UPDATE time_control_poc_mail_test SET status='sending'/.test(sql)) {
+            claimed = true;
+            return { rows: [{ ...row, status: "sending", attempt_started_at: now }] };
+          }
+          if (/UPDATE time_control_poc_mail_test SET status=\$3/.test(sql)) {
+            return { rows: [{ ...row, status: "accepted", completed_at: now, provider_message_id: "resend-test-id" }] };
+          }
+          return { rows: [] };
+        },
+      })],
+      [auditService, "logAuditEvent", async () => {}],
+      [require("../backend/src/config/env"), "MAIL_PROVIDER", "resend"],
+      [require("../backend/src/config/env"), "MAIL_API_KEY", "dummy"],
+    ], async () => {
+    const result = await sender.sendPreparedDep({
+      tenantId,
+      actorId: uuid(2),
+      testId: row.id,
+      confirm: `SEND:timekontrol-poc-dep:${row.id}`,
+      sendEmailFn: async (message, options) => {
+        sendCalls.push({ message, options });
+        return { provider: "resend", providerMessageId: "resend-test-id" };
+      },
+    });
+    const repeat = await sender.sendPreparedDep({
+      tenantId,
+      actorId: uuid(2),
+      testId: row.id,
+      confirm: `SEND:timekontrol-poc-dep:${row.id}`,
+      sendEmailFn: async () => {
+        sendCalls.push({ duplicate: true });
+        return { provider: "resend", providerMessageId: "resend-test-id-2" };
+      },
+    });
+    assert.equal(sendCalls.length, 1);
+    assert.equal(sendCalls[0].options.idempotencyKey, row.test_key);
+    assert.equal(sendCalls[0].options.timeoutMs, 15000);
+    assert.equal(result.delivery_state, "accepted");
+    assert.equal(result.retry_allowed, false);
+    assert.equal(repeat.delivery_state, "unclear");
+    });
+  } finally {
+    if (previousScheduler === undefined) delete process.env.TIME_CONTROL_SCHEDULER_ENABLED;
+    else process.env.TIME_CONTROL_SCHEDULER_ENABLED = previousScheduler;
+  }
+  assert.ok(queryLog.some(sql => /UPDATE time_control_poc_mail_test SET status='sending'/.test(sql)));
 });
 
 async function runMailScenario({

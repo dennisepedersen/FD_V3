@@ -54,6 +54,32 @@ async function updateMode(client, { tenantId, actorId, mode }) {
   return rows[0];
 }
 
+async function lockSettings(client, { tenantId }) {
+  const { rows } = await client.query(
+    "SELECT * FROM time_control_settings WHERE tenant_id = $1 FOR UPDATE", [tenantId]
+  );
+  return rows[0] || null;
+}
+
+async function updateManagerRecipients(client, { tenantId, emails }) {
+  const { rows } = await client.query(
+    "UPDATE time_control_settings SET friday_manager_emails = $2::jsonb WHERE tenant_id = $1 RETURNING *",
+    [tenantId, JSON.stringify(emails)]
+  );
+  return rows[0];
+}
+
+async function listAdminEmployees(client, { tenantId }) {
+  const { rows } = await client.query(
+    `SELECT c.*, f.name AS fitter_name, g.name AS group_name
+     FROM time_control_employee_config c
+     LEFT JOIN fitter f ON f.tenant_id = c.tenant_id AND f.fitter_id = c.fitter_id
+     LEFT JOIN resource_groups g ON g.tenant_id = c.tenant_id AND g.id = c.approved_group_id
+     WHERE c.tenant_id = $1 ORDER BY c.internal_ref`, [tenantId]
+  );
+  return rows;
+}
+
 async function listPayCodeRules(client, { tenantId }) {
   const { rows } = await client.query(
     `
@@ -580,7 +606,7 @@ async function upsertMailLog(client, {
 }
 
 async function getStatusOverview(client, { tenantId }) {
-  const [settings, runs, results, mails, sync, unfinishedRuns] = await Promise.all([
+  const [settings, runs, results, mails, sync, unfinishedRuns, employees, payCodeRules] = await Promise.all([
     getSettings(client, { tenantId }),
     client.query(
       `
@@ -645,6 +671,8 @@ async function getStatusOverview(client, { tenantId }) {
       `,
       [tenantId]
     ),
+    listAdminEmployees(client, { tenantId }),
+    listPayCodeRules(client, { tenantId }),
   ]);
 
   return {
@@ -654,10 +682,14 @@ async function getStatusOverview(client, { tenantId }) {
     unfinished_runs: unfinishedRuns.rows,
     results: results.rows,
     mails: mails.rows,
+    employees,
+    pay_code_rules: payCodeRules,
   };
 }
 
 module.exports = {
+  lockSettings,
+  updateManagerRecipients,
   bindRunWeeklySnapshot,
   acquireRunLock,
   approveEmployeeEmail,

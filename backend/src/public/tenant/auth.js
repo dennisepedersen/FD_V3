@@ -12784,6 +12784,14 @@
     if (!requireToken()) return;
     const message = document.getElementById("timeControlMessage");
     const form = document.getElementById("timeControlWeeklyForm");
+    const mailPlan = document.getElementById("timeControlMailTestPlan");
+    const preparedTest = document.getElementById("timeControlPreparedTest");
+    const batchInput = document.getElementById("timeControlTestBatch");
+    const previewButton = document.getElementById("timeControlPreviewTest");
+    const prepareButton = document.getElementById("timeControlPrepareDep");
+    document.getElementById("timeControlLocalBanner").hidden =
+      !["localhost", "127.0.0.1"].includes(window.location.hostname);
+    let managerEmails = [];
     const labels = {
       weekly_reminder: "Ugepåmindelse ved middag",
       missing_hours: "Dagsmangel (historisk dagskontrol)",
@@ -12792,8 +12800,172 @@
       data_incomplete: "Datadækning blokerer",
       unclassified_hours: "Ukendt lønart blokerer",
     };
+    function element(tag, text, className) {
+      const node = document.createElement(tag);
+      if (text != null) node.textContent = String(text);
+      if (className) node.className = className;
+      return node;
+    }
+    function addresses(value) {
+      return Array.isArray(value) ? value.join(", ") || "Ingen" : value || "Ingen";
+    }
+    function infoCard(label, value) {
+      const card = element("div", null, "infoCard");
+      card.append(element("span", label, "infoLabel"), element("span", value, "infoValue"));
+      return card;
+    }
+    function technicalDetails(entries) {
+      const details = element("details");
+      details.append(element("summary", "Tekniske oplysninger"));
+      for (const [label, value] of entries) {
+        details.append(element("p", `${label}: ${value || "Ikke tilgængelig"}`, "technicalValue"));
+      }
+      return details;
+    }
+    function mailCard(mail, title, status) {
+      const card = element("article", null, "mailCard");
+      card.append(element("h3", title), element("span", status, "tag tagPreview"));
+      const meta = element("dl", null, "mailMeta");
+      for (const [label, value] of [
+        ["Fra", mail.from || "Ikke oplyst"],
+        ["Til", addresses(mail.to)],
+        ["CC", addresses(mail.cc)],
+        ["Emne", mail.subject || "Intet emne"],
+      ]) {
+        meta.append(element("dt", label), element("dd", value));
+      }
+      card.append(meta, element("div", mail.text || "Ingen mailtekst.", "mailBody"));
+      if (mail.testKey) card.append(technicalDetails([["Testnøgle", mail.testKey]]));
+      return card;
+    }
+    function resetMailTest() {
+      mailPlan.replaceChildren();
+      preparedTest.replaceChildren();
+      preparedTest.hidden = true;
+    }
+    function renderPlan(plan) {
+      mailPlan.replaceChildren();
+      const notice = element("div", null, plan.manager_routing_saved ? "notice" : "notice testNotice");
+      notice.append(element("strong", plan.manager_routing_saved
+        ? "DEP alene er gemt som ledermodtager."
+        : "DEP alene er ikke gemt som ledermodtager endnu."));
+      if (plan.delivery_caveat) notice.append(element("p", plan.delivery_caveat));
+      if (plan.dispatch_blocker) notice.append(element("p", plan.dispatch_blocker));
+      const cards = element("div", null, "mailGrid");
+      const titles = {
+        dep_delivery: "DEP · afgrænset mailtest",
+        mhj_delivery: "MHJ · kun preview",
+        manager_preview: "Lederoversigt · kun preview",
+      };
+      for (const mail of plan.messages || []) {
+        cards.append(mailCard(mail, titles[mail.stage] || "Testmail · kun preview", "Kun preview – ikke afsendt"));
+      }
+      mailPlan.append(notice, cards);
+    }
+    function renderPrepared(test) {
+      preparedTest.replaceChildren();
+      preparedTest.hidden = false;
+      const notice = element("div", null, "notice testNotice");
+      notice.append(
+        element("strong", "DEP-test · gemt forberedelse"),
+        element("p", `Gemt status: ${test.status}. Kun læsning – ingen afsendelse udført her.`),
+        element("p", "Afventer særskilt afsendelsesgodkendelse.")
+      );
+      preparedTest.append(notice, mailCard(test.message_json, "Forberedt DEP-test", "Kun læsning"),
+        technicalDetails([["Test-ID", test.id], ["Status", test.status]]));
+    }
+    function setMailTestBusy(busy) {
+      previewButton.disabled = busy;
+      prepareButton.disabled = busy;
+      batchInput.disabled = busy;
+    }
+    function tableEmpty(tbody, count, text) {
+      const row = element("tr");
+      const cell = element("td", text, "emptyState");
+      cell.colSpan = count;
+      row.append(cell); tbody.append(row);
+    }
     async function refresh() {
       const overview = await apiFetch("/api/tenant/admin/time-control/status", { method: "GET" });
+      const settings = overview.settings;
+      managerEmails = settings.friday_manager_emails || [];
+      document.getElementById("timeControlManagerEmails").value = managerEmails.join("\n");
+      document.getElementById("timeControlSettings").replaceChildren(
+        infoCard("Kontroltilstand", settings.mode === "dry_run" ? "Testtilstand (dry-run)" : settings.mode),
+        infoCard("Ugenorm · mandag–fredag", "37 timer"),
+        infoCard("Dagsnorm · mandag–torsdag", `${settings.monday_thursday_required_hours} timer`),
+        infoCard("Historisk fredagsdagsnorm", `${settings.friday_required_hours} timer`),
+        infoCard("Dagskontrol · tirsdag–fredag", "Kl. 09.00 · Europe/Copenhagen"),
+        infoCard("Ugekontrol · fredag", "Kl. 12.00 · Europe/Copenhagen")
+      );
+      document.getElementById("timeControlRecipientSummary").replaceChildren(
+        infoCard("Lederoversigt · Til (gemt)", addresses(managerEmails.slice(0, 1))),
+        infoCard("Lederoversigt · CC (gemt)", addresses(managerEmails.slice(1))),
+        infoCard("Medarbejdermail · CC", addresses(settings.employee_cc_emails)),
+        infoCard("Intern fejlmail", addresses(settings.internal_error_emails))
+      );
+      const payCodes = document.getElementById("timeControlPayCodes");
+      payCodes.replaceChildren();
+      for (const rule of overview.pay_code_rules || []) {
+        const tr = element("tr");
+        const name = element("td", rule.label || "Unavngiven timeart");
+        name.dataset.label = "Timeart";
+        name.append(technicalDetails([["Timeartsreference", rule.pay_code]]));
+        const action = element("td", rule.counts_as_valid_hours ? "Medregnes" : "Ekskluderes");
+        action.dataset.label = "Regel";
+        tr.append(name, action); payCodes.append(tr);
+      }
+      if (!payCodes.children.length) tableEmpty(payCodes, 2, "Ingen timeartsregler at vise.");
+      const employees = document.getElementById("timeControlEmployees");
+      employees.replaceChildren();
+      for (const employee of overview.employees || []) {
+        const tr = document.createElement("tr");
+        const identity = element("td");
+        identity.dataset.label = "Tekniker";
+        identity.append(element("strong", employee.internal_ref),
+          element("p", employee.fitter_name || "Navn ikke tilgængeligt", "infoHint"),
+          technicalDetails([["Fitter-ID", employee.fitter_id], ["Medarbejder-ID", employee.id]]));
+        const group = element("td");
+        group.dataset.label = "Kontrolgruppe";
+        group.append(element("p", employee.group_name || "Ikke godkendt gruppe"),
+          element("span", employee.is_enabled ? "Aktiv" : "Deaktiveret", "tag"),
+          technicalDetails([["EK-gruppe-ID", employee.resource_group_external_id || settings.resource_group_external_id]]));
+        tr.append(identity, group);
+        const td = document.createElement("td");
+        td.dataset.label = "Mailgodkendelse";
+        td.append(element("span", employee.approved_email || "Ingen godkendt mailadresse", "address"));
+        const editor = document.createElement("form");
+        editor.className = "employeeEditor";
+        const email = document.createElement("input");
+        email.type = "email"; email.required = true; email.value = employee.approved_email || "";
+        email.setAttribute("aria-label", `Godkendt mail for ${employee.internal_ref}`);
+        const reason = document.createElement("input");
+        reason.required = true; reason.maxLength = 500; reason.placeholder = "Begrundelse til audit";
+        reason.setAttribute("aria-label", `Begrundelse for ${employee.internal_ref}`);
+        const save = document.createElement("button");
+        save.type = "submit"; save.textContent = "Godkend mail";
+        save.disabled = !employee.fitter_id || !employee.approved_group_id;
+        editor.append(email, reason, save);
+        editor.addEventListener("submit", async event => {
+          event.preventDefault(); save.disabled = true;
+          try {
+            await apiFetch(`/api/tenant/admin/time-control/employees/${employee.id}/recipient`, {
+              method: "PATCH", body: JSON.stringify({
+                fitter_id: employee.fitter_id, group_id: employee.approved_group_id,
+                email: email.value, email_source: "admin_override", reason: reason.value,
+                expected_version: employee.approval_version,
+              }),
+            });
+            resetMailTest();
+            message.textContent = "Mailgodkendelsen er gemt med audit. Ingen mails afsendt.";
+            await refresh();
+          } catch (error) {
+            if (!handleAuthFailure(error)) message.textContent = getErrorMessage(error, "Mailgodkendelsen kunne ikke gemmes.");
+          } finally { save.disabled = false; }
+        });
+        td.append(editor); tr.append(td); employees.append(tr);
+      }
+      if (!employees.children.length) tableEmpty(employees, 3, "Ingen teknikere i kontrolgruppen.");
       const tbody = document.getElementById("timeControlResults");
       tbody.replaceChildren();
       for (const result of overview.results || []) {
@@ -12808,35 +12980,92 @@
             ? (result.weekly_proof?.freshness === "explicit_historical_demo" ? "Historisk snapshot; fem aktuelle dagshoveder" : "Aktuelt datasætbundet bevis")
             : "Manglende eller erstattet bevis",
         ];
-        for (const value of values) {
+        const headings = ["Kontrol", "Dato / uge", "Status", "Medregnede timer / norm", "Databevis"];
+        for (const [index, value] of values.entries()) {
           const td = document.createElement("td");
+          td.dataset.label = headings[index];
           td.textContent = value;
           tr.append(td);
         }
         tbody.append(tr);
       }
+      if (!tbody.children.length) tableEmpty(tbody, 5, "Ingen kontroller at vise endnu.");
       const previews = document.getElementById("timeControlPreviews");
       previews.replaceChildren();
       for (const mail of overview.mails || []) {
-        const section = document.createElement("section");
-        const title = document.createElement("h3");
-        title.textContent = `${mail.subject} (${mail.mode}, ${mail.status})`;
-        const body = document.createElement("pre");
-        body.textContent = `Til: ${(mail.recipient_emails || []).join(", ")}\nCC: ${(mail.cc_emails || []).join(", ")}\n\n${mail.body_preview}`;
-        section.append(title, body);
-        previews.append(section);
+        previews.append(mailCard({
+          subject: mail.subject, to: mail.recipient_emails, cc: mail.cc_emails, text: mail.body_preview,
+        }, "Mailforhåndsvisning", `${mail.mode} · ${mail.status}`));
       }
+      if (!previews.children.length) previews.append(element("p", "Ingen mailforhåndsvisninger fra kontroller.", "emptyState"));
     }
     try {
       const me = await apiFetch("/api/me", { method: "GET" });
       if (!isTenantAdmin(me.user)) throw new Error("Kun tenant admin har adgang.");
       await refresh();
       document.getElementById("timeControlAdmin").hidden = false;
-      message.textContent = "Dry-run administration. Live/scheduler er uændret.";
+      document.getElementById("timeControlAdminNav").hidden = false;
+      message.textContent = "Testadministration klar. Live/scheduler er uændret.";
     } catch (error) {
       if (!handleAuthFailure(error)) message.textContent = getErrorMessage(error, "Kunne ikke hente Timekontrol.");
       return;
     }
+    document.getElementById("timeControlDepOnly").addEventListener("click", () => {
+      document.getElementById("timeControlManagerEmails").value = "dep@hoyrup-clemmensen.dk";
+      message.textContent = "DEP alene er klargjort. Klik Gem ledermodtagere for at gemme med audit.";
+    });
+    document.getElementById("timeControlRecipientsForm").addEventListener("submit", async event => {
+      event.preventDefault();
+      const button = event.currentTarget.querySelector('button[type="submit"]');
+      button.disabled = true;
+      try {
+        await apiFetch("/api/tenant/admin/time-control/manager-recipients", {
+          method: "PATCH", body: JSON.stringify({
+            emails: document.getElementById("timeControlManagerEmails").value.trim().split(/\s+/),
+            expected_emails: managerEmails,
+            reason: document.getElementById("timeControlRecipientReason").value,
+          }),
+        });
+        await refresh(); resetMailTest();
+        message.textContent = "Ledermodtagere gemt med audit. Medarbejder-CC og live/scheduler er uændret.";
+      } catch (error) {
+        if (!handleAuthFailure(error)) message.textContent = getErrorMessage(error, "Modtagerne kunne ikke gemmes.");
+      } finally { button.disabled = false; }
+    });
+    batchInput.addEventListener("input", resetMailTest);
+    document.getElementById("timeControlMailTestForm").addEventListener("submit", async event => {
+      event.preventDefault();
+      setMailTestBusy(true);
+      try {
+        const response = await apiFetch(`/api/tenant/admin/time-control/mail-test-preview?batch_id=${encodeURIComponent(batchInput.value)}`, { method: "GET" });
+        renderPlan(response.plan);
+        message.textContent = "Kun preview. Ingen outbox-rækker, mails eller driftskvitteringer er dannet.";
+      } catch (error) {
+        if (!handleAuthFailure(error)) message.textContent = getErrorMessage(error, "Mailplanen kunne ikke hentes.");
+      } finally { setMailTestBusy(false); }
+    });
+    prepareButton.addEventListener("click", async () => {
+      if (!batchInput.reportValidity()) {
+        batchInput.closest("details").open = true;
+        batchInput.focus();
+        return;
+      }
+      setMailTestBusy(true);
+      resetMailTest();
+      try {
+        const response = await apiFetch("/api/tenant/admin/time-control/mail-tests/prepare", {
+          method: "POST", body: JSON.stringify({ batch_id: batchInput.value }),
+        });
+        if (!response.test?.id || !response.test.status || !response.test.message_json || !response.plan) {
+          throw new Error("Forberedelsen returnerede ikke en komplet testkvittering.");
+        }
+        renderPlan(response.plan);
+        renderPrepared(response.test);
+        message.textContent = "DEP-testen er forberedt og gemt. Ingen mail afsendt. Afventer særskilt afsendelsesgodkendelse.";
+      } catch (error) {
+        if (!handleAuthFailure(error)) message.textContent = getErrorMessage(error, "DEP-testen kunne ikke forberedes.");
+      } finally { setMailTestBusy(false); }
+    });
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       const button = form.querySelector("button");

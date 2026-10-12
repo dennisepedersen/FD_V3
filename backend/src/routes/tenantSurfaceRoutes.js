@@ -87,6 +87,7 @@ router.get("/login", requireTenantHost, sendTenantHtml("login.html"));
 router.get("/accept-invite", requireTenantHost, sendTenantHtml("accept-invite.html"));
 
 router.get("/app", requireTenantHost, sendTenantHtml("app.html"));
+router.get("/tenant/time-control.html", requireTenantHost, sendTenantHtml("time-control.html"));
 
 router.get("/", requireTenantHost, sendTenantHtml("app.html"));
 
