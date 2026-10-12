@@ -22,15 +22,72 @@ would reject a newly prepared test at send validation. The narrow repair
 sorts object keys when hashing, preserves array order and all message fields,
 and leaves the replacement key and old immutable rows untouched. A regression
 checks reordered stored content through the sender and detects changed fields.
-No replacement existed at preflight; preparation waits for this repair to be
-deployed and verified. No mail, scheduler activation or live-mode change is
-authorized by preparation.
+The repair is live at commit `7725ba47513301e18ab66e0c8bb461d7cd99cfe8`,
+Render deploy `dep-db68dlou01pc73fbcn8g`, finished
+`2026-10-12T07:06:54.990Z`. Backend health returned HTTP 200 afterward.
+No mail, scheduler activation or live-mode change is authorized by preparation.
 
 Local validation of the repair: `node --test test/timeControl.test.js` passed
 69/69. `npm run check` passed all gates: 491 tests passed, 6 opt-in tests
 skipped, 0 failed; 58 migrations and 18 static assertions passed. The initial
 sandboxed focused test hit the known Windows `EPERM`; the checks above ran
 successfully outside that sandbox. `git diff --check` passed.
+
+### One prepared replacement, no send
+
+`verified`: the authenticated production admin UI prepared exactly one new
+DEP test in the existing batch at `2026-10-12T07:07:38.175Z`. No replacement
+existed at preflight. The old record remains unchanged as history.
+
+- Test ID: `6f056355-599e-44f4-9aff-f0d89ddb3757`.
+- Test key:
+  `time_control_poc_mail:v1:f1f51c07-2d88-4ee4-a766-78eac833a9d0:7aac3ac3-a4cf-4f2c-bddf-491bcb2b4f45:dep_delivery:45addff13cfa`.
+- Canonical content hash:
+  `89331006cfa06a0f8f211d3ac23855680e8e69a3ddb7db65a4eaee199c127a81`.
+- Status `prepared`; `attempt_started_at=NULL`; `provider_message_id=NULL`.
+- From `Fielddesk Timekontrol <timekontrol@fielddesk.dk>`; To
+  `Dennis <dep@hoyrup-clemmensen.dk>`; no CC;
+  Reply-To `admin@fielddesk.dk`.
+- Subject `[POC-TEST - ingen handling] Fielddesk Timekontrol: mailtest til Dennis`.
+- Body greets Dennis and names Mikkel Hyldebo Jensen instead of initials.
+  `Dennis` is the current authoritative tenant-user display name.
+
+`verified`: Render job `job-db68f7tckfvc73chf5c0` confirmed one replacement
+and two total POC test records for this tenant. The stored JSONB hash matches.
+It exercised the actual deployed sender with database writes blocked and a
+provider stub: the old test failed with
+`time_control_poc_locked_message_superseded`; the new test passed validation up
+to the claim, where the explicit `validated_before_claim_no_write` sentinel
+prevented any mutation. Provider send calls: 0. The validation transaction was
+rolled back. Tenant settings remained `mode=dry_run`, `live_enabled_at=NULL`,
+DEP-only employee CC and manager recipients, scheduler `false`.
+`MAIL_PROVIDER=resend` and a mail API key are present; no secrets were printed.
+
+### Concrete sender-domain blocker
+
+`verified`: read-only `GET https://api.resend.com/domains?limit=100` using the
+production mail credential returned HTTP 200, `has_more=false`, and exactly
+one domain: `mail.fielddesk.dk`, status `verified`, sending `enabled`.
+The locked sender uses `fielddesk.dk`, which is absent from that account.
+[Resend's error contract](https://resend.com/docs/api-reference/errors)
+requires the From domain to match a verified domain. Treat the current sender
+as blocked for real delivery; no send request was made to probe rejection.
+
+Do not silently change the locked sender, existing records, global mail
+configuration or DNS. Preserve the one prepared replacement. Before sending,
+obtain approval for the sender-domain resolution, verify `fielddesk.dk` in the
+same Resend account if the agreed From address is retained, and recheck the
+locked content/gates. Then obtain explicit approval for this one send only.
+The concrete future Render/Linux command, from the service's `backend` root,
+is:
+
+```sh
+TIME_CONTROL_POC_APPROVED_ACTOR_ID=8eaddbc0-8fc7-414a-9c5c-064617972394 node scripts/send_time_control_poc_dep.js 6f056355-599e-44f4-9aff-f0d89ddb3757 SEND:timekontrol-poc-dep:6f056355-599e-44f4-9aff-f0d89ddb3757
+```
+
+This command has not run. No automatic retry is allowed. Provider acceptance
+would still require Dennis's separate inbox confirmation before any test to
+Mikkel; the leader overview remains preview-only.
 
 ## Timekontrol POC name-safe mail replacement (deployed, 2026-10-12)
 
@@ -111,12 +168,13 @@ This did not contact production APIs or send mail.
 
 Open before real mail:
 
-1. Confirm migration 0058 status through the normal production migration gate
-   before preparing or sending the replacement row.
-2. Prepare exactly one new DEP test row from the deployed Timekontrol admin UI.
-   Record the new test ID and test key.
-3. Check provider/sender-domain readiness again without sending. Provider
-   acceptance is not inbox receipt.
+1. Migration 0058 is verified applied with no checksum mismatch; see the
+   production validation section above. Do not rerun it.
+2. Reuse prepared test `6f056355-599e-44f4-9aff-f0d89ddb3757`; its test key
+   and locked content are recorded above. Do not create another batch.
+3. Resolve the verified sender-domain blocker above with explicit approval,
+   then recheck readiness without sending. Provider acceptance is not inbox
+   receipt.
 4. Send only the DEP test after explicit send action:
    `node backend/scripts/send_time_control_poc_dep.js <test-id> SEND:timekontrol-poc-dep:<test-id>`.
 5. Wait for Dennis to confirm actual inbox receipt before any MHJ test. LKE
