@@ -1,6 +1,19 @@
 # Mail Provider Verification Runbook
 
-## Mail transport passed; automatic operation not activated (2026-10-12)
+## HC automatic operation activated and verified (2026-10-12)
+
+`verified`: the separately approved six-person HC operation is now active
+from 12 October, tenant-live and both Timekontrol flags are true. Repair code
+`8972b6e6efae58993d689433de4bcd13c9b71649` is live in configuration rollout
+`dep-db6cssbrjlhs73for80g`; the Render web process logged scheduler startup.
+Final verification `job-db6ctlm7bikc73cdlvj0` passed with the exact approved
+names/routing/sender, no new mail attempts and all four POC records unchanged.
+First planned control: 13 October 09:00 Copenhagen for 12 October; no future
+execution is claimed yet. LKE remains excluded. See the actual saved settings,
+Friday gate and exact stop commands in the
+[activation runbook](TIME_CONTROL_ACTIVATION.md).
+
+## Prior mail transport and readiness evidence (2026-10-12)
 
 `observed` (user-confirmed): Dennis explicitly confirmed both actual inbox
 receipts for test `275bfde9-41d2-47fa-ae12-1950e1f18c68`: Mikkel received

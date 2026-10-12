@@ -1,8 +1,8 @@
 # Timekontrol HC Activation Plan
 
-Status: activation explicitly approved on 12 October 2026; rollout in progress.
-The six-person operation is active; tenant-live and automatic flags remain off
-until the narrow live-setting SQL fix below is deployed and verified.
+Status: ACTIVE; user-approved activation completed and runtime-verified
+12 October 2026. Only HC's approved six-person group is active, covered from
+12 October; tenant-live and both Timekontrol flags are enabled.
 Target: first scheduled control Tuesday 13 October 2026 at 09:00,
 Europe/Copenhagen (07:00 UTC), evaluating Monday 12 October.
 
@@ -40,9 +40,82 @@ live with persisted actor UUID, repeated live preserving its timestamp, stop
 clearing live fields, reactivation, and untouched other-tenant settings.
 Validation: `npm run check` passed (556 tests, 7 opt-in skips), and the three
 isolated PostgreSQL suites passed all eight tests with zero skips and external
-provider calls. Deployment and final activation evidence follow after rollout.
+provider calls. The owned local PostgreSQL server was stopped after validation.
 
-## Verified Release And Final Production Check
+### Completed Rollout And Saved Runtime State
+
+`verified`: repair commit `8972b6e6efae58993d689433de4bcd13c9b71649` was
+committed, pushed to main and deployed as `dep-db6cr0c9v7es739ul1h0`, live at
+`2026-10-12T12:08:36.655019Z`; health HTTP 200. No new migration was required;
+normal pre-deploy reported 0 applied, 59 skipped.
+
+Job `job-db6crvid0e5s73a938q0` succeeded at `2026-10-12T12:09:49Z`.
+It verified and retained the same operation (no duplicate epoch), then used
+the repaired existing mode service. Saved settings: `is_enabled=true`,
+`mode=live`, `live_enabled_at=2026-10-12T12:09:45.945Z`, live actor
+`8eaddbc0-8fc7-414a-9c5c-064617972394`, timezone `Europe/Copenhagen`,
+group external ID `61`, daily norm 7.50, freshness 180 minutes. Employee CC,
+leader and internal diagnostic lists each remain exactly
+`["dep@hoyrup-clemmensen.dk"]`.
+
+Only the service's two Timekontrol environment keys were updated, using
+Render's per-key endpoint: `TIME_CONTROL_SCHEDULER_ENABLED=true` and
+`TIME_CONTROL_MAIL_ENABLED=true`. Full before/after comparison of all other
+service environment values passed; credentials, global sender and other flags
+were not changed. A subsequent flag-readback check needed corrected PowerShell
+array handling; read-only inspection confirmed both values were already saved,
+so the updates were not repeated. Protected non-Timekontrol environment digest:
+`894b037c099078fa46b25b6c58f0ddb3821cec0f7c52d1b9d28b0a2fc3d6fe51`.
+
+Approved configuration rollout `dep-db6cssbrjlhs73for80g` used `deploy_only`
+with the same repair commit and went live at `2026-10-12T12:12:04.40108Z`.
+It also reported 0 migrations applied, 59 skipped. The actual Render web
+process logged at `2026-10-12T12:11:54.262039931Z`:
+
+```text
+[timeControl.scheduler] started interval=60000ms timezone=Europe/Copenhagen
+```
+
+Health remained HTTP 200. This is the paid Starter web service, one instance,
+running `node src/server.js`; app startup owns the recurring timer. Neither
+the laptop, one-off verification job nor a Codex session owns the schedule.
+No separate local scheduler or manual future-slot tick was started.
+
+Final runtime job `job-db6ctlm7bikc73cdlvj0` succeeded at
+`2026-10-12T12:13:28Z` with marker `TC_ACTIVATION_FINAL_RUNTIME_VERIFIED`.
+Its reads at `2026-10-12T12:13:24.933Z` verified:
+
+- Both flags true in the production runtime; saved tenant-live and the same
+  active epoch/coverage. The scheduler's enabled-tenant query returned HC only.
+- Exact current six-person cohort and approved names/To addresses below, all
+  approval version 1, with Dennis alone in CC. LKE is excluded.
+- From `Fielddesk Timekontrol <timekontrol@mail.fielddesk.dk>`, Reply-To
+  `admin@fielddesk.dk`; global `Fielddesk <noreply@mail.fielddesk.dk>` unchanged.
+- Next actual slot calculated by the deployed schedule is
+  `2026-10-13T07:00:00Z` (09:00 Copenhagen), `daily_09` of `2026-10-12`.
+  The following three daily slots and Friday 12:00 weekly slot match the table.
+- A tick at the actual current Monday time returned `no_scheduled_control`.
+  No synthetic Tuesday tick, live control, catch-up or historical resend ran.
+- Live runs 0, planned receipts 0, general sync jobs still 186. The unrelated
+  outbox remains 60 queued rows with the exact preflight full-row digest above
+  (including zero attempts); no Timekontrol outbox records exist.
+- All four POC records are unchanged: both accepted provider IDs/timestamps
+  remain as recorded in the mail runbook, and both superseded prepared tests
+  remain unattempted. The test sender additionally requires scheduler=false.
+- The verification job prohibited all fetch/send calls and recorded zero
+  provider calls. No test, old result or collection reminder was sent.
+- All six Friday gates are currently ineligible with
+  `scheduled_control_missing:daily_09:2026-10-12` (0/4). Monday coverage and
+  timely activation allow this week to qualify only after the four actual
+  planned valid daily controls and Friday's valid weekly capture.
+
+The first future scheduled execution is not yet observed. Check its run,
+receipts, structured scheduler outcome and linked outbox/provider receipts
+after Tuesday 09:00 using the monitoring procedure below; never substitute a
+manual run if that slot fails. All fail-closed and no-automatic-retry guards
+remain unchanged by the SQL parameter-type repair.
+
+## Prior Readiness Release And Production Check
 
 Code commit `d030835fa10077f75625d4ae32304c7ef9de622d` is live in Render
 deploy `dep-db6c6j8ae00c73agslbg`, finished
@@ -118,9 +191,10 @@ All operational mail uses:
 - Internal diagnostic: To Dennis only, no CC.
 - Other modules' sender, queues and retry policy are unchanged.
 
-## What To Activate After Approval
+## Executed Approved Activation Procedure
 
-Finish activation preferably by Tuesday 13 October 08:45 Copenhagen, and
+The following approved procedure is now completed; actual evidence is above.
+The original deadline was preferably Tuesday 13 October 08:45 Copenhagen, and
 always before 09:00. A missed slot must not be fabricated or replaced by a
 manual run. Recheck the final release SHA, health, six approvals and saved
 DEP-only routing before proceeding.
@@ -154,7 +228,10 @@ Monday, and freezes its identity/mail approval hashes in a new audited epoch.
 4. Verify the active epoch, live timestamp, both flags, health and scheduler
    startup log. Do not run a manual live control or a broad outbox apply.
 
-No part of these activation steps has been performed by readiness work.
+Readiness work did not perform these steps; the separately approved activation
+above did. The operation/mode changes used the existing audited services in a
+production operator job after server-side tenant/admin/identity validation,
+rather than an interactive HTTP session. No auth or route behavior was changed.
 
 ## Schedule And Friday Qualification
 
@@ -256,17 +333,49 @@ An ambiguous provider response is terminal and visible as unclear; abandoned
 3. Set both Render flags to `false` through the normal configuration procedure.
 4. Verify dry-run, paused operation and both disabled flags. Do not drain queues.
 
+Concrete PowerShell procedure (documentation only, NOT executed). Use an
+existing authenticated HC tenant-admin access token in the operator environment;
+never paste or log the token. The immediate stop does not wait for Render:
+
+```powershell
+if (-not $env:HC_TENANT_ADMIN_ACCESS_TOKEN) { throw 'Authenticated HC admin token required' }
+$hc = 'https://hoyrup-clemmensen.fielddesk.dk/api/tenant/admin/time-control'
+$auth = @{ Authorization = "Bearer $env:HC_TENANT_ADMIN_ACCESS_TOKEN" }
+Invoke-RestMethod -Method Patch -Uri "$hc/settings" -Headers $auth -ContentType 'application/json' -Body '{"mode":"dry_run"}'
+Invoke-RestMethod -Method Post -Uri "$hc/operation" -Headers $auth -ContentType 'application/json' -Body '{"group_id":"bdcea2d1-14e2-4477-813b-8657de826905","status":"paused","confirm":"BEKRAEFT:timekontrol-drift:hoyrup-clemmensen:paused"}'
+Invoke-RestMethod -Uri "$hc/operation" -Headers $auth
+Invoke-RestMethod -Uri "$hc/status" -Headers $auth
+```
+
+Then disable only the two Timekontrol flags and roll out the stopped config:
+
+```powershell
+if (-not $env:RENDER_API_KEY) { throw 'Render operator credential required' }
+$render = 'https://api.render.com/v1/services/srv-d6h0h8fgi27c73a99jgg'
+$renderAuth = @{ Authorization = "Bearer $env:RENDER_API_KEY" }
+foreach ($flag in @('TIME_CONTROL_SCHEDULER_ENABLED', 'TIME_CONTROL_MAIL_ENABLED')) {
+  Invoke-RestMethod -Method Put -Uri "$render/env-vars/$flag" -Headers $renderAuth -ContentType 'application/json' -Body '{"value":"false"}'
+}
+Invoke-RestMethod -Method Post -Uri "$render/deploys" -Headers $renderAuth -ContentType 'application/json' -Body '{"deployMode":"deploy_only"}'
+```
+
+Wait for the stopped rollout to be live and verify actual dry-run settings,
+paused epoch, both runtime flags false and no new outbox attempts. Do not invoke
+`process_email_outbox.js --apply`, catch-up, any test sender or a manual live run.
+
 An already started provider call cannot be recalled. Locks may make the stop
 wait for that in-flight call; after stop confirmation the database gates apply.
 Resuming creates a new epoch; old receipts/queues do not become a full new week.
 
-## Approval Boundary
+## Approved Scope And Remaining Boundaries
 
-The next user approval must cover only activation of this deployed, verified
-plan: the existing six-person cohort, explicit Monday coverage, live mode,
-the two Timekontrol flags and resulting rollout before the first Tuesday slot.
-It does not authorize general EK sync, other mail queues, LKE, rule profiles,
-test resends, fabricated historical receipts or catch-up employee messages.
+The user explicitly approved activation of this plan for the existing
+six-person cohort, Monday coverage, tenant-live, both flags and resulting
+rollout, including the conditional daily/weekly employee mail and DEP-only
+summary/diagnostics. That activation is completed above. The scoped SQL fix
+was necessary to save live mode and does not change the approved behavior.
+No approval covers general EK sync, other mail queues, LKE, group expansion,
+rule profiles, test resends, fabricated receipts or catch-up employee messages.
 
 ## Release Validation
 

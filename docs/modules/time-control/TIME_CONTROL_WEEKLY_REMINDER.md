@@ -1,11 +1,17 @@
 # Timekontrol: fredagens ugepaamindelse
 
-Status: driftsgrundlag og migrationer 0054-0059 er i produktion; automatisk afsendelse er klargjort og verificeret, ikke aktiveret
+Status: HC's seks-personers drift, tenant-live og automatiske flags er aktiveret og verificeret 2026-10-12; foerste planlagte kontrol 2026-10-13 kl. 09.00 Copenhagen
 Beslutningsdato: 2026-10-11
 Godkendt af: Dennis Espersen Pedersen
 Scope: fredagens medarbejderpaamindelse og lederoverblik i Timekontrol v1
 
 ## Aktuel HC-aktiveringsgraense (2026-10-12)
+
+Den godkendte aktivering er gennemfoert med daekning fra 12. oktober.
+Runbooken dokumenterer gemt epoch/live, Render-schedulerens faktiske opstart,
+uaendret mailkoe og konkret stopprocedure. Foerste fremtidige kontrol er endnu
+ikke observeret; ugen er fortsat 0/4 og kvalificerer kun via faktiske planlagte
+gyldige kontroller, aldrig manuelle eller historiske koersler.
 
 Den konkrete [aktiveringsplan](../../runbooks/TIME_CONTROL_ACTIVATION.md)
 gaelder den eksisterende gruppe paa seks teknikere. Den bevarer DEP alene
