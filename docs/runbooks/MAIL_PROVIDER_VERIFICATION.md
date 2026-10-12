@@ -1,5 +1,65 @@
 # Mail Provider Verification Runbook
 
+## Mikkel locked test prepared; NOT sent (2026-10-12)
+
+`verified`: commit `e2a00f75fe1bcc4f6aeff911ff154a5ed7bd9e6c` was pushed
+and deployed by Render as `dep-db69s6favr4c73fqprk0`, live at
+`2026-10-12T08:46:24.196403Z`. Health returned HTTP 200 with `{"ok":true}`.
+The existing `npm run db:migrate` pre-deploy procedure applied only
+`0059_time_control_poc_mhj_mail_test.sql` (7 ms); 58 existing migrations were
+skipped. No environment configuration, scheduler or live-mode change occurred.
+
+`verified`: prepare job `job-db69svid0e5s739urgig` succeeded at
+`2026-10-12T08:47:08Z` using the new explicit prepare operator. Its durable
+record is:
+
+- Test ID: `275bfde9-41d2-47fa-ae12-1950e1f18c68`.
+- Status: `prepared`; no provider message or send attempt.
+- Prepared at: `2026-10-12T08:47:04.635Z`.
+- Key: `time_control_poc_mail:v1:f1f51c07-2d88-4ee4-a766-78eac833a9d0:7aac3ac3-a4cf-4f2c-bddf-491bcb2b4f45:mhj_delivery:f17ba1b9eb99`.
+- Locked SHA-256: `e1680d016568f8288a62e9c4e0c80d51772fac19f9b9d9ad201609a032024114`.
+- To: `Mikkel Hyldebo Jensen <mhj@hoyrup-clemmensen.dk>`.
+- CC: `Dennis <dep@hoyrup-clemmensen.dk>`.
+- From: `Fielddesk Timekontrol <timekontrol@mail.fielddesk.dk>`.
+- Reply-To: `admin@fielddesk.dk`.
+- Subject/body: exactly the approved Mikkel mail below, with no action required.
+
+The following command is for a separately approved future send of this exact
+record, from Render's backend root. **It has NOT been executed.** Do not create
+another test or reuse the DEP send command.
+
+```sh
+TIME_CONTROL_POC_APPROVED_ACTOR_ID=8eaddbc0-8fc7-414a-9c5c-064617972394 node scripts/time_control_poc_mhj.js send 275bfde9-41d2-47fa-ae12-1950e1f18c68 SEND:timekontrol-poc-mhj:275bfde9-41d2-47fa-ae12-1950e1f18c68
+```
+
+The final staged `npm run check` passed: 519 tests, 6 opt-in skips, 0 failures;
+247 syntax files, 460 encoding/secrets files, 59 migration files and 18 static
+assertions. `git diff --cached --check` passed. No isolated local PostgreSQL
+integration suite was run in this change; the opt-in skips are not DB proof.
+
+`verified`: production job `job-db69tom7bikc73c3k6tg` succeeded at
+`2026-10-12T08:48:49Z`. The normal status runner reports 59 applied, 0 pending,
+0 failed, 0 checksum mismatch. There is exactly one Mikkel record and four
+total POC records. Only the already accepted DEP record has an attempt;
+its locked hash and provider ID are unchanged. Both older DEP records fail
+with `time_control_poc_locked_message_superseded` before claim.
+
+The deployed Mikkel sender passed all real database/current-plan/content
+checks up to the claim, with that UPDATE intercepted and rejected before
+execution. All other non-SELECT statements were blocked in this validation;
+the surrounding transaction rolled back. No send attempt was recorded.
+The actual shared mail adapter was separately exercised with `global.fetch`
+replaced by a capture-only stub: From, To, CC, Reply-To, subject and text
+matched the locked message; zero external provider calls occurred. Complete
+before/after snapshots of POC records and outbox counts were identical.
+The existing 60 queued tenant outbox rows were not applied or dispatched.
+
+Scheduler remains `false`, tenant mode `dry_run`, `live_enabled_at=NULL`,
+employee CC and manager recipients remain DEP alone, and global `MAIL_FROM`
+is unchanged. LKE remains excluded. No mail was sent or DEP test resent.
+Next boundary: explicit approval to execute the exact Mikkel send command
+above once. Uncertain results must never be retried automatically.
+
 ## DEP inbox confirmed; Mikkel content approved (2026-10-12)
 
 `observed` (user-confirmed): Dennis confirmed actual receipt of the DEP test
