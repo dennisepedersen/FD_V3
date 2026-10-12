@@ -1,8 +1,40 @@
 # Timekontrol HC Activation Plan
 
-Status: preparation only; activation requires the user's separate approval.
+Status: deployed and readiness-verified; NOT activated. Activation requires
+the user's separate approval of this plan.
 Target: first scheduled control Tuesday 13 October 2026 at 09:00,
 Europe/Copenhagen (07:00 UTC), evaluating Monday 12 October.
+
+## Verified Release And Final Production Check
+
+Code commit `d030835fa10077f75625d4ae32304c7ef9de622d` is live in Render
+deploy `dep-db6c6j8ae00c73agslbg`, finished
+`2026-10-12T11:24:41.665491Z`; health returned HTTP 200. Normal pre-deploy
+migration procedure applied zero and skipped 59 existing files. Status reports
+59 applied, 0 pending, 0 failed, 0 checksum mismatch.
+
+Post-deploy job `job-db6c7oss728c73fvrp60` succeeded at
+`2026-10-12T11:26:44Z`. A fresh 12-GET capture of 12 October contained 59 rows,
+two stable six-page passes, observed at `2026-10-12T11:26:36.441Z`.
+Dataset `560371f1-d639-438c-846b-76bff98e3501`, revision
+`ae5aa14d13571199cee942ea0e7520ce504eef8b19ac8fe6759b7af154f1c61c`.
+The source changed from the earlier 56-row capture; the new current head was
+published and the older immutable capture was retained. This observed change
+does not by itself prove a real deletion; correction/deletion behavior was
+verified separately with isolated PostgreSQL fixtures.
+
+The existing manual run `3f22be93-1e95-4e1c-8071-2ea59138e16e` completed as
+dry-run with all six correct names/approved emails and complete coverage.
+Each still had zero counted hours at this provisional Monday observation;
+no claim of final missing hours or scheduled qualification is made.
+
+Before/after: outbox 60, operational checks 0, operations 0, general sync jobs
+186, POC test records 4. Both accepted POC provider IDs are unchanged. No mail
+was sent or test resent. Runtime verified scheduler disabled, automatic mail
+disabled/default-off, mode dry-run and live timestamp NULL; all three HC
+routing lists remain DEP alone. A disabled future-slot tick skipped before
+database work, and the automatic dispatch bridge skipped without claiming rows.
+All six Friday gates returned ineligible (`operation_not_active`).
 
 ## Scope And Current Evidence
 

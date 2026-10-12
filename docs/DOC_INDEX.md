@@ -33,7 +33,7 @@ Scope: points to docs; does not replace them
 
 | Doc | Use For | Status |
 | --- | --- | --- |
-| [Timekontrol weekly reminder](modules/time-control/TIME_CONTROL_WEEKLY_REMINDER.md) | Friday 37-hour weekly reminder, immutable evidence, planned operational checks and [HC activation plan](runbooks/TIME_CONTROL_ACTIVATION.md) | 0054-0059 applied; automatic mail readiness work; scheduler/live not activated |
+| [Timekontrol weekly reminder](modules/time-control/TIME_CONTROL_WEEKLY_REMINDER.md) | Friday 37-hour weekly reminder, immutable evidence, planned operational checks and [HC activation plan](runbooks/TIME_CONTROL_ACTIVATION.md) | 0054-0059 applied; readiness deployed/verified; scheduler/live/mail gates not activated |
 | `docs/modules/qa/QA_STATUS_MODEL.md` | Manual QA status model v1 and future v2 responsibility direction | Current decision |
 | `docs/modules/qa/QA_V2_DATA_FOUNDATION.md` | QA participants, assignment flag, and per-user read-state foundation | Implemented foundation |
 | `docs/modules/calendar/CALENDAR_RESOURCE_ABSENCE_MVP.md` | Calendar / Resource Absence MVP foundation, backlog, and non-goals | PR1 foundation started |

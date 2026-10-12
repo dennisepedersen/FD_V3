@@ -1,6 +1,6 @@
 # Timekontrol: fredagens ugepaamindelse
 
-Status: driftsgrundlag og migrationer 0054-0059 er i produktion; automatisk afsendelse klargoeres, ikke aktiveret
+Status: driftsgrundlag og migrationer 0054-0059 er i produktion; automatisk afsendelse er klargjort og verificeret, ikke aktiveret
 Beslutningsdato: 2026-10-11
 Godkendt af: Dennis Espersen Pedersen
 Scope: fredagens medarbejderpaamindelse og lederoverblik i Timekontrol v1

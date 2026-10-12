@@ -21,7 +21,17 @@ Friday eligibility conditions, observation and stop procedures are maintained
 in [Timekontrol HC Activation Plan](TIME_CONTROL_ACTIVATION.md). Current-data
 preflight and dry-run evidence are recorded there; neither qualifies the week.
 
-## Mikkel authorized send accepted; inbox confirmations pending (2026-10-12)
+`verified`: readiness code `d030835fa10077f75625d4ae32304c7ef9de622d` is live
+as Render deploy `dep-db6c6j8ae00c73agslbg`; post-deploy verification
+`job-db6c7oss728c73fvrp60` succeeded with a fresh 59-row/two-pass Monday
+capture and six dry-run results. Zero provider calls, new POC tests, operational
+receipts or general sync jobs. Scheduler/mail gates are off, tenant remains
+dry-run and LKE remains excluded. The linked activation plan is now ready for
+separate approval; no activation has occurred. Local validation: 556 passed,
+7 opt-in skips, all checks green, plus 8 separately passed isolated PostgreSQL
+tests using 59 actual migrations and no external provider calls.
+
+## Historical Mikkel acceptance before inbox confirmations (2026-10-12)
 
 `verified`: after explicit user approval for one send, the documented Mikkel
 send command ran once in Render job `job-db6bhavlot8c739jbh10` (succeeded).
@@ -43,8 +53,9 @@ Read-only post-send job `job-db6bhs0473hc73dsvta0` succeeded and verified:
   manager recipients/employee CC remain DEP alone. LKE remains excluded.
 - Existing outbox remains 60 queued rows; no outbox apply or dispatch occurred.
 
-Provider acceptance is NOT actual inbox receipt. Confirmation is still pending
-from both Mikkel (To) and Dennis (CC). No automatic resend is allowed, including
+Provider acceptance is NOT actual inbox receipt. At this stage confirmation
+was pending from both Mikkel (To) and Dennis (CC); both were subsequently
+user-confirmed as recorded above. No automatic resend is allowed, including
 for an uncertain result. Do not run the historical send command below again.
 No code, schema, deployment or production configuration was changed in this
 send operation. The post-send check ran inside `BEGIN READ ONLY`.
