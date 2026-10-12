@@ -1,22 +1,34 @@
 # Mail Provider Verification Runbook
 
-## Timekontrol POC name-safe mail replacement (local, 2026-10-12)
+## Timekontrol POC name-safe mail replacement (deployed, 2026-10-12)
 
 `verified`: Render service `srv-d6h0h8fgi27c73a99jgg` reports live deploy
-`dep-db66mk49v7es739o62a0` at commit
-`a16e7de3facb81c79cd001224b56bd51da3b7ebb`. Backend `/health` returned HTTP
-200, and `https://hoyrup-clemmensen.fielddesk.dk/tenant/time-control.html`
-returned HTTP 200 in a read-only passive check. Selected Render environment
-gates were read without printing secrets: `TIME_CONTROL_SCHEDULER_ENABLED=false`,
-`MAIL_PROVIDER=resend`, `MAIL_REPLY_TO=admin@fielddesk.dk`. The dedicated POC
-sender still uses the code-owned sender
+`dep-db67pmek1f9s73f1noeg` at commit
+`a6571b0f1b0e4712b8228701f629b0f4c573df74`, finished
+`2026-10-12T06:24:16Z`. Backend `/health` returned HTTP 200, and
+`https://hoyrup-clemmensen.fielddesk.dk/tenant/time-control.html` returned HTTP
+200 after deploy with the new Timekontrol filter UI present. Selected Render
+environment gates were read without printing secrets:
+`TIME_CONTROL_SCHEDULER_ENABLED=false`, `MAIL_PROVIDER=resend`,
+`MAIL_REPLY_TO=admin@fielddesk.dk`. The dedicated POC sender still uses the
+code-owned sender
 `Fielddesk Timekontrol <timekontrol@fielddesk.dk>`.
 
-`observed`: the local worktree implementation below is not deployed yet. It
-does not send mail, activate scheduler/live mode, execute outbox apply, run EK
-writes or run production migrations.
+`observed`: commit, push and deploy were completed. No mail was sent, scheduler
+or live mode was not activated, outbox apply was not executed, and no EK writes
+were run from this verification.
 
-Local changes prepared:
+`observed`: production browser verification as authorized tenant admin loaded
+the deployed page and clicked only `Vis testmailplan - afsender ikke`. The
+preview returned without creating a prepared send row and displayed no
+initial-based DEP/MHJ/LKE wording in the POC plan. It rendered
+`Dennis <dep@hoyrup-clemmensen.dk>` for the first/manager preview recipient and
+`Mikkel Hyldebo Jensen <mhj@hoyrup-clemmensen.dk>` with
+`Dennis <dep@hoyrup-clemmensen.dk>` in CC for the employee preview. The
+production tenant-user display name currently available for DEP is `Dennis`;
+do not rewrite it to a longer name without an approved identity-data change.
+
+Changes deployed:
 
 - POC mail previews now derive display names from tenant/fitter identity instead
   of rendering initials in subjects, greetings, recipient display names or body
@@ -67,10 +79,10 @@ This did not contact production APIs or send mail.
 
 Open before real mail:
 
-1. Commit, push and deploy this bounded change; apply migration 0058 with the
-   normal production migration gate.
-2. Re-open Timekontrol as authorized tenant admin, verify the corrected preview
-   and prepare exactly one new DEP test row. Record the new test ID and test key.
+1. Confirm migration 0058 status through the normal production migration gate
+   before preparing or sending the replacement row.
+2. Prepare exactly one new DEP test row from the deployed Timekontrol admin UI.
+   Record the new test ID and test key.
 3. Check provider/sender-domain readiness again without sending. Provider
    acceptance is not inbox receipt.
 4. Send only the DEP test after explicit send action:
