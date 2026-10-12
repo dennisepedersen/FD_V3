@@ -1,5 +1,83 @@
 # Mail Provider Verification Runbook
 
+## Timekontrol POC name-safe mail replacement (local, 2026-10-12)
+
+`verified`: Render service `srv-d6h0h8fgi27c73a99jgg` reports live deploy
+`dep-db66mk49v7es739o62a0` at commit
+`a16e7de3facb81c79cd001224b56bd51da3b7ebb`. Backend `/health` returned HTTP
+200, and `https://hoyrup-clemmensen.fielddesk.dk/tenant/time-control.html`
+returned HTTP 200 in a read-only passive check. Selected Render environment
+gates were read without printing secrets: `TIME_CONTROL_SCHEDULER_ENABLED=false`,
+`MAIL_PROVIDER=resend`, `MAIL_REPLY_TO=admin@fielddesk.dk`. The dedicated POC
+sender still uses the code-owned sender
+`Fielddesk Timekontrol <timekontrol@fielddesk.dk>`.
+
+`observed`: the local worktree implementation below is not deployed yet. It
+does not send mail, activate scheduler/live mode, execute outbox apply, run EK
+writes or run production migrations.
+
+Local changes prepared:
+
+- POC mail previews now derive display names from tenant/fitter identity instead
+  of rendering initials in subjects, greetings, recipient display names or body
+  text. The first real test remains To `dep@hoyrup-clemmensen.dk`, no CC. The
+  employee test remains To `mhj@hoyrup-clemmensen.dk`, CC
+  `dep@hoyrup-clemmensen.dk`, and is only preview until DEP confirms inbox
+  receipt and Dennis explicitly continues.
+- The existing locked DEP test with old initial-based content is not rewritten.
+  A new deterministic replacement test key is generated from the corrected
+  locked content. Repeating prepare for the same corrected content returns the
+  same row; it does not create a new batch on every click. The send path
+  revalidates the current verified plan and rejects an old prepared record whose
+  key/content no longer matches.
+- Migration `0058_time_control_poc_mail_test_replacement_key.sql` only relaxes
+  the POC DEP test-key check to allow a content-signature suffix. It does not
+  alter existing 0057 rows, status transitions, message immutability or mail
+  sending behavior.
+- The Timekontrol admin overview is locally changed from repeated large result
+  rows to compact groups by controlled day/week, newest first, with counts for
+  norm fulfilled, under norm and uncertain data. Expanded rows show employee
+  name, counted hours/norm, status and mail status; technical IDs/control types
+  stay under details. It also adds employee filtering and an attention-only
+  filter, and renders Danish date and decimal formats.
+
+Validated locally:
+
+```powershell
+node --test test\timeControl.test.js
+npm run check:migrations
+node --check backend\src\modules\timeControl\timeControl.mailTest.js
+node --check backend\src\modules\timeControl\timeControl.mailTestSender.js
+node --check backend\src\public\tenant\auth.js
+npm run check
+```
+
+Results: focused Timekontrol `68/68`; full local gate `490 passed / 6 opt-in
+skipped / 0 failed (496 total)`, with syntax, whitespace, encoding, secrets,
+migrations and static assertions passing. The first sandboxed Node test attempt
+hit the documented Windows `EPERM` on `C:\Users\dep`; the same read-only checks
+were rerun outside the sandbox.
+
+Browser evidence: a local-only mock harness served the actual `time-control.html`
+and `auth.js` with mocked authenticated Timekontrol API responses. Desktop view
+showed the corrected mail preview cards with full names in Til/CC, subject and
+body. Mobile viewport `390x844` showed the compact control groups in one column
+with no measured horizontal overflow for control rows, mail cards or buttons.
+This did not contact production APIs or send mail.
+
+Open before real mail:
+
+1. Commit, push and deploy this bounded change; apply migration 0058 with the
+   normal production migration gate.
+2. Re-open Timekontrol as authorized tenant admin, verify the corrected preview
+   and prepare exactly one new DEP test row. Record the new test ID and test key.
+3. Check provider/sender-domain readiness again without sending. Provider
+   acceptance is not inbox receipt.
+4. Send only the DEP test after explicit send action:
+   `node backend/scripts/send_time_control_poc_dep.js <test-id> SEND:timekontrol-poc-dep:<test-id>`.
+5. Wait for Dennis to confirm actual inbox receipt before any MHJ test. LKE
+   remains fravalgt, and the leader overview remains preview-only.
+
 ## Admin UI and bounded POC mail preparation (2026-10-12)
 
 Release `b17cfa0f03ac04dfdb8b640f98494990b711974d` is deployed; migrations

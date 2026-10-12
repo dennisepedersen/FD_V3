@@ -94,6 +94,22 @@ async function listPayCodeRules(client, { tenantId }) {
   return rows;
 }
 
+async function findActiveTenantUserByEmail(client, { tenantId, email }) {
+  const normalized = String(email || "").trim().toLowerCase();
+  if (!normalized) return null;
+  const { rows } = await client.query(
+    `SELECT id, name, email, role, status
+     FROM tenant_user
+     WHERE tenant_id = $1
+       AND lower(email) = $2
+       AND status = 'active'
+     ORDER BY id
+     LIMIT 2`,
+    [tenantId, normalized]
+  );
+  return rows.length === 1 ? rows[0] : null;
+}
+
 async function listEmployeeConfigs(client, { tenantId }) {
   const { rows } = await client.query(
     `
@@ -697,6 +713,7 @@ module.exports = {
   DEFAULT_SETTINGS,
   finishRun,
   findEmployeeMailLog,
+  findActiveTenantUserByEmail,
   getApprovalTarget,
   getFitterhoursSyncState,
   getHoursPeriodCoverage,

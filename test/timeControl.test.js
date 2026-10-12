@@ -30,7 +30,13 @@ test("POC previews keep deterministic separate test keys and never address LKE",
   const input = {
     tenantId: uuid(1), batchId: uuid(7), from: service.SENDER,
     settings: { mode: "dry_run", employee_cc_emails: ["DEP@hoyrup-clemmensen.dk"], friday_manager_emails: ["dep@hoyrup-clemmensen.dk"] },
-    employee: { fitterId: "15", email: "mhj@hoyrup-clemmensen.dk" },
+    employee: { fitterId: "15", email: "mhj@hoyrup-clemmensen.dk", name: "Mikkel Hyldebo Jensen" },
+    dep: { email: "dep@hoyrup-clemmensen.dk", name: "Dennis Espersen Pedersen" },
+    controlEmployees: [
+      { name: "Mikkel Hyldebo Jensen" },
+      { name: "Jesper Sahner Kaiser" },
+      { name: "Patrick Mylord Pedersen" },
+    ],
   };
   const plan = buildPlan(input);
   assert.deepEqual(buildPlan(input), plan);
@@ -46,12 +52,16 @@ test("POC previews keep deterministic separate test keys and never address LKE",
   ]);
   assert.equal(plan.messages[2].disposition, "preview_only");
   assert.ok(plan.messages.every(m => !/lke@/i.test(JSON.stringify(m))));
+  assert.match(plan.messages[0].subject, /Dennis Espersen Pedersen/);
+  assert.match(plan.messages[1].subject, /Mikkel Hyldebo Jensen/);
+  assert.doesNotMatch(JSON.stringify(plan.messages), /\bDEP\b|\bMHJ\b|\bLKE\b/);
   assert.doesNotMatch(read("backend/src/modules/timeControl/timeControl.mailTest.js"), /sendEmail|enqueue|upsert|INSERT|require\(.+pool/);
   assert.equal(buildPlan({ ...input, settings: { ...input.settings, friday_manager_emails: ["dep@hoyrup-clemmensen.dk", "lke@hoyrup-clemmensen.dk"] } }).manager_routing_saved, false);
   for (const patch of [
     { tenantId: "bad" }, { batchId: "bad" }, { settings: { ...input.settings, mode: "live" } },
     { employee: { fitterId: "290", email: "mhj@hoyrup-clemmensen.dk" } },
     { employee: { fitterId: "15", email: "other@example.test" } },
+    { dep: { email: "dep@hoyrup-clemmensen.dk", name: "" } },
     { settings: { ...input.settings, employee_cc_emails: ["dep@hoyrup-clemmensen.dk", "lke@hoyrup-clemmensen.dk"] } },
   ]) assert.throws(() => buildPlan({ ...input, ...patch }), /poc_plan_invalid/);
 });
@@ -139,9 +149,12 @@ test("POC preview resolves current tenant-approved MHJ without creating control 
         return { mode: scenario === "live" ? "live" : "dry_run",
           employee_cc_emails: ["dep@hoyrup-clemmensen.dk"], friday_manager_emails: ["dep@hoyrup-clemmensen.dk"] };
       }],
+      [repository, "findActiveTenantUserByEmail", async () => ({
+        id: uuid(17), name: "Dennis Espersen Pedersen", email: "dep@hoyrup-clemmensen.dk",
+      })],
       [repository, "listEmployeeConfigs", async () => scenario === "mapping" ? [] : [{ id: uuid(20), internal_ref: "MHJ", fitter_id: "15" }]],
       [repository, "resolveEmployeeConfig", async () => scenario === "membership" ? [] : [approvedEmployee({
-        fitter_id: "15", approved_email: "mhj@hoyrup-clemmensen.dk", email_source: "admin_override",
+        fitter_id: "15", fitter_name: "Mikkel Hyldebo Jensen", approved_email: "mhj@hoyrup-clemmensen.dk", email_source: "admin_override",
       })]],
       [emailOutboxService, "enqueueEmail", async () => { throw new Error("must_not_queue"); }],
     ], async () => {
@@ -472,6 +485,9 @@ test("POC sender claims once and passes resend idempotency data without a duplic
         },
       })],
       [auditService, "logAuditEvent", async () => {}],
+      [service, "getPocMailPlanForClient", async () => ({
+        messages: [{ ...row.message_json, replyTo: undefined }],
+      })],
       [require("../backend/src/config/env"), "MAIL_PROVIDER", "resend"],
       [require("../backend/src/config/env"), "MAIL_API_KEY", "dummy"],
     ], async () => {
@@ -507,6 +523,58 @@ test("POC sender claims once and passes resend idempotency data without a duplic
     else process.env.TIME_CONTROL_SCHEDULER_ENABLED = previousScheduler;
   }
   assert.ok(queryLog.some(sql => /UPDATE time_control_poc_mail_test SET status='sending'/.test(sql)));
+});
+
+test("POC sender blocks a locked prepared record that no longer matches the current verified mail plan", async () => {
+  const sender = require("../backend/src/modules/timeControl/timeControl.mailTestSender");
+  const tx = require("../backend/src/db/tx");
+  const tenantId = "f1f51c07-2d88-4ee4-a766-78eac833a9d0";
+  const row = {
+    id: uuid(9),
+    tenant_id: tenantId,
+    test_key: `time_control_poc_mail:v1:${tenantId}:${uuid(7)}:dep_delivery`,
+    message_json: {
+      stage: "dep_delivery", disposition: "requires_send_approval",
+      to: "dep@hoyrup-clemmensen.dk", cc: [],
+      subject: "[POC-TEST - ingen handling] Fielddesk Timekontrol: mailtest til DEP",
+      text: "Hej DEP\n\nGammel låst tekst.\n", from: service.SENDER, replyTo: null,
+      testKey: `time_control_poc_mail:v1:${tenantId}:${uuid(7)}:dep_delivery`,
+    },
+    status: "prepared",
+  };
+  row.content_hash = createHash("sha256").update(JSON.stringify(row.message_json)).digest("hex");
+  const previousScheduler = process.env.TIME_CONTROL_SCHEDULER_ENABLED;
+  process.env.TIME_CONTROL_SCHEDULER_ENABLED = "false";
+  try {
+    await withPatches([
+      [tx, "withTransaction", async (fn) => fn({
+        query: async (sql) => {
+          if (/SELECT mode,employee_cc_emails,friday_manager_emails FROM time_control_settings/.test(sql)) {
+            return { rows: [{ mode: "dry_run", employee_cc_emails: ["dep@hoyrup-clemmensen.dk"], friday_manager_emails: ["dep@hoyrup-clemmensen.dk"] }] };
+          }
+          if (/SELECT \* FROM time_control_poc_mail_test WHERE tenant_id=\$1 AND id=\$2 FOR UPDATE/.test(sql)) return { rows: [row] };
+          if (/UPDATE time_control_poc_mail_test SET status='sending'/.test(sql)) throw new Error("old_record_must_not_be_claimed");
+          return { rows: [] };
+        },
+      })],
+      [service, "getPocMailPlanForClient", async () => ({
+        messages: [{ ...row.message_json, testKey: `${row.test_key}:abcdef123456`, replyTo: undefined }],
+      })],
+      [require("../backend/src/config/env"), "MAIL_PROVIDER", "resend"],
+      [require("../backend/src/config/env"), "MAIL_API_KEY", "dummy"],
+    ], async () => {
+      await assert.rejects(sender.sendPreparedDep({
+        tenantId,
+        actorId: uuid(2),
+        testId: row.id,
+        confirm: `SEND:timekontrol-poc-dep:${row.id}`,
+        sendEmailFn: async () => { throw new Error("old_record_must_not_send"); },
+      }), /time_control_poc_locked_message_superseded/);
+    });
+  } finally {
+    if (previousScheduler === undefined) delete process.env.TIME_CONTROL_SCHEDULER_ENABLED;
+    else process.env.TIME_CONTROL_SCHEDULER_ENABLED = previousScheduler;
+  }
 });
 
 async function runMailScenario({

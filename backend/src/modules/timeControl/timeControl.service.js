@@ -648,6 +648,33 @@ async function getOverview({ tenantId }) {
   }
 }
 
+async function getPocMailPlanForClient(client, { tenantId, batchId }) {
+  const settings = await repository.lockSettings(client, { tenantId });
+  if (!settings || settings.mode !== "dry_run") throw approvalError("time_control_poc_requires_dry_run", 409);
+  const copies = emailListFailureFor(settings.employee_cc_emails);
+  if (copies.errorCode || copies.emails.length !== 1) throw approvalError("time_control_poc_dep_identity_missing", 409);
+  const depUser = await repository.findActiveTenantUserByEmail(client, { tenantId, email: copies.emails[0] });
+  if (!depUser?.name) throw approvalError("time_control_poc_dep_identity_missing", 409);
+  const configs = await repository.listEmployeeConfigs(client, { tenantId });
+  const resolved = [];
+  for (const config of configs) {
+    const identity = classifyResolvedEmployee(config, await repository.resolveEmployeeConfig(client, { tenantId, config }));
+    if (!identity.ok) throw approvalError(identity.configError, 409);
+    resolved.push(identity.employee);
+  }
+  const matches = resolved.filter(employee => employee.internalRef === "MHJ");
+  if (matches.length !== 1) throw approvalError("time_control_poc_mhj_mapping_missing", 409);
+  return require("./timeControl.mailTest").buildPlan({
+    tenantId,
+    batchId,
+    from: SENDER,
+    settings,
+    employee: matches[0],
+    dep: { name: depUser.name, email: depUser.email },
+    controlEmployees: resolved,
+  });
+}
+
 async function setManagerRecipients({ tenantId, actorId, emails, expectedEmails, reason }) {
   const desired = emailListFailureFor(emails);
   const expected = emailListFailureFor(expectedEmails);
@@ -676,18 +703,7 @@ async function setManagerRecipients({ tenantId, actorId, emails, expectedEmails,
 }
 
 async function getPocMailPlan({ tenantId, batchId }) {
-  return withTransaction(async client => {
-    const settings = await repository.lockSettings(client, { tenantId });
-    if (!settings || settings.mode !== "dry_run") throw approvalError("time_control_poc_requires_dry_run", 409);
-    const configs = await repository.listEmployeeConfigs(client, { tenantId });
-    const matches = configs.filter(c => c.internal_ref === "MHJ");
-    if (matches.length !== 1) throw approvalError("time_control_poc_mhj_mapping_missing", 409);
-    const identity = classifyResolvedEmployee(matches[0], await repository.resolveEmployeeConfig(client, { tenantId, config: matches[0] }));
-    if (!identity.ok) throw approvalError(identity.configError, 409);
-    return require("./timeControl.mailTest").buildPlan({
-      tenantId, batchId, from: SENDER, settings, employee: identity.employee,
-    });
-  });
+  return withTransaction(client => getPocMailPlanForClient(client, { tenantId, batchId }));
 }
 
 async function setMode({ tenantId, actorId, tenantSlug, mode, confirm }) {
@@ -744,4 +760,5 @@ module.exports = {
   setMode,
   setManagerRecipients,
   getPocMailPlan,
+  getPocMailPlanForClient,
 };

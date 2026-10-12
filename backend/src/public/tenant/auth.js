@@ -12789,9 +12789,12 @@
     const batchInput = document.getElementById("timeControlTestBatch");
     const previewButton = document.getElementById("timeControlPreviewTest");
     const prepareButton = document.getElementById("timeControlPrepareDep");
+    const employeeFilter = document.getElementById("timeControlEmployeeFilter");
+    const attentionOnly = document.getElementById("timeControlAttentionOnly");
     document.getElementById("timeControlLocalBanner").hidden =
       !["localhost", "127.0.0.1"].includes(window.location.hostname);
     let managerEmails = [];
+    let lastOverview = null;
     const labels = {
       weekly_reminder: "Ugepåmindelse ved middag",
       missing_hours: "Dagsmangel (historisk dagskontrol)",
@@ -12808,6 +12811,15 @@
     }
     function addresses(value) {
       return Array.isArray(value) ? value.join(", ") || "Ingen" : value || "Ingen";
+    }
+    function addressDisplay(mail, field) {
+      const values = field === "cc" ? mail.cc : mail.to;
+      const names = field === "cc"
+        ? (Array.isArray(mail.ccNames) ? mail.ccNames : [])
+        : (mail.toName ? [mail.toName] : []);
+      const emails = Array.isArray(values) ? values : values ? [values] : [];
+      if (!emails.length) return "Ingen";
+      return emails.map((email, index) => names[index] ? `${names[index]} <${email}>` : email).join(", ");
     }
     function infoCard(label, value) {
       const card = element("div", null, "infoCard");
@@ -12828,8 +12840,8 @@
       const meta = element("dl", null, "mailMeta");
       for (const [label, value] of [
         ["Fra", mail.from || "Ikke oplyst"],
-        ["Til", addresses(mail.to)],
-        ["CC", addresses(mail.cc)],
+        ["Til", addressDisplay(mail, "to")],
+        ["CC", addressDisplay(mail, "cc")],
         ["Emne", mail.subject || "Intet emne"],
       ]) {
         meta.append(element("dt", label), element("dd", value));
@@ -12837,6 +12849,35 @@
       card.append(meta, element("div", mail.text || "Ingen mailtekst.", "mailBody"));
       if (mail.testKey) card.append(technicalDetails([["Testnøgle", mail.testKey]]));
       return card;
+    }
+    function dateOnly(value) {
+      return value ? String(value).slice(0, 10) : "";
+    }
+    function dateDa(value) {
+      const date = dateOnly(value);
+      if (!date) return "Ukendt dato";
+      const parsed = new Date(`${date}T12:00:00Z`);
+      return Number.isNaN(parsed.getTime()) ? date : parsed.toLocaleDateString("da-DK");
+    }
+    function controlPeriod(result) {
+      if (result.control_type === "friday_weekly_v1") {
+        return `${dateDa(result.week_monday)} - ${dateDa(result.controlled_date)}`;
+      }
+      return dateDa(result.controlled_date);
+    }
+    function numberDa(value) {
+      const number = Number(value);
+      return Number.isFinite(number) ? number.toLocaleString("da-DK", { maximumFractionDigits: 2 }) : "0";
+    }
+    function statusBucket(status) {
+      if (status === "ok") return "ok";
+      if (status === "missing_hours") return "under";
+      return "uncertain";
+    }
+    function mailStatusFor(result, mails) {
+      const match = mails.find(mail => mail.time_control_result_id === result.id);
+      if (!match) return "Ingen mail";
+      return `${match.mode || "mail"} · ${match.status || "ukendt"}`;
     }
     function resetMailTest() {
       mailPlan.replaceChildren();
@@ -12847,14 +12888,14 @@
       mailPlan.replaceChildren();
       const notice = element("div", null, plan.manager_routing_saved ? "notice" : "notice testNotice");
       notice.append(element("strong", plan.manager_routing_saved
-        ? "DEP alene er gemt som ledermodtager."
-        : "DEP alene er ikke gemt som ledermodtager endnu."));
+        ? "Primær leder er gemt som eneste ledermodtager."
+        : "Primær leder er ikke gemt som eneste ledermodtager endnu."));
       if (plan.delivery_caveat) notice.append(element("p", plan.delivery_caveat));
       if (plan.dispatch_blocker) notice.append(element("p", plan.dispatch_blocker));
       const cards = element("div", null, "mailGrid");
       const titles = {
-        dep_delivery: "DEP · afgrænset mailtest",
-        mhj_delivery: "MHJ · kun preview",
+        dep_delivery: "Afgrænset første mailtest",
+        mhj_delivery: "Medarbejdertest · kun preview",
         manager_preview: "Lederoversigt · kun preview",
       };
       for (const mail of plan.messages || []) {
@@ -12867,11 +12908,11 @@
       preparedTest.hidden = false;
       const notice = element("div", null, "notice testNotice");
       notice.append(
-        element("strong", "DEP-test · gemt forberedelse"),
+        element("strong", "Første mailtest · gemt forberedelse"),
         element("p", `Gemt status: ${test.status}. Kun læsning – ingen afsendelse udført her.`),
         element("p", "Afventer særskilt afsendelsesgodkendelse.")
       );
-      preparedTest.append(notice, mailCard(test.message_json, "Forberedt DEP-test", "Kun læsning"),
+      preparedTest.append(notice, mailCard(test.message_json, "Forberedt første test", "Kun læsning"),
         technicalDetails([["Test-ID", test.id], ["Status", test.status]]));
     }
     function setMailTestBusy(busy) {
@@ -12884,6 +12925,79 @@
       const cell = element("td", text, "emptyState");
       cell.colSpan = count;
       row.append(cell); tbody.append(row);
+    }
+    function renderControlGroups(overview) {
+      const container = document.getElementById("timeControlResults");
+      container.replaceChildren();
+      const filter = String(employeeFilter?.value || "").trim().toLowerCase();
+      const onlyAttention = Boolean(attentionOnly?.checked);
+      const mails = Array.isArray(overview?.mails) ? overview.mails : [];
+      const groups = new Map();
+      for (const result of overview?.results || []) {
+        const isWeekly = result.control_type === "friday_weekly_v1";
+        const periodEnd = dateOnly(result.controlled_date);
+        const key = `${result.control_type}:${isWeekly ? dateOnly(result.week_monday) : periodEnd}:${periodEnd}`;
+        const name = result.employee_name || result.internal_ref || "Ukendt medarbejder";
+        const bucket = statusBucket(result.status);
+        if (filter && !`${name} ${result.internal_ref || ""}`.toLowerCase().includes(filter)) continue;
+        if (onlyAttention && bucket === "ok") continue;
+        if (!groups.has(key)) {
+          groups.set(key, {
+            controlType: result.control_type,
+            title: isWeekly ? "Ugekontrol" : "Dagskontrol",
+            period: controlPeriod(result),
+            latest: result.started_at || result.updated_at || "",
+            results: [],
+          });
+        }
+        const group = groups.get(key);
+        group.results.push(result);
+        if (result.started_at && result.started_at > group.latest) group.latest = result.started_at;
+      }
+      const ordered = Array.from(groups.values()).sort((a, b) => String(b.latest).localeCompare(String(a.latest)));
+      for (const group of ordered) {
+        const counts = group.results.reduce((acc, row) => {
+          acc[statusBucket(row.status)] += 1;
+          return acc;
+        }, { ok: 0, under: 0, uncertain: 0 });
+        const details = element("details", null, "controlGroup");
+        const summary = element("summary");
+        const title = element("span", group.period, "groupTitle");
+        title.append(element("span", group.title, "groupMeta"));
+        summary.append(
+          title,
+          element("span", `${counts.ok} opfyldt`, "groupCount"),
+          element("span", `${counts.under} under norm`, "groupCount"),
+          element("span", `${counts.uncertain} usikkert`, "groupCount")
+        );
+        details.append(summary);
+        const rows = element("div", null, "employeeResults");
+        for (const result of group.results) {
+          const row = element("div", null, "employeeResultRow");
+          const name = element("span");
+          name.append(element("strong", result.employee_name || result.internal_ref || "Ukendt medarbejder"));
+          row.append(
+            name,
+            element("span", `${numberDa(result.valid_hours)} / ${numberDa(result.required_hours)} timer`),
+            element("span", labels[result.status] || result.status),
+            element("span", mailStatusFor(result, mails))
+          );
+          row.append(technicalDetails([
+            ["Kontroltype", result.control_type],
+            ["Kontrolleret periode", group.period],
+            ["Datagrundlag", result.dataset_is_current === true
+              ? (result.weekly_proof?.freshness === "explicit_historical_demo" ? "Historisk snapshot" : "Aktuelt datasætbundet bevis")
+              : "Manglende eller erstattet bevis"],
+            ["Kørsels-ID", result.run_id],
+            ["Resultat-ID", result.id],
+            ["Dataset-ID", result.hours_dataset_id || result.weekly_snapshot_id],
+          ]));
+          rows.append(row);
+        }
+        details.append(rows);
+        container.append(details);
+      }
+      if (!container.children.length) container.append(element("p", "Ingen kontroller matcher filtrene.", "emptyState"));
     }
     async function refresh() {
       const overview = await apiFetch("/api/tenant/admin/time-control/status", { method: "GET" });
@@ -12966,30 +13080,8 @@
         td.append(editor); tr.append(td); employees.append(tr);
       }
       if (!employees.children.length) tableEmpty(employees, 3, "Ingen teknikere i kontrolgruppen.");
-      const tbody = document.getElementById("timeControlResults");
-      tbody.replaceChildren();
-      for (const result of overview.results || []) {
-        const tr = document.createElement("tr");
-        const isWeekly = result.control_type === "friday_weekly_v1";
-        const values = [
-          isWeekly ? "Ugekontrol v1" : `Dagskontrol: ${result.control_type}`,
-          isWeekly ? `${result.week_monday} – ${result.controlled_date}` : result.controlled_date,
-          labels[result.status] || result.status,
-          `${result.employee_name || result.internal_ref}: ${result.valid_hours} / ${result.required_hours}`,
-          result.dataset_is_current === true
-            ? (result.weekly_proof?.freshness === "explicit_historical_demo" ? "Historisk snapshot; fem aktuelle dagshoveder" : "Aktuelt datasætbundet bevis")
-            : "Manglende eller erstattet bevis",
-        ];
-        const headings = ["Kontrol", "Dato / uge", "Status", "Medregnede timer / norm", "Databevis"];
-        for (const [index, value] of values.entries()) {
-          const td = document.createElement("td");
-          td.dataset.label = headings[index];
-          td.textContent = value;
-          tr.append(td);
-        }
-        tbody.append(tr);
-      }
-      if (!tbody.children.length) tableEmpty(tbody, 5, "Ingen kontroller at vise endnu.");
+      lastOverview = overview;
+      renderControlGroups(overview);
       const previews = document.getElementById("timeControlPreviews");
       previews.replaceChildren();
       for (const mail of overview.mails || []) {
@@ -13010,9 +13102,11 @@
       if (!handleAuthFailure(error)) message.textContent = getErrorMessage(error, "Kunne ikke hente Timekontrol.");
       return;
     }
+    if (employeeFilter) employeeFilter.addEventListener("input", () => renderControlGroups(lastOverview));
+    if (attentionOnly) attentionOnly.addEventListener("change", () => renderControlGroups(lastOverview));
     document.getElementById("timeControlDepOnly").addEventListener("click", () => {
       document.getElementById("timeControlManagerEmails").value = "dep@hoyrup-clemmensen.dk";
-      message.textContent = "DEP alene er klargjort. Klik Gem ledermodtagere for at gemme med audit.";
+      message.textContent = "Primær leder alene er klargjort. Klik Gem ledermodtagere for at gemme med audit.";
     });
     document.getElementById("timeControlRecipientsForm").addEventListener("submit", async event => {
       event.preventDefault();
@@ -13061,9 +13155,9 @@
         }
         renderPlan(response.plan);
         renderPrepared(response.test);
-        message.textContent = "DEP-testen er forberedt og gemt. Ingen mail afsendt. Afventer særskilt afsendelsesgodkendelse.";
+        message.textContent = "Første mailtest er forberedt og gemt. Ingen mail afsendt. Afventer særskilt afsendelsesgodkendelse.";
       } catch (error) {
-        if (!handleAuthFailure(error)) message.textContent = getErrorMessage(error, "DEP-testen kunne ikke forberedes.");
+        if (!handleAuthFailure(error)) message.textContent = getErrorMessage(error, "Første mailtest kunne ikke forberedes.");
       } finally { setMailTestBusy(false); }
     });
     form.addEventListener("submit", async (event) => {

@@ -91,6 +91,19 @@
     .mailMeta dd { margin: 2px 0 12px; overflow-wrap: anywhere; }
     .mailBody { white-space: pre-wrap; overflow-wrap: anywhere; padding: 16px; border-radius: 12px; background: #f8fefb; }
     .emptyState { padding: 16px; color: var(--fd-secondary); border: 1px dashed var(--fd-brand-border); border-radius: 12px; }
+    .controlFilters { display: grid; grid-template-columns: minmax(180px, 280px) auto; gap: 12px; align-items: end; margin: 14px 0 18px; }
+    .controlFilters label { margin: 0; }
+    .checkLabel { display: inline-flex; align-items: center; gap: 6px; font-weight: 800; }
+    .controlGroups { display: grid; gap: 12px; }
+    .controlGroup { margin: 0; padding: 0; background: #fff; }
+    .controlGroup > summary { display: grid; grid-template-columns: minmax(180px, 1fr) repeat(3, minmax(90px, auto)); gap: 12px; align-items: center; padding: 14px 16px; color: var(--fd-text); }
+    .groupTitle { font-weight: 800; }
+    .groupMeta { display: block; color: var(--fd-muted); font-size: 12px; }
+    .groupCount { text-align: right; font-weight: 800; }
+    .employeeResults { padding: 0 16px 16px; }
+    .employeeResultRow { display: grid; grid-template-columns: minmax(180px, 1.4fr) minmax(120px, 0.8fr) minmax(130px, 0.8fr) minmax(120px, 0.8fr); gap: 10px; padding: 10px 0; border-top: 1px solid var(--fd-brand-border); align-items: start; }
+    .employeeResultRow > span { min-width: 0; overflow-wrap: anywhere; }
+    .historyList { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--fd-brand-border); }
     @media (min-width: 768px) {
       .appShell { grid-template-columns: 260px minmax(0, 1fr); }
       .sidebar { position: sticky; top: 0; height: 100vh; overflow-y: auto; border-right: 1px solid rgba(5,150,105,0.10); border-bottom: 0; }
@@ -112,6 +125,8 @@
       .pageHeader { display: block; }
       .sideNav { gap: 4px; } .navItem { padding: 8px; }
       .navIcon { display: none; }
+      .controlFilters, .controlGroup > summary, .employeeResultRow { grid-template-columns: 1fr; }
+      .groupCount { text-align: left; }
     }
   </style>
 </head>
@@ -140,7 +155,7 @@
       <header class="topbar"><span class="subtitle">Administration / Timekontrol</span><a class="btn" href="/app">Tilbage til Fielddesk</a></header>
       <main class="page">
         <div class="pageHeader"><div><p class="eyebrow">Timekontrol</p><h1>Overblik og mailtest</h1><p class="subtitle">Kontrolgruppe, regler og sikre forhåndsvisninger samlet ét sted.</p></div><span class="statusPill">Testtilstand</span></div>
-        <div class="notice testNotice"><strong>Testtilstand – ingen automatiske mails</strong><p>Denne side aktiverer ikke live eller scheduler. DEP-testen kan forberedes uden afsendelse; MHJ vises kun som preview.</p></div>
+        <div class="notice testNotice"><strong>Testtilstand – ingen automatiske mails</strong><p>Denne side aktiverer ikke live eller scheduler. Første mailtest kan forberedes uden afsendelse; medarbejdertesten vises kun som preview.</p></div>
         <div id="timeControlLocalBanner" class="notice testNotice" hidden><strong>Lokalt testmiljø – fixtures / testdata</strong><p>Du ser en lokal visning, ikke dokumentation for produktionsdrift eller modtagne mails.</p></div>
         <p id="timeControlMessage" class="notice" role="status" aria-live="polite">Henter adgang og status…</p>
         <div id="timeControlAdmin" hidden>
@@ -159,13 +174,13 @@
           </section>
           <section id="mailmodtagere" class="panel" aria-labelledby="recipientsTitle">
             <div class="sectionHeader"><h2 id="recipientsTitle">Mailmodtagere</h2><span class="tag">Lederoversigt</span></div>
-            <p class="infoHint">Medarbejdermailens Til og CC ændres ikke her. Under POC-testen vælges kun DEP til lederoversigten; LKE skal fjernes fra listen før gem.</p>
+            <p class="infoHint">Medarbejdermailens Til og CC ændres ikke her. Under POC-testen vælges kun den primære leder til lederoversigten; ekstra ledermodtagere skal fjernes fra listen før gem.</p>
             <div id="timeControlRecipientSummary" class="infoGrid"></div>
             <form id="timeControlRecipientsForm" class="recipientForm">
               <label for="timeControlManagerEmails">Ledermodtagere – én mailadresse pr. linje</label>
               <p id="managerEmailsHint" class="infoHint">Første adresse er Til; resten er CC.</p>
               <textarea id="timeControlManagerEmails" aria-describedby="managerEmailsHint" required></textarea>
-              <div class="formActions"><button id="timeControlDepOnly" type="button">Vælg DEP alene (gemmer ikke)</button></div>
+              <div class="formActions"><button id="timeControlDepOnly" type="button">Vælg primær leder alene (gemmer ikke)</button></div>
               <label for="timeControlRecipientReason">Begrundelse til audit</label>
               <input id="timeControlRecipientReason" maxlength="500" required>
               <div class="formActions"><button class="btnPrimary" type="submit">Gem ledermodtagere</button></div>
@@ -173,17 +188,21 @@
           </section>
           <section id="mailtest" class="panel" aria-labelledby="mailTestTitle">
             <div class="sectionHeader"><h2 id="mailTestTitle">Mailtest</h2><span class="tag tagPreview">Ingen afsendelse</span></div>
-            <p class="infoHint">Se testmailplanen eller gem en forberedt DEP-test. Forberedelse sender ikke mail og godkender ikke afsendelse. MHJ og lederoversigten forbliver kun preview.</p>
+            <p class="infoHint">Se testmailplanen eller gem en forberedt første mailtest. Forberedelse sender ikke mail og godkender ikke afsendelse. Medarbejdertesten og lederoversigten forbliver kun preview.</p>
             <form id="timeControlMailTestForm">
               <details><summary>Tekniske testoplysninger</summary><label for="timeControlTestBatch">Testbatch-UUID (bevar samme værdi ved genkørsel)</label><input id="timeControlTestBatch" required value="7aac3ac3-a4cf-4f2c-bddf-491bcb2b4f45"></details>
-              <div class="formActions"><button id="timeControlPreviewTest" type="submit">Vis testmailplan – afsender ikke</button><button id="timeControlPrepareDep" class="btnPrimary" type="button">Forbered DEP-test – afsender ikke</button></div>
+              <div class="formActions"><button id="timeControlPreviewTest" type="submit">Vis testmailplan – afsender ikke</button><button id="timeControlPrepareDep" class="btnPrimary" type="button">Forbered første test – afsender ikke</button></div>
             </form>
             <div id="timeControlMailTestPlan" aria-live="polite"></div>
-            <section id="timeControlPreparedTest" aria-label="Forberedt DEP-test" aria-live="polite" hidden></section>
+            <section id="timeControlPreparedTest" aria-label="Forberedt første test" aria-live="polite" hidden></section>
           </section>
           <section id="seneste-kontroller" class="panel" aria-labelledby="latestControlsTitle">
             <div class="sectionHeader"><h2 id="latestControlsTitle">Seneste kontroller</h2><span class="tag">Dry-run og historik</span></div>
-            <div class="tableWrap"><table class="responsiveTable"><thead><tr><th>Kontrol</th><th>Dato / uge</th><th>Status</th><th>Medregnede timer / norm</th><th>Databevis</th></tr></thead><tbody id="timeControlResults"></tbody></table></div>
+            <div class="controlFilters">
+              <label for="timeControlEmployeeFilter">Medarbejderfilter<input id="timeControlEmployeeFilter" autocomplete="off"></label>
+              <label class="checkLabel"><input id="timeControlAttentionOnly" type="checkbox"> Vis kun opmærksomhed</label>
+            </div>
+            <div id="timeControlResults" class="controlGroups" aria-live="polite"></div>
             <details><summary>Teknisk ugekontrol – kør dry-run på lagrede datasæt</summary>
               <form id="timeControlWeeklyForm">
                 <label for="timeControlFriday">Fredagens dato</label>

@@ -10,6 +10,7 @@ const service = require("./timeControl.service");
 const HC_TENANT_ID = "f1f51c07-2d88-4ee4-a766-78eac833a9d0";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const contentHash = message => createHash("sha256").update(JSON.stringify(message)).digest("hex");
+const TEST_KEY = /^time_control_poc_mail:v1:([0-9a-f-]{36}):([0-9a-f-]{36}):dep_delivery(?::[0-9a-f]{12})?$/i;
 
 function fail(code, statusCode = 409) {
   const error = new Error(code);
@@ -56,6 +57,15 @@ async function prepare({ tenantId, actorId, batchId }) {
   return { test, plan };
 }
 
+async function currentDepMessage(client, { tenantId, testKey }) {
+  const match = TEST_KEY.exec(String(testKey || ""));
+  if (!match || match[1] !== tenantId) fail("time_control_poc_test_key_invalid");
+  const plan = await service.getPocMailPlanForClient(client, { tenantId, batchId: match[2] });
+  const message = { ...plan.messages.find(m => m.stage === "dep_delivery"), replyTo: ENV.MAIL_REPLY_TO || null };
+  if (!message.testKey || message.testKey !== testKey) fail("time_control_poc_locked_message_superseded");
+  return message;
+}
+
 async function requireDrySettings(client, tenantId) {
   const row = (await client.query(
     "SELECT mode,employee_cc_emails,friday_manager_emails FROM time_control_settings WHERE tenant_id=$1 FOR UPDATE", [tenantId]
@@ -79,11 +89,14 @@ async function sendPreparedDep({ tenantId, actorId, testId, confirm, sendEmailFn
     )).rows[0];
     if (!row) fail("time_control_poc_test_not_found", 404);
     const message = row.message_json;
+    const current = await currentDepMessage(client, { tenantId, testKey: row.test_key });
     if (message.stage !== "dep_delivery" || message.to !== "dep@hoyrup-clemmensen.dk" ||
         !Array.isArray(message.cc) || message.cc.length || message.from !== service.SENDER ||
-        message.testKey !== row.test_key || !row.test_key.endsWith(":dep_delivery") ||
+        message.testKey !== row.test_key || !TEST_KEY.test(row.test_key) ||
         message.replyTo !== (ENV.MAIL_REPLY_TO || null) || !message.subject.startsWith("[POC-TEST") ||
-        contentHash(message) !== row.content_hash) fail("time_control_poc_locked_message_invalid");
+        contentHash(message) !== row.content_hash || contentHash(current) !== row.content_hash) {
+      fail("time_control_poc_locked_message_invalid");
+    }
     if (row.status !== "prepared") return { row, claimed: false };
     const updated = (await client.query(
       "UPDATE time_control_poc_mail_test SET status='sending',attempt_started_at=now() WHERE tenant_id=$1 AND id=$2 AND status='prepared' RETURNING *",

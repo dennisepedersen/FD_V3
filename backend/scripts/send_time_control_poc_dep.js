@@ -11,7 +11,7 @@ async function main() {
   const tenantId = "f1f51c07-2d88-4ee4-a766-78eac833a9d0";
   const actorId = process.env.TIME_CONTROL_POC_APPROVED_ACTOR_ID;
   const actor = (await pool.query(
-    "SELECT id FROM tenant_user WHERE tenant_id=$1 AND id=$2 AND role='tenant_admin' AND is_active=true",
+    "SELECT id FROM tenant_user WHERE tenant_id=$1 AND id=$2 AND role='tenant_admin' AND status='active'",
     [tenantId, actorId]
   )).rows[0];
   if (!actor) throw new Error("time_control_poc_authorized_admin_required");
