@@ -120,7 +120,23 @@ test("daily capture and operational-week gate: actual PostgreSQL, controlled clo
        email_source,email_source_value,email_approved_at,email_approved_by_user_id,approval_reason,approval_version)
        VALUES($1,'MBO','290',$2,'mbo@example.test','admin_override','mbo@example.test',now(),$3,'fixture',1)`,
       [tenantId, groupId, actorId]);
-    await pool.query("INSERT INTO time_control_settings(tenant_id,mode,live_enabled_at) VALUES($1,'live',now())", [tenantId]);
+    const modeArgs = { tenantId, actorId, tenantSlug: "operational-fixture" };
+    await assert.rejects(service.setMode({ ...modeArgs, mode: "live", confirm: "wrong" }), /live_confirm_required/);
+    const drySettings = await service.setMode({ ...modeArgs, mode: "dry_run" });
+    assert.equal(drySettings.live_enabled_at, null);
+    assert.equal(drySettings.live_enabled_by_user_id, null);
+    const liveArgs = { ...modeArgs, mode: "live", confirm: "AKTIVER:timekontrol-live:operational-fixture" };
+    const liveSettings = await service.setMode(liveArgs);
+    assert.equal(liveSettings.mode, "live");
+    assert.equal(liveSettings.live_enabled_by_user_id, actorId);
+    assert.ok(liveSettings.live_enabled_at);
+    const repeatedLive = await service.setMode(liveArgs);
+    assert.equal(repeatedLive.live_enabled_at.toISOString(), liveSettings.live_enabled_at.toISOString());
+    const stoppedSettings = await service.setMode({ ...modeArgs, mode: "dry_run" });
+    assert.equal(stoppedSettings.live_enabled_at, null);
+    assert.equal(stoppedSettings.live_enabled_by_user_id, null);
+    await service.setMode(liveArgs);
+    assert.equal((await pool.query("SELECT count(*)::int AS n FROM time_control_settings WHERE tenant_id=$1", [otherTenantId])).rows[0].n, 0);
     await pool.query("INSERT INTO time_control_pay_code_rule(tenant_id,pay_code,counts_as_valid_hours) VALUES($1,'3300',true)", [tenantId]);
     const approvedIdentity = { fitter_id: "290", group_id: groupId, approval_version: 1, approved_email: "mbo@example.test" };
     const activeArgs = { tenantId, identity: approvedIdentity, controlledDate: "2026-10-12" };

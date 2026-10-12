@@ -40,13 +40,13 @@ async function updateMode(client, { tenantId, actorId, mode }) {
         $1,
         $2,
         CASE WHEN $2 = 'live' THEN now() ELSE NULL END,
-        CASE WHEN $2 = 'live' THEN $3 ELSE NULL END
+        CASE WHEN $2 = 'live' THEN $3::uuid ELSE NULL END
       )
       ON CONFLICT (tenant_id)
       DO UPDATE SET
         mode = EXCLUDED.mode,
         live_enabled_at = CASE WHEN EXCLUDED.mode = 'live' THEN COALESCE(time_control_settings.live_enabled_at, now()) ELSE NULL END,
-        live_enabled_by_user_id = CASE WHEN EXCLUDED.mode = 'live' THEN $3 ELSE NULL END
+        live_enabled_by_user_id = CASE WHEN EXCLUDED.mode = 'live' THEN $3::uuid ELSE NULL END
       RETURNING *
     `,
     [tenantId, mode, actorId || null]

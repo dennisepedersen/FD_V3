@@ -1,9 +1,46 @@
 # Timekontrol HC Activation Plan
 
-Status: deployed and readiness-verified; NOT activated. Activation requires
-the user's separate approval of this plan.
+Status: activation explicitly approved on 12 October 2026; rollout in progress.
+The six-person operation is active; tenant-live and automatic flags remain off
+until the narrow live-setting SQL fix below is deployed and verified.
 Target: first scheduled control Tuesday 13 October 2026 at 09:00,
 Europe/Copenhagen (07:00 UTC), evaluating Monday 12 October.
+
+## Approved Activation Execution (12 October 2026)
+
+`verified`: preflight `job-db6coc8473hc73e1895g` succeeded at
+`2026-10-12T12:02:31Z`. HC was the only active tenant with enabled Timekontrol
+settings; exactly fitter IDs 15, 18, 208, 290, 295 and 498 resolved with the
+approved names, emails, group and approval versions. All three routing lists
+were DEP alone, with the verified Timekontrol sender and Reply-To. The global
+flags are used only by Timekontrol; no generic mail worker is started by them.
+The 60 unrelated queued absence mails had zero attempts. Their full-row digest
+was `81099e9f03f2efa1cb007079c2b893cb245e9b18af923e48421d24cd74500fe8`.
+
+The first read-only preflight (`job-db6cnmid0e5s73a8j2j0`) failed because
+the existing identity resolver uses SELECT FOR SHARE, which PostgreSQL rejects
+in a READ ONLY transaction. Repeating the same reads with ordinary transaction
+locks passed; neither preflight mutated application data.
+
+Approved operator job `job-db6cp23bc2fs73blmm90` used the established audited
+operation and mode services with the server-verified active HC tenant-admin
+actor. It created operation `553c1851-6061-4432-9b05-b2b370af7f84`, covered from
+12 October, actually started `2026-10-12T12:03:29.936Z`, with the exact six
+frozen identity hashes. The subsequent live-setting statement failed: its CASE
+parameter for `live_enabled_by_user_id` was inferred as text instead of uuid.
+No mail or control was run. State inspection `job-db6cq2jbc2fs73blprog`
+succeeded at `2026-10-12T12:05:50Z`: one active operation, settings still
+dry-run/live timestamp NULL, both automatic flags off. Do not recreate the
+operation when continuing activation.
+
+The bounded repair casts the existing actor parameter to uuid in both mode
+upsert branches; no schema, rules, recipients or guard changes. The actual
+PostgreSQL operational suite now exercises confirmation rejection, dry-run,
+live with persisted actor UUID, repeated live preserving its timestamp, stop
+clearing live fields, reactivation, and untouched other-tenant settings.
+Validation: `npm run check` passed (556 tests, 7 opt-in skips), and the three
+isolated PostgreSQL suites passed all eight tests with zero skips and external
+provider calls. Deployment and final activation evidence follow after rollout.
 
 ## Verified Release And Final Production Check
 
