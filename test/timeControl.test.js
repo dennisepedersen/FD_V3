@@ -421,11 +421,11 @@ test("POC sender preparation persists a locked DEP-only test record without queu
   process.env.TIME_CONTROL_SCHEDULER_ENABLED = "false";
   try {
     await withPatches([
-      [service, "getPocMailPlan", async () => planned],
+      [service, "getPocMailPlanForClient", async () => planned],
       [tx, "withTransaction", async (fn) => fn({
         query: async (sql) => {
           queries.push(sql);
-          if (/SELECT mode,employee_cc_emails,friday_manager_emails FROM time_control_settings/.test(sql)) return { rows: [settingsRow] };
+          if (/SELECT mode,employee_cc_emails,friday_manager_emails,live_enabled_at FROM time_control_settings/.test(sql)) return { rows: [settingsRow] };
           if (/INSERT INTO time_control_poc_mail_test/.test(sql)) return { rows: [persisted] };
           if (/SELECT \* FROM time_control_poc_mail_test/.test(sql)) return { rows: [persisted] };
           return { rows: [] };
@@ -480,7 +480,7 @@ test("POC sender claims once and passes resend idempotency data without a duplic
       [tx, "withTransaction", async (fn) => fn({
         query: async (sql, values) => {
           queryLog.push(sql);
-          if (/SELECT mode,employee_cc_emails,friday_manager_emails FROM time_control_settings/.test(sql)) {
+          if (/SELECT mode,employee_cc_emails,friday_manager_emails,live_enabled_at FROM time_control_settings/.test(sql)) {
             return { rows: [{ mode: "dry_run", employee_cc_emails: ["dep@hoyrup-clemmensen.dk"], friday_manager_emails: ["dep@hoyrup-clemmensen.dk"] }] };
           }
           if (/SELECT \* FROM time_control_poc_mail_test WHERE tenant_id=\$1 AND id=\$2 FOR UPDATE/.test(sql)) {
@@ -565,7 +565,7 @@ test(`POC sender blocks a superseded ${suffix ? "signed sender replacement" : "l
     await withPatches([
       [tx, "withTransaction", async (fn) => fn({
         query: async (sql) => {
-          if (/SELECT mode,employee_cc_emails,friday_manager_emails FROM time_control_settings/.test(sql)) {
+          if (/SELECT mode,employee_cc_emails,friday_manager_emails,live_enabled_at FROM time_control_settings/.test(sql)) {
             return { rows: [{ mode: "dry_run", employee_cc_emails: ["dep@hoyrup-clemmensen.dk"], friday_manager_emails: ["dep@hoyrup-clemmensen.dk"] }] };
           }
           if (/SELECT \* FROM time_control_poc_mail_test WHERE tenant_id=\$1 AND id=\$2 FOR UPDATE/.test(sql)) return { rows: [row] };

@@ -1,5 +1,99 @@
 # Mail Provider Verification Runbook
 
+## DEP inbox confirmed; Mikkel content approved (2026-10-12)
+
+`observed` (user-confirmed): Dennis confirmed actual receipt of the DEP test
+in Outlook on 12 October 2026 at 10:19 Europe/Copenhagen (08:19 UTC, minute
+precision). This is the user's explicit inbox confirmation, not an independent
+mailbox inspection. It is distinct from provider acceptance.
+
+`verified`: the authorized DEP command ran once in Render job
+`job-db69g7bbc2fs73balo00`. Test `698712b3-1aec-462f-a256-f5921e4fbe7f`
+is `accepted`, completed at `2026-10-12T08:19:54.355Z`, with Resend message ID
+`01a12f32-64fd-7ba0-8229-08a5400b633c`. Post-send job
+`job-db69glrbc2fs73ban3b0` verified the durable receipt, unchanged locked hash,
+three total records and exactly one attempted record. No resend is authorized
+or needed. The historical prepared DEP records remain blocked.
+
+`verified`: read-only Render job `job-db69jdh42hec73be21r0` rechecked the
+accepted DEP receipt and authoritative Mikkel preview. Mikkel Hyldebo Jensen
+is To `mhj@hoyrup-clemmensen.dk`; Dennis is CC `dep@hoyrup-clemmensen.dk`.
+From is `Fielddesk Timekontrol <timekontrol@mail.fielddesk.dk>` and Reply-To
+is `admin@fielddesk.dk`. Tenant `mode=dry_run`, `live_enabled_at=NULL`,
+scheduler `false`, and DEP-only manager recipients/employee CC were verified.
+No record was created and no mail was sent by this check; total records remain
+three. LKE remains excluded, and the leader overview remains preview-only.
+
+### One approved Mikkel mail
+
+Status: the user approved the exact content below and separately authorized
+implementation, commit/push/deploy, necessary migration and preparation of
+exactly one locked Mikkel record. Sending is NOT authorized. The implementation
+updates the Mikkel preview to this no-action text; DEP content is unchanged.
+
+- To: `Mikkel Hyldebo Jensen <mhj@hoyrup-clemmensen.dk>`.
+- CC: `Dennis <dep@hoyrup-clemmensen.dk>`.
+- From: `Fielddesk Timekontrol <timekontrol@mail.fielddesk.dk>`.
+- Reply-To: `admin@fielddesk.dk`.
+- Subject: `[POC-TEST - ingen handling] Fielddesk Timekontrol: mailtest til Mikkel Hyldebo Jensen`.
+
+```text
+Hej Mikkel
+
+Dette er en aftalt testmail fra Fielddesk Timekontrol med Dennis i kopi.
+
+Mailen er kun en test af afsendelse og modtagelse. Den er ikke en rigtig timekontrol eller en påmindelse om manglende timer, og den kræver ingen handling fra dig.
+
+Du skal ikke ændre din timeregistrering på grund af denne mail. Ingen EK-timer er ændret, og testen aktiverer ikke live-mode eller scheduler.
+
+Venlig hilsen
+Fielddesk Timekontrol
+```
+
+The Mikkel delivery key now includes a deterministic content signature, as for
+DEP. The immutable message also records the user-confirmed DEP receipt (test ID,
+provider ID and Copenhagen receipt minute). Preparation and sending both verify
+that exact DEP acceptance record in the same tenant/campaign.
+
+### Approval and sending plan
+
+1. Content and implementation/preparation approval received; no send approval.
+2. Migration `0059_time_control_poc_mhj_mail_test.sql` extends only the existing
+   test-key constraint to signed Mikkel keys. No old migration, record, trigger,
+   sender configuration or routing is rewritten. The shared sender retains
+   the committed single-attempt claim, provider idempotency and no-retry rule.
+3. After checks/deploy/migration verification, run the active-tenant-admin-only
+   `scripts/time_control_poc_mhj.js prepare <batch-id> PREPARE:timekontrol-poc-mhj:<batch-id>`.
+   Preparation is idempotent and creates no outbox/provider message. Show the
+   persisted test ID and exact locked content before requesting send approval.
+4. Only after separate explicit send approval, run
+   `scripts/time_control_poc_mhj.js send <test-id> SEND:timekontrol-poc-mhj:<test-id>`
+   with `TIME_CONTROL_POC_APPROVED_ACTOR_ID` set to the authorized tenant admin.
+   An uncertain provider
+   outcome must not trigger an automatic retry. Distinguish provider acceptance
+   from Mikkel's actual inbox receipt and Dennis's receipt of the CC.
+
+Do not execute the Mikkel send command without separate approval or reuse the
+DEP command. No DEP resend, LKE routing, outbox apply or scheduler/live
+activation is authorized. All sender guards remain fail-closed.
+
+### Implementation validation
+
+The extension uses the existing table, immutable trigger, tenant-scoped unique
+key, sender and durable claim. Only the Mikkel operator exposes the new stage;
+no UI send button, scheduler or general outbox path was added. Both stages
+resolve identities/routing inside the preparation transaction and reject a
+non-null `live_enabled_at`. The DEP subject/body and signed key are preserved.
+
+Focused checks: `node --test test/timeControl.test.js test/timeControlPocMhj.test.js test/mailService.test.js`
+passed 103 tests before the final two negative cases were added. Full
+`npm run check` then passed 519 tests, 6 opt-in skips, 0 failures, 59 migration
+files and 18 static assertions. The skipped tests are not PostgreSQL proof.
+After staging, the secrets scan flagged two literal dummy test assignments;
+these were changed to the repository's existing environment-default pattern
+before final validation. Render's verified existing pre-deploy command is
+`npm run db:migrate`; no production configuration change is needed.
+
 ## Timekontrol verified-subdomain sender replacement (2026-10-12)
 
 The user approved changing only Timekontrol's sender to
@@ -30,7 +124,7 @@ with sending `enabled`; scheduler `false`, Reply-To `admin@fielddesk.dk`,
 and global From `Fielddesk <noreply@mail.fielddesk.dk>`. No active jobs appeared
 in the 20 most recent service jobs.
 
-### Deployed and prepared, awaiting send approval
+### Historical preparation before the authorized DEP send
 
 `verified`: commit `cda1b4fad2a1c7c12688c72ddb71cd5ba4269ecf` is live in
 Render deploy `dep-db699mavcj2c73fcmeug`, finished
@@ -80,9 +174,10 @@ root is:
 TIME_CONTROL_POC_APPROVED_ACTOR_ID=8eaddbc0-8fc7-414a-9c5c-064617972394 node scripts/send_time_control_poc_dep.js 698712b3-1aec-462f-a256-f5921e4fbe7f SEND:timekontrol-poc-dep:698712b3-1aec-462f-a256-f5921e4fbe7f
 ```
 
-This command has not run. Provider acceptance is not inbox receipt. Wait for
-Dennis's inbox confirmation and a separate instruction before Mikkel's test;
-the leader overview remains preview-only. No automatic retries are allowed.
+The command above subsequently ran once with explicit approval; provider
+acceptance and Dennis's later Outlook confirmation are recorded at the top
+of this runbook. Do not run it again. Mikkel's draft still requires its own
+approval and locked-test support; the leader overview remains preview-only.
 
 ## Production migration and pre-send validation (2026-10-12)
 

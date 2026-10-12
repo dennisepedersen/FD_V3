@@ -11,7 +11,7 @@ function personName(person) {
   return String(person?.name || "").trim();
 }
 
-function depTestKey({ tenantId, batchId, message }) {
+function deliveryTestKey({ tenantId, batchId, message }) {
   const signature = createHash("sha256").update(JSON.stringify({
     to: message.to,
     cc: message.cc,
@@ -21,7 +21,7 @@ function depTestKey({ tenantId, batchId, message }) {
     subject: message.subject,
     text: message.text,
   })).digest("hex").slice(0, 12);
-  return `time_control_poc_mail:v1:${tenantId}:${batchId}:dep_delivery:${signature}`;
+  return `time_control_poc_mail:v1:${tenantId}:${batchId}:${message.stage}:${signature}`;
 }
 
 function buildPlan({ tenantId, batchId, from, settings, employee, dep, controlEmployees = [] }) {
@@ -72,9 +72,11 @@ Fielddesk Timekontrol`,
       subject: `[POC-TEST - ingen handling] Fielddesk Timekontrol: mailtest til ${employeeName}`,
       text: `Hej ${firstName(employeeName)}
 
-Dette er en aftalt mailtest af Fielddesk Timekontrol med ${depName} i kopi. Det er ikke en rigtig timekontrol eller en påmindelse om manglende timer. Du skal ikke ændre din timeregistrering på grund af denne mail.
+Dette er en aftalt testmail fra Fielddesk Timekontrol med ${depName} i kopi.
 
-Bekræft venligst modtagelsen i din indbakke. ${depName} modtager en kopi; den fravalgte ekstra ledermodtager modtager ikke denne test.
+Mailen er kun en test af afsendelse og modtagelse. Den er ikke en rigtig timekontrol eller en påmindelse om manglende timer, og den kræver ingen handling fra dig.
+
+Du skal ikke ændre din timeregistrering på grund af denne mail. Ingen EK-timer er ændret, og testen aktiverer ikke live-mode eller scheduler.
 
 Venlig hilsen
 Fielddesk Timekontrol`,
@@ -104,8 +106,8 @@ Fielddesk Timekontrol`,
     const withFrom = { ...message, from };
     return {
       ...withFrom,
-      testKey: message.stage === "dep_delivery"
-        ? depTestKey({ tenantId, batchId, message: withFrom })
+      testKey: ["dep_delivery", "mhj_delivery"].includes(message.stage)
+        ? deliveryTestKey({ tenantId, batchId, message: withFrom })
         : `time_control_poc_mail:v1:${tenantId}:${batchId}:${message.stage}`,
     };
   });
@@ -117,7 +119,7 @@ Fielddesk Timekontrol`,
     messages,
     manager_routing_saved: !managers.errorCode && managers.emails.length === 1 && managers.emails[0] === depRecipient.email,
     delivery_caveat: `Provideraccept er ikke bekræftet modtagelse. ${depName} og ${employeeName} skal bekræfte deres indbakker.`,
-    dispatch_blocker: `${depName}-testen skal klargøres og låses før særskilt afsendelsesgodkendelse. Kun en eksplicit operatørkommando kan afsende den ene test; ingen automatiske retries. ${employeeName} og lederoversigten er kun previews.`,
+    dispatch_blocker: `Testmails skal klargøres og låses før særskilt afsendelsesgodkendelse. Kun en eksplicit operatørkommando kan afsende én test; ingen automatiske retries. ${employeeName}-testen kræver bekræftet modtagelse hos ${depName}. Lederoversigten er kun preview.`,
   };
 }
 

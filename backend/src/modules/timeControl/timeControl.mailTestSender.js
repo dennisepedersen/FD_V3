@@ -14,7 +14,32 @@ const contentHash = message => createHash("sha256").update(JSON.stringify(messag
   if (!value || typeof value !== "object" || Array.isArray(value)) return value;
   return Object.fromEntries(Object.keys(value).sort().map(key => [key, value[key]]));
 })).digest("hex");
-const TEST_KEY = /^time_control_poc_mail:v1:([0-9a-f-]{36}):([0-9a-f-]{36}):dep_delivery(?::[0-9a-f]{12})?$/i;
+const TEST_KEY = /^time_control_poc_mail:v1:([0-9a-f-]{36}):([0-9a-f-]{36}):(dep_delivery|mhj_delivery)(?::[0-9a-f]{12})?$/i;
+// Bounded POC prerequisite: actual Outlook receipt explicitly confirmed by Dennis.
+const DEP_RECEIPT = Object.freeze({
+  testId: "698712b3-1aec-462f-a256-f5921e4fbe7f",
+  providerMessageId: "01a12f32-64fd-7ba0-8229-08a5400b633c",
+  inboxReceivedAt: "2026-10-12T10:19+02:00",
+  source: "user-confirmed Outlook receipt; minute precision",
+});
+
+function lockedMessage(plan, stage) {
+  const message = plan.messages.find(m => m.stage === stage);
+  if (!message) fail("time_control_poc_plan_invalid");
+  return { ...message, replyTo: ENV.MAIL_REPLY_TO || null,
+    ...(stage === "mhj_delivery" ? { depReceipt: DEP_RECEIPT } : {}) };
+}
+
+async function requireDepReceipt(client, tenantId, batchId) {
+  const row = (await client.query(
+    "SELECT status,provider_message_id,test_key FROM time_control_poc_mail_test WHERE tenant_id=$1 AND id=$2",
+    [tenantId, DEP_RECEIPT.testId]
+  )).rows[0];
+  if (!row || row.status !== "accepted" || row.provider_message_id !== DEP_RECEIPT.providerMessageId ||
+      !row.test_key.startsWith(`time_control_poc_mail:v1:${tenantId}:${batchId}:dep_delivery:`)) {
+    fail("time_control_poc_dep_receipt_required");
+  }
+}
 
 function fail(code, statusCode = 409) {
   const error = new Error(code);
@@ -36,15 +61,16 @@ async function audit(client, { tenantId, actorId, id, reason, metadata = {} }) {
   });
 }
 
-async function prepare({ tenantId, actorId, batchId }) {
+async function prepareStage({ tenantId, actorId, batchId }, stage) {
   requireScope(tenantId, actorId);
-  const plan = await service.getPocMailPlan({ tenantId, batchId });
-  if (!plan.manager_routing_saved) fail("time_control_poc_dep_only_required");
-  const message = { ...plan.messages.find(m => m.stage === "dep_delivery"), replyTo: ENV.MAIL_REPLY_TO || null };
-  const hash = contentHash(message);
-  const test = await tx.withTransaction(async client => {
-    // Recheck routing under the same lock as persistence, not just the earlier preview.
+  return tx.withTransaction(async client => {
+    // Resolve authoritative identities and routing under the persistence lock.
     await requireDrySettings(client, tenantId);
+    const plan = await service.getPocMailPlanForClient(client, { tenantId, batchId });
+    if (!plan.manager_routing_saved) fail("time_control_poc_dep_only_required");
+    const message = lockedMessage(plan, stage);
+    const hash = contentHash(message);
+    if (stage === "mhj_delivery") await requireDepReceipt(client, tenantId, batchId);
     const { rows } = await client.query(
       `INSERT INTO time_control_poc_mail_test (tenant_id,test_key,message_json,content_hash,prepared_by_user_id)
        VALUES ($1,$2,$3::jsonb,$4,$5) ON CONFLICT (tenant_id,test_key) DO NOTHING RETURNING *`,
@@ -56,35 +82,39 @@ async function prepare({ tenantId, actorId, batchId }) {
     )).rows[0];
     if (!row || row.content_hash !== hash) fail("time_control_poc_content_conflict");
     if (rows.length) await audit(client, { tenantId, actorId, id: row.id, reason: "poc_mail_prepared", metadata: { test_key: message.testKey, content_hash: hash } });
-    return row;
+    return { test: row, plan };
   });
-  return { test, plan };
 }
 
-async function currentDepMessage(client, { tenantId, testKey }) {
+const prepare = input => prepareStage(input, "dep_delivery");
+const prepareMhj = input => prepareStage(input, "mhj_delivery");
+
+async function currentMessage(client, { tenantId, testKey, stage }) {
   const match = TEST_KEY.exec(String(testKey || ""));
-  if (!match || match[1] !== tenantId) fail("time_control_poc_test_key_invalid");
+  if (!match || match[1] !== tenantId || match[3] !== stage) fail("time_control_poc_test_key_invalid");
+  if (stage === "mhj_delivery") await requireDepReceipt(client, tenantId, match[2]);
   const plan = await service.getPocMailPlanForClient(client, { tenantId, batchId: match[2] });
-  const message = { ...plan.messages.find(m => m.stage === "dep_delivery"), replyTo: ENV.MAIL_REPLY_TO || null };
+  const message = lockedMessage(plan, stage);
   if (!message.testKey || message.testKey !== testKey) fail("time_control_poc_locked_message_superseded");
   return message;
 }
 
 async function requireDrySettings(client, tenantId) {
   const row = (await client.query(
-    "SELECT mode,employee_cc_emails,friday_manager_emails FROM time_control_settings WHERE tenant_id=$1 FOR UPDATE", [tenantId]
+    "SELECT mode,employee_cc_emails,friday_manager_emails,live_enabled_at FROM time_control_settings WHERE tenant_id=$1 FOR UPDATE", [tenantId]
   )).rows[0];
   const { emailListFailureFor } = require("../../services/emailRecipients");
   const managers = emailListFailureFor(row?.friday_manager_emails);
   const copies = emailListFailureFor(row?.employee_cc_emails);
-  if (!row || row.mode !== "dry_run" || managers.errorCode || copies.errorCode ||
+  if (!row || row.mode !== "dry_run" || row.live_enabled_at != null || managers.errorCode || copies.errorCode ||
       JSON.stringify(managers.emails) !== '["dep@hoyrup-clemmensen.dk"]' ||
       JSON.stringify(copies.emails) !== '["dep@hoyrup-clemmensen.dk"]') fail("time_control_poc_settings_changed");
 }
 
-async function sendPreparedDep({ tenantId, actorId, testId, confirm, sendEmailFn = mailService.sendEmail }) {
+async function sendPrepared({ tenantId, actorId, testId, confirm, sendEmailFn = mailService.sendEmail }, stage) {
   requireScope(tenantId, actorId);
-  if (!UUID.test(testId || "") || confirm !== `SEND:timekontrol-poc-dep:${testId}`) fail("time_control_poc_send_confirmation_required", 400);
+  const recipient = stage === "dep_delivery" ? "dep" : "mhj";
+  if (!UUID.test(testId || "") || confirm !== `SEND:timekontrol-poc-${recipient}:${testId}`) fail("time_control_poc_send_confirmation_required", 400);
   if (ENV.MAIL_PROVIDER !== "resend" || !ENV.MAIL_API_KEY) fail("time_control_poc_resend_required");
   const claimed = await tx.withTransaction(async client => {
     await requireDrySettings(client, tenantId);
@@ -93,9 +123,11 @@ async function sendPreparedDep({ tenantId, actorId, testId, confirm, sendEmailFn
     )).rows[0];
     if (!row) fail("time_control_poc_test_not_found", 404);
     const message = row.message_json;
-    const current = await currentDepMessage(client, { tenantId, testKey: row.test_key });
-    if (message.stage !== "dep_delivery" || message.to !== "dep@hoyrup-clemmensen.dk" ||
-        !Array.isArray(message.cc) || message.cc.length || message.from !== service.SENDER ||
+    const current = await currentMessage(client, { tenantId, testKey: row.test_key, stage });
+    const expectedTo = stage === "dep_delivery" ? "dep@hoyrup-clemmensen.dk" : "mhj@hoyrup-clemmensen.dk";
+    const expectedCc = stage === "dep_delivery" ? [] : ["dep@hoyrup-clemmensen.dk"];
+    if (message.stage !== stage || message.to !== expectedTo ||
+        JSON.stringify(message.cc) !== JSON.stringify(expectedCc) || message.from !== service.SENDER ||
         message.testKey !== row.test_key || !TEST_KEY.test(row.test_key) ||
         message.replyTo !== (ENV.MAIL_REPLY_TO || null) || !message.subject.startsWith("[POC-TEST") ||
         contentHash(message) !== row.content_hash || contentHash(current) !== row.content_hash) {
@@ -115,7 +147,7 @@ async function sendPreparedDep({ tenantId, actorId, testId, confirm, sendEmailFn
   let receipt;
   try {
     receipt = await sendEmailFn({
-      ...claimed.row.message_json, tenantId, template: "time_control_poc_dep_test",
+      ...claimed.row.message_json, tenantId, template: `time_control_poc_${recipient}_test`,
     }, { idempotencyKey: claimed.row.test_key, timeoutMs: 15000 });
     if (receipt?.provider !== "resend" || !receipt.providerMessageId) fail("time_control_poc_provider_receipt_missing");
   } catch (error) {
@@ -139,4 +171,7 @@ async function finish({ tenantId, actorId, testId, status, errorCode = null, pro
   });
 }
 
-module.exports = { prepare, sendPreparedDep, contentHash };
+const sendPreparedDep = input => sendPrepared(input, "dep_delivery");
+const sendPreparedMhj = input => sendPrepared(input, "mhj_delivery");
+
+module.exports = { prepare, prepareMhj, sendPreparedDep, sendPreparedMhj, contentHash };
