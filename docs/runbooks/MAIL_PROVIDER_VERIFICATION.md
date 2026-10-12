@@ -1,5 +1,35 @@
 # Mail Provider Verification Runbook
 
+## Timekontrol verified-subdomain sender replacement (2026-10-12)
+
+The user approved changing only Timekontrol's sender to
+`Fielddesk Timekontrol <timekontrol@mail.fielddesk.dk>`, retaining
+Reply-To `admin@fielddesk.dk`. The module's shared `SENDER` constant supplies
+POC plans and Timekontrol outbox payloads; the POC sender validates and sends
+that same locked From value. Global `MAIL_FROM`, the shared mail adapter and
+other modules are unchanged. No new migration is needed.
+
+The established content-signature replacement key includes From. Preparing
+the existing batch therefore creates or reuses one new current test without
+rewriting the two previous immutable records. The send guard revalidates the
+current plan and rejects both previous keys before claiming a send. Tests
+cover sender-key replacement, legacy/signed supersession, sender/Reply-To
+forwarding and preservation of the generic mail adapter's default sender.
+
+The production record and command in the sections below are historical.
+Their former sender-domain blocker is resolved only after the new code and
+new locked test have been verified. No send, scheduler/live activation,
+outbox apply, EK write, DNS or global mail configuration change is authorized.
+
+`verified` locally: `node --test test/timeControl.test.js test/mailService.test.js`
+passed 78/78; `npm run check` passed with 492 tests passed, 6 opt-in tests
+skipped and 0 failures, plus syntax, whitespace, encoding, secrets, 58
+migrations and 18 static assertions. `git diff --check` passed.
+Read-only production preflight reverified `mail.fielddesk.dk` as `verified`
+with sending `enabled`; scheduler `false`, Reply-To `admin@fielddesk.dk`,
+and global From `Fielddesk <noreply@mail.fielddesk.dk>`. No active jobs appeared
+in the 20 most recent service jobs.
+
 ## Production migration and pre-send validation (2026-10-12)
 
 `verified`: Render/Linux status job `job-db68al0473hc73dhbfog` ran

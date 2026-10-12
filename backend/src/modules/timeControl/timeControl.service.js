@@ -21,7 +21,7 @@ const {
   requiredHoursForDate,
 } = require("./timeControl.dates");
 
-const SENDER = "Fielddesk Timekontrol <timekontrol@fielddesk.dk>";
+const SENDER = "Fielddesk Timekontrol <timekontrol@mail.fielddesk.dk>";
 const datasetStorage = require("./timeControl.dataset");
 const weekly = require("./timeControl.weekly");
 const operation = require("./timeControl.operation");

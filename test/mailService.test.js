@@ -11,6 +11,7 @@ process.env.ROOT_DOMAIN = process.env.ROOT_DOMAIN || "fielddesk.test";
 const env = require("../backend/src/config/env");
 const mailService = require("../backend/src/services/mailService");
 const { emailListFailureFor } = require("../backend/src/services/emailRecipients");
+const { SENDER: timeControlSender } = require("../backend/src/modules/timeControl/timeControl.service");
 
 async function withMailProvider(provider, fn) {
   const previous = { ...env };
@@ -50,7 +51,8 @@ for (const provider of ["resend", "postmark"]) {
       await mailService.sendEmail(message);
       const result = await mailService.sendEmail({
         ...message,
-        from: "Fielddesk Timekontrol <timekontrol@fielddesk.dk>",
+        from: timeControlSender,
+        replyTo: "admin@fielddesk.dk",
         cc: [" DEP@Example.Test ", "lke@example.test", "dep@example.test"],
       });
       await mailService.sendEmail({ ...message, cc: " DEP@Example.Test " });
@@ -62,19 +64,21 @@ for (const provider of ["resend", "postmark"]) {
         assert.equal(plain.from, env.MAIL_FROM);
         assert.deepEqual(plain.to, ["employee@example.test"]);
         assert.equal(plain.cc, undefined);
-        assert.equal(copies.from, "Fielddesk Timekontrol <timekontrol@fielddesk.dk>");
+        assert.equal(copies.from, "Fielddesk Timekontrol <timekontrol@mail.fielddesk.dk>");
         assert.deepEqual(copies.cc, ["dep@example.test", "lke@example.test"]);
         assert.deepEqual(single.cc, ["dep@example.test"]);
-        assert.equal(copies.reply_to, env.MAIL_REPLY_TO);
+        assert.equal(copies.reply_to, "admin@fielddesk.dk");
+        assert.equal(plain.reply_to, env.MAIL_REPLY_TO);
       } else {
         assert.equal(calls[0].url, "https://api.postmarkapp.com/email");
         assert.equal(plain.From, env.MAIL_FROM);
         assert.equal(plain.To, "employee@example.test");
         assert.equal(plain.Cc, undefined);
-        assert.equal(copies.From, "Fielddesk Timekontrol <timekontrol@fielddesk.dk>");
+        assert.equal(copies.From, "Fielddesk Timekontrol <timekontrol@mail.fielddesk.dk>");
         assert.equal(copies.Cc, "dep@example.test,lke@example.test");
         assert.equal(single.Cc, "dep@example.test");
-        assert.equal(copies.ReplyTo, env.MAIL_REPLY_TO);
+        assert.equal(copies.ReplyTo, "admin@fielddesk.dk");
+        assert.equal(plain.ReplyTo, env.MAIL_REPLY_TO);
         assert.equal(copies.MessageStream, env.MAIL_STREAM);
       }
     });

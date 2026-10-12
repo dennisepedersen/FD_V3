@@ -39,7 +39,10 @@ test("POC previews keep deterministic separate test keys and never address LKE",
     ],
   };
   const plan = buildPlan(input);
+  assert.equal(service.SENDER, "Fielddesk Timekontrol <timekontrol@mail.fielddesk.dk>");
   assert.deepEqual(buildPlan(input), plan);
+  const oldSenderPlan = buildPlan({ ...input, from: "Fielddesk Timekontrol <timekontrol@fielddesk.dk>" });
+  assert.notEqual(oldSenderPlan.messages[0].testKey, plan.messages[0].testKey);
   assert.equal(plan.send_enabled, false);
   assert.equal(plan.manager_routing_saved, true);
   assert.equal(new Set(plan.messages.map(m => m.testKey)).size, 3);
@@ -459,7 +462,7 @@ test("POC sender claims once and passes resend idempotency data without a duplic
       subject: "[POC-TEST – ingen handling] Fielddesk Timekontrol: mailtest til DEP",
       text: "Hej DEP\n\nTest.\n",
       from: service.SENDER,
-      replyTo: null,
+      replyTo: "admin@fielddesk.dk",
       testKey: `time_control_poc_mail:v1:${tenantId}:${uuid(7)}:dep_delivery`,
     },
     status: "prepared",
@@ -499,6 +502,7 @@ test("POC sender claims once and passes resend idempotency data without a duplic
       })],
       [require("../backend/src/config/env"), "MAIL_PROVIDER", "resend"],
       [require("../backend/src/config/env"), "MAIL_API_KEY", "dummy"],
+      [require("../backend/src/config/env"), "MAIL_REPLY_TO", "admin@fielddesk.dk"],
     ], async () => {
     const result = await sender.sendPreparedDep({
       tenantId,
@@ -523,6 +527,8 @@ test("POC sender claims once and passes resend idempotency data without a duplic
     assert.equal(sendCalls.length, 1);
     assert.equal(sendCalls[0].options.idempotencyKey, row.test_key);
     assert.equal(sendCalls[0].options.timeoutMs, 15000);
+    assert.equal(sendCalls[0].message.from, service.SENDER);
+    assert.equal(sendCalls[0].message.replyTo, "admin@fielddesk.dk");
     assert.equal(result.delivery_state, "accepted");
     assert.equal(result.retry_allowed, false);
     assert.equal(repeat.delivery_state, "unclear");
@@ -534,20 +540,21 @@ test("POC sender claims once and passes resend idempotency data without a duplic
   assert.ok(queryLog.some(sql => /UPDATE time_control_poc_mail_test SET status='sending'/.test(sql)));
 });
 
-test("POC sender blocks a locked prepared record that no longer matches the current verified mail plan", async () => {
+for (const suffix of ["", ":45addff13cfa"]) {
+test(`POC sender blocks a superseded ${suffix ? "signed sender replacement" : "legacy"} record before claim`, async () => {
   const sender = require("../backend/src/modules/timeControl/timeControl.mailTestSender");
   const tx = require("../backend/src/db/tx");
   const tenantId = "f1f51c07-2d88-4ee4-a766-78eac833a9d0";
   const row = {
     id: uuid(9),
     tenant_id: tenantId,
-    test_key: `time_control_poc_mail:v1:${tenantId}:${uuid(7)}:dep_delivery`,
+    test_key: `time_control_poc_mail:v1:${tenantId}:${uuid(7)}:dep_delivery${suffix}`,
     message_json: {
       stage: "dep_delivery", disposition: "requires_send_approval",
       to: "dep@hoyrup-clemmensen.dk", cc: [],
       subject: "[POC-TEST - ingen handling] Fielddesk Timekontrol: mailtest til DEP",
-      text: "Hej DEP\n\nGammel låst tekst.\n", from: service.SENDER, replyTo: null,
-      testKey: `time_control_poc_mail:v1:${tenantId}:${uuid(7)}:dep_delivery`,
+      text: "Hej DEP\n\nGammel låst tekst.\n", from: "Fielddesk Timekontrol <timekontrol@fielddesk.dk>", replyTo: null,
+      testKey: `time_control_poc_mail:v1:${tenantId}:${uuid(7)}:dep_delivery${suffix}`,
     },
     status: "prepared",
   };
@@ -567,7 +574,8 @@ test("POC sender blocks a locked prepared record that no longer matches the curr
         },
       })],
       [service, "getPocMailPlanForClient", async () => ({
-        messages: [{ ...row.message_json, testKey: `${row.test_key}:abcdef123456`, replyTo: undefined }],
+        messages: [{ ...row.message_json, from: service.SENDER,
+          testKey: `time_control_poc_mail:v1:${tenantId}:${uuid(7)}:dep_delivery:abcdef123456`, replyTo: undefined }],
       })],
       [require("../backend/src/config/env"), "MAIL_PROVIDER", "resend"],
       [require("../backend/src/config/env"), "MAIL_API_KEY", "dummy"],
@@ -585,6 +593,7 @@ test("POC sender blocks a locked prepared record that no longer matches the curr
     else process.env.TIME_CONTROL_SCHEDULER_ENABLED = previousScheduler;
   }
 });
+}
 
 async function runMailScenario({
   mode,
