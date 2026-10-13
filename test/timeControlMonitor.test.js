@@ -57,9 +57,47 @@ test("status remains independent of successful acquisition and reports no-remind
   const failed = monitor.buildStatusMessage({ tenantId: obs.HC, reportDate: "2026-10-14", executions: [
     { controlled_date: "2026-10-13", status: "failed", error_code: "time_control_capture_invalid:request_failed", steps: [{ step: "capture_completed", status: "failed" }] },
   ] });
-  assert.match(failed.text, /capture_completed/);
-  assert.match(failed.text, /request_failed/);
+  assert.match(failed.text, /Stoppunkt: Indhentning fra EK/);
+  assert.match(failed.text, /Årsag: Kaldet til EK mislykkedes/);
+  assert.doesNotMatch(failed.text, /capture_completed|request_failed/);
   assert.throws(() => monitor.buildStatusMessage({ tenantId: uuid(1), reportDate: "2026-10-14", executions: [] }), /scope_invalid/);
+});
+
+test("status labels published registration rows per date, never page reads, passes or worked hours", () => {
+  const capture = (day, count) => ({ step: "capture_completed", status: "completed", counts: { controlled_date: day, row_count: count, pass_count: 2 } });
+  const message = monitor.buildStatusMessage({ tenantId: obs.HC, reportDate: "2026-10-16", executions: [
+    { controlled_date: "2026-10-16", control_type: "friday_weekly_v1", status: "completed", steps: [
+      { step: "capture_page", status: "completed", counts: { row_count: 100 } },
+      capture("2026-10-12", 168), capture("2026-10-12", 168), capture("2026-10-13", 0),
+      capture("2026-10-14", null),
+      { ...capture("2026-10-15", 20), status: "failed" },
+    ] },
+  ] });
+  assert.match(message.text, /2026-10-12: 168 registreringsrækker fra EK \(ikke antal arbejdstimer\)/);
+  assert.equal(message.text.match(/168 registreringsrækker/g).length, 1);
+  assert.match(message.text, /2026-10-13: 0 registreringsrækker/);
+  assert.doesNotMatch(message.text, /168 timer|336|100 registreringsrækker|20 registreringsrækker|2026-10-14: 0/);
+  const unknown = monitor.buildStatusMessage({ tenantId: obs.HC, reportDate: "2026-10-14", executions: [
+    { controlled_date: "2026-10-13", status: "failed", error_code: "unknown_private_code", steps: [] },
+  ] });
+  assert.match(unknown.text, /antal registreringsrækker er ikke oplyst/);
+  assert.match(unknown.text, /Stoppunkt: Kontrolkørsel. Årsag: Kontrollen kunne ikke gennemføres/);
+  assert.doesNotMatch(unknown.text, /unknown_private_code/);
+});
+
+test("status names missing starts and incomplete transport in Danish without summary steps hiding the cause", () => {
+  for (const [code, steps, stop, reason] of [
+    ["time_control_expected_start_missing", [{ step: "watchdog", status: "failed" }], "Overvågning af kontrol", "Den planlagte kontrol startede ikke"],
+    ["time_control_delivery_incomplete", [{ step: "dispatch", status: "failed" }, { step: "execution_finished", status: "failed" }], "Afsendelse af mails", "Ikke alle forventede mails"],
+    ["provider_acceptance_unclear", [{ step: "provider_result", status: "failed" }], "Mailudbyderens svar", "genafsendes ikke automatisk"],
+  ]) {
+    const message = monitor.buildStatusMessage({ tenantId: obs.HC, reportDate: "2026-10-14", executions: [
+      { controlled_date: "2026-10-13", status: "failed", error_code: code, steps },
+    ] });
+    assert.ok(message.text.includes(`Stoppunkt: ${stop}.`));
+    assert.ok(message.text.includes(reason));
+    assert.ok(!message.text.includes(code));
+  }
 });
 test("status rejection is distinct from unknown acceptance and has no raw provider body", () => {
   const error = Object.assign(new Error("sensitive provider body"), { code: "mail_provider_rejected_message", details: { status: 422, body: "secret" } });

@@ -114,6 +114,31 @@ test("unrelated Resend tags and Postmark metadata retain their existing values",
   assert.equal(fixture.calls[1].body.tags, undefined);
 });
 
+test("normal employee processor sends the actual Resend payload with To, Dennis CC, sender and legal tags", async t => {
+  const sender = "Fielddesk Timekontrol <timekontrol@mail.fielddesk.dk>";
+  const cc = ["dep@hoyrup-clemmensen.dk"];
+  const fixture = processorFixture(t, { row: {
+    payload_json: { sender, reply_to: "admin@fielddesk.dk", cc_emails: cc },
+  } });
+  const result = await processor.processDueEmails({ tenantId, timeControlOutboxIds: [outboxId] });
+  assert.equal(result.sent, 1);
+  assert.equal(fixture.calls.length, 1);
+  const request = fixture.calls[0];
+  assert.equal(request.url, "https://api.resend.com/emails");
+  assert.deepEqual(request.body.to, [message.to]);
+  assert.deepEqual(request.body.cc, cc);
+  assert.equal(request.body.from, sender);
+  assert.equal(request.body.reply_to, "admin@fielddesk.dk");
+  assert.equal(request.body.subject, message.subject);
+  assert.equal(request.body.text, message.text);
+  assert.deepEqual(request.body.tags, [
+    { name: "tenant_id", value: tenantId },
+    { name: "template", value: "time_control_missing_hours_employee" },
+  ]);
+  assert.equal(request.options.headers["Idempotency-Key"], fixture.row.idempotency_key);
+  assert.equal(fixture.sent[0].providerMessageId, "local-provider-id");
+});
+
 test("Timekontrol provider errors expose only HTTP status, while other flows retain their error contract", async t => {
   const fixture = mailFixture(t, { status: 422 });
   await assert.rejects(mail.sendEmail(message), error => {

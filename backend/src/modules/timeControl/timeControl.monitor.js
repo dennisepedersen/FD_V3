@@ -9,6 +9,43 @@ const { sendEmail } = require("../../services/mailService");
 const SENDER = "Fielddesk Timekontrol <timekontrol@mail.fielddesk.dk>";
 const LABELS = { accepted: "Provider accepterede", pending: "Afventer", queued: "Afventer", sending: "Uafklaret",
   rejected: "Afvist/fejlet", unclear: "Uafklaret", completed: "Lykkedes", partial: "Delvist gennemført", failed: "Fejlede", missed: "Ikke startet" };
+const STEP_LABELS = {
+  scheduled_start: "Planlagt start", run_started: "Kontrolkørsel", run_binding: "Tilknytning af kontrol",
+  capture_started: "Indhentning fra EK", capture_page: "Indhentning fra EK", capture_completed: "Indhentning fra EK",
+  validation: "Kontrol af datagrundlag", calculation: "Beregning", mail_decision: "Valg af mails",
+  queue_committed: "Lagring af mails i kø", dispatch: "Afsendelse af mails", provider_result: "Mailudbyderens svar",
+  execution_finished: "Afslutning af kontrol", watchdog: "Overvågning af kontrol", watchdog_mail: "Overvågning af mails",
+};
+function statusFailureReason(code) {
+  const reasons = {
+    time_control_expected_start_missing: "Den planlagte kontrol startede ikke",
+    time_control_execution_deadline_exceeded: "Kontrollen blev ikke færdig inden fristen",
+    time_control_expected_mail_unprocessed: "Forventede medarbejdermails blev ikke behandlet inden fristen",
+    time_control_delivery_incomplete: "Ikke alle forventede mails har en bekræftet accept fra mailudbyderen",
+    provider_acceptance_unclear: "Det er uafklaret, om mailudbyderen accepterede mailen; den genafsendes ikke automatisk",
+    mail_provider_rejected_message: "Mailudbyderen afviste mailen",
+    time_control_capture_invalid: "Datagrundlaget fra EK kunne ikke godkendes",
+    time_control_capture_failed: "Indhentningen fra EK mislykkedes",
+    "time_control_capture_invalid:request_failed": "Kaldet til EK mislykkedes",
+    time_control_dispatch_window_expired: "Fristen for afsendelse er overskredet",
+  };
+  if (Object.hasOwn(reasons, code)) return reasons[code];
+  if (String(code).startsWith("time_control_capture_invalid:")) return reasons.time_control_capture_invalid;
+  return "Kontrollen kunne ikke gennemføres; se detaljerne i driftsloggen";
+}
+
+function registrationRows(execution) {
+  // Count published datasets, never page reads or the two acquisition passes.
+  const days = new Map();
+  for (const step of execution.steps || []) {
+    if (step.step !== "capture_completed" || step.status !== "completed") continue;
+    const count = step.counts?.row_count;
+    const day = step.counts?.controlled_date;
+    if (Number.isSafeInteger(count) && count >= 0 && /^\d{4}-\d{2}-\d{2}$/.test(day || "")) days.set(day, count);
+  }
+  if (!days.size) return ["Datagrundlag: antal registreringsrækker er ikke oplyst."];
+  return [...days].map(([day, count]) => `Datagrundlag ${day}: ${count} registreringsrækker fra EK (ikke antal arbejdstimer).`);
+}
 
 function buildStatusMessage({ tenantId, reportDate, executions, correction = null }) {
   if (tenantId !== obs.HC) throw new Error("time_control_status_scope_invalid");
@@ -18,11 +55,13 @@ function buildStatusMessage({ tenantId, reportDate, executions, correction = nul
     lines.push(`Kontroldato: ${e.controlled_date}. ${e.control_type === "friday_weekly_v1" ? "Ugekontrol" : "Dagskontrol"}: ${LABELS[e.status] || "Afventer"}.`,
       `OK: ${e.counts?.ok || 0}. Under norm: ${e.counts?.under_norm || 0}. Blokerede: ${e.counts?.blocked || 0}.`,
       `Forventede medarbejdermails: ${e.counts?.expected_mails || 0}.`);
+    lines.push(...registrationRows(e));
     const totals = { accepted: 0, pending: 0, rejected: 0, unclear: 0 };
     for (const m of e.mails || []) if (/employee/.test(m.template_key || "")) totals[m.status]++;
     for (const key of Object.keys(totals)) lines.push(`${LABELS[key]}: ${totals[key]}.`);
-    const stopped = [...(e.steps || [])].reverse().find(s => s.status === "failed");
-    if (e.error_code) lines.push(`Stoppunkt: ${stopped?.step || e.status}. Årsag: ${obs.safeError(e.error_code)}.`);
+    const stopped = [...(e.steps || [])].reverse().find(s => s.status === "failed" && !["execution_finished", "run_started"].includes(s.step));
+    if (e.error_code) lines.push(`Stoppunkt: ${STEP_LABELS[stopped?.step] ||
+      (e.error_code === "time_control_delivery_incomplete" ? "Afsendelse af mails" : "Kontrolkørsel")}. Årsag: ${statusFailureReason(e.error_code)}.`);
     lines.push("");
   }
   if (!executions.length) lines.push("Den forventede kontrol mangler. Ingen medarbejdermails er dokumenteret afsendt.", "");
