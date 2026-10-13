@@ -43,7 +43,7 @@ function buildMessage({ to, cc, from, replyTo, subject, html, text, tenantId, te
   };
 }
 
-async function sendWithFetch({ url, headers, body, timeoutMs }) {
+async function sendWithFetch({ url, headers, body, timeoutMs, redactProviderErrors = false }) {
   if (typeof fetch !== "function") throw makeMailError("mail_fetch_unavailable", "mail_fetch_unavailable", 500);
   const response = await fetch(url, {
     method: "POST",
@@ -52,9 +52,14 @@ async function sendWithFetch({ url, headers, body, timeoutMs }) {
     ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
   });
   if (!response.ok) {
-    const responseText = await response.text().catch(() => "");
     const error = makeMailError("mail_provider_rejected_message", "mail_provider_rejected_message", 502);
-    error.details = { status: response.status, body: responseText.slice(0, 500) };
+    error.details = { status: response.status };
+    if (redactProviderErrors) {
+      await response.body?.cancel().catch(() => {});
+    } else {
+      const responseText = await response.text().catch(() => "");
+      error.details.body = responseText.slice(0, 500);
+    }
     throw error;
   }
   return response.json().catch(() => ({}));
@@ -78,6 +83,8 @@ async function sendEmail(input, options = {}) {
   if (!ENV.MAIL_API_KEY) throw makeMailError("mail_api_key_required", "mail_api_key_required", 503);
 
   if (provider === "resend") {
+    const templateTag = String(message.template || "generic");
+    const timeControl = /^time_control(?:[._]|$)/.test(templateTag);
     const result = await sendWithFetch({
       url: "https://api.resend.com/emails",
       headers: {
@@ -86,6 +93,7 @@ async function sendEmail(input, options = {}) {
         ...(options.idempotencyKey ? { "Idempotency-Key": options.idempotencyKey } : {}),
       },
       timeoutMs: options.timeoutMs,
+      redactProviderErrors: timeControl,
       body: {
         from: message.from,
         to: [message.to],
@@ -96,7 +104,7 @@ async function sendEmail(input, options = {}) {
         reply_to: message.replyTo,
         tags: [
           { name: "tenant_id", value: String(message.tenantId || "none") },
-          { name: "template", value: String(message.template || "generic") },
+          { name: "template", value: timeControl ? templateTag.replace(/[^A-Za-z0-9_-]/g, "_") : templateTag },
         ],
       },
     });

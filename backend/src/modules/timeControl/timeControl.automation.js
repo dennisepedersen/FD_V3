@@ -12,7 +12,7 @@ function requireSendingEnabled() {
   if (!schedulerEnabled() || !mailEnabled()) throw new Error("time_control_automatic_mail_disabled");
 }
 
-async function dispatchRun({ tenantId, result }, processOutbox = null) {
+async function dispatchRun({ tenantId, result, trace = null }, processOutbox = null) {
   if (!schedulerEnabled() || !mailEnabled()) return { skipped: true, reason: "automatic_mail_disabled" };
   const run = result?.run;
   if (!run || run.mode !== "live" || run.triggered_by !== "scheduler" ||
@@ -23,7 +23,7 @@ async function dispatchRun({ tenantId, result }, processOutbox = null) {
   if (!ids.length) return { skipped: true, reason: "no_run_mail" };
   // Never sweep the tenant outbox: unrelated modules and historical queues are excluded.
   const process = processOutbox || require("../notifications/emailOutbox.processor").processDueEmails;
-  return process({ tenantId, timeControlOutboxIds: ids });
+  return process({ tenantId, timeControlOutboxIds: ids, ...(trace ? { timeControlTrace: trace } : {}) });
 }
 
 module.exports = { schedulerEnabled, mailEnabled, requireSendingEnabled, dispatchRun };

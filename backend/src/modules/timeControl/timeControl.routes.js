@@ -10,6 +10,17 @@ const { normalizeIsoDate } = require("./timeControl.dates");
 
 const router = express.Router();
 
+router.get("/api/tenant/admin/time-control/operations-status", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  try {
+    const { tenantId } = getTenantContext(req);
+    requireTenantAdmin(req, "read");
+    res.status(200).json({ success: true, ...(await require("./timeControl.observability").getOverview({ tenantId })) });
+  } catch (error) {
+    logRouteError(req, "/api/tenant/admin/time-control/operations-status", "GET", error);
+    next(error);
+  }
+});
+
 function getTenantContext(req) {
   if (!req.auth || !req.context || !req.context.tenant) throw createHttpError(403, "tenant_context_mismatch");
   if (String(req.auth.tenant_id) !== String(req.context.tenant.id)) throw createHttpError(403, "tenant_context_mismatch");

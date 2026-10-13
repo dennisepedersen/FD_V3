@@ -12780,6 +12780,218 @@
 
   }
 
+  async function initTimeControlOperations() {
+    const container = document.getElementById("timeControlOperationsContent");
+    const message = document.getElementById("timeControlOperationsMessage");
+    const refreshButton = document.getElementById("timeControlOperationsRefresh");
+    if (!container || !message || !refreshButton) return;
+    let busy = false;
+    let hasSnapshot = false;
+    const statuses = {
+      planned: "Planlagt", running: "I gang", completed: "Gennemført",
+      partial: "Delvist gennemført", failed: "Fejlet", missed: "Mangler",
+      accepted: "Provider accepterede", pending: "Afventer", rejected: "Afvist/fejlet",
+      unclear: "Uafklaret", queued: "Afventer i kø", sending: "Afsendelse i gang",
+      started: "Startet", succeeded: "Gennemført", blocked: "Blokeret", skipped: "Udeladt", observed: "Observeret",
+    };
+    const stepNames = {
+      scheduled: "Planlagt kørsel", start: "Start", capture: "EK-indhentning",
+      acquisition: "EK-indhentning", validation: "Validering", calculation: "Beregning",
+      mail_decision: "Mailbeslutning", queue: "Kø", dispatch: "Afsendelse",
+      provider: "Providerresultat", finish: "Afslutning", watchdog: "Overvågning",
+      scheduled_start: "Planlagt start", run_started: "Kontrolkørsel", run_binding: "Kørsel tilknyttet",
+      capture_started: "EK-indhentning startet", capture_page: "EK-side og forsøg",
+      capture_completed: "EK-indhentning afsluttet", queue_committed: "Kø gemt",
+      execution_finished: "Driftskørsel afsluttet", watchdog_mail: "Overvågning af mails",
+      original_run_observed: "Oprindelig kørsel observeret",
+    };
+    function node(tag, text, className) {
+      const item = document.createElement(tag);
+      if (text != null) item.textContent = String(text);
+      if (className) item.className = className;
+      return item;
+    }
+    function timestamp(value) {
+      if (!value) return "Ikke oplyst";
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? "Ugyldigt tidspunkt" : date.toLocaleString("da-DK", {
+        timeZone: "Europe/Copenhagen", dateStyle: "short", timeStyle: "medium",
+      });
+    }
+    function day(value) {
+      if (!value) return "Ikke oplyst";
+      const date = new Date(`${String(value).slice(0, 10)}T12:00:00Z`);
+      return Number.isNaN(date.getTime()) ? "Ugyldig dato" : date.toLocaleDateString("da-DK", { timeZone: "Europe/Copenhagen" });
+    }
+    function controlType(value) {
+      if (value === "daily_09") return "Dagskontrol";
+      if (value === "friday_weekly_v1") return "Ugekontrol";
+      if (value === "daily_status") return "Daglig statusmail";
+      return "Ukendt kontroltype";
+    }
+    function missingReason(value) {
+      if (value === "time_control_status_report_missing") return "Daglig statusrapport mangler";
+      return value || "Årsag ikke oplyst";
+    }
+    function statusLabel(value) {
+      return Object.hasOwn(statuses, value) ? statuses[value] : "Ukendt status";
+    }
+    function status(value) {
+      const item = node("span", statusLabel(value), "operationsState");
+      if (Object.hasOwn(statuses, value)) item.dataset.state = value;
+      return item;
+    }
+    function metadata(entries, className = "operationMeta") {
+      const list = node("dl", null, className);
+      for (const [label, value] of entries) {
+        const pair = node("div");
+        pair.append(node("dt", label), node("dd", value == null || value === "" ? "Ikke oplyst" : value));
+        list.append(pair);
+      }
+      return list;
+    }
+    function countsText(counts) {
+      const count = key => counts && Number.isFinite(counts[key]) && counts[key] >= 0 ? counts[key] : "Ikke oplyst";
+      return `OK: ${count("ok")} · Under norm: ${count("under_norm")} · Blokerede: ${count("blocked")} · Forventede medarbejdermails: ${count("expected_mails")}`;
+    }
+    function mailRow(mail, title) {
+      const row = node("div", null, "operationMail");
+      row.append(node("strong", title), node("p"));
+      row.lastElementChild.append(status(mail?.status));
+      row.append(metadata([
+        ["Provider-ID", mail?.provider_message_id], ["Fejlkode", mail?.error_code], ["Mail-ID", mail?.id],
+      ]));
+      return row;
+    }
+    function executionDetails(execution, openedIds) {
+      const details = node("details", null, "operationExecution");
+      if (execution.id) details.id = `execution-${execution.id}`;
+      details.open = openedIds.has(details.id);
+      const summary = node("summary", `${timestamp(execution.scheduled_at)} · ${controlType(execution.control_type)} · ${day(execution.controlled_date)}`);
+      const origin = execution.origin === "scheduled" ? "Planlagt drift"
+        : execution.origin === "incident" ? "Planlagt drift · efterfølgende dokumenteret" : "Ukendt oprindelse";
+      summary.append(node("span", origin, "groupMeta"), status(execution.status));
+      details.append(summary, node("p", countsText(execution.counts)), metadata([
+        ["Kørsels-ID", execution.id], ["Start", timestamp(execution.started_at)],
+        ["Slut", timestamp(execution.finished_at)], ["Fejlkode", execution.error_code],
+      ]));
+      if (execution.id) {
+        const link = node("a", "Link til kørsel");
+        link.href = `#${encodeURIComponent(details.id)}`;
+        details.append(link);
+      }
+      details.append(node("h3", "Tidslinje"));
+      const timeline = node("ol", null, "operationTimeline");
+      for (const step of Array.isArray(execution.steps) ? execution.steps : []) {
+        if (!step) continue;
+        const item = node("li");
+        const trace = node("details");
+        const title = Object.hasOwn(stepNames, step.step) ? stepNames[step.step] : step.step || "Ukendt trin";
+        const heading = node("summary", `${timestamp(step.occurred_at || step.started_at)} · ${title}`);
+        heading.append(status(step.status));
+        const duration = Number.isFinite(step.duration_ms) && step.duration_ms >= 0
+          ? `${step.duration_ms.toLocaleString("da-DK")} ms` : "Ikke oplyst";
+        trace.append(heading, metadata([
+          ["Start", timestamp(step.started_at)], ["Slut", timestamp(step.finished_at)],
+          ["Varighed", duration], ["Fejlkode", step.error_code], ["Trin-ID", step.id],
+        ]));
+        const counts = Object.entries(step.counts || {}).filter(([, value]) => ["number", "string", "boolean"].includes(typeof value));
+        if (counts.length) trace.append(metadata(counts));
+        item.append(trace); timeline.append(item);
+      }
+      details.append(timeline);
+      if (!timeline.children.length) details.append(node("p", "Ingen gemte trin.", "infoHint"));
+      details.append(node("h3", "Medarbejdermails"));
+      const mails = Array.isArray(execution.mails) ? execution.mails.filter(Boolean) : [];
+      for (const mail of mails) details.append(mailRow(mail, mail.recipient_email || "Modtager ikke oplyst"));
+      if (!mails.length) details.append(node("p", "Ingen medarbejdermails registreret.", "infoHint"));
+      details.append(node("h3", "Statusmail til leder"), mailRow(execution.status_report, "Statusrapport"));
+      if (!execution.status_report) details.append(node("p", "Ingen statusrapport registreret.", "infoHint"));
+      return details;
+    }
+    function openLinkedExecution() {
+      // Statusmails can link to a specific saved execution without starting work.
+      let hash;
+      try { hash = decodeURIComponent(window.location.hash.slice(1)); } catch (_) { return; }
+      const params = new URLSearchParams(window.location.search || "");
+      const executionId = params.get("execution_id") || params.get("execution");
+      const id = hash.startsWith("execution-") ? hash : executionId ? `execution-${executionId}` : null;
+      const target = id ? document.getElementById(id) : null;
+      if (target && container.contains(target)) {
+        target.open = true;
+        target.scrollIntoView({ block: "start" });
+      } else if (hash === "operations") {
+        document.getElementById("operations")?.scrollIntoView({ block: "start" });
+      }
+    }
+    function render(data) {
+      const openedIds = new Set(Array.from(container.querySelectorAll("details[open][id]")).map(item => item.id));
+      const executions = (Array.isArray(data.executions) ? data.executions : []).filter(Boolean).slice().sort((a, b) =>
+        String(b.scheduled_at || b.started_at || "").localeCompare(String(a.scheduled_at || a.started_at || "")));
+      const latest = executions.find(item => (item.origin === "scheduled" || item.origin === "incident" && item.run_id) && item.status !== "planned");
+      const next = data.next_expected;
+      const missing = Array.isArray(data.missing_expected) ? data.missing_expected.filter(Boolean) : null;
+      const facts = metadata([
+        ["Næste forventede kontrol · København", next
+          ? `${timestamp(next.scheduled_at)} · ${controlType(next.control_type)} · kontrollerer ${day(next.controlled_date)}` : "Ingen oplyst"],
+        ["Seneste planlagte driftskørsel", latest
+          ? `${timestamp(latest.scheduled_at)} · ${statusLabel(latest.status)}` : "Ingen registreret"],
+        ["Manglende kontroller eller statusrapporter", missing ? missing.length : "Ikke oplyst"],
+        ["Overvågning sidst kontrolleret · København", timestamp(data.watchdog?.last_checked_at)],
+      ], "operationsFacts");
+      container.replaceChildren(facts);
+      if (missing?.length) {
+        const list = node("ul", null, "operationsError");
+        for (const item of missing) {
+          const periodLabel = item.control_type === "daily_status" ? "rapportdato" : "kontrollerer";
+          list.append(node("li", `${timestamp(item.scheduled_at)} · ${controlType(item.control_type)} · ${periodLabel} ${day(item.controlled_date)} · ${missingReason(item.reason)}`));
+        }
+        container.append(node("h3", "Manglende kontroller eller statusrapporter"), list);
+      }
+      container.append(node("h3", "Gemte kørsler"));
+      for (const execution of executions) container.append(executionDetails(execution, openedIds));
+      if (!executions.length) container.append(node("p", "Ingen driftskørsler registreret.", "infoHint"));
+      container.append(node("h3", "Daglige statusrapporter"));
+      const reports = Array.isArray(data.reports) ? data.reports.filter(Boolean) : [];
+      for (const report of reports) container.append(mailRow(report, `Rapportdato: ${day(report.report_date)}`));
+      if (!reports.length) container.append(node("p", "Ingen daglige statusrapporter registreret.", "infoHint"));
+      openLinkedExecution();
+    }
+    async function refreshOperations() {
+      if (busy) return;
+      busy = true;
+      refreshButton.disabled = true;
+      container.setAttribute("aria-busy", "true");
+      message.className = "infoHint";
+      message.textContent = "Henter driftsstatus…";
+      try {
+        const data = await apiFetch("/api/tenant/admin/time-control/operations-status", { method: "GET", cache: "no-store" });
+        if (data?.success !== true) throw new Error("invalid_operations_response");
+        render(data);
+        hasSnapshot = true;
+        message.textContent = `Status pr. ${timestamp(data.now)} · Europe/Copenhagen`;
+      } catch (error) {
+        message.className = "operationsError";
+        if (error.status === 401 || error.status === 403) {
+          container.replaceChildren();
+          hasSnapshot = false;
+          message.textContent = "Du har ikke adgang til driftsstatus. Log ind som tenant-admin.";
+          handleAuthFailure(error);
+        } else {
+          message.textContent = "Driftsstatus kunne ikke hentes."
+            + (hasSnapshot ? " Sidst hentede oplysninger vises nedenfor og er ikke aktuelle." : " Prøv Opdatér igen senere.");
+        }
+      } finally {
+        busy = false;
+        refreshButton.disabled = false;
+        container.setAttribute("aria-busy", "false");
+      }
+    }
+    refreshButton.addEventListener("click", refreshOperations);
+    window.addEventListener("hashchange", openLinkedExecution);
+    await refreshOperations();
+  }
+
   async function initTimeControlPage() {
     if (!requireToken()) return;
     const message = document.getElementById("timeControlMessage");
@@ -13094,10 +13306,11 @@
     try {
       const me = await apiFetch("/api/me", { method: "GET" });
       if (!isTenantAdmin(me.user)) throw new Error("Kun tenant admin har adgang.");
-      await refresh();
       document.getElementById("timeControlAdmin").hidden = false;
       document.getElementById("timeControlAdminNav").hidden = false;
-      message.textContent = "Testadministration klar. Live/scheduler er uændret.";
+      initTimeControlOperations();
+      await refresh();
+      message.textContent = "Administration klar. Live/scheduler er uændret.";
     } catch (error) {
       if (!handleAuthFailure(error)) message.textContent = getErrorMessage(error, "Kunne ikke hente Timekontrol.");
       return;

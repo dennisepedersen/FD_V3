@@ -13,6 +13,16 @@ const CAPTURE_DEADLINE_MS = 120000;
 const MAX_REQUEST_TIMEOUT_MS = 15000;
 const CONTRACT_REFERENCE = "backend/docs/integrations/ek/fitterhours.md#Timekontrol-Period-Coverage";
 
+async function traceStep(trace, step, status, counts = {}, errorCode = null) {
+  if (trace === null) return;
+  try { await trace(step, status, counts, errorCode); }
+  catch (cause) {
+    const error = new Error("time_control_trace_failed", { cause });
+    error.code = "time_control_trace_failed";
+    throw error;
+  }
+}
+
 function reject(reason) {
   throw new Error(`time_control_capture_invalid:${reason}`);
 }
@@ -170,15 +180,19 @@ function awaitBeforeDeadline(promise, deadlineAt, { onLateResolve, onTimeout } =
   return Promise.race([observed, timeout]).finally(() => clearTimeout(timer));
 }
 
-async function makePageFetcher({ config, fetchImpl, now, sleep, startedMs, deadlineMs }) {
+async function makePageFetcher({ config, fetchImpl, now, sleep, startedMs, deadlineMs, trace }) {
   let logicalPageCalls = 0;
+  let pass = 0;
   return async function fetchPage({ fromDate, toDate, page }) {
     if (logicalPageCalls >= MAX_PAGE_CALLS_PER_DAY) reject("page_call_limit");
     logicalPageCalls += 1;
+    if (page === 1) pass++;
     const url = requestUrl(config.ekBaseUrl, { fromDate, toDate, page });
     const safeAttempts = [];
     const rows = [];
     for (let attempt = 1; attempt <= MAX_ATTEMPTS_PER_REQUEST; attempt += 1) {
+      const requestCounts = { controlled_date: fromDate, pass, page, attempt };
+      await traceStep(trace, "capture_page", "started", requestCounts);
       const before = currentTimeMs(now);
       const remainingMs = deadlineMs - (before - startedMs);
       if (remainingMs <= 0) reject("deadline_exceeded");
@@ -201,6 +215,8 @@ async function makePageFetcher({ config, fetchImpl, now, sleep, startedMs, deadl
         clearTimeout(timeout);
         const durationMs = Math.max(0, currentTimeMs(now) - before);
         safeAttempts.push({ attempt, outcome: "transport_error", durationMs, requestTimeoutMs });
+        await traceStep(trace, "capture_page", "failed", { ...requestCounts, duration_ms: durationMs,
+          requestTimeoutMs }, "time_control_capture_transport_error");
         if (attempt === MAX_ATTEMPTS_PER_REQUEST) reject("request_failed");
         const waitMs = attempt * 1000;
         if (waitMs >= deadlineMs - (currentTimeMs(now) - startedMs)) reject("deadline_exceeded_retry");
@@ -212,6 +228,7 @@ async function makePageFetcher({ config, fetchImpl, now, sleep, startedMs, deadl
       const status = Number(response?.status);
       if (!Number.isInteger(status)) {
         clearTimeout(timeout);
+        await traceStep(trace, "capture_page", "failed", requestCounts, "time_control_capture_http_response_invalid");
         reject("http_response");
       }
       if (status === 429 || status >= 500 && status <= 599) {
@@ -223,6 +240,9 @@ async function makePageFetcher({ config, fetchImpl, now, sleep, startedMs, deadl
           attempt, status, outcome: "retryable_http", durationMs,
           retryAfterMs, waitMs, requestTimeoutMs,
         });
+        await traceStep(trace, "capture_page", "failed", { ...requestCounts, http_status: status,
+          duration_ms: durationMs, waitMs, requestTimeoutMs },
+        status === 429 ? "time_control_capture_rate_limited" : "time_control_capture_retryable_http");
         if (attempt === MAX_ATTEMPTS_PER_REQUEST) reject("request_attempt_limit");
         const remaining = deadlineMs - (currentTimeMs(now) - startedMs);
         if (waitMs >= remaining) reject(status === 429 ? "deadline_exceeded_retry_after" : "deadline_exceeded_retry");
@@ -232,6 +252,8 @@ async function makePageFetcher({ config, fetchImpl, now, sleep, startedMs, deadl
       if (status < 200 || status >= 300 || response.ok === false) {
         clearTimeout(timeout);
         safeAttempts.push({ attempt, status, outcome: "http_error", durationMs, requestTimeoutMs });
+        await traceStep(trace, "capture_page", "failed", { ...requestCounts, http_status: status,
+          duration_ms: durationMs }, "time_control_capture_http_error");
         reject("http_error");
       }
       let payload;
@@ -241,22 +263,34 @@ async function makePageFetcher({ config, fetchImpl, now, sleep, startedMs, deadl
       } catch (_error) {
         clearTimeout(timeout);
         safeAttempts.push({ attempt, status, outcome: "invalid_json", durationMs, requestTimeoutMs });
+        await traceStep(trace, "capture_page", "failed", { ...requestCounts, http_status: status,
+          duration_ms: durationMs }, "time_control_capture_invalid_json");
         reject("invalid_json");
       }
       clearTimeout(timeout);
       const completedMs = currentTimeMs(now);
-      const parsed = parseEnvelope(payload, { page, day: fromDate });
+      let parsed;
+      try { parsed = parseEnvelope(payload, { page, day: fromDate }); }
+      catch (error) {
+        await traceStep(trace, "capture_page", "failed", { ...requestCounts, http_status: status,
+          duration_ms: Math.max(0, completedMs - before) }, error.message);
+        throw error;
+      }
       safeAttempts.push({ attempt, status, outcome: "success", durationMs, requestTimeoutMs });
       parsed.attempts = safeAttempts;
       parsed.requestStartedAt = new Date(before).toISOString();
       parsed.requestCompletedAt = new Date(completedMs).toISOString();
+      await traceStep(trace, "capture_page", "completed", { ...requestCounts, http_status: status,
+        row_count: parsed.rows.length, duration_ms: Math.max(0, completedMs - before), requestTimeoutMs });
+      if (currentTimeMs(now) - startedMs >= deadlineMs) reject("deadline_exceeded");
       return parsed;
     }
     reject("request_attempt_limit");
   };
 }
 
-async function captureDay({ tenantId, controlledDate, testDependencies = null } = {}) {
+async function captureDay({ tenantId, controlledDate, testDependencies = null, trace = null } = {}) {
+  if (trace !== null && typeof trace !== "function") throw new Error("time_control_trace_invalid");
   if (typeof tenantId !== "string" ||
       !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tenantId)) {
     reject("tenant");
@@ -309,10 +343,15 @@ async function captureDay({ tenantId, controlledDate, testDependencies = null } 
       if (error?.captureDeadline) reject("deadline_exceeded");
       reject("tenant_config_unavailable");
     }
+    // Configuration is resolved before HTTP; do not hold a second pooled client during independent trace writes.
+    if (ownsClient) {
+      ownsClient = false;
+      client.release();
+    }
     if (currentTimeMs(now) - startedMs >= CAPTURE_DEADLINE_MS) reject("deadline_exceeded");
 
     const fetchPage = await makePageFetcher({
-      config, fetchImpl, now, sleep, startedMs, deadlineMs,
+      config, fetchImpl, now, sleep, startedMs, deadlineMs, trace,
     });
     const captureOptions = {
       tenantId,
@@ -334,6 +373,7 @@ async function captureDay({ tenantId, controlledDate, testDependencies = null } 
     }
     return await coverage.captureHoursDataset(captureOptions);
   } catch (error) {
+    if (error?.code === "time_control_trace_failed") throw error;
     if (error instanceof Error && error.message.startsWith("time_control_capture_invalid:")) throw error;
     if (error instanceof Error && error.message.startsWith("time_control_coverage_invalid:")) {
       reject(error.message.slice("time_control_coverage_invalid:".length));

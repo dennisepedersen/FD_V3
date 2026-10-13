@@ -55,6 +55,22 @@ For absence request backend slices, the focused Node tests are:
 These cover PR2 schema/static contracts, PR3 employee-own request flows, PR4 notification/outbox foundation, and PR5 manager pending/detail/approve/reject behavior. They are unit/static tests and do not connect to production, run migrations, call Render, or send mail.
 ## Isolated Timekontrol PostgreSQL Verification
 
+Incident monitoring additions (13 October 2026):
+
+- `node --test test/timeControlMonitor.test.js test/timeControlTrace.test.js test/timeControlProviderIncident.test.js test/timeControlObservabilityUi.test.js`
+  covers expected slots/deadlines, absent/unfinished runs, status independent of
+  calculation, actual mocked Resend request tags, safe rejection/uncertainty,
+  incremental trace persistence and the read-only tenant-admin UI/RBAC.
+- `test/timeControlMonitorPostgres.integration.js` uses the guarded local
+  opt-in below and applies all 60 actual migrations to a fresh database.
+  It verifies durable/immutable trace and message bindings, cross-tenant FKs,
+  epoch/start/concurrent claim guards, missed/deadline/mail watchdogs and
+  separate status recovery/expiry with mocked transport only. No EK, Render,
+  production database or actual mail call is permitted by this test.
+- Synthetic-clock operational/weekly fixtures align the mutable database head
+  invalidation timestamp with their controlled application observation clock.
+  This is fixture-only; production replacement/freshness guards are unchanged.
+
 Daily capture/startup additions:
 
 - `node --test test\timeControlCapture.test.js test\timeControlOperation.test.js`

@@ -6,6 +6,143 @@ Status: ACTIVE; user-approved activation completed and runtime-verified
 Target: first scheduled control Tuesday 13 October 2026 at 09:00,
 Europe/Copenhagen (07:00 UTC), evaluating Monday 12 October.
 
+## Incident And Scoped Repair (13 October 2026)
+
+Current operational outcome: the first scheduled calculation is verified, but
+its employee-mail transport failed. It is **not an end-to-end success**.
+The dated activation/baseline statements below predate this incident and must
+not be read as the latest run status.
+
+`verified`: original read-only Render metadata, application logs, database
+run/results, immutable capture, operational receipts, mail logs/outbox and
+audit were saved before any restart, rerun, queue change or deploy. Local
+credential-free evidence: `.tmp/tc_incident_20261013_original.json`,
+`.tmp/tc_incident_20261013_db_original.json` and
+`.tmp/tc_incident_20261013_provider_read.json`. Existing production version
+was `8972b6e6efae58993d689433de4bcd13c9b71649`, live deploy
+`dep-db6cssbrjlhs73for80g`, one Starter web instance. Both flags remained
+true, tenant live, same active epoch and exactly the approved six fitters.
+No intervening deploy was present. The process's startup and actual scheduled
+completion log corroborate the active Render scheduler; there was no durable
+per-minute heartbeat in the old version.
+
+Original timeline, **Europe/Copenhagen**:
+
+| Time | Preserved fact |
+| --- | --- |
+| 09:00:55.511 | Scheduled live run `b2e06989-61c9-4f49-ab92-cc2755e1c302` started for 12 October. |
+| 09:00:55.648 | Fresh tenant-wide EK observation began. |
+| 09:01:07.312 | Capture published: 168 distinct rows, two stable 17-page passes, 34 successful first-attempt GETs, no retries or API errors. Both terminal pages had 8 rows. |
+| 09:01:07.335 | Calculation completed: Mikkel/15 and Martin/295 OK at 7.5 counted hours; Jesper/18, Patrick/208, Morten/290 and Michael/498 at 0, each missing 7.5. All six results have complete coverage. Four employee mails were queued with Dennis alone in CC. |
+| 09:01:07.942 | Six valid scheduled data/evaluation receipts had been recorded for the original epoch. |
+| 09:01:08.317-08.967 | Four one-attempt deliveries became terminal `provider_acceptance_unclear`; no provider IDs. Original mail-log previews still said queued, so they were not transport truth. |
+| 15:07:12 | Read-only Resend `GET /emails?limit=100`: HTTP 200, 2 entries, `has_more=false`; only the two previously confirmed POC mails, no operational mail accepted today. |
+
+`verified` code/contract defect: automatic messages used the literal template
+`time_control.missing_hours.employee` as a Resend tag. Dots are invalid in
+[Resend tag values](https://resend.com/docs/dashboard/emails/tags), which permit
+ASCII letters, digits, underscores and dashes. POC tags used underscores and
+did not exercise this defect. The old processor replaced every post-start
+provider error with generic uncertainty, discarding its HTTP cause. The exact
+original rejection response/status was not retained and cannot be reconstructed;
+the illegal request tag is proven, the historic HTTP status is not.
+
+No failure mail was created because calculation succeeded and diagnostics were
+created during calculation, not after a dispatch failure. There was no separate
+status report or watchdog. Original outbox attempts, results, receipts and POC
+records must remain untouched; never resend these four employee messages.
+The 60 unrelated queued absence mails retained zero attempts.
+
+### Approved Repair And Monitoring Contract
+
+Dennis explicitly approved this scoped repair, tests, migration/deploy, the
+independent monitoring service and daily DEP-only status, including one incident
+status mail. The original six-person employee-mail authorization remains valid.
+No new employee group, LKE recipient, rule profile or general EK sync is allowed.
+
+- Only Timekontrol Resend tags are normalized; template identity, content,
+  recipients, idempotency keys and other mail flows stay unchanged. Parsed
+  definitive 4xx rejection is now distinct from unknown acceptance. Timeouts,
+  conflicts, missing receipts and 5xx remain unclear, without employee retries.
+- New migration `0060_time_control_observability.sql` adds tenant-scoped
+  monitoring policy, expected/executed slots, append-only execution steps and
+  separately claimed status reports. HC policy starts normal monitoring on
+  14 October. It does not backfill qualifying controls or change old receipts.
+- Each significant step is committed independently from the evaluation:
+  selection/start, committed run binding, EK request/pass/page/attempt and safe
+  timing/counts, validation, calculation, mail decision, committed queue,
+  dispatch/provider outcome and finish. Pre-provider trace failure fails closed;
+  a post-acceptance trace failure preserves the durable outbox acceptance and
+  never converts it into a new send attempt.
+  Credentials, raw provider bodies and unnecessary employee data are excluded.
+- Scheduler heartbeat is persisted; the separate Render cron runs only
+  `node scripts/monitor_time_control.js --tenant hoyrup-clemmensen --apply`.
+  It never imports the app, starts sync, calls EK or dispatches employee mail.
+  Cron interval is five minutes, independent of the web scheduler process.
+  [Render cron pricing](https://render.com/docs/cronjobs) has a minimum charge
+  of USD 1/month per cron service, plus usage above that minimum.
+  Web ticks are now aligned to wall-clock minute boundaries rather than the
+  startup second (the original first control started at :55). The original
+  one-minute admission window and all capture/dispatch budgets remain unchanged.
+- Expected start deadline: scheduled time +2 minutes, normally detected by the
+  next five-minute cron (09:05 / 12:05, plus Render startup latency).
+  Calculation/pipeline deadline remains 09:15 / 12:15. Existing weekly employee
+  dispatch cutoff remains Friday 14:30; it is not extended.
+- A finished calculation with expected queued/unprocessed mail is flagged after
+  15 minutes. The watchdog also detects a missing status report. It inspects
+  bounded indexed slot/status rows, not application-log history or repeated EK
+  captures. A bounded previous week remains visible after an outage.
+- Exactly one locked daily status report per tenant/local report date, no CC,
+  To `dep@hoyrup-clemmensen.dk`, verified Timekontrol sender and Reply-To.
+  Tuesday-Thursday report due 09:20, normally processed by 09:25 including cron
+  startup. Friday one combined daily/weekly report is due 12:20, normally by
+  12:25, leaving more than two hours before 14:30. Reports also cover no-reminder
+  success and EK/data/dispatch failures; they never create operational receipts.
+- Durable claim precedes provider access. Provider accepted, pending, rejected
+  and unclear are distinct, with no claim of inbox receipt. Pre-provider failure
+  or explicit non-ambiguous 4xx rejection may use the same locked message/key
+  after five minutes, at most three claims and within 48 hours. A lost response,
+  ambiguous acceptance or abandoned sending claim is terminal unclear and is
+  never blindly retried. Infrastructure failure remains visible after recovery;
+  delivery is not promised during an outage.
+- Tenant admins read `/api/tenant/admin/time-control/operations-status` and
+  `/tenant/time-control.html#operations`: next/missing/latest slots, expandable
+  timeline, employee provider status and status-report status. Historical/manual
+  results and POC tests remain separate. Viewing never triggers a control/mail.
+
+Next actual planned calculation: **Wednesday 14 October 2026 09:00 Copenhagen
+(07:00 UTC), evaluating Tuesday 13 October**. No delayed 12 October employee
+reminder is permitted during validation or deployment.
+
+Friday qualification is still the existing data/evaluation rule, not a newly
+invented delivery rule: all six original 12 October receipts have valid grounds,
+so this week is **1/4**, not qualified yet. Mail transport was unsuccessful and
+must remain labelled so. If Wednesday-Friday's three planned daily controls
+and Friday's fresh weekly capture are all valid, the existing Friday gate may
+qualify; a missing/invalid later day blocks it. No manual verification, status
+report, incident observation or later fetch can repair a missing planned receipt.
+
+### Incident Release Validation
+
+Final code gate `npm run check`: 619 passed, 8 opt-in skips, no failures;
+syntax 259 files, encoding/secrets 474 files, migrations 60, static 18 checks.
+The skips are not database proof. Separately executed on fresh guarded local
+PostgreSQL databases:
+
+```text
+node --test test/timeControlMonitorPostgres.integration.js test/timeControlOperationalPostgres.integration.js test/timeControlWeeklyPostgres.integration.js test/timeControlAutomaticPostgres.integration.js
+```
+
+28 passed, no skips/failures; all 60 actual migrations. This includes real
+service capture/evaluation/queue trace, real dispatch guards, concurrent claims,
+zero-row employee in a complete fixture, restart/epoch/expiry protection,
+locked report content, EK/error/unclear-provider paths and no-reminder status.
+Source/clock and provider receipts are simulated, never external proof.
+The owned local PostgreSQL instance and local UI preview were stopped after
+validation. Browser fixture QA verified desktop and 390x844 mobile layout,
+expandable timelines and precise mail statuses. Production browser login was
+expired, so this does not claim authenticated production-page verification.
+
 ## Documentation Baseline (13 October 2026)
 
 This is the existing operational source of truth, not a new activation plan.
@@ -17,7 +154,7 @@ routing and startup evidence below were last runtime-verified on 12 October
 at `2026-10-12T12:13:24.933Z`; they were not re-read from production in this
 documentation-only task. Active operation remains authorized and unchanged.
 
-**The first automatic operational run is not yet verified.** Its scheduled
+**At this documentation baseline, the first automatic operational run was not yet verified.** Its scheduled
 time is 13 October 2026 at 09:00 Europe/Copenhagen, controlling 12 October.
 Activation/startup, manual dry-runs and the successful mail transport test do
 not prove that this automatic run completed, qualified the week or sent mail.
@@ -331,8 +468,9 @@ An ambiguous provider response is terminal and visible as unclear; abandoned
 
 ## Known Limitations
 
-- The first automatic operational run remains unverified; activation evidence
-  and simulated/local tests are not proof of a completed scheduled control.
+- The first automatic calculation is now verified, but its four deliveries
+  failed as described in the incident section. The next actual scheduled run
+  and end-to-end employee delivery after the repair remain unverified.
 - A real tenant-wide zero-day source contract is unverified and blocked. An
   individual's zero hours in a proven complete nonempty tenant day is distinct.
 - Two stable bounded reads are not an EK atomic snapshot/change/deletion
@@ -351,6 +489,10 @@ An ambiguous provider response is terminal and visible as unclear; abandoned
 
 ## Observe Success Or Failure
 
+- Current detailed status: `/tenant/time-control.html#operations` and the
+  read-only tenant-admin `operations-status` API. Check the independent cron's
+  last-check timestamp as well as the web scheduler heartbeat; neither proves
+  provider delivery. The linked original outbox is transport truth.
 - Scheduler startup: `[timeControl.scheduler] started`.
 - Per control: structured `time_control_scheduled_finished` includes tenant,
   run ID, type/date, completed/blocked status and exact mail processing counts.
@@ -377,7 +519,10 @@ An ambiguous provider response is terminal and visible as unclear; abandoned
    an environment rollout.
 2. POST the operation route with the same group, `status="paused"` and
    `confirm="BEKRAEFT:timekontrol-drift:hoyrup-clemmensen:paused"`.
-3. Set both Render flags to `false` through the normal configuration procedure.
+3. Set both Render flags to `false` through the normal configuration procedure,
+   and suspend the independent Timekontrol cron service. Its copied environment
+   does not automatically follow the web service flags, but the immediate
+   database dry-run/paused gates already block its status sender too.
 4. Verify dry-run, paused operation and both disabled flags. Do not drain queues.
 
 Concrete PowerShell procedure (documentation only, NOT executed). An agent

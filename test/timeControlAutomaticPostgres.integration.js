@@ -71,7 +71,7 @@ test("automatic outbox: real PostgreSQL claims, concurrency, audit and transacti
   try {
     const runner = require("../backend/scripts/db_migrate");
     const files = runner.getMigrationFiles();
-    assert.equal(files.length, 59, "This proof must apply all 59 existing migration files.");
+    assert.equal(files.length, 60, "This proof must apply all 60 existing migration files.");
     const migrationClient = await pool.connect();
     const originalLog = console.log;
     try {
@@ -82,7 +82,7 @@ test("automatic outbox: real PostgreSQL claims, concurrency, audit and transacti
       console.log = originalLog;
       migrationClient.release();
     }
-    assert.equal((await pool.query("SELECT count(*)::int AS n FROM schema_migration WHERE success")).rows[0].n, 59);
+    assert.equal((await pool.query("SELECT count(*)::int AS n FROM schema_migration WHERE success")).rows[0].n, 60);
     const server = (await pool.query("SELECT current_database() AS name, inet_server_port() AS port")).rows[0];
     assert.equal(server.name, database);
     assert.equal(server.port, 55432);
@@ -311,7 +311,7 @@ test("automatic outbox: real PostgreSQL claims, concurrency, audit and transacti
     });
 
     assert.equal(verifiedSubtests, 5);
-    console.log(JSON.stringify({ database, migrations: 59, concurrentExactClaimsVerified: true,
+    console.log(JSON.stringify({ database, migrations: 60, concurrentExactClaimsVerified: true,
       genericRetryPreserved: true, uncertainDeliveryTerminal: true, mockedDomainGuards: true, realProviderCalls: 0 }));
   } finally {
     for (const undo of restore.reverse()) undo();

@@ -33,6 +33,38 @@ function classifySendError(error, row) {
   };
 }
 
+function classifyTimeControlProviderError(error) {
+  const status = error?.details?.status;
+  const httpStatus = error?.code === "mail_provider_rejected_message" &&
+    Number.isInteger(status) && status >= 300 && status <= 599 ? status : null;
+  // Timeout/conflict responses may concern an earlier idempotent attempt.
+  const rejected = httpStatus >= 400 && httpStatus < 500 && ![408, 409].includes(httpStatus);
+  return {
+    code: rejected ? "mail_provider_rejected_message" : "provider_acceptance_unclear",
+    message: rejected ? "Timekontrol provider rejected the message; automatic retries are disabled."
+      : "Timekontrol provider acceptance is unclear; automatic retries are disabled.",
+    retry: false,
+    delivery_state: rejected ? "rejected" : "unclear",
+    ...(httpStatus !== null ? { http_status: httpStatus } : {}),
+  };
+}
+
+async function emitTimeControlTrace(callback, step, status, metadata, errorCode = null, required = false) {
+  if (typeof callback !== "function") return;
+  const safeCode = errorCode == null ? null
+    : /^(?:time_control_|mail_|recipient_|provider_)[a-z0-9_:-]{1,100}$/i.test(errorCode)
+      ? errorCode : "time_control_dispatch_failed";
+  try {
+    await callback(step, status, metadata, safeCode);
+  } catch (_error) {
+    console.error("[emailOutbox.processor] time_control_trace_failed", {
+      tenant_id: metadata.tenant_id, outbox_id: metadata.outbox_id,
+      step, status, error_code: "time_control_trace_persistence_failed",
+    });
+    if (required) throw new Error("time_control_trace_persistence_failed");
+  }
+}
+
 async function logProcessorAudit(client, {
   tenantId,
   eventType,
@@ -83,6 +115,7 @@ async function processDueEmails({
   processingTimeoutMinutes = 20,
   sendEmailFn = mailService.sendEmail,
   timeControlOutboxIds,
+  timeControlTrace,
 } = {}) {
   if (!tenantId) throw new Error("tenant_id_required");
   const normalizedLimit = clampLimit(limit);
@@ -102,6 +135,11 @@ async function processDueEmails({
 
   for (const row of claimed) {
     const timeControl = repository.isTimeControlEmail(row);
+    const trace = (step, status, details = {}, errorCode = null, required = false) => emitTimeControlTrace(
+      timeControl ? timeControlTrace : null, step, status, {
+        tenant_id: tenantId, outbox_id: row.id, run_id: row.payload_json?.run_id || null,
+        template_key: row.template_key, attempt_count: row.attempt_count, ...details,
+      }, errorCode, required);
     let providerStarted = false;
     try {
       if (timeControl && row.tenant_id !== tenantId) throw new Error("time_control_dispatch_tenant_invalid");
@@ -118,6 +156,7 @@ async function processDueEmails({
           });
         });
         summary.dead_letter += 1;
+        await trace("dispatch", "failed", { provider_attempted: false }, "time_control_weekly_reminder_expired");
         continue;
       }
       if (!row.recipient_email) {
@@ -140,6 +179,7 @@ async function processDueEmails({
           }
         });
         summary.dead_letter += 1;
+        await trace("dispatch", "failed", { provider_attempted: false }, "recipient_email_missing");
         continue;
       }
 
@@ -178,6 +218,15 @@ async function processDueEmails({
               if (!weekly.reminderWindow(row.payload_json?.friday)) throw new Error("time_control_weekly_reminder_expired");
             }
             // Keep current run/results and dataset heads stable until the provider call completes.
+            await trace("provider_result", "started", { delivery_state: "pending" }, null, true);
+            if (typeof timeControlTrace === "function") {
+              const payload = row.payload_json || {};
+              const type = row.template_key === "time_control.missing_hours.employee" ? "daily_09"
+                : row.template_key === "time_control.internal_error" ? payload.control_type : "friday_weekly_v1";
+              if (!require("../timeControl/timeControl.operation").dispatchWindow(type, payload.controlled_date || payload.friday)) {
+                throw new Error("time_control_dispatch_window_expired");
+              }
+            }
             const receipt = await send();
             if (receipt?.provider !== "resend" || typeof receipt.providerMessageId !== "string" || !receipt.providerMessageId.trim()) {
               throw new Error("provider_acceptance_unclear");
@@ -197,6 +246,7 @@ async function processDueEmails({
             });
           });
           summary.dead_letter += 1;
+          await trace("dispatch", "failed", { provider_attempted: false }, error.message);
           continue;
         }
       } else {
@@ -225,9 +275,14 @@ async function processDueEmails({
         }
       });
       summary.sent += 1;
+      await trace("provider_result", "completed", {
+        delivery_state: "accepted",
+        provider_message_id: /^[A-Za-z0-9_-]{1,200}$/.test(providerResult?.providerMessageId || "")
+          ? providerResult.providerMessageId : null,
+      });
     } catch (error) {
       const classified = timeControl && providerStarted
-        ? { code: "provider_acceptance_unclear", message: "Timekontrol provider acceptance is unclear; automatic retries are disabled.", retry: false }
+        ? classifyTimeControlProviderError(error)
         : classifySendError(error, row);
       await withTransaction(async (client) => {
         if (classified.retry) {
@@ -270,6 +325,11 @@ async function processDueEmails({
                 template_key: row.template_key,
                 attempt_count: row.attempt_count,
                 max_attempts: row.max_attempts,
+                ...(timeControl && providerStarted ? {
+                  error_code: classified.code,
+                  delivery_state: classified.delivery_state,
+                  ...(classified.http_status !== undefined ? { http_status: classified.http_status } : {}),
+                } : {}),
               },
             });
           }
@@ -278,7 +338,13 @@ async function processDueEmails({
       if (classified.retry) summary.retry += 1;
       else summary.dead_letter += 1;
       summary.failures.push({ id: row.id, code: classified.code,
-        ...(timeControl && providerStarted ? { delivery_state: "unclear" } : {}) });
+        ...(timeControl && providerStarted ? { delivery_state: classified.delivery_state,
+          ...(classified.http_status !== undefined ? { http_status: classified.http_status } : {}) } : {}) });
+      await trace(providerStarted ? "provider_result" : "dispatch", "failed", {
+        provider_attempted: providerStarted,
+        ...(providerStarted ? { delivery_state: classified.delivery_state,
+          ...(classified.http_status !== undefined ? { http_status: classified.http_status } : {}) } : {}),
+      }, classified.code);
     }
   }
 

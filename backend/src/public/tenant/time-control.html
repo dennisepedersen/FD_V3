@@ -104,6 +104,27 @@
     .employeeResultRow { display: grid; grid-template-columns: minmax(180px, 1.4fr) minmax(120px, 0.8fr) minmax(130px, 0.8fr) minmax(120px, 0.8fr); gap: 10px; padding: 10px 0; border-top: 1px solid var(--fd-brand-border); align-items: start; }
     .employeeResultRow > span { min-width: 0; overflow-wrap: anywhere; }
     .historyList { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--fd-brand-border); }
+    .operations { min-width: 0; margin-bottom: 28px; padding: 20px 0; border-block: 1px solid var(--fd-brand-border); scroll-margin-top: 24px; }
+    .operations h3 { margin-top: 18px; }
+    .operations p, .operations summary, .operations dd, .operations li { overflow-wrap: anywhere; }
+    .operations button { border-radius: 8px; }
+    .operationsFacts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 12px 24px; margin: 16px 0; }
+    .operationsFacts dt, .operationMeta dt { color: var(--fd-muted); font-size: 12px; font-weight: 700; }
+    .operationsFacts dd, .operationMeta dd { margin: 2px 0 10px; }
+    .operationsState { font-weight: 700; }
+    .operationsState[data-state="failed"], .operationsState[data-state="rejected"], .operationsState[data-state="missed"] { color: #b91c1c; }
+    .operationsState[data-state="partial"], .operationsState[data-state="unclear"] { color: #92400e; }
+    .operationsState[data-state="completed"], .operationsState[data-state="accepted"] { color: #047857; }
+    .operations details { border: 0; border-top: 1px solid var(--fd-brand-border); border-radius: 0; margin: 0; padding: 12px 0; scroll-margin-top: 24px; }
+    .operations summary { color: var(--fd-text); }
+    .operations summary > span { margin-left: 8px; }
+    .operationMeta { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr)); gap: 0 20px; }
+    .operationTimeline { list-style: none; margin: 0; padding: 0 0 0 16px; border-left: 2px solid var(--fd-brand-border); }
+    .operationTimeline details { padding: 8px 0; }
+    .operationMail { padding: 10px 0; border-bottom: 1px solid var(--fd-brand-border); }
+    .operationMail p { margin-bottom: 4px; }
+    .operationsError { color: #b91c1c; }
+    .operationsRefreshIcon { font-size: 21px; line-height: 1; margin-right: 8px; }
     @media (min-width: 768px) {
       .appShell { grid-template-columns: 260px minmax(0, 1fr); }
       .sidebar { position: sticky; top: 0; height: 100vh; overflow-y: auto; border-right: 1px solid rgba(5,150,105,0.10); border-bottom: 0; }
@@ -154,12 +175,20 @@
     <div class="mainShell">
       <header class="topbar"><span class="subtitle">Administration / Timekontrol</span><a class="btn" href="/app">Tilbage til Fielddesk</a></header>
       <main class="page">
-        <div class="pageHeader"><div><p class="eyebrow">Timekontrol</p><h1>Overblik og mailtest</h1><p class="subtitle">Kontrolgruppe, regler og sikre forhåndsvisninger samlet ét sted.</p></div><span class="statusPill">Testtilstand</span></div>
-        <div class="notice testNotice"><strong>Testtilstand – ingen automatiske mails</strong><p>Denne side aktiverer ikke live eller scheduler. Første mailtest kan forberedes uden afsendelse; medarbejdertesten vises kun som preview.</p></div>
+        <div class="pageHeader"><div><p class="eyebrow">Timekontrol</p><h1>Timekontrol</h1><p class="subtitle">Drift, kontrolgruppe og historik</p></div><span class="statusPill">Administration</span></div>
         <div id="timeControlLocalBanner" class="notice testNotice" hidden><strong>Lokalt testmiljø – fixtures / testdata</strong><p>Du ser en lokal visning, ikke dokumentation for produktionsdrift eller modtagne mails.</p></div>
         <p id="timeControlMessage" class="notice" role="status" aria-live="polite">Henter adgang og status…</p>
         <div id="timeControlAdmin" hidden>
-          <nav class="sectionNav" aria-label="Timekontrol afsnit"><a href="#kontrolgruppe">Kontrolgruppe</a><a href="#kontrolregler">Kontrolregler</a><a href="#mailmodtagere">Mailmodtagere</a><a href="#mailtest">Mailtest</a><a href="#seneste-kontroller">Seneste kontroller</a></nav>
+          <nav class="sectionNav" aria-label="Timekontrol afsnit"><a href="#operations">Driftslog</a><a href="#kontrolgruppe">Kontrolgruppe</a><a href="#kontrolregler">Kontrolregler</a><a href="#mailmodtagere">Mailmodtagere</a><a href="#mailtest">Mailtest</a><a href="#seneste-kontroller">Manuelle kontroller og historik</a></nav>
+          <section id="timeControlOperations" class="operations" aria-labelledby="operationsTitle">
+            <div id="operations" class="sectionHeader">
+              <h2 id="operationsTitle">Driftslog</h2>
+              <button id="timeControlOperationsRefresh" type="button" title="Opdatér driftsstatus"><span class="operationsRefreshIcon" aria-hidden="true">↻</span>Opdatér</button>
+            </div>
+            <p id="timeControlOperationsMessage" role="status" aria-live="polite">Henter driftsstatus…</p>
+            <div id="timeControlOperationsContent" aria-busy="true"></div>
+            <p class="infoHint">Provider accepterede er ikke bevis for modtagelse i indbakken.</p>
+          </section>
           <section id="kontrolgruppe" class="panel" aria-labelledby="controlGroupTitle">
             <div class="sectionHeader"><h2 id="controlGroupTitle">Kontrolgruppe</h2><span class="tag">Mailgodkendelse med audit</span></div>
             <p class="infoHint">Gruppens medlemskab kan ikke ændres her. Teknikeridentiteten låses efter første mailgodkendelse; godkendt mail kan ændres med begrundelse og audit.</p>
@@ -197,7 +226,7 @@
             <section id="timeControlPreparedTest" aria-label="Forberedt første test" aria-live="polite" hidden></section>
           </section>
           <section id="seneste-kontroller" class="panel" aria-labelledby="latestControlsTitle">
-            <div class="sectionHeader"><h2 id="latestControlsTitle">Seneste kontroller</h2><span class="tag">Dry-run og historik</span></div>
+            <div class="sectionHeader"><h2 id="latestControlsTitle">Manuelle kontroller og historik</h2><span class="tag">Resultater · ikke driftskvitteringer</span></div>
             <div class="controlFilters">
               <label for="timeControlEmployeeFilter">Medarbejderfilter<input id="timeControlEmployeeFilter" autocomplete="off"></label>
               <label class="checkLabel"><input id="timeControlAttentionOnly" type="checkbox"> Vis kun opmærksomhed</label>

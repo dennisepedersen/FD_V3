@@ -339,10 +339,20 @@ test("weekly immutable five-day bindings, repeat/concurrency, zero-day and fail-
     assert.equal(processed.dead_letter, 2);
     assert.equal(providerCalls, 0, "expired historical reminders must be stopped before provider calls");
     const RealDate = Date;
+    const originalInvalidate = storage.invalidateHoursDataset;
     let clock = new RealDate("2026-10-12T06:00:00Z").getTime();
     global.Date = class LocalFixtureDate extends RealDate {
       constructor(...args) { super(...(args.length ? args : [clock])); }
       static now() { return clock; }
+    };
+    // Keep the real PostgreSQL invalidation transaction on the same clock as this synthetic source fixture.
+    storage.invalidateHoursDataset = async (client, input) => {
+      const result = await originalInvalidate(client, input);
+      await client.query(
+        `UPDATE time_control_hours_dataset_head SET invalidated_at=$3::timestamptz
+         WHERE tenant_id=$1 AND controlled_date=$2::date AND invalidated_at IS NOT NULL`,
+        [input.tenantId, input.controlledDate, new Date(clock)]);
+      return result;
     };
     try {
       const livePeriod = dates.weeklyPeriod("2026-10-16");
@@ -358,6 +368,7 @@ test("weekly immutable five-day bindings, repeat/concurrency, zero-day and fail-
         await service.runTimeControlWithPool({ ...runArgs, controlledDate: day, controlType: "daily_09",
           triggeredBy: "scheduler", dryRun: false }, {
           captureDay: async () => {
+            clock += 1;
             const dayEvidence = evidence(tenantId, day, 7.5);
             return coverage.captureHoursDataset({ tenantId, controlledDate: day, pageSize: 10, evidence: dayEvidence.evidence,
               fetchPage: async () => ({ rows: dayEvidence.rows, currentPage: 1, nextPage: null,
@@ -436,7 +447,10 @@ test("weekly immutable five-day bindings, repeat/concurrency, zero-day and fail-
       assert.equal(tooLate.run.status, "blocked");
       assert.match(tooLate.run.error_reason, /not_current_or_scope_mismatch|outside_reminder_window/);
       assert.equal(tooLate.mails.filter((m) => m.mail_type === "employee_weekly_reminder_v1").length, 0);
-    } finally { global.Date = RealDate; }
+    } finally {
+      storage.invalidateHoursDataset = originalInvalidate;
+      global.Date = RealDate;
+    }
     console.log(JSON.stringify({ weeklyPostgres: "verified", database: server.name, immutableDayBindings: 5,
       historicalWeekEmployeeNotifications: 1, liveFixtureWeekEmployeeNotifications: 1,
       providerCalls: 0, actualMigrations: runner.getMigrationFiles().length, proofBasis: "synthetic_local_fixtures_and_clock" }));

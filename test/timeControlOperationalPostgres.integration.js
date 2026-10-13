@@ -47,11 +47,21 @@ test("daily capture and operational-week gate: actual PostgreSQL, controlled clo
   const otherTenantId = randomUUID();
   const RealDate = Date;
   const originalFetch = global.fetch;
+  const originalInvalidate = storage.invalidateHoursDataset;
   global.fetch = async () => { throw new Error("local_postgres_network_forbidden"); };
   let clock = new RealDate("2026-10-12T06:00:00Z").getTime();
   global.Date = class ControlledDate extends RealDate {
     constructor(...args) { super(...(args.length ? args : [clock])); }
     static now() { return clock; }
+  };
+  // PostgreSQL now() is real time; align only this fixture's mutable invalidation head with its synthetic source clock.
+  storage.invalidateHoursDataset = async (client, input) => {
+    const result = await originalInvalidate(client, input);
+    await client.query(
+      `UPDATE time_control_hours_dataset_head SET invalidated_at=$3::timestamptz
+       WHERE tenant_id=$1 AND controlled_date=$2::date AND invalidated_at IS NOT NULL`,
+      [input.tenantId, input.controlledDate, new Date(clock)]);
+    return result;
   };
   const at = value => { clock = new RealDate(value).getTime(); };
   async function tx(fn) {
@@ -380,6 +390,7 @@ test("daily capture and operational-week gate: actual PostgreSQL, controlled clo
       mondayStartQualified: true, thursdayStartPartial: true, followingFullWeekQualified: true,
       dryRunGateBlocked: true, revisionsAndDeletionVerified: true, providerCalls: 0, simulatedProviderCalls, syncJobs: 0 }));
   } finally {
+    storage.invalidateHoursDataset = originalInvalidate;
     global.fetch = originalFetch;
     global.Date = RealDate;
     await appPool.end();

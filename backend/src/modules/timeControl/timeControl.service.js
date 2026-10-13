@@ -43,6 +43,39 @@ function compactError(error) {
   return String(error?.message || error || "time_control_failed").slice(0, 500);
 }
 
+function traceErrorCode(error) {
+  const code = String(error?.code || error?.message || "");
+  return /^time_control_[a-z0-9_:]+$/.test(code) || /^[A-Z0-9]{5}$/.test(code)
+    ? code.slice(0, 120) : "time_control_execution_failed";
+}
+
+function traceFailed(error) {
+  return error?.code === "time_control_trace_failed" ||
+    error instanceof AggregateError && error.errors.some(traceFailed);
+}
+
+async function traceStep(trace, step, status, counts = {}, errorCode = null) {
+  if (trace === null) return;
+  try { await trace(step, status, counts, errorCode); }
+  catch (cause) {
+    const error = new Error("time_control_trace_failed", { cause });
+    error.code = "time_control_trace_failed";
+    throw error;
+  }
+}
+
+function mailTraceCounts(results, mails) {
+  return {
+    result_count: results.length,
+    ok: results.filter(result => result.status === "ok").length,
+    under_norm: results.filter(result => ["missing_hours", "weekly_reminder"].includes(result.status)).length,
+    blocked: results.filter(result => ["config_error", "data_incomplete", "unclassified_hours"].includes(result.status)).length,
+    expected_mails: mails.filter(mail => ["employee_missing_hours", "employee_weekly_reminder_v1"].includes(mail.mail_type)).length,
+    queued: mails.filter(mail => mail.email_outbox_id).length,
+    mail_count: mails.length,
+  };
+}
+
 function isFreshSyncState(state, freshnessMinutes, now = new Date()) {
   if (!state || !state.last_successful_sync_at) return false;
   if (state.endpoint_status !== "success" || state.last_error || state.current_job_id || state.active_job_id) return false;
@@ -301,6 +334,7 @@ async function runTimeControl(client, { tenantId, controlType, controlledDate, a
   allowHistoricalSnapshot = false,
   execution = null,
   captureDay = null,
+  trace = null,
 } = {}) {
   const date = normalizeIsoDate(controlledDate);
   const isWeekly = controlType === weekly.CONTROL_TYPE;
@@ -362,23 +396,26 @@ async function runTimeControl(client, { tenantId, controlType, controlledDate, a
   }
 
   let sync;
-  await commitPreparation();
+  await commitPreparation(run);
   if (hoursDatasetId || hoursDatasetIds) {
     sync = { ok: true, status: "dataset_snapshot", coverage: datasetProof };
   } else {
     try {
       ({ hoursDatasetId, hoursDatasetIds } = await orchestration.prepare(client, {
-        tenantId, actorId, controlledDate: date, controlType, captureDay,
+        tenantId, actorId, controlledDate: date, controlType, captureDay, trace,
       }));
       sync = { ok: true, status: "daily_capture" };
     } catch (error) {
+      if (traceFailed(error)) throw error;
       if (!error.message.startsWith("time_control_")) throw error;
       sync = { ok: false, status: "capture_failed", reason: compactError(error) };
     }
   }
   await beginEvaluation();
+  await traceStep(trace, "validation", "started", { controlled_date: date });
   if (!sync.ok) {
     const reason = sync.reason;
+    await traceStep(trace, "validation", "failed", { controlled_date: date }, traceErrorCode({ message: reason }));
     const diagnostics = (await client.query(
       `UPDATE time_control_result SET status='data_incomplete',missing_hours=NULL,coverage_status='incomplete',
        data_quality_reason=$3,hours_dataset_id=NULL,weekly_snapshot_id=NULL,identity_snapshot=identity_snapshot-'hours_dataset'
@@ -386,6 +423,7 @@ async function runTimeControl(client, { tenantId, controlType, controlledDate, a
     await repository.bindRunDataset(client, { tenantId, runId: run.id, datasetId: null });
     if (isWeekly) await repository.bindRunWeeklySnapshot(client, { tenantId, runId: run.id, snapshotId: null });
     const mail = await logInternalErrorMail(client, { tenantId, run, settings, dateLabel, errorReason: reason });
+    await traceStep(trace, "mail_decision", "completed", mailTraceCounts(diagnostics, [mail]));
     const blocked = await repository.finishRun(client, { runId: run.id, tenantId, status: "blocked", errorReason: reason });
     await auditTimeControlRun(client, { tenantId, run: blocked, outcome: "fail", reason });
     return { run: blocked, results: diagnostics, mails: [mail], sync };
@@ -407,6 +445,7 @@ async function runTimeControl(client, { tenantId, controlType, controlledDate, a
       reason = compactError(error);
     }
     if (reason) {
+      await traceStep(trace, "validation", "failed", { controlled_date: date }, traceErrorCode({ message: reason }));
       const previous = await client.query(
         "SELECT * FROM time_control_result WHERE tenant_id = $1 AND run_id = $2 ORDER BY id FOR UPDATE",
         [tenantId, run.id]
@@ -427,6 +466,7 @@ async function runTimeControl(client, { tenantId, controlType, controlledDate, a
       );
       await repository.bindRunWeeklySnapshot(client, { tenantId, runId: run.id, snapshotId: null });
       const mail = await logInternalErrorMail(client, { tenantId, run, settings, dateLabel, errorReason: reason });
+      await traceStep(trace, "mail_decision", "completed", mailTraceCounts(diagnostics.rows, [mail]));
       const blocked = await repository.finishRun(client, { runId: run.id, tenantId, status: "blocked", errorReason: reason });
       await auditTimeControlRun(client, { tenantId, run: { ...blocked, controlled_date: date }, outcome: "fail", reason });
       return { run: blocked, results: diagnostics.rows, mails: [mail], sync: { ok: false, status: "weekly_snapshot_blocked", reason } };
@@ -446,10 +486,14 @@ async function runTimeControl(client, { tenantId, controlType, controlledDate, a
     await repository.bindRunDataset(client, { tenantId, runId: run.id, datasetId: hoursDatasetId });
   } else throw new Error("time_control_complete_dataset_required");
 
+  await traceStep(trace, "validation", "completed", { controlled_date: date, dataset_count: isWeekly ? 5 : 1 });
+  await traceStep(trace, "calculation", "started", { controlled_date: date });
+
   const configs = await repository.listEmployeeConfigs(client, { tenantId });
   const payCodeRules = normalizePayCodeRules(await repository.listPayCodeRules(client, { tenantId }));
   const results = [];
   const mails = [];
+  await traceStep(trace, "mail_decision", "started");
 
   for (const config of configs) {
     const resolution = classifyResolvedEmployee(config, await repository.resolveEmployeeConfig(client, { tenantId, config }));
@@ -503,6 +547,7 @@ async function runTimeControl(client, { tenantId, controlType, controlledDate, a
     }
   }
 
+  await traceStep(trace, "calculation", "completed", mailTraceCounts(results, mails));
   if (controlType === "friday_12" && run.mode === "dry_run") {
     const leaderMail = await logFridayManagerMail(client, {
       tenantId, run, settings, dateLabel,
@@ -564,6 +609,7 @@ async function runTimeControl(client, { tenantId, controlType, controlledDate, a
   if (uncertain || operationBlocked) {
     mails.push(await logInternalErrorMail(client, { tenantId, run, settings, dateLabel, errorReason: reason }));
   }
+  await traceStep(trace, "mail_decision", "completed", mailTraceCounts(results, mails), reason);
   await auditTimeControlRun(client, { tenantId, run: { ...finished, controlled_date: date,
     operation_gates: run.operation_gates || [],
     ...(isWeekly ? { weekly_evaluations: results.map((result) => ({
@@ -576,15 +622,29 @@ async function runTimeControl(client, { tenantId, controlType, controlledDate, a
   return { run: finished, results, mails, sync };
 }
 
-async function runTimeControlWithPool(args, { hoursDataset = null, hoursDatasetId = null, hoursDatasetIds = null, allowHistoricalSnapshot = false, captureDay = null } = {}) {
+async function runTimeControlWithPool(args, { hoursDataset = null, hoursDatasetId = null, hoursDatasetIds = null, allowHistoricalSnapshot = false, captureDay = null, trace = null } = {}) {
   if (hoursDataset !== null) throw new Error("time_control_dataset_must_be_stored");
+  if (trace !== null && typeof trace !== "function") throw new Error("time_control_trace_invalid");
   const lockInput = { ...args, controlledDate: normalizeIsoDate(args.controlledDate) };
-  const client = await pool.connect();
+  let activeStep = "run_started";
+  const report = trace === null ? null : async (step, status, counts = {}, errorCode = null) => {
+    activeStep = step;
+    await traceStep(trace, step, status, counts, errorCode);
+  };
+  await traceStep(report, "run_started", "started", { controlled_date: lockInput.controlledDate });
+  let client;
+  try { client = await pool.connect(); }
+  catch (error) {
+    await traceStep(report, "run_started", "failed", {}, traceErrorCode(error));
+    throw error;
+  }
   let transactionOpen = false;
   let runLocked = false;
   let acquisitionComplete = false;
   let failure = null;
   let discardError = null;
+  let result;
+  let boundRunId = null;
   try {
     // Session lock survives preparation COMMIT and is released on connection loss.
     runLocked = await repository.acquireRunLock(client, lockInput);
@@ -592,28 +652,31 @@ async function runTimeControlWithPool(args, { hoursDataset = null, hoursDatasetI
     if (!runLocked) throw new Error("time_control_run_already_in_progress");
     transactionOpen = true;
     await client.query("BEGIN");
-    const result = await runTimeControl(client, args, {
+    result = await runTimeControl(client, args, {
       hoursDataset,
       hoursDatasetId,
       hoursDatasetIds,
       allowHistoricalSnapshot,
       captureDay,
+      trace: report,
       execution: args.triggeredBy === "scheduler" ? {
         startedAt: new Date(), now: () => new Date(), controlledDate: lockInput.controlledDate, historical: allowHistoricalSnapshot,
       } : null,
       // Publish the run and sync job before waiting; keep results and mail atomic.
-      commitPreparation: async () => {
+      commitPreparation: async preparedRun => {
         await client.query("COMMIT");
         transactionOpen = false;
+        await traceStep(report, "run_binding", "completed", { run_id: preparedRun.id });
+        boundRunId = preparedRun.id;
       },
       beginEvaluation: async () => {
         transactionOpen = true;
         await client.query("BEGIN");
       },
     });
+    await traceStep(report, "queue_committed", "started", mailTraceCounts(result.results, result.mails));
     await client.query("COMMIT");
     transactionOpen = false;
-    return result;
   } catch (error) {
     failure = error;
     if (!acquisitionComplete) discardError = error;
@@ -625,6 +688,10 @@ async function runTimeControlWithPool(args, { hoursDataset = null, hoursDatasetI
         discardError = rollbackError;
         failure = new AggregateError([error, rollbackError], `${error.message}; ${rollbackError.message}`);
       }
+    }
+    if (!traceFailed(error)) {
+      try { await traceStep(report, activeStep, "failed", {}, traceErrorCode(error)); }
+      catch (traceError) { failure = new AggregateError([failure, traceError], "time_control_trace_failed"); }
     }
     throw failure;
   } finally {
@@ -638,6 +705,11 @@ async function runTimeControlWithPool(args, { hoursDataset = null, hoursDatasetI
     }
     client.release(discardError || undefined);
   }
+  if (boundRunId === null) await traceStep(report, "run_binding", "completed", { run_id: result.run.id });
+  await traceStep(report, "queue_committed", "completed", mailTraceCounts(result.results, result.mails));
+  await traceStep(report, "run_started", result.run.status === "blocked" ? "failed" : "completed",
+    mailTraceCounts(result.results, result.mails), result.run.status === "blocked" ? traceErrorCode({ message: result.run.error_reason }) : null);
+  return result;
 }
 
 function approvalError(code, statusCode = 400) {
