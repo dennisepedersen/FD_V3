@@ -220,8 +220,9 @@ controlled date as `registreringsrækker fra EK (ikke antal arbejdstimer)`,
 without adding page/pass counts or inventing a count when trace evidence is
 missing. Stopped steps and failure reasons use ordinary Danish; unknown errors
 refer to the operations log instead of exposing technical codes. This local
-wording change is **not deployed**; push and web/pinned-cron rollout require
-explicit approval. No rules, recipients, transport guards or schedules change.
+wording change was **not deployed at the initial follow-up**; its subsequent
+explicitly approved rollout is verified below. No rules, recipients,
+transport guards or schedules change.
 
 Qualification clarification, unchanged existing rules:
 
@@ -279,6 +280,142 @@ and verified the enabled monitor policy, tenant-live, six original 12 October
 receipts, the same one-claim accepted status report, and next expected slot
 **14 October 07:00 UTC for 13 October**. The monitor's latest saved check was
 `2026-10-13T19:40:05.663Z`; the web scheduler heartbeat was current.
+
+### Pre-Deploy Mail And Dataset Audit (13 October 2026)
+
+`verified` before the authorized text release: read-only database transaction,
+outbox, mail-log, audit, Render app logs, and Resend GET list/details were
+preserved in `.tmp/tc_followup_before_1791922170152.json` at 22:09 Copenhagen.
+The final artifact is valid JSON and its original dataset was revalidated in
+memory with the same unchanged coverage code as deployed `c98f0e8`. Earlier
+local exports had an over-broad redactor affecting ordinary values; they are
+not the authoritative final evidence. No production data was rewritten.
+
+All rows below are for original scheduler run
+`b2e06989-61c9-4f49-ab92-cc2755e1c302`, controlling **12 October**, except the
+separate incident status report. Times are **13 October, Europe/Copenhagen**.
+
+| Mail type | To | CC | Created / attempted | Acceptance / delivery | Provider ID |
+| --- | --- | --- | --- | --- | --- |
+| Employee reminder | Jesper, `jsk@hoyrup-clemmensen.dk` | Dennis | 09:01:07.335 / one claim 09:01:07.953, terminal 09:01:08.743 | No accepted receipt, no documented delivery; terminal unclear | None |
+| Employee reminder | Patrick, `pep@hoyrup-clemmensen.dk` | Dennis | 09:01:07.335 / one claim 09:01:07.953, terminal 09:01:08.967 | No accepted receipt, no documented delivery; terminal unclear | None |
+| Employee reminder | Morten, `mbo@hoyrup-clemmensen.dk` | Dennis | 09:01:07.335 / one claim 09:01:07.953, terminal 09:01:08.317 | No accepted receipt, no documented delivery; terminal unclear | None |
+| Employee reminder | Michael, `mpj@hoyrup-clemmensen.dk` | Dennis | 09:01:07.335 / one claim 09:01:07.953, terminal 09:01:08.532 | No accepted receipt, no documented delivery; terminal unclear | None |
+| Incident status | Dennis, `dep@hoyrup-clemmensen.dk` | None | One claim 16:04:52.760; provider creation 16:04:53.132 | Accepted; Resend delivered; Dennis confirmed Outlook receipt | `01a13594-9761-7711-8d4d-f62ffadee336` |
+
+The common `last_attempt_at` is the durable batch claim, not a separately
+recorded HTTP-start timestamp for each message. The morning log confirms
+claimed 4 / sent 0 / retry 0 / dead-letter 4. All four original outbox rows
+still have attempt count 1, no provider ID or sent time, and unchanged terminal
+timestamps; their corresponding mail-log previews still say queued and must
+not be mistaken for attempts/acceptance/delivery. No later outbox or audit
+attempt was found, including around the 15:59 repair deploy or 16:04 statusmail.
+
+Resend pagination was exhausted: one page, three entries, `has_more=false`.
+Only the status report was created on 13 October; the other two entries were
+the already confirmed 12 October POC tests. Details confirmed its Timekontrol
+sender, Reply-To, Dennis alone and `delivered`. Therefore **the statusmail to
+Dennis was today's only provider-accepted Timekontrol mail in the verified
+production account**. No employee reminder was accepted after the send window,
+and the previous no-resend report is consistent with these independent reads.
+Uncertain original outbox records are intentionally not rewritten as rejected.
+
+The automatic bridge selects only the current run's exact outbox IDs, not a
+tenant-wide backlog. Claims require queued/zero-attempt records; Timekontrol
+retry/abandoned processing claims cannot be reclaimed. Even a generic manual
+outbox sweep must pass the same live-run, current identity, dataset and send
+window guards before contacting the provider. Deploy does not start that
+manual processor. The separate cron handles the status-report table only,
+not employee queues. All 60 unrelated absence posts still have zero attempts.
+
+Jesper had **no row** in the original morning snapshot. Dennis's later report
+of two EK entries at 16:07:00 and 16:07:32, 7.50 each on case 80396-003, is user
+evidence, not a new EK read in this audit. Their timing does not prove that
+Jesper received a Fielddesk mail, nor that two rows represent 15 counted hours.
+No manual refresh, calculation or mail was used to investigate them.
+
+Dataset `ea46ef62-13be-4df7-8c4d-6e7485818064` contains **168 distinct row
+IDs and 107 distinct fitter IDs**, observed at the morning control, not the
+latest state after the afternoon registrations. Both complete 17-page passes
+agree on ordered IDs and canonical rows; each has 168 rows, terminal page 8
+rows, `nextPage=null`, HTTP 200 and no API errors. The published row count is
+one snapshot, **not 336 reads added together**. Request:
+`GET /api/v4/paginatedfitterhours`, `fromDate=2026-10-12`,
+`toDate=2026-10-12`, `pageSize=10`, pages 1-17 twice, using HC's tenant-bound
+credentials/site. No employee, department, resource-group, project or project
+status filter was sent; the verified contract is tenant-all-projects,
+including closed projects. Code rejects rows for another controlled date and
+unstable/duplicate/incomplete results. It does not filter this capture to six.
+
+One employee can have several rows for different projects/categories,
+including allowances. Concrete source examples: Mikkel/15 has two 7.50 rows
+on case 80279-003 (1220 counted, 1244 excluded), yielding **7.50 counted hours**.
+Martin/295 has three 7.50 rows on 80396-003 (3300 counted, 9043/9076 excluded),
+also **7.50 counted hours**, not 22.50. The 107 fitter IDs are a distinct source
+identity count, not the approved mail-recipient count or a verified count of
+active human staff. Row counts and raw hour-column sums are not worked hours.
+
+Active configuration and operation epoch contain exactly fitter IDs
+**15, 18, 208, 290, 295, 498**, all enabled/active with approved exact emails
+and membership of group `bdcea2d1-14e2-4477-813b-8657de826905`, EK external ID
+**61**, named **183 - Pharma - Sikring - DEP**. Here 183 is the department/group
+name, not the EK group ID. No separate department-ID field is asserted.
+The deployed service calculates enabled configs only; dispatch re-locks the
+current full cohort, exact immutable result/identity binding, config/group
+membership, approved recipient and Dennis-only CC. Weekly dispatch similarly
+checks snapshot/result/current-config identities. Other source fitters never
+become recipients merely by appearing in the dataset. Dennis-only leader,
+diagnostic/status routing and LKE exclusion are unchanged.
+
+### Approved Text Release Completed (13 October 2026)
+
+Dennis explicitly approved push/deploy of
+**`d7aecfedeec2995966c0e44829ac1533b8231ee6`** to web and the existing separate
+cron, only after preservation of the read-only evidence above. Remote main
+was verified at `ed79d6c` before the non-forced exact-SHA push. No other code
+commit, setting or new migration was included.
+
+- Web auto-deploy **`dep-db790mvavr4c73f0cvb0`**, same approved SHA, live
+  `2026-10-13T20:12:11.542793Z` (**22:12:11 Copenhagen**), health HTTP 200.
+- Existing cron **`crn-db73jjrl550s73aljjo0`**, deploy
+  **`dep-db7912vavr4c73fca2s0`**, same approved SHA, live
+  `2026-10-13T20:12:21.438565Z` (**22:12:21 Copenhagen**).
+  Schedule **`*/5 * * * *`**, not suspended, auto-deploy still off. Render's
+  cron API does not accept `commitId`; the operator verified remote main was
+  the approved exact SHA immediately before the one deploy request, then
+  verified the deploy response and final live SHA. No duplicate cron or
+  manual cron execution was created.
+
+Final post-deploy evidence `.tmp/tc_followup_after_1791922574319.json` was compared
+with the authoritative before file using local deep-equality assertions.
+All original mail logs/outbox attempts, status report, POC tests, source
+dataset/results, audit events, settings, exact six configs, active epoch and
+unrelated queues are unchanged. Resend still lists the exact same three
+entries, pagination exhausted: **no new accepted mail**. Both services'
+complete environment digests match their pre-deploy values, not just the
+visible flags (44 web keys / 10 cron keys, below the 100-item listing limit).
+No employee retry, old-queue send or new testmail occurred. The cron's first
+subsequent successful scheduled run is reported by Render at
+`2026-10-13T20:15:51Z` (**22:15:51 Copenhagen**); its persisted monitor check
+is `2026-10-13T20:15:45.167Z`. This is a real scheduled Render execution of
+the new release, not a manual invocation, and it created/sent no new mail.
+
+Next saved slot remains **`43674fcc-0dc0-439e-a203-0bcf0c47ef81`**, planned,
+no run ID, **Wednesday 14 October 2026 09:00 Copenhagen (07:00 UTC),
+controlling Tuesday 13 October**. A current persisted web heartbeat after
+rollout was verified. This release does not claim to have verified the next
+actual employee transport; that still requires Wednesday's real scheduled
+run. No manual control, EK fetch, mail send, config update or stop/start
+operation was used during verification.
+
+Validation reuse: the approved code commit's full `npm run check` remains
+622 passed / 8 opt-in skips / zero failures. No runtime code changed in this
+audit. The focused monitor/provider-payload/operation suite was rerun and
+passed **54/54**, no skips. `npm run check:whitespace`,
+`npm run check:encoding` and `npm run check:secrets` passed for the subsequent
+runbook update. This additional audit/admission documentation is local;
+only the expressly approved `d7aecfe` was pushed/deployed, avoiding another
+unrequested release.
 
 ## Documentation Baseline (13 October 2026)
 
@@ -543,6 +680,20 @@ minute. Completion must occur before 09:15 or 12:15. Daily dispatch ends at
 09:15; weekly reminder dispatch ends at 14:30. These are completion/send
 windows, not catch-up permission. Restarts in the same scheduled minute reuse
 a completed live slot without recapturing or creating another notification.
+
+**Admission versus alarm:** the control must be admitted during
+**09:00:00-09:00:59.999 Copenhagen**. At **09:01**, a newly started/restarted
+web scheduler finds no scheduled control; a late explicit scheduled admission
+is also rejected by the existing start-window checks. It does not catch up,
+create a qualifying receipt or send an employee reminder for that missed slot.
+A run already admitted in the 09:00 minute may continue past 09:01 and finish
+before 09:15; this is different from a late start. The independent watchdog's
+**09:02 threshold is only a missing-start alarm delay**, not permission to
+start two minutes late. On its next five-minute run, normally around 09:05
+plus Render startup latency, it records the absent start. The normal Dennis
+status report remains due 09:20, normally processed by 09:25; no immediate
+09:02 mail or automatic catch-up control is implied. No behavior was changed
+to document this distinction.
 
 **At activation verification on 12 October: 0/4 planned daily controls;
 the week was not qualified. Current qualification is not re-verified here.**
