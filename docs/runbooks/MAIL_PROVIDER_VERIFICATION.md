@@ -8,8 +8,13 @@ from 12 October, tenant-live and both Timekontrol flags are true. Repair code
 `dep-db6cssbrjlhs73for80g`; the Render web process logged scheduler startup.
 Final verification `job-db6ctlm7bikc73cdlvj0` passed with the exact approved
 names/routing/sender, no new mail attempts and all four POC records unchanged.
-First planned control: 13 October 09:00 Copenhagen for 12 October; no future
-execution is claimed yet. LKE remains excluded. See the actual saved settings,
+First planned control: 13 October 09:00 Copenhagen for 12 October. As of this
+documentation update on 13 October, the first automatic operational run is
+not yet verified; the activation counts below are observations from 12 October,
+not a new post-schedule production check. Mail transport is passed: the user
+confirmed Mikkel's actual To receipt and Dennis's actual leader CC receipt for
+the locked test dated 12 October 12:38 Copenhagen. No resend is permitted.
+LKE remains excluded. See the actual saved settings,
 Friday gate and exact stop commands in the
 [activation runbook](TIME_CONTROL_ACTIVATION.md).
 
@@ -23,25 +28,27 @@ the user's confirmation, not an independent inspection of either mailbox.
 
 The bounded mail transport test is passed: provider acceptance and actual
 receipt at both intended recipients are now documented. No test resend is
-authorized or needed. The next approved work is readiness implementation,
-tests/deploy and current-data verification without employee mail; scheduler,
-live-mode and automatic sending must remain disabled pending a separate
-verified activation-plan approval. LKE stays excluded; no general EK sync or
-rule-profile extension is authorized.
+authorized or needed. At that historical stage, the approved next work was
+readiness implementation, tests/deploy and current-data verification without
+employee mail; automatic sending was held pending separate activation approval.
+That approval and activation are completed as recorded above. Do not restore
+the historical disabled state as a side effect. LKE stays excluded; no general
+EK-sync or rule-profile extension is authorized by the transport test.
 
-The concrete next approval boundary, six-person routing, first Tuesday slot,
+The active-drift approval boundaries, six-person routing, first Tuesday slot,
 Friday eligibility conditions, observation and stop procedures are maintained
 in [Timekontrol HC Activation Plan](TIME_CONTROL_ACTIVATION.md). Current-data
 preflight and dry-run evidence are recorded there; neither qualifies the week.
 
-`verified`: readiness code `d030835fa10077f75625d4ae32304c7ef9de622d` is live
-as Render deploy `dep-db6c6j8ae00c73agslbg`; post-deploy verification
+`verified` (historical): readiness code
+`d030835fa10077f75625d4ae32304c7ef9de622d` was live as Render deploy
+`dep-db6c6j8ae00c73agslbg`; post-deploy verification
 `job-db6c7oss728c73fvrp60` succeeded with a fresh 59-row/two-pass Monday
 capture and six dry-run results. Zero provider calls, new POC tests, operational
-receipts or general sync jobs. Scheduler/mail gates are off, tenant remains
-dry-run and LKE remains excluded. The linked activation plan is now ready for
-separate approval; no activation has occurred. Local validation: 556 passed,
-7 opt-in skips, all checks green, plus 8 separately passed isolated PostgreSQL
+receipts or general sync jobs. Scheduler/mail gates were off, tenant was
+dry-run and LKE remained excluded. At that stage the linked activation plan
+was ready for separate approval; no activation had occurred. Local validation:
+556 passed, 7 opt-in skips, all checks green, plus 8 separately passed isolated PostgreSQL
 tests using 59 actual migrations and no external provider calls.
 
 ## Historical Mikkel acceptance before inbox confirmations (2026-10-12)

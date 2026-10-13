@@ -19,6 +19,13 @@ static tenant/admin UI served by the backend.
   new migration using the repository's existing numbering and naming pattern.
 - Do not change unrelated functionality, UI, copy, formatting, migrations, or
   docs as a side effect.
+- Active Timekontrol must not change as a side effect of other tasks. Read
+  [its operations runbook](docs/runbooks/TIME_CONTROL_ACTIVATION.md). Changes to
+  its data acquisition, rules, group membership, recipients, sending, scheduler
+  or production settings require Dennis's explicit written approval of the
+  concrete change, including shared-component changes that affect its behavior.
+  Read-only investigations and documentation work are allowed; already
+  authorized automatic runs do not require renewed approval.
 - Respect the current architecture and design direction in `docs/00_MASTER.md`,
   `docs/ARCHITECTURE.md`, `docs/SECURITY_MODEL.md`, and relevant module docs.
 - If existing architecture or documented design decisions seem wrong or
@@ -39,6 +46,10 @@ static tenant/admin UI served by the backend.
   where relevant: `verified`, `observed`, `hypothesis`, and `unclear`.
 - Prefer existing repository patterns, route structure, service/repository
   boundaries, SQL style, and UI conventions.
+- Before a future general EK-sync job, assess shared tables, locks, API rate
+  budget, queues and data ownership against the Timekontrol operations runbook.
+  It must not overwrite or disrupt Timekontrol's evidence or scheduled runs;
+  any behavior change remains subject to the explicit written approval above.
 - Add or update tests when behavior changes. Do not stop after a failed check:
   diagnose, repair within scope, and validate again.
 - Run relevant checks before finishing. For normal repo-safe validation, prefer

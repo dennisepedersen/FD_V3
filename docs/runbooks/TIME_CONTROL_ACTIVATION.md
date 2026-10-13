@@ -6,6 +6,25 @@ Status: ACTIVE; user-approved activation completed and runtime-verified
 Target: first scheduled control Tuesday 13 October 2026 at 09:00,
 Europe/Copenhagen (07:00 UTC), evaluating Monday 12 October.
 
+## Documentation Baseline (13 October 2026)
+
+This is the existing operational source of truth, not a new activation plan.
+Read-only Render deploy metadata on 13 October confirmed deployed code
+`8972b6e6efae58993d689433de4bcd13c9b71649` in live rollout
+`dep-db6cssbrjlhs73for80g`. Prior documentation commit `4fd3c47` is not
+the deployed application version. The saved active settings, exact cohort,
+routing and startup evidence below were last runtime-verified on 12 October
+at `2026-10-12T12:13:24.933Z`; they were not re-read from production in this
+documentation-only task. Active operation remains authorized and unchanged.
+
+**The first automatic operational run is not yet verified.** Its scheduled
+time is 13 October 2026 at 09:00 Europe/Copenhagen, controlling 12 October.
+Activation/startup, manual dry-runs and the successful mail transport test do
+not prove that this automatic run completed, qualified the week or sent mail.
+The 0/4 receipts and unchanged queue counts below are dated activation
+observations, not a new claim about production after that scheduled time.
+No production job, manual control or mail was run for this documentation task.
+
 ## Approved Activation Execution (12 October 2026)
 
 `verified`: preflight `job-db6coc8473hc73e1895g` succeeded at
@@ -109,7 +128,7 @@ Its reads at `2026-10-12T12:13:24.933Z` verified:
   timely activation allow this week to qualify only after the four actual
   planned valid daily controls and Friday's valid weekly capture.
 
-The first future scheduled execution is not yet observed. Check its run,
+The first automatic operational execution is not yet verified. Check its run,
 receipts, structured scheduler outcome and linked outbox/provider receipts
 after Tuesday 09:00 using the monitoring procedure below; never substitute a
 manual run if that slot fails. All fail-closed and no-automatic-retry guards
@@ -117,7 +136,7 @@ remain unchanged by the SQL parameter-type repair.
 
 ## Prior Readiness Release And Production Check
 
-Code commit `d030835fa10077f75625d4ae32304c7ef9de622d` is live in Render
+Code commit `d030835fa10077f75625d4ae32304c7ef9de622d` was live in Render
 deploy `dep-db6c6j8ae00c73agslbg`, finished
 `2026-10-12T11:24:41.665491Z`; health returned HTTP 200. Normal pre-deploy
 migration procedure applied zero and skipped 59 existing files. Status reports
@@ -146,7 +165,7 @@ routing lists remain DEP alone. A disabled future-slot tick skipped before
 database work, and the automatic dispatch bridge skipped without claiming rows.
 All six Friday gates returned ineligible (`operation_not_active`).
 
-## Scope And Current Evidence
+## Scope And Prior Readiness Evidence
 
 - Tenant: `hoyrup-clemmensen`, `f1f51c07-2d88-4ee4-a766-78eac833a9d0`.
 - Existing approved group: `bdcea2d1-14e2-4477-813b-8657de826905`, EK ID `61`.
@@ -160,7 +179,8 @@ All six Friday gates returned ineligible (`operation_not_active`).
 Production preflight `job-db6bkejrjlhs73fkoe0g` verified six current identities,
 approved addresses, the saved rules/routing, no active operation or current-week
 receipts, `mode=dry_run`, `live_enabled_at=NULL` and scheduler `false`.
-Only HC currently has enabled Timekontrol settings.
+Only HC had enabled Timekontrol settings in this preflight; the final
+activation verification above confirmed the same tenant scope.
 
 Current-data dry-run `job-db6blevavr4c73asje20` completed with a trusted capture
 of 12 October: 56 rows, two stable passes of six pages, 12 read-only EK GETs,
@@ -250,10 +270,11 @@ minute. Completion must occur before 09:15 or 12:15. Daily dispatch ends at
 windows, not catch-up permission. Restarts in the same scheduled minute reuse
 a completed live slot without recapturing or creating another notification.
 
-**This week is NOT qualified now: 0/4 planned daily controls are complete.**
-It can qualify only if activation includes Monday coverage and starts before
-Tuesday 09:00, the entire approved cohort retains a valid completed scheduled
-control on each of the four dates, and Friday's timely weekly control obtains
+**At activation verification on 12 October: 0/4 planned daily controls;
+the week was not qualified. Current qualification is not re-verified here.**
+Activation included Monday coverage and completed before Tuesday 09:00.
+The week can qualify only if the entire approved cohort retains a valid
+completed scheduled control on each of the four dates, and Friday's timely weekly control obtains
 five fresh current server captures. This is four daily receipts per technician
 (24 for the six-person cohort), plus Friday's current weekly receipt per
 technician. Historical, manual, maintenance, dry-run and backfill runs never
@@ -289,8 +310,14 @@ time is taken after lock waits/identity checks, and each scheduled execution
 admits its active epoch IDs before capture. A later activation or epoch restart
 cannot acquire the earlier execution's planned receipts.
 
-The agreed counted/excluded pay-code rules are unchanged. Unknown/missing
-references, invalid hours, uncertain completeness, stale observations or a
+The agreed counted/excluded pay-code rules are unchanged. The existing HC
+mapping in migrations 0049, 0053 and 0055 counts references `1195`, `1199`,
+`1220`, `3300`, `9000`, `9010`, `9012`, `9022`, `9200`, `9300`, `9315` and
+`9320`; it excludes `1244`, `1246`, `9043`, `9070` and `9076`.
+Approved absence categories count by this mapping, not by an inferred EK
+manager-approval status. No fallback classification or rule-profile expansion
+is authorized. Unknown/missing references, invalid hours, uncertain
+completeness, stale observations or a
 changed identity block employee mail. A real tenant-wide zero-day contract is
 still unverified and remains blocked; an individual with no rows in a proven
 complete nonempty tenant day can validly have zero counted hours.
@@ -301,6 +328,26 @@ processor performs one durable claim, sends with the stable logical idempotency
 key and a 15-second timeout, and never retries Timekontrol automatically.
 An ambiguous provider response is terminal and visible as unclear; abandoned
 `processing` attempts are not reclaimed. No POC test is part of this path.
+
+## Known Limitations
+
+- The first automatic operational run remains unverified; activation evidence
+  and simulated/local tests are not proof of a completed scheduled control.
+- A real tenant-wide zero-day source contract is unverified and blocked. An
+  individual's zero hours in a proven complete nonempty tenant day is distinct.
+- Two stable bounded reads are not an EK atomic snapshot/change/deletion
+  guarantee. Corrections/deletions are handled by new immutable captures and
+  current-head invalidation; actual deletion behavior was tested with fixtures,
+  not demonstrated by the real 56-to-59-row observation.
+- The in-process Render scheduler requires the service to be running in the
+  planned minute. There is no catch-up qualification or automatic retry of an
+  uncertain delivery. Inspect run/receipt/outbox evidence before any action.
+- Friday is provisional, not a final deficit. Four actual valid scheduled
+  daily controls plus Friday's current valid weekly capture are required.
+- Provider acceptance is not actual inbox receipt. The separate transport test
+  was user-confirmed for Mikkel (To) and Dennis (CC), as recorded in
+  [the mail runbook](MAIL_PROVIDER_VERIFICATION.md); operational delivery
+  must be evidenced separately. An in-flight provider call cannot be recalled.
 
 ## Observe Success Or Failure
 
@@ -333,7 +380,9 @@ An ambiguous provider response is terminal and visible as unclear; abandoned
 3. Set both Render flags to `false` through the normal configuration procedure.
 4. Verify dry-run, paused operation and both disabled flags. Do not drain queues.
 
-Concrete PowerShell procedure (documentation only, NOT executed). Use an
+Concrete PowerShell procedure (documentation only, NOT executed). An agent
+requires Dennis's explicit written instruction before changing active operation;
+read-only status inspection does not require change approval. Use an
 existing authenticated HC tenant-admin access token in the operator environment;
 never paste or log the token. The immediate stop does not wait for Render:
 
@@ -377,7 +426,19 @@ was necessary to save live mode and does not change the approved behavior.
 No approval covers general EK sync, other mail queues, LKE, group expansion,
 rule profiles, test resends, fabricated receipts or catch-up employee messages.
 
-## Release Validation
+The active-drift protection rule is maintained in [AGENTS.md](../../AGENTS.md).
+It covers changes in shared components as well as direct Timekontrol changes;
+read-only investigations/documentation and the already authorized automatic
+runs remain allowed. A future general EK-sync task must assess shared tables,
+locks, API rate budget, queues and data ownership before implementation. It
+must preserve Timekontrol's authoritative identity/approval chain, immutable
+captures/current heads, operational receipts and scheduled start windows;
+general sync must not overwrite or disturb them. Any concrete behavior change
+requires Dennis's explicit written approval, not approval inferred from an
+unrelated task. The stop commands above are a reference, not a stop instruction
+for this documentation task.
+
+## Activation Release Validation (12 October 2026)
 
 Final local `npm run check`: 556 passed, 7 opt-in skips, 0 failed; syntax
 251 files, encoding/secrets 465 files, migrations 59 files, static 18 checks.

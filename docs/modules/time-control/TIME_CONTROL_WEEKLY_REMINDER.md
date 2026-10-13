@@ -9,9 +9,13 @@ Scope: fredagens medarbejderpaamindelse og lederoverblik i Timekontrol v1
 
 Den godkendte aktivering er gennemfoert med daekning fra 12. oktober.
 Runbooken dokumenterer gemt epoch/live, Render-schedulerens faktiske opstart,
-uaendret mailkoe og konkret stopprocedure. Foerste fremtidige kontrol er endnu
-ikke observeret; ugen er fortsat 0/4 og kvalificerer kun via faktiske planlagte
-gyldige kontroller, aldrig manuelle eller historiske koersler.
+uaendret mailkoe og konkret stopprocedure. Foerste automatiske driftskoersel
+13. oktober kl. 09.00 er endnu ikke verificeret i dokumentationen.
+0/4 er observationen ved aktiveringen 12. oktober, ikke en ny produktionsstatus.
+Ugen kvalificerer kun via faktiske planlagte gyldige kontroller, aldrig manuelle
+eller historiske koersler. [AGENTS.md](../../../AGENTS.md) beskytter aktiv drift
+mod sideeffekter, ogsaa fra faelles komponenter og fremtidig generel EK-sync;
+konkrete adfaerdsaendringer kraever Dennis' udtrykkelige skriftlige accept.
 
 Den konkrete [aktiveringsplan](../../runbooks/TIME_CONTROL_ACTIVATION.md)
 gaelder den eksisterende gruppe paa seks teknikere. Den bevarer DEP alene
