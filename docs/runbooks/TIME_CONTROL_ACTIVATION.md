@@ -143,6 +143,70 @@ validation. Browser fixture QA verified desktop and 390x844 mobile layout,
 expandable timelines and precise mail statuses. Production browser login was
 expired, so this does not claim authenticated production-page verification.
 
+### Completed Incident Rollout And Runtime Verification
+
+`verified`: commit `c98f0e8f10365586a2081deef1576cf46281d525` was committed,
+pushed to main and auto-deployed by Render. Web deploy
+`dep-db73i3gae00c73bnhmi0` went live at `2026-10-13T13:59:40.701658Z`
+(15:59:40 Copenhagen). Normal pre-deploy applied migration 0060 in 276 ms
+and skipped 59 files. Read-only status subsequently verified 60 applied,
+0 pending, 0 failed, 0 checksum mismatch against committed Git blobs.
+An initial operator checksum check compared Windows CRLF working-copy bytes;
+that false mismatch was corrected in the local verifier, not by editing or
+reapplying any migration. The web process logged minute-aligned scheduler
+startup at `2026-10-13T13:59:30.587Z`; persisted heartbeats confirm it runs.
+
+Independent Render service: **`crn-db73jjrl550s73aljjo0`**, named
+`fielddesk-hc-timecontrol-monitor`, Starter, Oregon, schedule `*/5 * * * *`,
+auto-deploy off. Its pinned live release is the same code commit, deploy
+`dep-db73jkbl550s73aljkn0`, live `2026-10-13T14:02:16.088353Z`.
+The first actual scheduled cron completed at `2026-10-13T14:05:30.556Z`
+(16:05:30 Copenhagen), with one future expected slot, zero abandoned reports
+and no deliveries. It ran on Render, not on this laptop or a Codex session.
+Only one cron was created. The local receipt parser initially expected a
+`srv-` prefix; the existing `crn-` ID was verified and retained by GET, without
+repeating creation. Do not create a second monitor. Future authorized code
+releases must explicitly deploy this pinned cron too.
+
+Runtime cron settings: `TIME_CONTROL_MONITOR_ENABLED=true`, both existing
+Timekontrol flags true, same production DB and mail credential, verified
+Reply-To. Only ten necessary env keys were copied; no EK credential, Render
+operator key, general sync configuration or other mailflow configuration.
+The web's protected environment digest and both existing flags are unchanged.
+Only HC has an enabled monitoring policy; saved `first_schedule_on=2026-10-14`.
+
+The one authorized incident status used job `job-db73kuvavr4c73fp55qg`, which
+succeeded. It documented the existing original scheduler run without running
+a new calculation/capture or issuing an operational receipt. Retrospective
+execution `210d0fc5-afc5-4c41-aa55-3983fa945488` is **partial**, linked to the
+original run, with 2 OK / 4 under norm / 0 blocked, four expected employee mails
+and four unclear original deliveries. Its trace is explicitly retrospective,
+not claimed to have been saved during the old process.
+
+Exactly one status report `18ec07bb-b220-4e9f-9f17-d08b197d89dc`, one claim,
+provider ID **`01a13594-9761-7711-8d4d-f62ffadee336`**. It was accepted at
+16:04:53 Copenhagen. Read-only Resend retrieval verified To Dennis alone,
+no CC, the Timekontrol sender and Reply-To, and `last_event=delivered` at
+16:06:30 observation. This is provider delivery evidence, **not Dennis's
+confirmation of actual Outlook inbox receipt**. No repeat is authorized/needed.
+
+Final reads at 16:06 Copenhagen verified unchanged original six results,
+six receipt IDs, four one-attempt unclear outbox records, active epoch/live
+settings/exact cohort, both accepted POC provider IDs and two superseded tests.
+All 60 unrelated absence mails remain queued with zero attempts. The read-only
+verifier recorded zero provider/EK calls. Next saved slot is
+`43674fcc-0dc0-439e-a203-0bcf0c47ef81`, planned 14 October 09:00 Copenhagen,
+controlling 13 October, with no start/run/mail yet. It must not be started early.
+No delayed employee reminders or test mails were sent during this repair.
+
+Production static page returned HTTP 200 and the unauthenticated operations
+API returned 401. Authenticated admin/RBAC/tenant behavior is locally tested;
+production overview data was read through the same read-only service, not by
+fabricating a browser session. The next actual scheduled employee transport
+remains unverified until Wednesday; no current test can replace that evidence.
+Final local artifacts: `.tmp/tc_postdeploy_final_20261013.json`,
+`.tmp/tc_transport_final_20261013.json`, `.tmp/tc_render_runtime_20261013.json`.
+
 ## Documentation Baseline (13 October 2026)
 
 This is the existing operational source of truth, not a new activation plan.
@@ -550,6 +614,7 @@ $renderAuth = @{ Authorization = "Bearer $env:RENDER_API_KEY" }
 foreach ($flag in @('TIME_CONTROL_SCHEDULER_ENABLED', 'TIME_CONTROL_MAIL_ENABLED')) {
   Invoke-RestMethod -Method Put -Uri "$render/env-vars/$flag" -Headers $renderAuth -ContentType 'application/json' -Body '{"value":"false"}'
 }
+Invoke-RestMethod -Method Post -Uri 'https://api.render.com/v1/services/crn-db73jjrl550s73aljjo0/suspend' -Headers $renderAuth
 Invoke-RestMethod -Method Post -Uri "$render/deploys" -Headers $renderAuth -ContentType 'application/json' -Body '{"deployMode":"deploy_only"}'
 ```
 
