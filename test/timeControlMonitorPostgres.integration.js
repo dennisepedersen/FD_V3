@@ -265,17 +265,19 @@ test("Timekontrol monitor: isolated actual migrations, durable traces, watchdog 
     });
 
     let successfulExecution;
-    await t.test("daily start only in 09:00 Copenhagen minute; concurrent claim and process restart keep one durable slot", async () => {
+    await t.test("daily 09:00-09:02 admission, cross-minute concurrent claim and restart keep one durable slot and actual start", async () => {
       const slot = slotFor("2026-10-13");
       await assert.rejects(obs.beginExecution({ tenantId: HC, scheduled: slot, now: new Date("2026-10-12T07:00:00Z") }), /time_control_monitor_schedule_not_started/);
-      for (const value of ["2026-10-13T06:59:59Z", "2026-10-13T07:01:00Z"]) {
+      for (const value of ["2026-10-13T06:59:59.999Z", "2026-10-13T07:02:00Z"]) {
         await assert.rejects(obs.beginExecution({ tenantId: HC, scheduled: slot, now: new Date(value) }), /time_control_scheduled_start_window_expired/);
       }
-      const attempts = await Promise.all([begin("2026-10-13"), begin("2026-10-13")]);
+      const starts = [new Date("2026-10-13T07:00:00Z"), new Date("2026-10-13T07:01:00Z")];
+      const attempts = await Promise.all(starts.map(now => obs.beginExecution({ tenantId: HC, scheduled: slot, now })));
       assert.equal(attempts.filter(Boolean).length, 1);
       successfulExecution = attempts.find(Boolean);
       assert.equal((await executionRow(successfulExecution.id)).status, "running");
       assert.equal((await executionRow(successfulExecution.id)).scheduled_at.toISOString(), "2026-10-13T07:00:00.000Z");
+      assert.equal((await executionRow(successfulExecution.id)).started_at.toISOString(), starts[attempts.findIndex(Boolean)].toISOString());
       const { execFileSync } = require("node:child_process");
       const restartProof = JSON.parse(execFileSync(process.execPath, ["-e", `
         global.fetch=async()=>{throw new Error("local_postgres_network_forbidden");};
@@ -283,7 +285,7 @@ test("Timekontrol monitor: isolated actual migrations, durable traces, watchdog 
         const pool=require("./backend/src/db/pool");
         (async()=>{try{
           const claim=await obs.beginExecution({tenantId:${JSON.stringify(HC)},
-            scheduled:${JSON.stringify(slot)},now:new Date("2026-10-13T07:00:10Z")});
+            scheduled:${JSON.stringify(slot)},now:new Date("2026-10-13T07:01:59.999Z")});
           const rows=await pool.query("SELECT id,status FROM time_control_execution WHERE tenant_id=$1 AND scheduled_at=$2 AND control_type='daily_09'",
             [${JSON.stringify(HC)},"2026-10-13T07:00:00Z"]);
           console.log(JSON.stringify({claim,rows:rows.rows}));
@@ -294,9 +296,23 @@ test("Timekontrol monitor: isolated actual migrations, durable traces, watchdog 
       assert.equal((await queryOne("SELECT count(*)::int AS n FROM time_control_execution_step WHERE tenant_id=$1 AND execution_id=$2 AND step='scheduled_start'", [HC, successfulExecution.id])).n, 1);
     });
 
+    await t.test("late first admission preserves 09:01:59.999 as actual start and the separate 09:00 slot timestamp", async () => {
+      const slot = slotFor("2026-11-24");
+      const actual = new Date("2026-11-24T08:01:59.999Z");
+      const claim = await obs.beginExecution({ tenantId: HC, scheduled: slot, now: actual });
+      assert.ok(claim);
+      const row = await executionRow(claim.id);
+      assert.equal(row.scheduled_at.toISOString(), "2026-11-24T08:00:00.000Z");
+      assert.equal(row.started_at.toISOString(), actual.toISOString());
+      assert.equal(await obs.beginExecution({ tenantId: HC, scheduled: slot, now: actual }), null);
+      await assert.rejects(obs.beginExecution({ tenantId: HC, scheduled: slot, now: new Date("2026-11-24T08:02:00Z") }), /start_window_expired/);
+    });
+
     await t.test("Friday 12:00 weekly window must not admit the separate daily 09:00 slot", async () => {
       await assert.rejects(obs.beginExecution({ tenantId: HC, scheduled: slotFor("2026-11-06", "daily_09"),
         now: new Date("2026-11-06T11:00:00Z") }), /time_control_scheduled_start_window_expired/);
+      await assert.rejects(obs.beginExecution({ tenantId: HC, scheduled: slotFor("2026-11-06", "friday_weekly_v1"),
+        now: new Date("2026-11-06T11:01:00Z") }), /time_control_scheduled_start_window_expired/);
     });
 
     await t.test("all six OK results finish successfully with zero employee mails and a manager status report", async () => {
@@ -335,7 +351,8 @@ test("Timekontrol monitor: isolated actual migrations, durable traces, watchdog 
       assert.equal((await queryOne("SELECT count(*)::int AS n FROM time_control_execution_step WHERE tenant_id=$1 AND execution_id=$2 AND step='watchdog'", [HC, row.id])).n, 1);
       const statusReport = await report("2026-10-14");
       assert.match(statusReport.message_json.text, /Ikke startet/);
-      assert.match(statusReport.message_json.text, /time_control_expected_start_missing/);
+      assert.match(statusReport.message_json.text, /Den planlagte kontrol startede ikke/);
+      assert.doesNotMatch(statusReport.message_json.text, /time_control_expected_start_missing/);
     });
 
     await t.test("running execution fails at fifteen-minute deadline, never before, without employee transport", async () => {
@@ -477,7 +494,9 @@ test("Timekontrol monitor: isolated actual migrations, durable traces, watchdog 
       const row = await report("2026-10-21");
       assert.match(row.message_json.text, /Fejlede/);
       assert.match(row.message_json.text, /Stoppunkt:/);
-      assert.match(row.message_json.text, /time_control_capture_api_error/);
+      assert.match(row.message_json.text, /Indhentning fra EK/);
+      assert.match(row.message_json.text, /se detaljerne i driftsloggen/);
+      assert.doesNotMatch(row.message_json.text, /time_control_capture_api_error/);
       const before = providerCalls;
       assert.equal((await send(row, sender(row))).status, "accepted");
       assert.equal(providerCalls - before, 1);
@@ -641,7 +660,7 @@ test("Timekontrol monitor: isolated actual migrations, durable traces, watchdog 
       const originalInvalidate = storage.invalidateHoursDataset;
       const RealDate = global.Date;
       const day = "2026-11-16";
-      let clock = new RealDate("2026-11-17T08:00:00Z").getTime();
+      let clock = new RealDate("2026-11-17T08:01:00Z").getTime();
       let captureCalls = 0, pageCalls = 0, transportCalls = 0;
       const receiptsBefore = await receiptCount();
       const unrelatedOutbox = (await pool.query("SELECT * FROM email_outbox WHERE tenant_id=$1 ORDER BY id", [HC])).rows;
@@ -667,8 +686,9 @@ test("Timekontrol monitor: isolated actual migrations, durable traces, watchdog 
         return value;
       };
       try {
-        const execution = await begin("2026-11-17");
+        const execution = await obs.beginExecution({ tenantId: HC, scheduled: slotFor("2026-11-17"), now: new Date(clock) });
         assert.ok(execution);
+        assert.equal((await executionRow(execution.id)).started_at.toISOString(), "2026-11-17T08:01:00.000Z");
         const trace = async (step, status, counts = {}, errorCode = null) => {
           await obs.recordStep({ tenantId: HC, executionId: execution.id, step, status, counts, errorCode });
           const independent = await queryOne(
@@ -730,6 +750,14 @@ test("Timekontrol monitor: isolated actual migrations, durable traces, watchdog 
         assert.equal(result.mails[0].status, "queued");
         assert.equal((await executionRow(execution.id)).run_id, result.run.id);
         assert.equal(await receiptCount(), receiptsBefore + 6, "Only this timely scheduler pipeline may create its six genuine fixture receipts.");
+        const actualReceipts = (await pool.query("SELECT started_at FROM time_control_operational_check WHERE tenant_id=$1 AND run_id=$2", [HC, result.run.id])).rows;
+        assert.ok(actualReceipts.every(row => row.started_at.toISOString() === "2026-11-17T08:01:00.000Z"));
+        const replay = await service.runTimeControlWithPool({ tenantId: HC, controlledDate: day, controlType: "daily_09", triggeredBy: "scheduler" }, {
+          captureDay: async () => { throw new Error("completed_slot_must_not_recapture"); },
+        });
+        assert.equal(replay.replayed, true);
+        assert.equal(replay.run.id, result.run.id);
+        assert.equal(await receiptCount(), receiptsBefore + 6);
         const steps = (await pool.query("SELECT * FROM time_control_execution_step WHERE tenant_id=$1 AND execution_id=$2 ORDER BY id", [HC, execution.id])).rows;
         for (const step of ["capture_started", "capture_completed", "run_binding", "validation", "calculation", "mail_decision", "queue_committed"]) {
           assert.ok(steps.some(row => row.step === step && row.status === (step === "capture_started" ? "started" : "completed")), `Missing actual pipeline trace ${step}`);
@@ -750,9 +778,9 @@ test("Timekontrol monitor: isolated actual migrations, durable traces, watchdog 
             return { provider: "resend", providerMessageId: "local-pipeline-provider-receipt" };
           },
         }));
-        const delivery = await dispatch();
-        assert.equal(delivery.sent, 1, JSON.stringify(delivery));
-        assert.equal(delivery.dead_letter, 0);
+        const deliveries = await Promise.all([dispatch(), dispatch()]);
+        assert.equal(deliveries.reduce((sum, value) => sum + value.sent, 0), 1, JSON.stringify(deliveries));
+        assert.equal(deliveries.reduce((sum, value) => sum + value.dead_letter, 0), 0);
         assert.equal((await dispatch()).claimed, 0);
         assert.equal(transportCalls, 1);
         const sent = await queryOne("SELECT * FROM email_outbox WHERE tenant_id=$1 AND id=$2", [HC, result.mails[0].email_outbox_id]);

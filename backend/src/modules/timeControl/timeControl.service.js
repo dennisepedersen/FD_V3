@@ -362,7 +362,7 @@ async function runTimeControl(client, { tenantId, controlType, controlledDate, a
     `SELECT * FROM time_control_run WHERE tenant_id = $1 AND control_type = $2
      AND controlled_date = $3::date FOR UPDATE`, [tenantId, controlType, date]
   )).rows[0] || null;
-  // A process restart in the same scheduled minute must not recapture a completed slot.
+  // A process restart in the same scheduled slot must not recapture a completed slot.
   if (execution && !dryRun && settings.mode === "live" && settings.is_enabled === true &&
       operation.scheduledStart(controlType, date, execution.startedAt) &&
       triggeredBy === "scheduler" && previousRun?.mode === "live" &&

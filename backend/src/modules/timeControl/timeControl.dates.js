@@ -89,13 +89,13 @@ function determineScheduledControl(now = new Date()) {
   if (weekday === 1 && parts.hour === 9 && parts.minute === 0) {
     return null;
   }
-  if (weekday >= 2 && weekday <= 5 && parts.hour === 9 && parts.minute === 0) {
+  if (weekday >= 2 && weekday <= 5 && parts.hour === 9 && parts.minute < 2) {
     return {
       controlType: "daily_09",
       controlledDate: addDaysIso(parts.isoDate, -1),
       localDate: parts.isoDate,
       localHour: parts.hour,
-      localMinute: parts.minute,
+      localMinute: 0,
       timezone: TIMEZONE,
     };
   }

@@ -6,6 +6,65 @@ Status: ACTIVE; user-approved activation completed and runtime-verified
 Target: first scheduled control Tuesday 13 October 2026 at 09:00,
 Europe/Copenhagen (07:00 UTC), evaluating Monday 12 October.
 
+## Approved Daily Start Window (13 October 2026)
+
+Dennis explicitly approved the scoped code change, tests, commit/push and
+rollout to both web and the existing separate cron. This release replaces
+the original one-minute daily admission rule described in dated incident
+history below; that history is not the current daily start contract.
+
+- Daily control, Tuesday-Friday: **09:00:00 <= actual start < 09:02:00,
+  Europe/Copenhagen**. Before 09:00 and at/after 09:02 are rejected.
+- Both minutes identify the same scheduled 09:00 slot. Only the returned
+  schedule's `localMinute` is canonicalized to zero; actual execution/run/
+  operational-receipt start timestamps retain their observed values. Never
+  backdate a 09:01 start to 09:00.
+- The shared schedule selector is also used by durable slot admission,
+  scheduled data/evaluation receipts and automatic dispatch validation. A
+  valid 09:01 start can now qualify, but completion and daily dispatch must
+  still occur **before 09:15**, not 15 minutes after the actual start.
+- Missing-start alarm threshold remains **09:02**; normal detection by the
+  independent five-minute cron is around 09:05 plus startup latency. A started
+  run has the same absolute 09:15 deadline. Report due time is unchanged.
+- The in-memory slot key remains the same across both minutes. Existing
+  durable claims, run locks, immutable bindings and provider/outbox idempotency
+  remain unchanged. Restart or competing processes cannot reclaim an admitted
+  slot. This permits a late first start, not retries of a failed/claimed run.
+- Friday **09:00 daily control** uses this window. Friday **12:00 weekly
+  control** retains only 12:00:00-12:00:59.999 admission, completion before
+  12:15 and existing 14:30 reminder cutoff. No weekly timing was widened.
+- Still four valid scheduled daily receipts per technician for the same
+  active cohort/epoch, plus the current Friday weekly receipt/snapshot.
+  Activation/coverage requirements, including operation start before Tuesday
+  09:00, remain unchanged. Manual/historical controls cannot qualify the week.
+- HC's exact six-person cohort, approved recipients/DEP routing, Timekontrol
+  sender/Reply-To, LKE exclusion, all data guards and production flags stay
+  unchanged. No migration or new configuration field is required.
+
+Production change is limited to the daily branch in `timeControl.dates.js`:
+`parts.minute < 2` and canonical `localMinute: 0`. Tests cover exact boundaries,
+Copenhagen DST, actual unbackdated timestamps, shared key, cross-minute
+concurrent PostgreSQL claims/process restart, qualifying 09:01 receipts,
+guarded simulated employee dispatch and unchanged weekly/deadline behavior.
+The previous incident and confirmed mail history must not be replayed to
+validate this release. Next authorized control remains **Wednesday 14 October
+2026 09:00 Copenhagen, evaluating Tuesday 13 October**; no early/manual run.
+
+Release validation: `npm run check` passed **625 tests, 8 opt-in skips, zero
+failures**, syntax 259 files, whitespace, encoding/secrets 474 files,
+migration structure 60 files and 18 static assertions. The focused scheduler/
+operation/monitor suite passed **45/45**, no skips. Separately, the four
+guarded local PostgreSQL suites passed **29/29**, no skips, using fresh local
+databases and all 60 actual migrations. They prove a 09:01 first start,
+six qualifying receipts with real fixture start timestamps, cross-minute
+claims and restart, completed-run reuse without recapture, and concurrent
+guarded dispatch with exactly one simulated provider acceptance. All external
+calls were forbidden. Initial local test setup needed its missing admin
+database created; two older text assertions were aligned with the already
+deployed Danish status wording. No production behavior was changed for those
+test repairs. The owned local PostgreSQL server was stopped after validation.
+Pre-deploy read-only baseline: `.tmp/tc_followup_before_1791924165775.json`.
+
 ## Incident And Scoped Repair (13 October 2026)
 
 Current operational outcome: the first scheduled calculation is verified, but
@@ -83,7 +142,9 @@ No new employee group, LKE recipient, rule profile or general EK sync is allowed
   of USD 1/month per cron service, plus usage above that minimum.
   Web ticks are now aligned to wall-clock minute boundaries rather than the
   startup second (the original first control started at :55). The original
-  one-minute admission window and all capture/dispatch budgets remain unchanged.
+  original one-minute admission window and all capture/dispatch budgets remained
+  unchanged in that repair. The separately approved two-minute daily window is
+  documented at the top of this runbook.
 - Expected start deadline: scheduled time +2 minutes, normally detected by the
   next five-minute cron (09:05 / 12:05, plus Render startup latency).
   Calculation/pipeline deadline remains 09:15 / 12:15. Existing weekly employee
@@ -228,7 +289,8 @@ Qualification clarification, unchanged existing rules:
 
 - Each employee needs a valid receipt for each of Monday-Thursday's controlled
   dates, from the next day's scheduled live `daily_09` run. The run must start
-  in the scheduled 09:00 Copenhagen minute and finish before 09:15. It must be
+  in the scheduled daily admission window (originally the 09:00 minute;
+  now 09:00 <= start < 09:02 as approved above) and finish before 09:15. It must be
   completed, non-historical and triggered by the scheduler, with complete
   coverage and a server-captured dataset passing the existing freshness and
   validation guards. Both `ok` and `missing_hours` are valid calculations;
@@ -413,9 +475,9 @@ Validation reuse: the approved code commit's full `npm run check` remains
 audit. The focused monitor/provider-payload/operation suite was rerun and
 passed **54/54**, no skips. `npm run check:whitespace`,
 `npm run check:encoding` and `npm run check:secrets` passed for the subsequent
-runbook update. This additional audit/admission documentation is local;
-only the expressly approved `d7aecfe` was pushed/deployed, avoiding another
-unrequested release.
+runbook update. At that follow-up this additional audit/admission documentation
+was local and only the expressly approved `d7aecfe` was pushed/deployed. The
+documentation is included in the subsequently authorized daily-window release.
 
 ## Documentation Baseline (13 October 2026)
 
@@ -675,25 +737,27 @@ rather than an interactive HTTP session. No auth or route behavior was changed.
 | Fri 16 October 12:00 | Mon 12 through provisional Fri 16 | Below 37 counted hours, only if operational gate passes |
 
 All times use Copenhagen, independent of Render's Oregon region. The existing
-in-process scheduler ticks every 60 seconds and must start in the scheduled
-minute. Completion must occur before 09:15 or 12:15. Daily dispatch ends at
+in-process scheduler ticks every 60 seconds. Daily start must be at/after
+09:00 and before 09:02; Friday weekly start remains in the 12:00 minute.
+Completion must occur before 09:15 or 12:15. Daily dispatch ends at
 09:15; weekly reminder dispatch ends at 14:30. These are completion/send
-windows, not catch-up permission. Restarts in the same scheduled minute reuse
+windows, not catch-up permission outside admission. Restarts in the same slot reuse
 a completed live slot without recapturing or creating another notification.
 
 **Admission versus alarm:** the control must be admitted during
-**09:00:00-09:00:59.999 Copenhagen**. At **09:01**, a newly started/restarted
-web scheduler finds no scheduled control; a late explicit scheduled admission
-is also rejected by the existing start-window checks. It does not catch up,
-create a qualifying receipt or send an employee reminder for that missed slot.
-A run already admitted in the 09:00 minute may continue past 09:01 and finish
-before 09:15; this is different from a late start. The independent watchdog's
-**09:02 threshold is only a missing-start alarm delay**, not permission to
-start two minutes late. On its next five-minute run, normally around 09:05
+**09:00:00 <= actual start < 09:02:00 Copenhagen**. At **09:01**, a newly
+started/restarted web scheduler may admit the original 09:00 slot only if it
+has not already been claimed. Its actual 09:01 start is saved unchanged and
+can qualify if all other guards pass. At **09:02 or later**, no new scheduled
+daily start is admitted and there is no catch-up qualification. Completion
+and sending remain before 09:15. The independent watchdog's **09:02 threshold
+is a missing-start alarm threshold**, not permission to start at/after 09:02.
+On its next five-minute run, normally around 09:05
 plus Render startup latency, it records the absent start. The normal Dennis
 status report remains due 09:20, normally processed by 09:25; no immediate
-09:02 mail or automatic catch-up control is implied. No behavior was changed
-to document this distinction.
+09:02 mail or automatic catch-up control is implied. The daily admission
+extension was explicitly approved; alarm, completion and dispatch deadlines
+were not changed.
 
 **At activation verification on 12 October: 0/4 planned daily controls;
 the week was not qualified. Current qualification is not re-verified here.**
@@ -766,7 +830,8 @@ An ambiguous provider response is terminal and visible as unclear; abandoned
   current-head invalidation; actual deletion behavior was tested with fixtures,
   not demonstrated by the real 56-to-59-row observation.
 - The in-process Render scheduler requires the service to be running in the
-  planned minute. There is no catch-up qualification or automatic retry of an
+  admission window (daily 09:00 <= start < 09:02; weekly only the 12:00 minute).
+  There is no catch-up qualification outside this window or automatic retry of an
   uncertain delivery. Inspect run/receipt/outbox evidence before any action.
 - Friday is provisional, not a final deficit. Four actual valid scheduled
   daily controls plus Friday's current valid weekly capture are required.

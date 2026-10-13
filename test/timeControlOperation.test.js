@@ -22,7 +22,8 @@ test("planned control/start and completion windows use Copenhagen including DST 
   ]) {
     const now = new Date(start);
     assert.equal(operation.scheduledStart(type, day, now), true);
-    assert.equal(operation.scheduledStart(type, day, new Date(now.getTime() + 60_000)), false);
+    assert.equal(operation.scheduledStart(type, day, new Date(now.getTime() + 60_000)), type === "daily_09");
+    assert.equal(operation.scheduledStart(type, day, new Date(now.getTime() + 120_000)), false);
     assert.equal(operation.completionWindow(type, day, new Date(now.getTime() + 14 * 60_000)), true);
     assert.equal(operation.completionWindow(type, day, new Date(now.getTime() + 15 * 60_000)), false);
     assert.equal(operation.dispatchWindow(type, day, new Date(now.getTime() + 15 * 60_000)), type === "friday_weekly_v1");
@@ -31,6 +32,48 @@ test("planned control/start and completion windows use Copenhagen including DST 
   assert.equal(dates.determineScheduledControl(new Date("2026-10-12T07:00:00Z")), null);
   assert.equal(operation.dispatchWindow("daily_09", "2026-10-18", new Date("2026-10-19T07:01:00Z")), false);
   assert.equal(operation.dispatchWindow("daily_09", "2026-10-23", new Date("2026-10-24T07:01:00Z")), false);
+});
+
+test("daily start is half-open 09:00 to 09:02 with one canonical slot through Copenhagen DST", () => {
+  for (const [day, offset] of [["2026-10-14", "+02:00"], ["2026-10-16", "+02:00"], ["2026-10-28", "+01:00"]]) {
+    const controlled = dates.addDaysIso(day, -1);
+    let slot;
+    for (const [time, admitted] of [["08:59:59.999", false], ["09:00:00.000", true],
+      ["09:01:00.000", true], ["09:01:59.000", true], ["09:01:59.999", true], ["09:02:00.000", false]]) {
+      const now = new Date(`${day}T${time}${offset}`);
+      const selected = dates.determineScheduledControl(now);
+      assert.equal(Boolean(selected), admitted, `${day} ${time}`);
+      assert.equal(operation.scheduledStart("daily_09", controlled, now), admitted);
+      if (admitted) {
+        assert.equal(selected.localMinute, 0);
+        if (slot) assert.deepEqual(selected, slot);
+        slot = selected;
+      }
+    }
+    assert.equal(operation.completionWindow("daily_09", controlled, new Date(`${day}T09:14:59.999${offset}`)), true);
+    assert.equal(operation.dispatchWindow("daily_09", controlled, new Date(`${day}T09:15:00.000${offset}`)), false);
+  }
+});
+
+test("09:01 starts issue qualifying receipts with their actual timestamp, never the canonical slot time", async () => {
+  const identity = { fitter_id: "15", group_id: "group", approval_version: 1, approved_email: "fixture@example.test",
+    hours_dataset: { server_captured: true } };
+  for (const stamp of ["2026-10-14T07:00:00Z", "2026-10-14T07:01:00Z", "2026-10-14T07:01:59.999Z"]) {
+    const startedAt = new Date(stamp), inserts = [];
+    const client = { query: async (sql, args) => {
+      if (sql.includes("operation_state")) return { rows: [{ id: "epoch", status: "active", covered_day: "2026-10-12",
+        started_at: "2026-10-12T06:00:00Z", cohort_json: [{ fitter_id: "15", identity_hash: operation.identityHash(identity) }] }] };
+      assert.ok(sql.includes("INSERT INTO time_control_operational_check"));
+      inserts.push(args); return { rows: [{ id: "receipt" }] };
+    } };
+    const checks = await operation.recordChecks(client, { tenantId: "tenant",
+      run: { id: "run", status: "completed", mode: "live", triggered_by: "scheduler", control_type: "daily_09" },
+      results: [{ fitter_id: "15", status: "missing_hours", coverage_status: "complete", identity_snapshot: identity }],
+      execution: { startedAt, controlledDate: "2026-10-13", historical: false, operationIds: ["epoch"],
+        now: () => new Date("2026-10-14T07:14:59.999Z") } });
+    assert.deepEqual(checks, ["receipt"]);
+    assert.equal(inserts[0][10].toISOString(), startedAt.toISOString());
+  }
 });
 
 test("operational identity changes invalidate cohort compatibility, without changing mail deduplication key", () => {
@@ -53,7 +96,7 @@ test("blocked, dry-run and historical controls never issue operational receipts"
   assert.deepEqual(await operation.recordChecks(client, { tenantId:"tenant", run, results:[{}],
     execution:{...execution,historical:true} }), []);
   assert.deepEqual(await operation.recordChecks(client, { tenantId:"tenant", run, results:[{}],
-    execution:{...execution,startedAt:new Date("2026-10-20T07:01:00Z")} }), []);
+    execution:{...execution,startedAt:new Date("2026-10-20T07:02:00Z")} }), []);
   assert.deepEqual(await operation.recordChecks(client, { tenantId:"tenant", run, results:[{}],
     execution:{...execution,now:() => new Date("2026-10-20T07:15:00Z")} }), []);
 });
@@ -77,7 +120,7 @@ test("scheduler starts tenants concurrently, bounds fanout and rejects expired q
   assert.equal(starts.length, 4);
   assert.equal(peak, scheduler.TENANT_CONCURRENCY);
   assert.ok(starts.every(s => s.at === "2026-10-20T07:00:00.000Z"));
-  clock = new Date("2026-10-20T07:01:30Z");
+  clock = new Date("2026-10-20T07:02:00Z");
   for (const resolve of unblock) resolve();
   const originalError = console.error;
   try {
@@ -121,7 +164,8 @@ test("October 12-16 requires exactly four planned daily checks and the current F
   const slots = period.days.slice(0, 4).map(day => dates.determineScheduledControl(new Date(`${dates.addDaysIso(day, 1)}T07:00:59.999Z`)));
   assert.ok(slots.every(slot => slot.controlType === "daily_09"));
   assert.deepEqual(slots.map(slot => slot.controlledDate), period.days.slice(0, 4));
-  assert.equal(dates.determineScheduledControl(new Date("2026-10-13T07:01:00Z")), null);
+  assert.equal(dates.determineScheduledControl(new Date("2026-10-13T07:01:00Z")).controlType, "daily_09");
+  assert.equal(dates.determineScheduledControl(new Date("2026-10-13T07:02:00Z")), null);
   assert.equal(dates.determineScheduledControl(new Date("2026-10-16T10:00:00Z")).controlType, "friday_weekly_v1");
   let startedAt = "2026-10-13T06:59:59.999Z";
   let receipts = period.days.slice(0, 4).map(day => ({

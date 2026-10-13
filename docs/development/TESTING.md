@@ -57,6 +57,12 @@ These cover PR2 schema/static contracts, PR3 employee-own request flows, PR4 not
 
 Incident monitoring additions (13 October 2026):
 
+- Approved daily admission regression uses 09:00 <= actual start < 09:02
+  Copenhagen, one canonical 09:00 slot and an unchanged 09:15 deadline.
+  Operation/automation unit tests cover boundaries/DST/shared key;
+  monitor PostgreSQL tests prove cross-minute claim/restart, unbackdated
+  start timestamps, genuine 09:01 receipts and concurrent mocked dispatch.
+  Friday weekly admission remains only the 12:00 minute.
 - `node --test test/timeControlMonitor.test.js test/timeControlTrace.test.js test/timeControlProviderIncident.test.js test/timeControlObservabilityUi.test.js`
   covers expected slots/deadlines, absent/unfinished runs, status independent of
   calculation, actual mocked Resend request tags, safe rejection/uncertainty,

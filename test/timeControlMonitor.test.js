@@ -10,7 +10,7 @@ const obs = require("../backend/src/modules/timeControl/timeControl.observabilit
 const monitor = require("../backend/src/modules/timeControl/timeControl.monitor");
 const uuid = n => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 
-test("scheduler aligns ticks to minute boundaries without widening the scheduled minute", () => {
+test("scheduler aligns ticks to minute boundaries independently of the daily admission window", () => {
   const scheduler = require("../backend/src/modules/timeControl/timeControl.scheduler")._test;
   assert.equal(scheduler.nextTickDelay(Date.parse("2026-10-14T06:59:55.511Z")), 4489);
   assert.equal(scheduler.nextTickDelay(Date.parse("2026-10-14T07:00:00.000Z")), 60000);

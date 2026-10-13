@@ -51,6 +51,28 @@ test("scheduler bridge dispatches only exact unique IDs from the committed live 
   assert.equal(calls.length, 1);
 });
 
+test("scheduler ticks at 09:00 and 09:01 retain one logical slot without another control attempt", async t => {
+  flags(t);
+  const pool = require("../backend/src/db/pool");
+  const obs = require("../backend/src/modules/timeControl/timeControl.observability");
+  const scheduler = require("../backend/src/modules/timeControl/timeControl.scheduler")._test;
+  const RealDate = global.Date;
+  let clock = Date.parse("2026-10-14T07:00:00Z"), claims = 0;
+  global.Date = class extends RealDate {
+    constructor(...args) { super(...(args.length ? args : [clock])); }
+    static now() { return clock; }
+  };
+  t.after(() => { global.Date = RealDate; });
+  t.mock.method(obs, "heartbeat", async () => {});
+  t.mock.method(obs, "beginExecution", async () => { claims++; return null; });
+  t.mock.method(pool, "query", async () => ({ rows: [{ tenant_id: tenantId }] }));
+  t.mock.method(global, "fetch", async () => { throw new Error("provider_forbidden"); });
+  assert.equal((await scheduler.tick(new Date())).skipped, false);
+  clock += 60000;
+  assert.equal((await scheduler.tick(new Date())).reason, "already_ran_minute");
+  assert.equal(claims, 1);
+});
+
 test("scheduler reports blocked calculation as failure and calls the narrow dispatch bridge after evaluation", async t => {
   flags(t);
   t.mock.method(console, "log", () => {});
