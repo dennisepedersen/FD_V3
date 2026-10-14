@@ -6,6 +6,7 @@ const obs = require("./timeControl.observability");
 const automation = require("./timeControl.automation");
 const ENV = require("../../config/env");
 const { sendEmail } = require("../../services/mailService");
+const { renderTimeControlHtml } = require("./timeControl.email");
 const SENDER = "Fielddesk Timekontrol <timekontrol@mail.fielddesk.dk>";
 const LABELS = { accepted: "Provider accepterede", pending: "Afventer", queued: "Afventer", sending: "Uafklaret",
   rejected: "Afvist/fejlet", unclear: "Uafklaret", completed: "Lykkedes", partial: "Delvist gennemført", failed: "Fejlede", missed: "Ikke startet" };
@@ -68,8 +69,11 @@ function buildStatusMessage({ tenantId, reportDate, executions, correction = nul
   if (correction) lines.push(correction, "");
   lines.push("Provideraccept er ikke bevis for modtagelse i indbakken.",
     "Driftslog: https://hoyrup-clemmensen.fielddesk.dk/tenant/time-control.html#operations", "", "Fielddesk Timekontrol");
+  const text = lines.join("\n");
   return { to: obs.DEP, cc: [], from: SENDER, replyTo: "admin@fielddesk.dk",
-    subject: `Timekontrol: driftsstatus ${reportDate}`, text: lines.join("\n"), tenantId, template: "time_control.daily_status" };
+    subject: `Timekontrol: driftsstatus ${reportDate}`, text,
+    html: renderTimeControlHtml({ text, origin: "https://hoyrup-clemmensen.fielddesk.dk" }),
+    tenantId, template: "time_control.daily_status" };
 }
 async function enqueueReport({ tenantId, reportDate, correction = null }) {
   const overview = await obs.getOverview({ tenantId });

@@ -62,7 +62,14 @@ async function enqueueEmail(client, {
     throw new Error(`email_template_not_found:${templateKey}:${locale}`);
   }
 
-  const rendered = renderTemplate(template, variables);
+  const email = require("../timeControl/timeControl.email");
+  const timeControl = sourceType === "time_control" && email.TEMPLATE_KEYS.has(templateKey);
+  let rendered = renderTemplate(template, variables, { htmlLineBreaks: timeControl });
+  if (timeControl) {
+    rendered = await email.brandTimeControlEmail(client, {
+      tenantId, rendered, rootDomain: require("../../config/env").ROOT_DOMAIN,
+    });
+  }
   const emailState = emailFailureFor(recipientEmail);
   const ccState = emailListFailureFor(payload?.cc_emails);
   const normalizedEmail = emailState.email;

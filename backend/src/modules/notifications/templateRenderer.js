@@ -27,7 +27,7 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
-function renderPart(templateText, variables, allowedVariables, { html = false } = {}) {
+function renderPart(templateText, variables, allowedVariables, { html = false, htmlLineBreaks = false } = {}) {
   const placeholders = extractPlaceholders(templateText);
   for (const placeholder of placeholders) {
     if (!allowedVariables.has(placeholder)) {
@@ -40,11 +40,13 @@ function renderPart(templateText, variables, allowedVariables, { html = false } 
 
   return String(templateText || "").replace(PLACEHOLDER_PATTERN, (_match, name) => {
     const value = variables[name];
-    return html ? escapeHtml(value) : String(value);
+    if (!html) return String(value);
+    const escaped = escapeHtml(value);
+    return htmlLineBreaks ? escaped.replace(/\r\n|\r|\n/g, "<br>") : escaped;
   });
 }
 
-function renderTemplate(template, variables) {
+function renderTemplate(template, variables, { htmlLineBreaks = false } = {}) {
   if (!template) throw new Error("email_template_required");
   if (!variables || typeof variables !== "object" || Array.isArray(variables)) {
     throw new Error("email_template_variables_invalid");
@@ -52,7 +54,7 @@ function renderTemplate(template, variables) {
   const allowedVariables = normalizeAllowedVariables(template.allowed_variables_json || []);
   return {
     subject: renderPart(template.subject_template, variables, allowedVariables),
-    html: renderPart(template.html_template, variables, allowedVariables, { html: true }),
+    html: renderPart(template.html_template, variables, allowedVariables, { html: true, htmlLineBreaks }),
     text: renderPart(template.text_template, variables, allowedVariables),
   };
 }

@@ -263,7 +263,7 @@ test("email enqueue normalizes CC and dead-letters unusable copies without dropp
     [auditService, "logAuditEvent", async (event) => audits.push(event)],
   ], async () => {
     for (const cc of [[" DEP@Example.Test ", "dep@example.test"], ["invalid"], [""]]) {
-      await emailOutboxService.enqueueEmail(createClient(), {
+      await emailOutboxService.enqueueEmail(createClient([{ slug: "test-tenant" }]), {
         tenantId: uuid(1), actorId: uuid(2), templateKey: "time_control.missing_hours.employee",
         recipientEmail: " Employee@Example.Test ", variables: {},
         payload: { cc_emails: cc, sender: "Timekontrol <mail@example.test>" },

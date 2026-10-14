@@ -8,6 +8,72 @@ Europe/Copenhagen (07:00 UTC), evaluating Monday 12 October.
 
 ## Approved Daily Start Window (13 October 2026)
 
+### Danish Email Text And Existing Fielddesk Frame (14 October 2026)
+
+Dennis explicitly requested the scoped Danish-text and visual mail repair,
+regression tests, and commit/push/deploy only after passing checks. No extra
+testmail, resend, control run, rule, recipient, scheduler or configuration
+change is authorized by this repair.
+
+`verified`: read-only production evidence in
+`.tmp/tc_mail_before_1791965049259.json` shows the active system daily template
+and both accepted 14 October employee messages contain literal ASCII words
+`Bemaerk`, `tillaeg`, `taeller` and `sygdomsloenarter` in HTML and plain text.
+These words originate in migration 0049, before rendering and Resend. The
+renderer/adapter/JSON serialization do not transliterate Danish characters.
+The old system plain-text templates also contain literal backslash-n pairs.
+
+Migration `0061_time_control_email_danish.sql` creates corrected active v2
+system daily, legacy manager and diagnostic templates. Original v1 content is
+retained inactive; tenant overrides and stored outbox/report messages are not
+rewritten. Literal backslash-n becomes real newlines only in those new system
+templates. No schema, rule or operational data changes are included.
+
+New Timekontrol outbox messages and newly constructed status reports reuse
+the invitation email's existing table/card/logo frame. The invitation output
+remains byte-for-byte identical. Only Timekontrol variable line breaks become
+HTML breaks after HTML escaping; markup and other mailflows retain their
+existing rendering. Employee mails contain no action button. The logo origin
+is derived from the server-side tenant slug/root domain; the already HC-only
+status report retains HC's established origin. Plain text remains independent.
+
+Local regression commands:
+
+```text
+node --test test/timeControlEmail.test.js test/tenantUserInvitationEmail.test.js test/timeControlMonitor.test.js test/timeControlProviderIncident.test.js test/timeControlAutomaticMail.test.js test/notificationOutboxFoundation.test.js
+node --test test/timeControlEmailPostgres.integration.js test/timeControlMonitorPostgres.integration.js
+npm run check
+```
+
+The PostgreSQL command requires the isolated loopback opt-in documented in
+`docs/development/TESTING.md`; external fetch/provider calls are forbidden or
+mocked. The new migration test checks Danish text, real line breaks, repeated
+execution, preserved overrides/other templates/old mails/reports and tenant
+logo origin. Local fixtures are previewed at 650 and 390 pixels; this is browser
+QA, not proof of rendering in Outlook. No mail is sent during validation.
+
+After rollout, verify the next actually authorized automatic message by its
+new outbox/report identity and provider ID, reading Resend HTML/text without
+resending. The next daily slot is Thursday 15 October 2026 09:00 Copenhagen,
+evaluating 14 October; an employee reminder is conditional on the existing
+rules. Normal DEP status is due 09:20 and normally processed by 09:25. Actual
+Outlook display and receipt require checking that newly received message.
+Never replay an old message to prove this repair. Rollout results are recorded
+separately after validation.
+
+Release gate `npm run check` passed: 629 tests passed, 9 opt-in skips, zero
+failures; syntax 263 files, encoding/secrets 479 files, migrations 61 files and
+18 static assertions. Separately, the final isolated email/monitor PostgreSQL
+command passed 22/22 without skips or external calls. The earlier focused
+mail command passed 84/84; the final full suite additionally covers the
+multiline-markup regression. Initial checks found an obsolete static frame
+assertion, a scanner-unfriendly local URL expression and incomplete historical
+test fixtures; these were repaired without changing runtime policy or scanner
+rules. The existing invitation HTML/text/subject was also compared against
+pre-change output byte for byte and was identical.
+
+### Approved Daily Start Contract
+
 Dennis explicitly approved the scoped code change, tests, commit/push and
 rollout to both web and the existing separate cron. This release replaces
 the original one-minute daily admission rule described in dated incident
