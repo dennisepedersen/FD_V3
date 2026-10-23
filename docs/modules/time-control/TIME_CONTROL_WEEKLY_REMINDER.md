@@ -52,8 +52,8 @@ resultat og dets evidens bevares med deres oprindelige betydning.
 `verified` i den lokale routingpolicy og service-/dispatchintegration:
 tenant-admin kan konfigurere ekstra CC og BCC separat via den
 [kanoniske routingkontrakt](../calendar/ABSENCE_NOTIFICATIONS_OUTBOX_PR4.md#tenant-admin-ekstra-ccbcc-til-driftsmails).
-Dette er et lokalt implementeringstillæg; ovenstående daterede driftsstatus
-og aktiveringsbeviser ændres ikke.
+Routing er nu udrullet efter konkret godkendelse; ovenstående daterede
+driftsstatus og aktiveringsbeviser ændres ikke.
 
 - `time_control_missing_hours` omfatter **både daglig individuel mail**
   (`time_control.missing_hours.employee`) **og individuel ugepåmindelse**
@@ -73,11 +73,14 @@ og aktiveringsbeviser ændres ikke.
   Legacykøposter får aldrig nye kopier eftermonteret og blokeres, hvis aktuel
   ekstra routing kræver andre modtagere. Ingen replay eller genafsendelse.
 
-HC-ønsket om JEL som ekstra BCC på **begge** disse familier er ikke gemt og
-har ikke ændret produktionen. Fremtidig anvendelse kræver særskilt eksplicit
-godkendelse, migration 0065, webudrulning og konkret tenant-admin-gem før nye
-køposter dannes. Monitor-cron og diagnostik ændres ikke. Udrulning/gem er ikke
-udført eller live-verificeret i dette dokumentationstillæg.
+`verified` 23. oktober 2026 kl. 12.48: HC har JEL som ekstra BCC på **begge**
+familier, revision 1, gemt/læst tilbage efter godkendt 0065/webudrulning.
+Kodecommit `c19ab93`, webdeploy `dep-dbdjlrbm8hqs73ed0p30`. Normale Til/CC og
+alle 85 gamle outboxposter er uændrede; ingen nye mails eller manuelle kørsler.
+Monitor-cron og diagnostik er uændrede og uden JEL. Første mulige nye BCC er
+en regelberettiget individuel mail ved kontrollen tirsdag 27. oktober kl. 09.00
+af mandag 26. oktober; faktisk afsendelse/levering er ikke endnu bevist.
+Fuld kvittering og stop af observerkopier findes i routingkontrakten ovenfor.
 
 ## Afgrænsning fra dagsbaseret POC
 
@@ -404,10 +407,10 @@ grupper efter valideret kilde, konfliktkontrol og særskilt migreringsgodkendels
 
 ### Separat backlog, ikke dags-capture-opgaven
 
-- Ekstra operationel CC/BCC er implementeret lokalt efter
+- Ekstra operationel CC/BCC er udrullet og HC's observermodtagere gemt efter
   [routingkontrakten](../calendar/ABSENCE_NOTIFICATIONS_OUTBOX_PR4.md#tenant-admin-ekstra-ccbcc-til-driftsmails).
-  Verificeret lokalt; afventer godkendt migration 0065/webudrulning samt
-  admin-gem af HC's ønskede JEL-BCC på individuel dags-/ugemail og ugens
+  Verificeret 23. oktober efter godkendt migration 0065/webudrulning samt
+  admin-gem af HC's JEL-BCC på individuel dags-/ugemail og ugens
   lederoversigt før nye køposter. Ingen monitor-/diagnostikkopi eller gammel
   replay er omfattet; gruppebaseret lederrouting er fortsat et separat spor.
 - Historisk backfill: projektvis retention, omfang/omkostning, konfliktkontrol,

@@ -477,15 +477,18 @@ afskærmede admin-indstillingspanel/API, ikke i normal preview, jobstatus,
 mailbody eller logs. Manuel preview og den særskilt foreslåede fase 2-testmail
 er udenfor denne routing.
 
-HC-ønsket er JEL som ekstra **CC** på Godkendelseskontrol; det er **ikke gemt**
-og har ikke ændret produktionen. Det kræver senere eksplicit godkendt
-migration 0065 og webudrulning samt konkret tenant-admin-gem før nye
-jobmeddelelser dannes. Det ændrer ikke de daterede fase 1-beviser eller den
+`verified` 23. oktober kl. 12.48: HC har JEL gemt som ekstra **CC**, revision 1,
+efter den konkrete godkendelse af migration 0065, webdeploy og tenant-admin-gem.
+Ekstra BCC er slukket/tom. Kodecommit `c19ab93`, deploy
+`dep-dbdjlrbm8hqs73ed0p30`; API, database og audit er læst tilbage.
+Det ændrer ikke de daterede fase 1-beviser eller den
 allerede beskrevne DEP-alene-test i fase 2. Godkendelseskontrol er fortsat
 **disabled uden startdato/aktiv periode**; modtagervalg starter ingen scheduler
-eller maildrift og erstatter ikke de særskilte fase 2-godkendelser. Ingen
-ny produktionsverifikation for ekstra routing påstås her. Den gennemførte
-lokale validering er samlet i routingkontrakten ovenfor.
+eller maildrift og erstatter ikke de særskilte fase 2-godkendelser.
+Ingen Godkendelseskontrol-kørsel, mail eller test er udført ved udrulningen.
+JEL er alene en konfigureret kopi på en fremtidig godkendt driftsmail, ikke
+bevis for afsendelse eller indbakkemodtagelse. Fuld kvittering er samlet i
+routingkontrakten ovenfor.
 
 ## Backlog og testgrænse
 
@@ -500,11 +503,11 @@ lokale validering er samlet i routingkontrakten ovenfor.
 | Udrullet fase 1, ikke aktiveret | Fremadrettet dækning fra første produktionsaktivering, fredag 14.31, mandag-torsdag 14.30 og dynamisk periode/fodnote |
 | Afventer ny godkendelse | Fase 2: eksplicit live-preview, særskilt låst testmailvej før aktivering, én test og bekræftet indbakke |
 | Afventer senere godkendelse | Faktisk scheduler-/mailaktivering med første serverdaterede kvittering, efter bestået fase 2-mailtest |
-| Implementeret og verificeret lokalt; ikke udrullet eller gemt | Tenant-admin ekstra CC/BCC til den planlagte `approval_control_summary`; afventer eksplicit godkendt 0065/webudrulning og konkret admin-gem af HC's JEL-CC. Ingen startdato, aktivering eller replay |
+| Udrullet og settings verificeret 23. oktober | Tenant-admin ekstra CC/BCC til `approval_control_summary`; HC's JEL-CC revision 1 gemt. Selve Godkendelseskontrol er fortsat slukket; ingen startdato, aktivering, mail eller replay |
 | Senere særskilt scope | Go-live-afgrænset effektstatistik, andre modtagere/tenants, andre intervaller, helligdage og automatisk retry |
 
 Ekstra CC/BCC-tillægget afgrænser modtagersporet i den sidste backlogrække:
-den beskrevne ekstra kopifunktion er nu implementeret lokalt; bredere valg
+den beskrevne ekstra kopifunktion er nu udrullet; bredere valg
 af primær modtager eller tenant er fortsat senere særskilt scope.
 
 `test/approvalControl.test.js` dækker de ti oprindelige adfærdskrav:

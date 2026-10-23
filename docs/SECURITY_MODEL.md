@@ -311,11 +311,14 @@ provider errors must not disclose them.
 The individual Timekontrol family includes daily and individual weekly mail;
 the Friday family includes only `time_control.friday_weekly_summary_v1`.
 All monitor status/diagnostics and other unlisted mail flows are excluded.
-This is a local implementation contract, not new production/test evidence.
-HC's JEL BCC/CC request is not a saved configuration or production mutation.
-Future explicit approval, migration 0065, web rollout and admin save are
-required before new messages use it. Approval Control remains disabled with
-no activation date; routing settings confer no feature or scheduler activation.
+After explicit approval, migration 0065 and web commit `c19ab93` were deployed
+23 October 2026; HC's JEL BCC/BCC/CC settings were saved through the tenant-admin
+API and verified at revision 1 with three before/after audits. Existing To/CC,
+all 85 old outbox rows, environment fingerprints, cohort and monitor cron were
+unchanged. No new mail was queued or sent by the rollout. Actual observer-copy
+delivery is not proven yet. See the linked contract's production receipt.
+Approval Control remains disabled with no activation date; routing settings
+confer no feature or scheduler activation. Other tenants retain default-off.
 
 ## Tenant user account setup invitations
 Tenant user account setup links are tenant-host scoped and require `tenant_admin:invite` to issue. The raw token is never stored; only a SHA-256 hash is persisted in `tenant_user_invitation_token`. Resend revokes existing open account setup tokens for that tenant user, tokens expire after 72 hours, and accept marks the token used before activating the user. Public validation/accept routes do not require login but resolve tenant from the request host and return generic invalid/expired responses for unusable tokens.

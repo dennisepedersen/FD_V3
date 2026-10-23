@@ -136,9 +136,10 @@ PR7 still does not activate outbox `apply`, send real mail, create notification 
 
 ## Tenant-admin ekstra CC/BCC til driftsmails
 
-Status 23. oktober 2026: implementeret i lokal kode; dette tillæg er en
-kontraktbeskrivelse, ikke bevis for validering, produktionsudrulning eller gemte
-modtagere. Ovenstående PR4/PR5/PR7-status og fraværsflows bevarer deres betydning.
+Status 23. oktober 2026: udrullet og HC's godkendte testmodtagere gemt og
+læst tilbage; se produktionskvitteringen nedenfor. Faktisk BCC-/CC-levering
+efter denne ændring er endnu ikke verificeret. Ovenstående PR4/PR5/PR7-status
+og fraværsflows bevarer deres betydning.
 Dette afsnit er den kanoniske kontrakt for den afgrænsede ekstra routing.
 
 `verified` ved læsning af
@@ -229,13 +230,13 @@ eller genafsendes for at få en ny kopi. Eksisterende regler for idempotens,
 driftsbeviser, tidsvinduer og højst ét Timekontrol-/Godkendelseskontrol-forsøg
 gælder fortsat. Et allerede påbegyndt providerkald kan ikke trækkes tilbage.
 
-### HC-ønske og fremtidig ibrugtagning
+### HC-testopsætning
 
-Brugerønsket er JEL som ekstra **BCC** på de to Timekontrolfamilier ovenfor
-og ekstra **CC** på Godkendelseskontrol. Det er **ikke gemt**, ikke seedet og
-har ikke ændret produktionsmodtagere. Der fastsættes ingen adresse ved default.
+Efter Dennis' konkrete skriftlige udrulningsgodkendelse er JEL gemt som ekstra
+**BCC** på de to Timekontrolfamilier og ekstra **CC** på Godkendelseskontrol.
+Ingen adresse er hardkodet eller seedet; default for øvrige tenants er uændret.
 
-Præcis ønsket opsætning for HC (`hoyrup-clemmensen`), **IKKE GEMT**:
+Faktisk gemt og læst tilbage for HC (`hoyrup-clemmensen`), alle tre revision **1**:
 
 | `mail_type` | `extra_cc_enabled` | `extra_cc_emails` (PUT-streng) | `extra_bcc_enabled` | `extra_bcc_emails` (PUT-streng) |
 | --- | --- | --- | --- | --- |
@@ -243,20 +244,18 @@ Præcis ønsket opsætning for HC (`hoyrup-clemmensen`), **IKKE GEMT**:
 | `time_control_friday_status` | `false` | `""` | `true` | `"jel@hoyrup-clemmensen.dk"` |
 | `approval_control_summary` | `true` | `"jel@hoyrup-clemmensen.dk"` | `false` | `""` |
 
-Tabellen er alene dokumentation af ønsket til et senere eksplicit admin-gem
-med den da aktuelle revision. Adressen må stå her, men må ikke hardcodes i
-source eller seedes via migration; default forbliver slukket med tomme lister.
+Tabellen viser PUT-felternes strengformat; GET returnerer de normaliserede
+arrays. Adressen må ikke hardcodes i source eller seedes via migration.
+Generelle defaults forbliver slukket med tomme lister.
 
-Efter særskilt eksplicit godkendelse af den konkrete produktionsændring kræves
-anvendelse af migration 0065 og webudrulning med routingkode/API/UI samt et
-eksplicit tenant-admin-gem af de konkrete adresser/kanaler **før nye køposter
-eller jobmeddelelser dannes**. Udrulning alene aktiverer ingen ekstra modtagere;
-der udføres ingen gammel replay, catch-up eller testafsendelse som led heri.
+Migration 0065, webudrulning og de tre tenant-admin-gem er gennemført efter
+den konkrete godkendelse **før nye køposter eller jobmeddelelser dannes**.
+Udrulning alene aktiverer ingen ekstra modtagere; der er ingen gammel replay,
+catch-up eller testafsendelse som led heri.
 Timekontrols eksisterende monitor-cron og diagnostik er udenfor denne ændring.
 Godkendelseskontrol forbliver disabled uden startdato/aktiv periode;
 modtagerindstillinger udgør ingen scheduler-/mailaktivering og erstatter ikke
-dens særskilte fase 2-godkendelser. Produktionsverifikation tilføjes først
-efter faktisk, særskilt godkendt udrulning.
+dens særskilte fase 2-godkendelser.
 
 ### Lokal verifikation 23. oktober 2026
 
@@ -282,3 +281,59 @@ Ingen rigtig mail eller inbox-levering er verificeret i denne opgave.
 HC's produktionsindstillinger, Timekontrols aktive drift og
 Godkendelseskontrols slukkede tilstand er ikke ændret. Ingen commit, push,
 deploy eller produktionsmigration er udført.
+
+### Godkendt produktionsudrulning 23. oktober 2026
+
+`verified`, nedenstående erstatter den tidligere lokale, ikke-udrullede status.
+Alle klokkeslæt er Europe/Copenhagen:
+
+- Releasecommit `c19ab93b2ac52055e55db9d742f0aa6a549195d7`, kun 30 relevante
+  routing-/migrations-/test-/dokumentationsfiler. Øvrige lokale ændringer er
+  ikke medtaget. Push til `main` udløste det normale auto-deploy.
+- Render-webdeploy `dep-dbdjlrbm8hqs73ed0p30` blev live kl. **12.47.09**.
+  Den eksisterende pre-deploy-kommando `npm run db:migrate` anvendte 0065.
+  Alle 65 migrationsposter er successful, ingen pending, og checksums matcher
+  committed indhold; 0065 har execution mode `applied`.
+- DEP's eksisterende HC-tenant-admin gemte de tre indstillinger via den
+  afskærmede PUT-route kl. **12.48.18**. GET og read-only databaseefterkontrol
+  bekræfter tabellen ovenfor, revision 1 og præcis tre `tenant_config_changed`
+  auditposter med DEP-aktør og before/after. Ingen direkte SQL-konfigurationsskrivning.
+- Normal individuel Til er uændret for de seks: MHJ, JSK, PEP, MBO, MUM og MPJ;
+  normal CC er fortsat `dep@hoyrup-clemmensen.dk`. Ugens lederoversigt har DEP
+  som Til og ingen normal CC. Ren envelope-komposition med disse faktiske
+  modtagere bekræfter kun JEL-BCC på Timekontrol og kun JEL-CC på en fremtidig
+  Godkendelseskontrol-mail. Ingen provider kontaktet for denne verifikation.
+- Web-/cron-miljøets fingerprints, Timekontrols settings og de seks aktive
+  fitterkonfigurationer er identiske før/efter. Monitor-cronens version og
+  tidsplan `*/5 * * * *` er uændrede. Regler, EK-sync, gruppe, LKE-fravalg,
+  scheduler, claims og idempotens er ikke ændret.
+- Godkendelseskontrols scheduler/mail/attached/activation er fortsat false,
+  startdato og aktiv periode er null; ingen approval-kørselsaudit eller outbox.
+- Alle **85 eksisterende HC-outboxposter er hash-identiske** før/efter deploy
+  og konfigurationsgem. **0 nye poster**, 0 ventende Timekontrol-poster.
+  Ingen manuel kontrol, testmail, afsendelse, genafsendelse eller EK-kald.
+- Health, tenant-admin-GET og begge UI-sider svarer 200; anonym læsning giver
+  401 og tenant-queryforsøg 400. GET-only Playwright på 1365/390/320 px viser
+  korrekte toggles/adresser, ingen BCC i normale previews, ingen scriptfejl.
+  Screenshots er visuelt kontrolleret. Releasecheck: `npm run check` grøn,
+  705 bestået/14 opt-in skips; staged secret-check 30 filer grøn.
+
+Næste planlagte dagskontrol er **tirsdag 27. oktober 2026 kl. 09.00**
+(08.00 UTC efter vintertidsskiftet), af **mandag 26. oktober**. JEL kommer
+kun med som BCC, hvis de uændrede regler faktisk danner en individuel mail;
+ingen mail er garanteret, hvis alle er OK eller grundlaget blokeres. Dagens
+allerede afsluttede fredagsmails får ingen efterfølgende kopi. Næste planlagte
+ugekontrol er fredag **30. oktober kl. 12.00**, fortsat betinget af gyldige
+kørselsbeviser og øvrige regler. Monitorens status/diagnostik kopieres ikke.
+
+Stop kun observationen: HC-tenant-admin slår ekstra BCC fra og gemmer på
+begge Timekontroltyper; ekstra CC på Godkendelseskontrol slås separat fra og
+gemmes. Adresser kan bevares. Dette stopper ikke den autoriserede Timekontrol;
+gamle snapshots blokeres, men et allerede påbegyndt providerkald kan ikke
+trækkes tilbage. BCC-/CC-levering skal senere verificeres på en naturligt
+planlagt mail, aldrig ved at replaye en tidligere mail.
+
+Lokale, credential-frie kvitteringer: `.tmp/operational-routing/rollout-before.json`,
+`rollout-after.json`, `rollout-configured.json`, `http-configured.json` og
+`production-browser.json`. Dokumentationskvitteringen pushes med `[skip render]`
+og skal ikke udløse et nyt webdeploy.

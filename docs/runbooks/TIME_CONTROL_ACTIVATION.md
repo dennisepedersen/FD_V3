@@ -6,6 +6,33 @@ Status: ACTIVE; user-approved activation completed and runtime-verified
 Target: first scheduled control Tuesday 13 October 2026 at 09:00,
 Europe/Copenhagen (07:00 UTC), evaluating Monday 12 October.
 
+## Approved Observer Copies (23 October 2026)
+
+`verified`: scoped CC/BCC release `c19ab93b2ac52055e55db9d742f0aa6a549195d7`,
+webdeploy `dep-dbdjlrbm8hqs73ed0p30`, live 12:47 Copenhagen; migration 0065
+applied through the unchanged pre-deploy procedure. HC tenant-admin saved and
+read back revision 1 at 12:48: JEL BCC on daily/individual weekly mail and
+weekly leader summary; JEL CC on future Approval Control mail only. Monitor
+status/diagnostics do not copy JEL. Normal To/DEP CC and all six fitter
+configurations, rules, Timekontrol flags and cron schedule/version are unchanged.
+All 85 existing outbox rows remain hash-identical; zero new rows, no manual
+control, send, testmail, replay or EK call. Approval Control remains disabled
+without activation date or active coverage period.
+
+Full settings, audit/validation evidence and observer-copy stop procedure:
+[canonical operational-routing contract](../modules/calendar/ABSENCE_NOTIFICATIONS_OUTBOX_PR4.md#godkendt-produktionsudrulning-23-oktober-2026).
+To stop only JEL copies, HC admin switches off and saves extra BCC on both
+Timekontrol types; Approval Control's extra CC is separate. This does not stop
+normal Timekontrol. The full Timekontrol stop procedure below remains unchanged.
+
+Next expected control after this rollout: Tuesday **27 October 2026 09:00**
+Copenhagen (**08:00 UTC**, after DST ends), evaluating **26 October**. A JEL
+BCC is conditional on an actual eligible employee reminder; no reminder is
+guaranteed if all are OK or data are blocked. Next weekly slot: Friday
+**30 October 12:00**, subject to unchanged qualification guards. Delivery of
+the new observer copies has not yet been verified; never replay an old mail
+to establish it. Earlier dated incident/deploy evidence below is historical.
+
 ## Approved Daily Start Window (13 October 2026)
 
 ### Danish Email Text And Existing Fielddesk Frame (14 October 2026)
