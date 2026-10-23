@@ -27,7 +27,12 @@ function coverageStatement(fromDate) {
   return `Kontrollen omfatter registreringer fra og med ${date}.`;
 }
 
-function read(env = process.env, now = new Date(), activation = null) {
+function runtimeAllowed(env = process.env) {
+  return ["APPROVAL_CONTROL_SCHEDULER_ENABLED", "APPROVAL_CONTROL_MAIL_ENABLED"].every(key =>
+    env[key] == null || env[key] === "true");
+}
+
+function read(env = process.env, now = new Date(), activation = null, control = null) {
   const today = local(now).date;
   const stamp = typeof activation?.activated_at === "string" ? Date.parse(activation.activated_at) : NaN;
   const activated = typeof activation?.id === "string" && /^[0-9a-f-]{36}$/i.test(activation.id) &&
@@ -44,8 +49,9 @@ function read(env = process.env, now = new Date(), activation = null) {
     if (env[flag] != null && !["true", "false"].includes(env[flag])) blockers.push(`${flag} skal være true eller false.`);
   }
   return { time_zone: TIME_ZONE, scheduled_local_time: "14:30", friday_local_time: friday,
-    scheduler_enabled: env.APPROVAL_CONTROL_SCHEDULER_ENABLED === "true",
-    mail_enabled: env.APPROVAL_CONTROL_MAIL_ENABLED === "true", coverage_from: coverage, coverage_to: activated ? today : null,
+    scheduler_enabled: control?.enabled === true && env.APPROVAL_CONTROL_SCHEDULER_ENABLED !== "false" && blockers.length === 0,
+    mail_enabled: control?.enabled === true && env.APPROVAL_CONTROL_MAIL_ENABLED !== "false" && blockers.length === 0,
+    coverage_from: coverage, coverage_to: activated ? today : null,
     activated_at: activated ? activation.activated_at : null, activation_id: activated ? activation.id : null,
     activation_valid: activated, coverage_valid: activated, configuration_valid: blockers.length === 0,
     schedule_valid: friday === FRIDAY_TIME,
@@ -75,4 +81,4 @@ function next(now, policy) {
   return null;
 }
 
-module.exports = { read, local, instant, slot, next, TIME_ZONE, FRIDAY_TIME, coverageStatement };
+module.exports = { read, local, instant, slot, next, TIME_ZONE, FRIDAY_TIME, coverageStatement, runtimeAllowed };

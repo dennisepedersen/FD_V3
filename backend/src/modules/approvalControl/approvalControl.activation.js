@@ -29,7 +29,33 @@ async function get(context) {
   finally { client.release(); }
 }
 
-// Storage only: the caller must authorize the actual production scheduler activation.
+// Caller owns authorization and the surrounding control-state transaction.
+async function recordFirstInTransaction(client, context) {
+  requireContext(context);
+  await client.query("SELECT pg_advisory_xact_lock(6123, hashtext($1::uuid::text))", [context.tenantId]);
+  const existing = await read(client, context);
+  if (existing) return existing;
+
+  // Sample once after lock waits; both fields derive from that database instant.
+  const { rows } = await client.query(`
+    WITH source AS MATERIALIZED (SELECT clock_timestamp() AS activated_at)
+    SELECT to_char(activated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS activated_at,
+      to_char(activated_at AT TIME ZONE 'Europe/Copenhagen', 'YYYY-MM-DD') AS coverage_from
+    FROM source
+  `);
+  await audit.logAuditEvent({
+    client, tenantId: context.tenantId, actorId: context.userId, actorScope: "tenant",
+    moduleKey: "approval_control", eventType: "approval_control.scheduler_activated",
+    resourceType: "approval_control_scheduler", resourceId: context.tenantId, outcome: "success",
+    metadata: { activated_at: rows[0].activated_at, coverage_from: rows[0].coverage_from,
+      time_zone: "Europe/Copenhagen", environment: "production" },
+  });
+  const saved = await read(client, context);
+  if (!saved) throw new Error("approval_control_activation_not_saved");
+  return saved;
+}
+
+// Storage-only compatibility wrapper; HTTP activation uses the atomic control transaction.
 async function recordFirst(context) {
   requireContext(context);
   const client = await pool.connect();
@@ -39,29 +65,7 @@ async function recordFirst(context) {
     try {
       await client.query("SET LOCAL lock_timeout = '3s'");
       await client.query("SET LOCAL statement_timeout = '15s'");
-      await client.query("SELECT pg_advisory_xact_lock(6123, hashtext($1::uuid::text))", [context.tenantId]);
-      const existing = await read(client, context);
-      if (existing) {
-        await client.query("COMMIT");
-        return existing;
-      }
-
-      // Sample once after lock waits; both fields derive from that database instant.
-      const { rows } = await client.query(`
-        WITH source AS MATERIALIZED (SELECT clock_timestamp() AS activated_at)
-        SELECT to_char(activated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS activated_at,
-          to_char(activated_at AT TIME ZONE 'Europe/Copenhagen', 'YYYY-MM-DD') AS coverage_from
-        FROM source
-      `);
-      await audit.logAuditEvent({
-        client, tenantId: context.tenantId, actorId: context.userId, actorScope: "tenant",
-        moduleKey: "approval_control", eventType: "approval_control.scheduler_activated",
-        resourceType: "approval_control_scheduler", resourceId: context.tenantId, outcome: "success",
-        metadata: { activated_at: rows[0].activated_at, coverage_from: rows[0].coverage_from,
-          time_zone: "Europe/Copenhagen", environment: "production" },
-      });
-      const saved = await read(client, context);
-      if (!saved) throw new Error("approval_control_activation_not_saved");
+      const saved = await recordFirstInTransaction(client, context);
       await client.query("COMMIT");
       return saved;
     } catch (error) {
@@ -72,4 +76,4 @@ async function recordFirst(context) {
   } finally { client.release(discard); }
 }
 
-module.exports = { get, recordFirst };
+module.exports = { get, read, recordFirst, recordFirstInTransaction };

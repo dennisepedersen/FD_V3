@@ -13,6 +13,7 @@ const policy = require("./approvalControl.mailPolicy");
 const email = require("./approvalControl.mail");
 const mailService = require("../../services/mailService");
 const mailRouting = require("../notifications/operationalMailRouting");
+const control = require("./approvalControl.control");
 const { createHttpError } = require("../../middleware/errorHandler");
 
 const sameScope = selected => JSON.stringify({ projects: selected.projects.map(p => p.project_id).sort(),
@@ -49,6 +50,7 @@ function summarize(context, current, captured, fromDate, today) {
 }
 
 function failure(error) {
+  if (error.message === "approval_control_control_changed") return "Godkendelseskontrol blev sat på pause eller genaktiveret under kørslen. Ingen mail sendt.";
   if (error.message === "approval_control_scope_changed") return "Dine sager eller modtageroplysninger ændrede sig under kontrollen. Ingen mail sendt.";
   if (error.message === "approval_control_protected_window") return "Kontrollen er blokeret af det eksisterende beskyttelsesvindue for Timekontrol.";
   if (error.message === "approval_control_preview_running" || error.message === "approval_control_preview_cooldown") return "En anden Godkendelseskontrol optager læsevinduet. Ingen mail sendt.";
@@ -56,20 +58,24 @@ function failure(error) {
   return "Kontrollen kunne ikke gennemføres sikkert. Ingen automatisk genafsendelse.";
 }
 
-async function runDue(context, { mode = "simulation", clock = () => new Date(), readPolicy = first => policy.read(process.env, clock(), first), sendEmailFn = mailService.sendEmail } = {}) {
+async function runDue(context, { mode = "simulation", clock = () => new Date(), readPolicy = (first, state) => policy.read(process.env, clock(), first, state), sendEmailFn = mailService.sendEmail } = {}) {
   if (!["simulation", "live"].includes(mode)) throw new Error("approval_control_mail_mode_invalid");
+  if (mode === "live" && ENV.NODE_ENV !== "production") return { state: "disabled", reason: "Rigtig maildrift er kun mulig i produktionsmiljøet." };
   let settings = readPolicy(null);
   const started = clock(), planned = policy.slot(started, settings);
   if (!planned) return { state: "not_due", reason: "Ikke et planlagt hverdags-slot. Ingen indhentning af gamle kørsler." };
   if (!settings.configuration_valid || !settings.schedule_valid) return { state: "blocked", reason: "Konfigurationen stemmer ikke med Godkendelseskontrols aktiveringsregler eller planlagte tidspunkt." };
-  if (mode === "live" && (!settings.scheduler_enabled || !settings.mail_enabled)) return { state: "disabled", reason: "Scheduler eller maildrift er slået fra." };
   const initial = await selected(context);
   const first = await activation.get(context);
   if (!first) return { state: "not_activated", reason: "Ingen aktiv kontrolperiode. Tenantens scheduler er ikke produktionsaktiveret." };
-  settings = readPolicy(first);
+  const state = await control.get(context);
+  settings = readPolicy(first, state);
+  if (!state.enabled || mode === "live" && (!settings.scheduler_enabled || !settings.mail_enabled)) return { state: "disabled", reason: "Godkendelseskontrol er sat på pause eller stoppet af et sikkerhedsflag." };
+  if (!control.validForSlot(state, planned, first)) return { state: "not_due", reason: "Første ordinære kørsel er næste planlagte tidspunkt efter aktivering eller genaktivering." };
   if (first.tenant_id !== context.tenantId || !settings.configuration_valid || !settings.activation_valid || settings.activation_id !== first.id || settings.coverage_from !== first.coverage_from) throw createHttpError(409, "approval_control_activation_invalid");
-  const claim = await repository.claim(context, { ...planned, started_at: started.toISOString(), coverage_from: settings.coverage_from,
-    activation_id: first.id, activated_at: first.activated_at, mode });
+  const claim = await control.withSendLock(context, state, planned, first, () => repository.claim(context, {
+    ...planned, started_at: started.toISOString(), coverage_from: settings.coverage_from,
+    activation_id: first.id, activated_at: first.activated_at, scheduler_revision: state.revision, mode }));
   if (!claim.claimed) return { state: "duplicate", reason: "Dagens slot er allerede optaget. Ingen ny afsendelse.", run_id: claim.run.id };
   const runId = claim.run.id;
   const finish = result => repository.finish(context, runId, { ...result, completed_at: clock().toISOString() });
@@ -77,6 +83,8 @@ async function runDue(context, { mode = "simulation", clock = () => new Date(), 
   try {
     // Keep the existing tenant-wide admission, blackout and rate budget unchanged.
     await admission.read(context, async () => {
+      const beforeCapture = await control.get(context);
+      if (beforeCapture.revision !== state.revision || !control.validForSlot(beforeCapture, planned, first)) throw new Error("approval_control_control_changed");
       if (policy.slot(clock(), settings)?.scheduled_at !== planned.scheduled_at) throw new Error("approval_control_slot_elapsed");
       if (initial.projects.some(project => !initial.bindings.some(b => b.project_id === project.project_id))) throw new Error("approval_control_project_binding_missing");
       const configured = initial.projects.length ? await selected(context, true) : initial;
@@ -86,9 +94,12 @@ async function runDue(context, { mode = "simulation", clock = () => new Date(), 
         : { rows: [], observed_at: clock().toISOString(), completed_at: clock().toISOString(), requests: 0, passes: 0, endpoint: null };
       const current = await selected(context);
       if (sameScope(current) !== sameScope(initial)) throw new Error("approval_control_scope_changed");
+      const afterCapture = await control.get(context);
+      if (afterCapture.revision !== state.revision || !control.validForSlot(afterCapture, planned, first)) throw new Error("approval_control_control_changed");
       prepared = summarize(context, current, captured, settings.coverage_from, planned.local_date);
       prepared.activation_id = first.id;
       prepared.activated_at = first.activated_at;
+      prepared.scheduler_revision = state.revision;
       if (clock().getTime() - started.getTime() > 120000 || policy.local(clock()).date !== planned.local_date) throw new Error("approval_control_snapshot_expired");
       if (!prepared.pending.length) {
         await finish({ ...prepared, state: "no_open", reason: prepared.unknown.length ? "Kun dataklaringsrækker; de udløser ikke mail." : "Ingen mailberettigede åbne registreringer.", mail_attempted: false, provider_id: null });
@@ -104,7 +115,7 @@ async function runDue(context, { mode = "simulation", clock = () => new Date(), 
         await finish({ ...prepared, state: "simulated", reason: "Mail simuleret; ingen provider kontaktet.", message, idempotency_key: idempotencyKey, mail_attempted: false, provider_id: null });
         return;
       }
-      const latestPolicy = readPolicy(first);
+      const latestPolicy = readPolicy(first, state);
       if (!latestPolicy.mail_enabled || !latestPolicy.scheduler_enabled || !latestPolicy.configuration_valid || !latestPolicy.activation_valid || !latestPolicy.schedule_valid || latestPolicy.coverage_from !== settings.coverage_from ||
           ENV.MAIL_PROVIDER !== "resend" || !ENV.MAIL_FROM || !ENV.MAIL_REPLY_TO) throw new Error("approval_control_mail_disabled_or_unconfigured");
       // A durable attempt is committed before provider access. It is never reclaimed.
@@ -120,15 +131,17 @@ async function runDue(context, { mode = "simulation", clock = () => new Date(), 
         await finish({ ...prepared, state: "blocked", reason: failure(new Error("approval_control_scope_changed")), mail_attempted: false, provider_id: null });
         return;
       }
-      const finalPolicy = readPolicy(first);
+      const finalPolicy = readPolicy(first, state);
       if (!finalPolicy.mail_enabled || !finalPolicy.scheduler_enabled || !finalPolicy.configuration_valid || !finalPolicy.activation_valid || !finalPolicy.schedule_valid || finalPolicy.coverage_from !== settings.coverage_from ||
           admission.protectedWindow(clock()) || clock().getTime() - started.getTime() > 120000 || policy.local(clock()).date !== planned.local_date) {
         await finish({ ...prepared, state: "blocked", reason: "Afsendelsen blev stoppet ved den sidste sikkerhedskontrol.", mail_attempted: false, provider_id: null });
         return;
       }
       try {
-        receipt = await mailRouting.withMessageLock({ tenantId: context.tenantId, message, route }, async () => {
-          const beforeSend = readPolicy(first);
+        receipt = await control.withSendLock(context, state, planned, first, () => mailRouting.withMessageLock({ tenantId: context.tenantId, message, route }, async () => {
+          const beforeProvider = await selected(context);
+          if (sameScope(beforeProvider) !== sameScope(initial)) throw new Error("approval_control_scope_changed");
+          const beforeSend = readPolicy(first, state);
           if (!beforeSend.mail_enabled || !beforeSend.scheduler_enabled || !beforeSend.configuration_valid ||
               !beforeSend.activation_valid || !beforeSend.schedule_valid || beforeSend.coverage_from !== settings.coverage_from ||
               admission.protectedWindow(clock()) || clock().getTime() - started.getTime() > 120000 || policy.local(clock()).date !== planned.local_date) {
@@ -136,7 +149,7 @@ async function runDue(context, { mode = "simulation", clock = () => new Date(), 
           }
           transportStarted = true;
           return sendEmailFn(message, { idempotencyKey, timeoutMs: 15000 });
-        });
+        }));
       } catch (error) {
         if (!transportStarted) throw error;
         const status = error?.details?.status;
@@ -151,7 +164,7 @@ async function runDue(context, { mode = "simulation", clock = () => new Date(), 
   } catch (error) {
     // An existing durable attempt may have reached the provider even if persistence failed.
     const existing = await repository.get(context, runId);
-    if (!existing?.result) await finish(providerResult || { ...(prepared || {}), state: transportStarted ? "provider_unclear" : existing?.attempt ? "blocked" : "failed", reason: transportStarted ? "Et afsendelseskrav findes uden sikkert afslutningsresultat. Ingen automatisk genafsendelse." : failure(error), mail_attempted: transportStarted, provider_id: null });
+    if (!existing?.result) await finish(providerResult || { ...(prepared || {}), state: transportStarted ? "provider_unclear" : existing?.attempt || error.message === "approval_control_control_changed" ? "blocked" : "failed", reason: transportStarted ? "Et afsendelseskrav findes uden sikkert afslutningsresultat. Ingen automatisk genafsendelse." : failure(error), mail_attempted: transportStarted, provider_id: null });
   }
   return repository.get(context, runId);
 }
@@ -172,10 +185,13 @@ function visible(run, current, first) {
 }
 
 async function status(context, now = new Date()) {
-  const current = await selected(context), first = await activation.get(context), settings = policy.read(process.env, now, first);
+  const current = await selected(context), first = await activation.get(context), state = await control.get(context), settings = policy.read(process.env, now, first, state);
   try {
-    return { ...settings, next_scheduled_at: policy.next(now, settings), next_is_active: false,
-      scheduler_attached: false, latest: settings.activation_valid ? visible(await repository.latest(context), current, first) : null };
+    const attached = require("./approvalControl.scheduler").isAttached();
+    return { ...settings, control_status: !state.revision && !first ? "inactive" : state.enabled ? "active" : "paused",
+      control_revision: state.revision, next_scheduled_at: settings.scheduler_enabled && settings.activation_valid ? policy.next(now, settings) : null,
+      next_is_active: settings.scheduler_enabled && settings.mail_enabled && settings.activation_valid && attached,
+      scheduler_attached: attached, latest: settings.activation_valid ? visible(await repository.latest(context), current, first) : null };
   } catch (error) {
     if (error.code !== "42703" && error.code !== "42P01") throw error;
     throw createHttpError(503, "approval_control_mail_audit_unavailable");
@@ -191,13 +207,7 @@ async function getRun(context, runId) {
 }
 
 async function activateScheduler(context, input = {}) {
-  if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some(key => key !== "confirm") ||
-      ENV.NODE_ENV !== "production" || process.env.APPROVAL_CONTROL_SCHEDULER_ENABLED !== "true" ||
-      input.confirm !== "ACTIVATE:approval_control:hoyrup-clemmensen") throw createHttpError(403, "approval_control_activation_not_authorized");
-  await selected(context);
-  const settings = policy.read(process.env);
-  if (!settings.configuration_valid) throw createHttpError(409, "approval_control_configuration_invalid");
-  return activation.recordFirst(context);
+  return control.change(context, input);
 }
 
 module.exports = { runDue, summarize, status, getRun, visible, activateScheduler };

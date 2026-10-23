@@ -320,6 +320,74 @@ delivery is not proven yet. See the linked contract's production receipt.
 Approval Control remains disabled with no activation date; routing settings
 confer no feature or scheduler activation. Other tenants retain default-off.
 
+## Approval Control Admin Controls: Local Only
+
+Status, 23 October 2026: locally implemented and validated; awaiting approved
+deployment, not deployed or activated. The dated `c19ab93` / migration 0065 /
+JEL-CC receipt above remains unchanged. Production has no active Approval
+Control state or activation date. See the [canonical local contract](modules/approval-control/APPROVAL_CONTROL_V1.md#lokal-adminstyring).
+
+Control actions derive tenant/actor from the authenticated tenant host/session
+and recheck active tenant, active user/login and `tenant_admin` role in the DB.
+Client roles, actor IDs or tenant IDs cannot authorize them. V1 still uses HC's
+existing active DEP tenant user and recipient, with the exact existing own
+`scope=mine`; admin control grants no broader project scope or manual mapping.
+
+The local CLI retires `--activate-scheduler` with
+`approval_control_use_tenant_admin_activation` before SQL, so it cannot create
+a first receipt outside tenant control state. `job.activateScheduler` delegates
+to `control.change` with the full guarded control request. After approved
+deployment, normal activation/pause/resume uses tenant-admin UI confirmation
+only, without Codex, operator commands or routine environment changes. Flags
+remain emergency stops. No new migration has been written/applied for this
+extension. Its dedicated PostgreSQL test passed 8 cases against a cloned,
+already migrated local template without executing migrations; rollback and
+both shared-send/exclusive-pause race directions are verified. Source template
+and copied Timekontrol/outbox/sync data remained unchanged. External access
+was forbidden; this is not production or delivery evidence.
+
+Activation/resume preflight requires the existing Resend provider, From,
+Reply-To and API key to be configured, before first-date persistence. Only
+safe blocker information is returned, never keys or other secrets. Activation
+blockers must not prevent an authorized pause; authorization and confirmation
+guards still apply.
+
+Absent control state and absent first activation mean `inactive`. An existing
+0064 first-activation receipt without new control state instead means `paused`,
+revision 0, retaining the original start date; scheduler status likewise reports
+`control_status=paused`. Resume reuses that receipt/date and cannot reset
+coverage. A legacy receipt alone never enables operation. The last documented
+production first activation remains null; no new external check is claimed.
+Canonical append-only audit uses
+`tenant_config_changed`, module `approval_control`, resource
+`approval_control_settings`, with actor and before/after state. First active
+state and the immutable 0064 `approval_control.scheduler_activated` receipt
+must commit in one transaction; audit failure rolls both back. The DB clock
+sets the first Copenhagen date. No new schema or migration is required.
+Confirmation binds control revision, current Copenhagen day and routing
+revision; all three are checked server-side rather than accepted as authority.
+
+Pause/resume advances the control revision/generation without resetting the
+first date. Claim/attempt generation must still match before provider access;
+pause followed by resume cannot revalidate old claims. A separate tenant lock
+in namespace 6125 is shared through provider access and exclusive for control
+changes/pause. Contention fails visibly within 3s, without a false successful
+pause or partial state. Existing routing locks and permanent send claims remain.
+Control transactions set local lock timeout 3s and statement timeout 15s
+before authorization, bounding waits on actor/tenant rows as well as advisory
+locks. Timeout rolls the transaction back rather than reporting success.
+
+The separate Approval Control scheduler runs only in production, aligned to
+minutes with no startup catchup; scheduled slots must be strictly after the
+current generation's `enabled_at`. In this local contract, unset
+`APPROVAL_CONTROL_SCHEDULER_ENABLED` / `APPROVAL_CONTROL_MAIL_ENABLED` allow
+only persisted active tenant state, explicit false is an emergency kill and
+invalid values block. True never activates a tenant. Test/development starts
+no scheduler. Deploy alone cannot activate or establish a date: separately
+approved commit/push/deploy must precede a separate tenant-admin confirmation
+click fixing the actual server date. No historical cutoff/backfill or change
+to Timekontrol files, scheduler, sending or sync is included.
+
 ## Tenant user account setup invitations
 Tenant user account setup links are tenant-host scoped and require `tenant_admin:invite` to issue. The raw token is never stored; only a SHA-256 hash is persisted in `tenant_user_invitation_token`. Resend revokes existing open account setup tokens for that tenant user, tokens expire after 72 hours, and accept marks the token used before activating the user. Public validation/accept routes do not require login but resolve tenant from the request host and return generic invalid/expired responses for unusable tokens.
 

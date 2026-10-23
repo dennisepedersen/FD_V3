@@ -27,6 +27,7 @@ const pool = require("../backend/src/db/pool");
 const mail = require("../backend/src/modules/approvalControl/approvalControl.mail");
 const mailService = require("../backend/src/services/mailService");
 const mailRouting = require("../backend/src/modules/notifications/operationalMailRouting");
+const control = require("../backend/src/modules/approvalControl/approvalControl.control");
 const uuid = n => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const context = { tenantId: uuid(1), userId: uuid(2), tenantSlug: "hoyrup-clemmensen" };
 const firstActivation = { id: uuid(8), tenant_id: context.tenantId, environment: "production", time_zone: "Europe/Copenhagen", activated_at: "2026-10-19T07:00:00.000Z", coverage_from: "2026-10-19" };
@@ -41,11 +42,19 @@ const patches = async (items, fn) => {
 async function fixture(fn) {
   let now = new Date("2026-10-22T12:30:00Z"), rows = [row()], selected = current, reads = 0, first = firstActivation;
   let extraRouting = mailRouting.policy.defaults("approval_control_summary"), routingReads = 0;
-  const settings = (record = first) => policy.read({ APPROVAL_CONTROL_FRIDAY_TIME: "14:31", APPROVAL_CONTROL_MAIL_ENABLED: "true", APPROVAL_CONTROL_SCHEDULER_ENABLED: "true" }, now, record);
+  let state = { enabled: true, revision: 1, enabled_at: firstActivation.activated_at, activation_id: firstActivation.id, coverage_from: firstActivation.coverage_from };
+  const settings = (record = first) => policy.read({ APPROVAL_CONTROL_FRIDAY_TIME: "14:31", APPROVAL_CONTROL_MAIL_ENABLED: "true", APPROVAL_CONTROL_SCHEDULER_ENABLED: "true" }, now, record, state);
   const records = new Map(), slots = new Map(), providerCalls = [];
   const client = { release() {}, async query(sql, params) { assert.match(sql, /t.id=\$1 AND t.slug=\$2 AND t.status='active'/); assert.equal(params[0], context.tenantId); return { rows: [{ id: context.tenantId }] }; } };
   const options = { mode: "live", clock: () => now, readPolicy: settings, sendEmailFn: async (message, options) => { providerCalls.push({ message, options }); return { provider: "resend", sent: true, providerMessageId: "fixture-provider" }; } };
   await patches([
+    [require("../backend/src/config/env"), "NODE_ENV", "production"],
+    [control, "get", async () => structuredClone(state)],
+    [control, "withSendLock", async (actor, expected, planned, first, callback) => {
+      assert.deepEqual(actor, context);
+      if (state.revision !== expected.revision || !control.validForSlot(state, planned, first)) throw new Error("approval_control_control_changed");
+      return callback();
+    }],
     [pool, "connect", async () => client], [scope, "loadMine", async (_c, ctx) => { assert.deepEqual(ctx, context); return selected; }],
     [mailRouting, "composeWithPool", async input => { routingReads++; return mailRouting.policy.recipients(extraRouting, input); }],
     [mailRouting, "withMessageLock", async (input, send) => {
@@ -66,7 +75,8 @@ async function fixture(fn) {
     [repo, "finish", async (_ctx, id, metadata) => { const run = records.get(id); run.result ||= metadata; return run; }],
     [repo, "get", async (ctx, id) => ctx.tenantId === context.tenantId && ctx.userId === context.userId ? records.get(id) : null],
     [repo, "latest", async () => [...records.values()].at(-1) || null],
-  ], async () => fn({ options, providerCalls, records, get reads() { return reads; }, get routingReads() { return routingReads; }, setRouting: value => { extraRouting = value; }, get activation() { return first; }, setActivation: value => { first = value; }, setRows: value => { rows = value; }, setScope: value => { selected = value; }, setNow: value => { now = new Date(value); } }));
+  ], async () => fn({ options, providerCalls, records, get reads() { return reads; }, get routingReads() { return routingReads; },
+    get control() { return state; }, setControl: value => { state = value; }, setRouting: value => { extraRouting = value; }, get activation() { return first; }, setActivation: value => { first = value; }, setRows: value => { rows = value; }, setScope: value => { selected = value; }, setNow: value => { now = new Date(value); } }));
 }
 
 test("approval observer CC/BCC are additive; private BCC is absent from normal run UI and mail content", async () => fixture(async f => {
@@ -222,33 +232,37 @@ test("pause/resume and stale pre-activation job history never reset the start da
   assert.equal(job.visible({ ...run, activation_id: undefined }, current, f.activation), null);
 }));
 
-test("activation requires production, explicit gate, confirmation and current authorization; no caller date or mail", async () => fixture(async f => {
-  const ENV = require("../backend/src/config/env"), input = { confirm: "ACTIVATE:approval_control:hoyrup-clemmensen" };
-  const oldFlag = process.env.APPROVAL_CONTROL_SCHEDULER_ENABLED;
-  let saved = 0;
-  await assert.rejects(job.activateScheduler(context, input), /activation_not_authorized/);
-  try {
-    await patches([[ENV, "NODE_ENV", "production"], [activation, "recordFirst", async ctx => {
-      assert.deepEqual(ctx, context); saved++; return f.activation;
-    }]], async () => {
-      process.env.APPROVAL_CONTROL_SCHEDULER_ENABLED = "false";
-      await assert.rejects(job.activateScheduler(context, input), /activation_not_authorized/);
-      process.env.APPROVAL_CONTROL_SCHEDULER_ENABLED = "true";
-      await assert.rejects(job.activateScheduler(context, { confirm: "wrong" }), /activation_not_authorized/);
-      await assert.rejects(job.activateScheduler(context, { ...input, coverage_from: "2025-06-15" }), /activation_not_authorized/);
-      f.setScope({ ...current, user: { ...current.user, email: "other@example.test" } });
-      await assert.rejects(job.activateScheduler(context, input), /mail_recipient_invalid/);
-      assert.equal(saved, 0);
-      f.setScope(current);
-      assert.deepEqual(await job.activateScheduler(context, input), f.activation);
-      assert.equal(saved, 1);
-    });
-  } finally {
-    if (oldFlag === undefined) delete process.env.APPROVAL_CONTROL_SCHEDULER_ENABLED;
-    else process.env.APPROVAL_CONTROL_SCHEDULER_ENABLED = oldFlag;
-  }
+test("old operator activation contract cannot bypass the new atomic tenant-admin control", async () => fixture(async f => {
+  await assert.rejects(job.activateScheduler(context, { confirm: "ACTIVATE:approval_control:hoyrup-clemmensen" }), /control_input_invalid/);
+  await assert.rejects(job.activateScheduler(context, { coverage_from: "2025-06-15" }), /control_input_invalid/);
   assert.equal(f.records.size, 0); assert.equal(f.reads, 0);
   assert.equal(f.providerCalls.length, 0);
+}));
+
+test("pause during capture or after durable attempt blocks every provider call, even after resume", async () => {
+  for (const point of ["capture", "attempt"]) await fixture(async f => {
+    const pause = () => f.setControl({ ...f.control, enabled: false, revision: f.control.revision + 1 });
+    const resume = () => f.setControl({ ...f.control, enabled: true, revision: f.control.revision + 1, enabled_at: "2026-10-22T12:30:10Z" });
+    const target = point === "capture" ? source : repo, key = point === "capture" ? "capture" : "attempt", original = target[key];
+    await patches([[target, key, async (...args) => { const result = await original(...args); pause(); if (point === "attempt") resume(); return result; }]], async () => {
+      const run = await job.runDue(context, f.options);
+      assert.equal(run.result.state, "blocked"); assert.equal(run.result.mail_attempted, false);
+      assert.equal(f.providerCalls.length, 0);
+    });
+    assert.equal((await job.runDue(context, f.options)).state, point === "capture" ? "disabled" : "not_due");
+  });
+});
+
+test("activation inside an existing scheduled minute never catches up that slot", async () => fixture(async f => {
+  f.setControl({ ...f.control, enabled_at: "2026-10-22T12:30:00Z" });
+  assert.equal((await job.runDue(context, f.options)).state, "not_due");
+  f.setControl({ ...f.control, enabled_at: "2026-10-22T12:30:10Z" });
+  f.setNow("2026-10-22T12:30:30Z");
+  assert.equal((await job.runDue(context, f.options)).state, "not_due");
+  assert.equal(f.records.size, 0); assert.equal(f.reads, 0); assert.equal(f.providerCalls.length, 0);
+  f.setNow("2026-10-23T12:31:00Z");
+  assert.equal((await job.runDue(context, f.options)).result.state, "provider_accepted");
+  assert.equal(f.providerCalls.length, 1);
 }));
 
 test("go-live work date is inclusive; older open and invalid approvals are not operational data", async () => fixture(async f => {

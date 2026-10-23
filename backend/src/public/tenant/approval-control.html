@@ -12,6 +12,20 @@
     .operations{border-block:1px solid #dce2df;margin-bottom:30px;padding:20px 0}.operations h3,.selected-run h3{font-size:15px;margin:20px 0 12px}.operation-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px 24px;margin:16px 0}.operation-fields div{min-width:0}.operation-fields dt{font-size:12px;color:#67756c}.operation-fields dd{margin:6px 0 0;font-size:14px;line-height:1.5;overflow-wrap:anywhere}.coverage-warning{border-left:3px solid #b98b39;padding:8px 12px;font-size:13px;line-height:1.5;overflow-wrap:anywhere}.operations li{font-size:13px;line-height:1.5;overflow-wrap:anywhere}.job-details{margin:18px 0}.job-details summary{cursor:pointer;font-size:14px;padding:10px 0}.selected-run{border-bottom:1px solid #dce2df;margin-bottom:30px;padding-bottom:16px}@media(max-width:800px){.operation-fields{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:420px){.operation-fields{grid-template-columns:minmax(0,1fr)}}
   </style>
   <link rel="stylesheet" href="/tenant/operational-mail-routing.css">
+  <style>
+    .approval-admin{min-width:0;border-block:1px solid #dce2df;padding:20px 0;margin-bottom:30px;overflow-wrap:anywhere}
+    .approval-admin .operation-fields{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .approval-admin-actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:18px}
+    .approval-admin button{min-height:44px;max-width:100%;padding:10px 16px;border:1px solid #aab8af;border-radius:4px;background:white;color:#25312e;line-height:1.5;white-space:normal;overflow-wrap:anywhere}
+    .approval-admin button.command{background:#2b6652;color:white;border-color:#2b6652}
+    .approval-admin button:focus-visible{outline:2px solid #2b6652;outline-offset:3px}
+    .approval-admin dialog{box-sizing:border-box;width:min(680px,calc(100% - 32px));max-height:90vh;max-height:calc(100dvh - 32px);margin:auto;padding:24px;border:1px solid #becbc3;border-radius:8px;background:white;color:#25312e;overflow:auto}
+    .approval-admin dialog::backdrop{background:rgba(20,30,25,.4)}
+    .approval-admin dialog h3{margin:0 0 16px;font-size:19px;line-height:1.4}
+    .approval-admin dialog p{font-size:14px;line-height:1.6}
+    .approval-admin dialog .status:empty{display:none}
+    @media(max-width:640px){.approval-admin .operation-fields{grid-template-columns:minmax(0,1fr)}.approval-admin dialog{padding:18px}.approval-admin-actions button{flex:1 1 180px}}
+  </style>
 </head>
 <body>
   <div class="shell">
@@ -24,11 +38,31 @@
     <div class="main">
       <header class="topbar"><span>Drift / Godkendelseskontrol</span><a href="/app">Tilbage til Fielddesk</a></header>
       <main class="page">
-        <div class="heading"><h1>Godkendelseskontrol</h1><span class="mode">DEP · Preview</span></div>
+        <div class="heading"><h1>Godkendelseskontrol</h1><span class="mode">DEP · POC</span></div>
         <section id="operations" class="operations" aria-labelledby="operations-heading">
           <h2 id="operations-heading">Maildrift</h2>
           <p id="operations-status" class="status" role="status" aria-live="polite">Henter driftsstatus…</p>
           <div id="operations-content"></div>
+        </section>
+        <section id="approval-admin-control" class="approval-admin" aria-labelledby="approval-admin-heading" hidden>
+          <h2 id="approval-admin-heading">Automatisk Godkendelseskontrol</h2>
+          <div id="approval-admin-summary"></div>
+          <p id="approval-admin-status" class="status" role="status" aria-live="polite"></p>
+          <div class="approval-admin-actions">
+            <button id="approval-admin-action" type="button" hidden>Aktivér Godkendelseskontrol</button>
+            <button id="approval-admin-retry" type="button" hidden>Hent status igen</button>
+          </div>
+          <dialog id="approval-admin-dialog" aria-labelledby="approval-admin-dialog-title" aria-describedby="approval-admin-dialog-details">
+            <form id="approval-admin-confirm-form">
+              <h3 id="approval-admin-dialog-title"></h3>
+              <div id="approval-admin-dialog-details"></div>
+              <p id="approval-admin-dialog-status" class="status" role="status" aria-live="polite"></p>
+              <div class="approval-admin-actions">
+                <button id="approval-admin-cancel" type="button" autofocus>Annuller</button>
+                <button id="approval-admin-confirm" class="command" type="submit" disabled>Bekræft</button>
+              </div>
+            </form>
+          </dialog>
         </section>
         <section class="operational-mail-routing" data-operational-mail-routing="approval-control" hidden></section>
         <section id="selected-run" class="selected-run" aria-labelledby="selected-run-heading" hidden>

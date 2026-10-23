@@ -1,6 +1,13 @@
 # Godkendelseskontrol V1
 
-Status: **FASE 1 UDRULLET OG VERIFICERET; PRODUKTIONSAKTIVERING IKKE GODKENDT**,
+Aktuel status, 23. oktober 2026: **LOKAL ADMINSTYRING AFVENTER DEPLOY;
+PRODUKTIONEN ER FORTSAT SLUKKET UDEN AKTIVERINGSDATO**. Den nye lokale
+[aktiverings-/pausekontrakt](#lokal-adminstyring) er ikke deployet eller
+aktiveret. Seneste dokumenterede produktionsudvidelse er routingcommit
+`c19ab93`, migration 0065 og HC's JEL-CC til en fremtidig driftsmail;
+modtagerindstillinger aktiverer ikke Godkendelseskontrol.
+
+Dateret fase 1-status: **FASE 1 UDRULLET OG VERIFICERET; PRODUKTIONSAKTIVERING IKKE GODKENDT**,
 23. oktober 2026 kl. 10.46, Europe/Copenhagen. Produktionskode `080b902` og
 auditmigrationer 0062/0063/0064 er udrullet; se fase 1-beviset nedenfor.
 Tidligere lokale implementerings-/testresultater er ikke i sig selv deploybevis.
@@ -190,7 +197,7 @@ rettet alene i kontrolprocessen. Ingen featurekode eller produktionsdata blev
 ## Implementeret V1
 
 - DEP alene i HC, valideret mod den eksisterende aktive session/tenantbruger.
-  Ingen ny bruger-/tenantkonfiguration, GUID-linkning, tabel eller identitetskæde.
+  Ingen ny identitetskonfiguration, GUID-linkning, tabel eller identitetskæde.
 - Manuel POST-preview; intet EK-kald ved sidevisning eller statusopslag.
   Valgfrit `project_id` kan kun indsnævre den eksisterende liste. Ukendte
   requestfelter, `scope=all`, aktør-/tenantvalg, modtagere og sendeflag afvises.
@@ -330,6 +337,11 @@ er foretaget som del af mailimplementeringen.
 
 ### Uforanderlig aktiveringskvittering
 
+Nedenstående aktiveringsindgang beskriver fase 1-koden. Den nye lokale
+adminstyring bevarer 0064-kvitteringen, men erstatter operatør-/masterflagkravet
+med den atomiske tenanttilstand beskrevet i [Lokal adminstyring](#lokal-adminstyring).
+Det er endnu ikke en ændring af den deployede drift.
+
 [Migration 0064](../../../migrations/0064_approval_control_scheduler_activation.sql)
 udvider kun eksisterende audit med `approval_control.scheduler_activated`,
 en metadata-constraint og et unikt partielt indeks pr. tenant. Ingen ny tabel,
@@ -425,33 +437,42 @@ fælles audittabel; lokal test er ikke tilladelse til produktionsmigration.
 
 ### Operatørindgang og aktiveringsgrænse
 
-`backend/scripts/approval_control.js` er en separat, **ikke tilkoblet**
-operatør-/senere cronindgang. Den importerer ikke app, sync-worker eller
+Dette afsnit beskriver den lokale adminudvidelses procedure; det er ikke
+tilladelse til deploy eller aktivering. De daterede fase 1-kvitteringer nedenfor
+bevarer deres oprindelige betydning. Efter godkendt deploy gælder
+[admin-kontrakten](#lokal-adminstyring) og et separat tenant-admin-klik.
+
+`backend/scripts/approval_control.js` er en separat operatørindgang, ikke
+tenantens aktiveringsvej eller en tilkoblet cron. Den importerer ikke app, sync-worker eller
 Timekontrol-scheduler. Den finder HC og den eksisterende aktive DEP-bruger
 server-side; ingen argumenter til at vælge anden modtager eller tenant.
 
 | Indgang | Virkning, hvis operatøren senere kører den |
 | --- | --- |
 | `--status` | Kun database/status; ingen EK eller mail |
-| `--activate-scheduler --confirm=ACTIVATE:approval_control:hoyrup-clemmensen` | Senere særskilt godkendt produktionsaktivering; fastlåser serverdato én gang, uden mail |
-| `--simulate` | Kun i planlagt slot og med allerede gemt produktionsaktivering; kan ikke oprette en periode; aldrig provider |
-| `--run-scheduled` | Kun i planlagt slot og med begge særskilte featureflags true; ellers ingen afsendelse |
+| Historisk `--activate-scheduler --confirm=ACTIVATE:approval_control:hoyrup-clemmensen` | Udfaset i den lokale adminudvidelse: fejler med `approval_control_use_tenant_admin_activation` før SQL; kan ikke oprette første aktivering |
+| `--simulate` | Kun i planlagt slot og med allerede aktiv tenanttilstand/produktionsperiode; aldrig provider eller ny startdato |
+| `--run-scheduled` | Kun produktion, aktiv tenanttilstand, gyldigt fremtidigt slot og alle guards; ingen genafsendelse/catchup. Ikke almindelig aktiveringsvej |
 
-`APPROVAL_CONTROL_SCHEDULER_ENABLED` og `APPROVAL_CONTROL_MAIL_ENABLED` er
-default false. De ændrer ikke Timekontrols eller andre flows' flags.
-Ingen cron, timer, Render-service eller app-start-hook oprettes/aktiveres i
-denne opgave. En kommende separat cron skal vælge den danske tid korrekt
-ved både sommer-/vintertid; slotvælgeren validerer lokal dato/minut på ny.
-UI viser næste **beregnede** tidspunkt adskilt fra faktisk aktivering og
-viser, at scheduler ikke er tilkoblet. Disse kommandoer er ikke kørt live her.
+Den vedvarende tenanttilstand er default-off og kan ikke aktiveres af
+udeladte eller positive miljøflags alene. `APPROVAL_CONTROL_SCHEDULER_ENABLED`
+og `APPROVAL_CONTROL_MAIL_ENABLED` kan hver sættes eksplicit til false som
+nødstop; ugyldige værdier blokerer. De ændrer ikke Timekontrols flags.
+Den nye separate Godkendelseskontrol-scheduler kobles til webprocessen efter
+deploy, men kalder kun mailjob for en aktiveret tenant i det planlagte minut.
+Ingen startup-/aktiveringskørsel, laptop eller åben Codex-session kræves.
+Ingen ny Render-cron er nødvendig. Lokal tid og DST genvalideres af jobbet.
+UI adskiller beregnet næste tidspunkt, aktiv tenanttilstand og faktisk
+tilkoblet scheduler. Ingen af operatørkommandoerne er kørt live her.
 
-Stop en senere godkendt drift ved at sætte begge `APPROVAL_CONTROL_*_ENABLED`
-til false og deaktivere **kun den fremtidige Godkendelseskontrol-cron**.
-Ingen Timekontrol-flag eller eksisterende Render-cron må ændres. Miljøændringer
-skal være indlæst i den kørende jobproces; miljøet genlæses også lige før
-provideradgang. Et flag ændret i Render hot-opdaterer ikke en gammel proces.
-Allerede accepteret mail kan ikke
-trækkes tilbage. Genaktivering må ikke replaye historiske dagsclaims.
+Normalt stop: tenant-admin vælger **Sæt på pause** og bekræfter i UI.
+Startdato, audit, modtagere og historik bevares; genoptagelse kræver ny
+bekræftelse og må ikke replaye gamle dagsclaims. Miljøflags er alene et
+separat operatørnødstop og skal være indlæst i den kørende proces. Et flag
+ændret i Render hot-opdaterer ikke en gammel proces. Timekontrols flags og
+eksisterende Render-cron må ikke ændres. Allerede påbegyndt provideradgang
+kan ikke trækkes tilbage; pause kan ved låseventetid fejle synligt uden at
+foregive succes.
 
 Driftsstatus udvides med næste tidspunkt, flags, synlig dækning samt seneste
 job/årsag/providerresultat. `GET /api/approval-control/runs/:runId` læser
@@ -490,6 +511,170 @@ JEL er alene en konfigureret kopi på en fremtidig godkendt driftsmail, ikke
 bevis for afsendelse eller indbakkemodtagelse. Fuld kvittering er samlet i
 routingkontrakten ovenfor.
 
+## Lokal adminstyring
+
+Status: **LOCAL ONLY, IKKE DEPLOYET, INGEN AKTIVERING**. Dette er den
+godkendte kontrakt for den lokale aktiverings-/pauseudvidelse, 23. oktober
+2026. Implementering og lokal validering er gennemført; se de særskilte
+valideringsresultater nedenfor. Ingen produktionskontrol eller mailkvittering
+er udført for denne udvidelse. Ingen ny migration er skrevet eller anvendt.
+Den nye PostgreSQL-prøve bruger alene en kopi af et allerede migreret lokalt
+testskema, ikke migrationsfiler eller en migrationsrunner. Ældre daterede
+PG-resultater nedenfor gælder fortsat deres oprindelige ændringer.
+
+### Adgang, tilstand og atomisk startdato
+
+Tenant og aktør afledes server-side fra tenant-host og aktiv session.
+Kontrolhandlinger kræver, at databasen genbekræfter aktiv tenant, aktiv
+tenantbruger/login og rollen `tenant_admin`; en klientrolle eller et
+klientleveret tenant-/aktørvalg giver ingen adgang. Administration udvider
+ikke projektadgangen. V1's HC/DEP-afgrænsning bevares: scheduler og mail
+genbruger den eksisterende aktive DEP-tenantbruger, eksisterende DEP-modtager
+og brugerens uændrede `scope=mine`. Ingen manuel mapping eller ny primær modtager.
+
+Når både gemt kontroltilstand og tidligere 0064-aktiveringskvittering mangler,
+er status `inactive`, også hvis miljøflags er udeladt eller sat til true.
+Før første aktivering findes ingen startdato eller aktiv kontrolperiode.
+Findes der derimod en 0064-kvittering uden ny kontroltilstand, vises
+adminstatus som `paused`, revision **0**, med den oprindelige startdato;
+schedulerstatus viser tilsvarende `control_status=paused`. Genoptagelse
+genbruger den oprindelige kvittering/dato og kan ikke starte perioden forfra.
+Legacy-kvitteringen giver ikke automatisk aktiv drift. Status og sidevisning
+opretter ingen kontroltilstand eller aktivering. Det ændrer ikke den senest
+dokumenterede produktionstilstand, hvor første aktivering fortsat er null;
+der er ikke foretaget nye eksterne kontroller i dette dokumentationstillæg.
+
+`verified` ved læsning af den lokale kode: `backend/scripts/approval_control.js`
+afviser den tidligere `--activate-scheduler`-indgang med
+`approval_control_use_tenant_admin_activation` før SQL. Den gamle operatørvej
+kan derfor ikke oprette en første kvittering uden tenantens kontroltilstand.
+`job.activateScheduler` delegerer til `control.change` med den fulde
+kontrolrequest og dens guards; funktionsnavnet giver ingen alternativ genvej.
+Efter godkendt deploy sker almindelig aktivering, pause og genoptagelse
+udelukkende gennem tenant-admin-UI og bekræftelsesdialogen. Codex, en
+operatørkommando eller ændrede miljøflags er normalt ikke nødvendige;
+miljøflags bevares som særskilt nødstop.
+
+Aktivering/genoptagelse kræver også, at den eksisterende mailtransport er
+konfigureret med Resend, afsender, Reply-To og API-nøgle. Manglende opsætning
+vises som en aktiveringsblocker; admin kan ikke fastlåse første dato, før
+transporten er klar. Status/fejlrespons indeholder ingen nøgle eller andre
+hemmeligheder. En autoriseret pause er fortsat mulig trods
+aktiveringsblockere; adgangskontrol og bekræftelsesguards gælder stadig.
+
+Tilstanden gemmes kanonisk i eksisterende append-only `audit_event` med
+`event_type=tenant_config_changed`, `module_key=approval_control` og
+`audit_event.target_type=approval_control_settings` via auditservicens
+`resourceType`. Aktør og før/efter-tilstand
+auditeres. Der oprettes ingen ny tabel, schemaændring eller migrationsfil;
+den eksisterende auditmodel og migration 0064 er tilstrækkelige.
+
+Ved første aktivering oprettes den uforanderlige
+`approval_control.scheduler_activated`-kvittering fra 0064 og den aktive
+kontroltilstand **i samme databasetransaktion**. Databaseuret bestemmer det
+faktiske tidspunkt og startdatoen i Europe/Copenhagen. Fejl eller auditfejl
+ruller begge skrivninger tilbage. Ingen klientdato, historisk skæringsdato
+eller miljøoverride kan fastlægge perioden.
+
+Bekræftelsesdialogen binder handlingen til tre kontroller: forventet
+kontrolrevision, den viste aktuelle København-dato og forventet
+routingrevision for `approval_control_summary`. Backend genkontrollerer dem
+mod database/tilstand/routing; ændring, samtidighed eller datoskifte kræver
+en frisk dialog, ikke tavs accept af forældede oplysninger. Datoen er en
+bekræftelse af dagens serverdato, ikke et redigerbart startdatovalg.
+
+### Pause, genoptagelse og samtidighed
+
+Pause og genoptagelse øger kontrolrevisionen og bevarer altid den første
+aktiveringskvittering/startdato. Hver aktiv generation har sit aktuelle
+serverdaterede `enabled_at`. Dagsclaims og afsendelsesforsøg bindes til
+kontrolgenerationen og genvalideres før provideradgang. Gamle claims bliver
+ikke gyldige igen efter pause efterfulgt af genoptagelse; eksisterende
+permanente dagsclaims og reglen om højst ét providerforsøg bevares.
+
+En separat tenantafgrænset advisory-lås i namespace **6125** anvendes shared
+ved afsendelse og exclusive ved kontrolændring/pause. Sendelåsen holdes
+gennem det faktiske providerforsøg. Pause kan derfor ikke rapporteres som
+gemt, mens et tidligere forsøg stadig har shared-låsen. Låsekonflikt har en
+grænse på **3 sekunder** og giver synlig fejl uden falsk pause-succes eller
+delvist gemt tilstand. En allerede accepteret mail kan ikke trækkes tilbage.
+Låsen er særskilt fra routinglåsen 6124 og Timekontrols drift.
+`SET LOCAL lock_timeout='3s'` og `statement_timeout='15s'` sættes før
+autorisationsopslaget i kontroltransaktionen. Ventetid på aktør-/tenantrækker
+er dermed også afgrænset, ikke kun ventetid på advisory-låsen. Timeout giver
+fejl og rollback, aldrig en bekræftet kontrolændring.
+
+### Scheduler, nødstop og senere udrulning
+
+Godkendelseskontrol får sin egen minutjusterede scheduler, alene i
+`NODE_ENV=production`. Der startes ingen scheduler i test/development og
+ingen startup-catchup. Mandag-torsdag 14.30 og fredag 14.31, København,
+bevares; det planlagte slots tidspunkt skal ligge **strengt efter** den
+aktuelle generations `enabled_at`. Aktivering midt i et planlagt minut
+frigiver ikke det allerede begyndte slot. Scheduler genbruger DEP's
+eksisterende eget scope og de hidtidige kilde-/admissionsgrænser.
+
+I den lokale kontrakt er `APPROVAL_CONTROL_SCHEDULER_ENABLED` og
+`APPROVAL_CONTROL_MAIL_ENABLED` ikke længere positive aktiveringsgates:
+udeladte flags tillader kun drift, når tenantens gemte tilstand er aktiv;
+eksplicit false er nødstop, og ugyldige værdier blokerer. True kan ikke
+aktivere en inaktiv tenant. Manglende tilstand holder fortsat produktionen
+slukket som standard. Dette beskriver den kommende kode, ikke en ændring
+af produktionsmiljøet eller af den daterede fase 1-flagkvittering.
+
+Næste grænse er særskilt godkendelse af den konkrete færdige kode,
+commit/push/deploy. **Derefter** kræves et separat, bekræftet tenant-admin-klik
+for faktisk aktivering; deploy opretter hverken aktiv tilstand eller
+startdato. Klikket fastlåser den faktiske databaseafledte dato, uden
+historisk indhentning eller en fast kalendergrænse. Produktionsaktivering,
+preview/testmail eller en bestemt afsendelse er ikke udført eller godkendt
+ved dette lokale dokumentationstillæg. Fase 2-planen nedenfor er dateret
+historik; dens operatørkommando erstattes af denne admin-aktiveringsvej.
+
+Ingen Timekontrol-fil, scheduler, afsendelse, sync eller produktionsindstilling
+ændres af denne udvidelse. De daterede beviser for fase 1 og `c19ab93` /
+migration 0065 / JEL-CC ovenfor bevares som historiske kvitteringer.
+
+### Verificeret lokal adminudvidelse, 23. oktober 2026
+
+- `npm run check`: **770 bestået, 0 fejl, 15 opt-in skips**, inklusive alle
+  almindelige Timekontrol-/mailregressioner og 18 static assertions. Syntaks,
+  whitespace, encoding, secrets og migrationsstruktur er grønne; sidstnævnte
+  er kun en filkontrol, ikke migrationseksekvering.
+- Målrettet `approvalControlAdmin`, `approvalControlAdminUi`,
+  `approvalControlScheduler`, `approvalControlMail` og `approvalControl`:
+  **117 bestået, 0 fejl/skips**. Dækker reelle HTTP-middleware med simuleret
+  storage, session/rolle/tenantafvisning, rollback, serverdato ved midnat,
+  revisioner, første dato, pause/genoptagelse, fremtidsfilter, købeskyttelse,
+  uændret scope, transport-/konfigurationsblockere og UI-usikkerhed uden retry.
+- Kun den nye `approvalControlAdminPostgres.integration.js` er kørt mod
+  PostgreSQL: **8 bestået, 0 fejl/skips**. Testen klonede et allerede migreret,
+  isoleret lokalt skema med de 65 eksisterende migrationsposter. Ingen
+  migrationsrunner, migrationsfil eller schemaændring blev kørt. Den faktiske
+  SQL, atomisk første kvittering/kontrolaudit, rollback, otte samtidige første
+  aktiveringer og begge send/pause-ræs er verificeret, inklusive 3s timeout.
+  Forældede generationer er fortsat blokerede efter genoptagelse.
+- Både den read-only template og testkopiens Timekontrol-, outbox- og syncdata
+  er uændrede, ligesom migrationsmetadata. Eksisterende opt-in-suites, der
+  anvender migrationer, er med vilje ikke kørt. Testserveren er stoppet igen.
+- Playwright med kun lokalt, syntetisk UI: **1365/390/320 px**, ingen scriptfejl
+  eller overløb; første bekræftelse, Escape/annuller uden POST, aktiv/pause/
+  genoptagelse med bevaret dato, 409 uden automatisk retry og skjult/ryddet
+  adminsektion ved 403. Bekræftet POST kan ikke foregives annulleret under
+  ventetid; timeout viser usikkert resultat og kræver ny læsning. Screenshots
+  er visuelt kontrolleret. Ingen EK-, database-, preview- eller mailkald fra UI.
+- Uafhængigt read-only review: to fund om blokkeret pause-UI og timeout før
+  autorisation er rettet og genverificeret; ingen resterende konkrete fund.
+  Nye/ikke-trackede feature- og testfiler er kontrolleret særskilt for syntaks,
+  encoding og secrets. Git-indholdsdiff er tom for hele Timekontrol,
+  fitter/sync, projekt-scope, fælles mailadapter/routing og migrationsfiler.
+
+Produktion, startdato og aktive indstillinger er ikke tilgået/ændret i denne
+opgave. Ingen rigtig mail, EK-kald, migration, deploy, commit eller push.
+Den lokale UI-simulering på `http://127.0.0.1:4131` har alene hukommelsestilstand
+og kan ikke aktivere produktion, skrive til databasen eller kontakte EK/mail.
+Lokale testlogs/screenshots ligger i `.tmp/approval-control-admin/`.
+
 ## Backlog og testgrænse
 
 | Status | Arbejde |
@@ -501,9 +686,11 @@ routingkontrakten ovenfor.
 | Afgrænset live-verificeret | 23. oktober kl. 00.30, perioden 19.-23. oktober: ny reader med pageSize 100/to komplette passes og faktisk preview matcher rådata. Produktions-HTTP, audit/admission og maildrift er ikke live-verificeret |
 | Udrullet fase 1, slukket | DEP-mailjob med dagsclaim, simuleret payload, eksisterende mailtransport, fremtidsfilter, status og sikker provider-usikkerhed |
 | Udrullet fase 1, ikke aktiveret | Fremadrettet dækning fra første produktionsaktivering, fredag 14.31, mandag-torsdag 14.30 og dynamisk periode/fodnote |
-| Afventer ny godkendelse | Fase 2: eksplicit live-preview, særskilt låst testmailvej før aktivering, én test og bekræftet indbakke |
-| Afventer senere godkendelse | Faktisk scheduler-/mailaktivering med første serverdaterede kvittering, efter bestået fase 2-mailtest |
+| Dateret fase 2-plan, ikke udført | Eksplicit live-preview, særskilt låst testmailvej før aktivering, én test og bekræftet indbakke; ingen ny preview-/sendetilladelse |
+| Dateret aktiveringsvej, erstattet lokalt | Tidligere operatør-/flagaktivering efter fase 2-test; den nye adminvej afventer separat deploygodkendelse og derefter faktisk tenant-admin-bekræftelse |
 | Udrullet og settings verificeret 23. oktober | Tenant-admin ekstra CC/BCC til `approval_control_summary`; HC's JEL-CC revision 1 gemt. Selve Godkendelseskontrol er fortsat slukket; ingen startdato, aktivering, mail eller replay |
+| Implementeret og lokalt verificeret; afventer deploygodkendelse | Tenant-admin aktivering/pause/genoptagelse, atomisk 0064-kvittering og kontrolaudit, tre dialogguards, generationsbinding og separat send-/kontrollås 6125; egen produktionsscheduler, ingen ny migration |
+| Afventer separat faktisk tenant-admin-aktivering efter godkendt deploy | Databaseuret fastlåser første dato ved klik; deploy/routing/udeladte flags aktiverer intet. Pause/genoptagelse bevarer datoen og spærrer gamle claims |
 | Senere særskilt scope | Go-live-afgrænset effektstatistik, andre modtagere/tenants, andre intervaller, helligdage og automatisk retry |
 
 Ekstra CC/BCC-tillægget afgrænser modtagersporet i den sidste backlogrække:
@@ -695,6 +882,12 @@ at genstarte produktionen ved en ren dokumentationsopdatering; dette følger
 
 ### Fase 2, endnu ikke godkendt
 
+Den følgende plan er den daterede fase 1-plan. Den nye, endnu ikke deployede
+[lokale admin-kontrakt](#lokal-adminstyring) erstatter dens operatørbaserede
+aktivering med særskilt godkendt deploy og derefter tenant-admin-bekræftelse.
+Historiske preview-/testmailforslag er ikke bevis for udført test eller ny
+sendetilladelse; konkrete senere handlinger skal godkendes særskilt.
+
 Fase 2 er en separat, endnu ikke godkendt sekvens:
 
 1. Godkend et konkret manuelt live-preview-interval. Kald den eksisterende
@@ -715,8 +908,11 @@ Fase 2 er en separat, endnu ikke godkendt sekvens:
    Afvent Dennis' bekræftelse af faktisk indbakkemodtagelse.
 4. Først derefter godkendes den konkrete scheduler-/mailaktivering separat.
    Tilkobl kun Godkendelseskontrol, mandag-torsdag 14.30 og fredag 14.31,
-   Europe/Copenhagen. Ved den faktiske tenantaktivering udføres den ovenfor
-   dokumenterede `--activate-scheduler --confirm=ACTIVATE:approval_control:hoyrup-clemmensen`
-   med produktionsgate; databaseuret fastlåser startdatoen én gang. Verificér
+   Europe/Copenhagen. Den historiske plan beskrev
+   `--activate-scheduler --confirm=ACTIVATE:approval_control:hoyrup-clemmensen`;
+   **kommandoen er udfaset i den lokale adminudvidelse og må ikke bruges som
+   aktiveringsvej**. Efter godkendt deploy sker faktisk aktivering alene ved
+   tenant-admins bekræftede UI-handling, normalt uden Codex eller miljøændring;
+   databaseuret fastlåser startdatoen én gang. Verificér
    gemt dato, første planlagte slot, DEP/ingen CC og stopprocedure. Ingen
    historisk indhentning eller ændring af aktiv Timekontrol.

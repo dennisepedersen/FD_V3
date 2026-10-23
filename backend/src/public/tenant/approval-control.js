@@ -217,6 +217,263 @@
     }
   }
 
+  function initAdminControl() {
+    const section = get("approval-admin-control");
+    if (!section) return;
+    const summary = get("approval-admin-summary");
+    const status = get("approval-admin-status");
+    const action = get("approval-admin-action");
+    const retry = get("approval-admin-retry");
+    const dialog = get("approval-admin-dialog");
+    const details = get("approval-admin-dialog-details");
+    const title = get("approval-admin-dialog-title");
+    const dialogStatus = get("approval-admin-dialog-status");
+    const confirm = get("approval-admin-confirm");
+    const cancel = get("approval-admin-cancel");
+    const endpoint = "/api/approval-control/admin/control";
+    let current = null, confirmation = null, loading = false, saving = false, revoked = false;
+
+    function accessToken() {
+      try { return window.localStorage.getItem("fielddesk_access_token"); }
+      catch (_) { return null; }
+    }
+
+    function clearConfirmation() {
+      confirmation = null;
+      details.replaceChildren();
+      title.textContent = "";
+      dialogStatus.textContent = "";
+      confirm.disabled = true;
+    }
+
+    function closeDialog() {
+      if (dialog.open) dialog.close();
+      clearConfirmation();
+    }
+
+    function hideControl() {
+      revoked = true;
+      current = null;
+      closeDialog();
+      section.hidden = true;
+      section.replaceChildren();
+    }
+
+    function message(text, error = false) {
+      status.textContent = text;
+      status.className = error ? "status error" : "status";
+    }
+
+    const validDate = value => typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
+      && !Number.isNaN(new Date(value + "T12:00:00Z").getTime())
+      && new Date(value + "T12:00:00Z").toISOString().slice(0, 10) === value;
+    const validInstant = value => typeof value === "string" && /^\d{4}-\d{2}-\d{2}T/.test(value)
+      && /(?:Z|[+-]\d{2}:\d{2})$/.test(value) && !Number.isNaN(new Date(value).getTime());
+    const validSchedule = control => control.time_zone === "Europe/Copenhagen"
+      && control.scheduled_local_time === "14:30" && control.friday_local_time === "14:31";
+
+    function validControl(control) {
+      if (!Array.isArray(control?.configuration_blockers)
+        || !control.configuration_blockers.every(value => typeof value === "string")) return false;
+      const blocked = control.configuration_blockers.length > 0;
+      return control && ["inactive", "active", "paused"].includes(control.status)
+        && (control.effective_active === undefined || typeof control.effective_active === "boolean")
+        && Number.isSafeInteger(control.revision) && control.revision >= 0
+        && Number.isSafeInteger(control.mail_routing_revision) && control.mail_routing_revision >= 0
+        && validDate(control.today)
+        && (control.status === "inactive" ? control.coverage_from === null && control.activated_at === null
+          : validDate(control.coverage_from) && validInstant(control.activated_at))
+        && (control.next_scheduled_at === null || validInstant(control.next_scheduled_at))
+        && (blocked || (control.status === "active" ? validInstant(control.next_scheduled_at) : control.next_scheduled_at === null))
+        && (validInstant(control.activation_next_scheduled_at) || (blocked && control.activation_next_scheduled_at === null))
+        && (blocked || validSchedule(control))
+        && ["to", "extra_cc", "extra_bcc"].every(key => Array.isArray(control.recipients?.[key])
+          && control.recipients[key].every(value => typeof value === "string"))
+        && (blocked || control.recipients.to.length > 0);
+    }
+
+    async function request(method, body) {
+      const token = accessToken();
+      if (revoked || !token) { hideControl(); return null; }
+      const response = await fetch(endpoint, {
+        method, cache: "no-store", redirect: "error",
+        ...(typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function" ? { signal: AbortSignal.timeout(20000) } : {}),
+        headers: { Authorization: `Bearer ${token}`, ...(body ? { "Content-Type": "application/json" } : {}) },
+        ...(body ? { body: JSON.stringify(body) } : {}),
+      });
+      if (response.status === 401 || response.status === 403 || accessToken() !== token) {
+        hideControl();
+        return null;
+      }
+      const data = await response.json().catch(() => null);
+      if (revoked || accessToken() !== token) { hideControl(); return null; }
+      if (!response.ok || data?.success !== true || !validControl(data.control)) {
+        throw Object.assign(new Error("Approval control request failed"), { status: response.status });
+      }
+      return data.control;
+    }
+
+    function updateButtons() {
+      action.hidden = !current;
+      action.disabled = revoked || loading || saving || !current
+        || (current.status !== "active" && (current.configuration_blockers.length > 0 || !current.recipients.to.length));
+      retry.disabled = loading || saving;
+      cancel.disabled = saving;
+    }
+
+    function controlSummary(control) {
+      const content = node("div");
+      content.append(fields([
+        ["Status", { inactive: "Ikke aktiv", active: "Aktiv", paused: "Pause" }[control.status]],
+        ["Automatisk drift", control.status === "active" && control.effective_active !== false
+          && !control.configuration_blockers.length ? "Aktiv" : "Stoppet"],
+        ["Startdato", control.coverage_from ? day(control.coverage_from) : "Ikke fastlagt"],
+        [control.status === "active" ? "Næste planlagte kørsel" : "Næste kørsel ved aktivering",
+          control.status === "active" ? control.next_scheduled_at ? timestamp(control.next_scheduled_at) : "Ingen planlagt kørsel"
+            : control.activation_next_scheduled_at ? timestamp(control.activation_next_scheduled_at) : "Ingen planlagt kørsel"],
+        ["Til · DEP", control.recipients.to.join("; ") || "Ingen aktiv DEP-modtager"],
+        ["Ekstra CC", control.recipients.extra_cc.join("; ") || "Ingen"],
+        ["Ekstra BCC · kun administrator", control.recipients.extra_bcc.join("; ") || "Ingen"],
+      ]), node("p", validSchedule(control)
+        ? "Mandag-torsdag kl. 14.30; fredag kl. 14.31 · Europe/Copenhagen."
+        : "Planlægning er blokeret. De planlagte klokkeslæt kan ikke bekræftes.", "muted"),
+      node("p", "Kontrollen omfatter kun DEP's egne sager. Historiske timer før startdatoen kontrolleres ikke automatisk. Historik kræver et manuelt preview.", "muted"));
+      if (control.status === "active" && control.effective_active === false) {
+        content.append(node("p", "Status er Aktiv, men den automatiske drift er stoppet af konfiguration eller sikkerhedsflag. Du kan stadig sætte Godkendelseskontrol på pause.", "coverage-warning"));
+      }
+      if (control.configuration_blockers.length) {
+        const blockers = node("ul");
+        for (const blocker of control.configuration_blockers) blockers.append(node("li", blocker));
+        content.append(node("p", "Aktivering er blokeret af konfigurationen. Kontrollér driftsopsætningen, og hent status igen.", "coverage-warning"), blockers);
+      }
+      return content;
+    }
+
+    function renderControl(control) {
+      current = control;
+      summary.replaceChildren(controlSummary(control));
+      action.textContent = control.status === "active" ? "Sæt på pause" : "Aktivér Godkendelseskontrol";
+      retry.hidden = true;
+      section.hidden = false;
+      updateButtons();
+    }
+
+    function unavailable(text) {
+      current = null;
+      summary.replaceChildren();
+      message(text, true);
+      retry.hidden = false;
+      section.hidden = false;
+      updateButtons();
+    }
+
+    async function refresh() {
+      const control = await request("GET");
+      if (control && !revoked) renderControl(control);
+      return control;
+    }
+
+    async function load() {
+      if (loading || saving || revoked) return;
+      loading = true;
+      updateButtons();
+      try {
+        if (await refresh()) message("");
+      } catch (_) {
+        if (!revoked) unavailable("Administrationsstatus kunne ikke hentes. Prøv igen senere.");
+      } finally { loading = false; updateButtons(); }
+    }
+
+    action.addEventListener("click", async () => {
+      if (!current || loading || saving || revoked || action.disabled) return;
+      const previousStatus = current.status;
+      loading = true;
+      updateButtons();
+      message("Henter aktuelle oplysninger...");
+      try {
+        const control = await refresh();
+        if (!control || revoked) return;
+        if (control.status !== previousStatus) {
+          message("Status er ændret. Kontrollér oplysningerne, og vælg handlingen igen.", true);
+          return;
+        }
+        if (control.status !== "active" && (control.configuration_blockers.length || !control.recipients.to.length)) {
+          message("Aktivering er blokeret af konfigurationen.", true);
+          return;
+        }
+        const nextAction = control.status === "active" ? "pause" : "activate";
+        title.textContent = nextAction === "pause" ? "Sæt Godkendelseskontrol på pause" : "Aktivér Godkendelseskontrol";
+        details.replaceChildren(node("p", control.coverage_from
+          ? `Startdato bevares: ${day(control.coverage_from)} · Europe/Copenhagen.`
+          : `Startdato låses til ${day(control.today)} · Europe/Copenhagen.`),
+        controlSummary(control), node("p", nextAction === "pause"
+          ? "Kommende kontroller sættes på pause. En allerede påbegyndt mail kan ikke trækkes tilbage."
+          : "Aktivering gælder kommende planlagte kontroller. Ingen øjeblikkelig mail eller afsendelse af gamle køposter."));
+        confirmation = { action: nextAction, control };
+        confirm.textContent = nextAction === "pause" ? "Bekræft pause" : "Bekræft aktivering";
+        confirm.disabled = false;
+        dialogStatus.textContent = "";
+        message("");
+        loading = false;
+        updateButtons();
+        action.focus();
+        dialog.showModal();
+      } catch (_) {
+        closeDialog();
+        if (!revoked) unavailable("Aktuelle oplysninger kunne ikke hentes. Hent status igen før bekræftelse.");
+      } finally { loading = false; updateButtons(); }
+    });
+
+    get("approval-admin-confirm-form").addEventListener("submit", async event => {
+      event.preventDefault();
+      if (!confirmation || !dialog.open || saving || revoked) return;
+      const snapshot = confirmation;
+      saving = true;
+      confirm.disabled = true;
+      updateButtons();
+      dialogStatus.textContent = "Gemmer...";
+      try {
+        const control = await request("POST", {
+          action: snapshot.action,
+          revision: snapshot.control.revision,
+          expected_local_date: snapshot.control.today,
+          mail_routing_revision: snapshot.control.mail_routing_revision,
+          confirm: snapshot.action === "activate" ? "ACTIVATE:approval_control" : "PAUSE:approval_control",
+        });
+        if (!control || revoked) return;
+        closeDialog();
+        renderControl(control);
+        message(snapshot.action === "pause" ? "Godkendelseskontrol er sat på pause." : "Godkendelseskontrol er aktiveret.");
+        await latest();
+      } catch (error) {
+        closeDialog();
+        if (revoked) return;
+        if (error.status === 409) {
+          try {
+            if (await refresh()) message("Oplysningerne er ændret. Kontrollér den opdaterede status, og bekræft handlingen på ny.", true);
+          } catch (_) {
+            if (!revoked) unavailable("Oplysningerne er ændret. Hent status igen før en ny bekræftelse.");
+          }
+        } else {
+          unavailable("Resultatet kunne ikke bekræftes. Hent status igen før en ny handling.");
+        }
+      } finally {
+        saving = false;
+        updateButtons();
+        if (!revoked && !action.hidden && !dialog.open) action.focus();
+      }
+    });
+
+    retry.addEventListener("click", load);
+    cancel.addEventListener("click", () => { if (!saving) closeDialog(); });
+    dialog.addEventListener("cancel", event => { event.preventDefault(); if (!saving) closeDialog(); });
+    dialog.addEventListener("close", clearConfirmation);
+    window.addEventListener("storage", event => {
+      if (event.key === "fielddesk_access_token" || event.key === null) hideControl();
+    });
+    void load();
+  }
+
   async function selectedRun() {
     if (!query.has("run_id")) return;
     get("selected-run").hidden = false;
@@ -244,4 +501,5 @@
   }
   latest();
   selectedRun();
+  initAdminControl();
 })();

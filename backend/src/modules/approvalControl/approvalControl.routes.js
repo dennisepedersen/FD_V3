@@ -6,6 +6,8 @@ const requireAuth = require("../../middleware/requireAuth");
 const { createHttpError } = require("../../middleware/errorHandler");
 const service = require("./approvalControl.service");
 const mailJob = require("./approvalControl.mailJob");
+const control = require("./approvalControl.control");
+const access = require("../../services/moduleAccessService");
 const router = express.Router();
 
 function context(req) {
@@ -19,6 +21,23 @@ function fail(error, res, next) {
   }
   return next(error);
 }
+
+function adminContext(req, action) {
+  const actor = context(req);
+  if (req.auth.role !== "tenant_admin") throw createHttpError(403, "approval_control_control_access_denied");
+  access.requireModuleAccess({ tenant: req.context.tenant, auth: req.auth, moduleKey: "tenant_admin", action });
+  if (Object.keys(req.query || {}).length) throw createHttpError(400, "approval_control_control_input_invalid");
+  return actor;
+}
+
+router.get("/api/approval-control/admin/control", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  try { res.set("Cache-Control", "no-store").json({ success: true, control: await control.status(adminContext(req, "read")) }); }
+  catch (error) { fail(error, res, next); }
+});
+router.post("/api/approval-control/admin/control", requireTenantHost, requireAuth("access"), async (req, res, next) => {
+  try { res.set("Cache-Control", "no-store").json({ success: true, control: await control.change(adminContext(req, "update"), req.body) }); }
+  catch (error) { fail(error, res, next); }
+});
 
 router.get("/api/approval-control/status", requireTenantHost, requireAuth("access"), async (req, res, next) => {
   try {

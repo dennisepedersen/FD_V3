@@ -6,8 +6,8 @@ const job = require("../src/modules/approvalControl/approvalControl.mailJob");
 
 async function main() {
   const args = process.argv.slice(2);
-  const activate = args[0] === "--activate-scheduler" && args.length === 2 && args[1] === "--confirm=ACTIVATE:approval_control:hoyrup-clemmensen";
-  if (!activate && (args.length !== 1 || !["--status", "--simulate", "--run-scheduled"].includes(args[0]))) throw new Error("approval_control_argument_invalid");
+  if (args[0] === "--activate-scheduler") throw new Error("approval_control_use_tenant_admin_activation");
+  if (args.length !== 1 || !["--status", "--simulate", "--run-scheduled"].includes(args[0])) throw new Error("approval_control_argument_invalid");
   // This is an operator entrypoint, not an alternate identity or ownership model.
   const { rows } = await pool.query(`SELECT t.id AS tenant_id,t.slug,u.id AS user_id
     FROM tenant t JOIN tenant_user u ON u.tenant_id=t.id
@@ -16,7 +16,6 @@ async function main() {
   ["hoyrup-clemmensen", "dep@hoyrup-clemmensen.dk"]);
   if (rows.length !== 1) throw new Error("approval_control_actor_unavailable");
   const context = { tenantId: rows[0].tenant_id, tenantSlug: rows[0].slug, userId: rows[0].user_id };
-  if (activate) return job.activateScheduler(context, { confirm: args[1].slice("--confirm=".length) });
   if (args[0] === "--status") {
     const status = await job.status(context);
     return { next_scheduled_at: status.next_scheduled_at, scheduler_enabled: status.scheduler_enabled, mail_enabled: status.mail_enabled,

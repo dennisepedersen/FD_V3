@@ -211,6 +211,11 @@ test("approval_control mail: actual migrations, durable concurrent claims and ap
         email: "dep@hoyrup-clemmensen.dk" }, projects: [project], bindings: [{ project_id: project.project_id, ek_project_id: "25906" }] };
       const now = new Date("2026-11-03T13:30:00Z"), clock = () => new Date(now);
       const first = await require("../backend/src/modules/approvalControl/approvalControl.activation").recordFirst(jobContext);
+      const controlState = { enabled: true, revision: 1, changed_at: first.activated_at, enabled_at: first.activated_at,
+        activation_id: first.id, coverage_from: first.coverage_from };
+      await audit.logAuditEvent({ client: pool, tenantId: tenant, actorId: user, actorScope: "tenant", moduleKey: "approval_control",
+        eventType: "tenant_config_changed", resourceType: "approval_control_settings", resourceId: tenant,
+        outcome: "success", metadata: { revision: 1, after: controlState } });
       const policyEnv = { APPROVAL_CONTROL_FRIDAY_TIME: "14:31",
         APPROVAL_CONTROL_SCHEDULER_ENABLED: "true", APPROVAL_CONTROL_MAIL_ENABLED: "true" };
       const row = { id: 701001, projectID: 25906, date: "2026-11-03T00:00:00", hours: 7.5,
@@ -224,12 +229,12 @@ test("approval_control mail: actual migrations, durable concurrent claims and ap
       const jobPath = require.resolve("../backend/src/modules/approvalControl/approvalControl.mailJob");
       const savedModules = new Map([jobPath, repositoryPath].map(key => [key, require.cache[key]]));
       const savedMocks = { loadMine: scope.loadMine, resolveTenantConfig: refresh.resolveTenantConfig, capture: source.capture };
-      const savedMailEnv = Object.fromEntries(["MAIL_PROVIDER", "MAIL_FROM", "MAIL_REPLY_TO"].map(key => [key, ENV[key]]));
+      const savedMailEnv = Object.fromEntries(["NODE_ENV", "MAIL_PROVIDER", "MAIL_FROM", "MAIL_REPLY_TO"].map(key => [key, ENV[key]]));
       const forbiddenFetch = global.fetch, providerCalls = [];
       let captures = 0;
       try {
         assert.equal(ENV.ROOT_DOMAIN, "example.test");
-        Object.assign(ENV, { MAIL_PROVIDER: "resend", MAIL_FROM: "Fielddesk fixture <noreply@example.test>", MAIL_REPLY_TO: "reply@example.test" });
+        Object.assign(ENV, { NODE_ENV: "production", MAIL_PROVIDER: "resend", MAIL_FROM: "Fielddesk fixture <noreply@example.test>", MAIL_REPLY_TO: "reply@example.test" });
         scope.loadMine = async (client, ctx) => {
           assert.equal(typeof client.query, "function");
           assert.deepEqual(ctx, jobContext);
@@ -246,7 +251,7 @@ test("approval_control mail: actual migrations, durable concurrent claims and ap
           return { rows, observed_at: now.toISOString(), completed_at: now.toISOString(),
             endpoint: "/api/v4/paginatedfitterhours", requests: 2, passes: 2 };
         };
-        const options = { mode: "live", clock, readPolicy: activation => policy.read(policyEnv, clock(), activation),
+        const options = { mode: "live", clock, readPolicy: (activation, control) => policy.read(policyEnv, clock(), activation, control),
           sendEmailFn: async (message, sendOptions) => {
             providerCalls.push({ message, options: sendOptions });
             const committed = await repository.latest(jobContext);

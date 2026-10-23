@@ -46,6 +46,28 @@ GitHub Actions installs root and backend lockfiles, then runs `npm run check`. N
 
 ## Calendar / Absence Focused Tests
 
+Approval Control tenant-admin activation/pause (local-only extension):
+
+- `node --test test/approvalControlAdmin.test.js test/approvalControlAdminUi.test.js test/approvalControlScheduler.test.js test/approvalControlMail.test.js test/approvalControl.test.js`
+  checks real route middleware against simulated storage, admin/session/tenant
+  denial, first-date/control atomicity and rollback, pause/resume generations,
+  strict next-slot admission, future work dates, duplicate attempts, private
+  recipient summaries and read-only manual-preview separation. No application
+  runtime, real database, EK or provider is started by this command.
+- `test/approvalControlAdminPostgres.integration.js` is a separate opt-in using
+  `FIELD_DESK_APPROVAL_CONTROL_ADMIN_LOCAL_PG_TEST=1` and the guarded local
+  `FIELDDESK_APPROVAL_CONTROL_TEST_DATABASE_URL` as an already migrated template.
+  It must not execute migrations or import the migration runner. A disposable
+  local database is cloned from that schema, then the real control transactions,
+  audit rollback, first activation and both send/pause lock orderings are tested
+  with synthetic actors and callbacks. EK/provider access is forbidden.
+- Never use the older migration-applying PostgreSQL suites when the task
+  forbids migration execution. Their default skips are not a database pass.
+- The UI fixture at `.tmp/approval-control-admin/preview.cjs` is an isolated
+  in-memory simulation; it blocks database/external access and does not import
+  app startup or attach workers/schedulers. Browser actions there do not
+  activate a production tenant or lock a production date.
+
 Tenant-admin operational CC/BCC routing (local implementation, migration 0065):
 
 - `node --test test/operationalMailRouting.test.js test/mailServiceBcc.test.js test/approvalControlMail.test.js`

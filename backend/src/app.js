@@ -10,6 +10,7 @@ const tenantAuthRoutes = require("./routes/tenantAuthRoutes");
 const tenantSurfaceRoutes = require("./routes/tenantSurfaceRoutes");
 const { startSyncWorker } = require("./services/syncWorker");
 const { startTimeControlScheduler } = require("./modules/timeControl/timeControl.scheduler");
+const { startApprovalControlScheduler } = require("./modules/approvalControl/approvalControl.scheduler");
 
 const app = express();
 
@@ -60,5 +61,6 @@ app.use(errorHandler);
 
 startSyncWorker();
 startTimeControlScheduler();
+startApprovalControlScheduler();
 
 module.exports = app;
