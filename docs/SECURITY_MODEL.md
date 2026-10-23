@@ -320,12 +320,16 @@ delivery is not proven yet. See the linked contract's production receipt.
 Approval Control remains disabled with no activation date; routing settings
 confer no feature or scheduler activation. Other tenants retain default-off.
 
-## Approval Control Admin Controls: Local Only
+## Approval Control Admin Controls
 
-Status, 23 October 2026: locally implemented and validated; awaiting approved
-deployment, not deployed or activated. The dated `c19ab93` / migration 0065 /
-JEL-CC receipt above remains unchanged. Production has no active Approval
-Control state or activation date. See the [canonical local contract](modules/approval-control/APPROVAL_CONTROL_V1.md#lokal-adminstyring).
+Status, 23 October 2026 13:56 Copenhagen: approved web deployment `4e1f641` /
+`dep-dbdkm30u01pc73cqmoag` is live and read-only verified. No migration applied
+(`0 applied, 65 skipped`). Production remains inactive without first date or
+control audit; effective tenant scheduler/mail settings are false. The attached idle process
+is not tenant activation. JEL CC revision 1, all existing outbox rows and
+Timekontrol configuration/cron are unchanged. Only GET verification; no
+activation, preview, job or mail. Dennis decides activation in the UI.
+See the [canonical contract and rollout receipt](modules/approval-control/APPROVAL_CONTROL_V1.md#verificeret-produktionsudrulning-af-adminstyring).
 
 Control actions derive tenant/actor from the authenticated tenant host/session
 and recheck active tenant, active user/login and `tenant_admin` role in the DB.
@@ -357,7 +361,7 @@ Absent control state and absent first activation mean `inactive`. An existing
 revision 0, retaining the original start date; scheduler status likewise reports
 `control_status=paused`. Resume reuses that receipt/date and cannot reset
 coverage. A legacy receipt alone never enables operation. The last documented
-production first activation remains null; no new external check is claimed.
+production first activation remains null after read-only rollout verification.
 Canonical append-only audit uses
 `tenant_config_changed`, module `approval_control`, resource
 `approval_control_settings`, with actor and before/after state. First active
