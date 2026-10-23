@@ -1,12 +1,12 @@
 # Godkendelseskontrol V1
 
-Status: **FASE 1-UDRULNING GODKENDT; PRODUKTIONSAKTIVERING IKKE GODKENDT**,
-23. oktober 2026. Denne release leverer DEP-preview og deaktiveret mailjob.
-Migrationernes faktiske produktionsstatus verificeres særskilt ved udrulning;
-lokale implementerings-/testresultater nedenfor er ikke deploybevis.
+Status: **FASE 1 UDRULLET OG VERIFICERET; PRODUKTIONSAKTIVERING IKKE GODKENDT**,
+23. oktober 2026 kl. 10.46, Europe/Copenhagen. Produktionskode `080b902` og
+auditmigrationer 0062/0063/0064 er udrullet; se fase 1-beviset nedenfor.
+Tidligere lokale implementerings-/testresultater er ikke i sig selv deploybevis.
 Før produktionsaktivering findes ingen aktiv kontrolperiode eller automatisk mail.
 Feature: `approval_control`. Ingen scheduler er tilkoblet eller aktiveret;
-ingen rigtig mail, medarbejdermail, commit eller push er udført.
+ingen rigtig mail eller medarbejdermail er sendt fra Godkendelseskontrol.
 
 ## Korrigeret beslutning: eksisterende scope=mine
 
@@ -246,7 +246,7 @@ Dette er preview-idempotens, **ikke** en implementeret tilladelse til senere mai
 
 Migration 0062 skal være anvendt, før preview kan gemme nye eventtyper.
 Auditfejl giver ingen succesbesked og ingen frigivet mailbeholdning.
-Migrationen er **ikke** kørt i produktion i denne opgave.
+Migration 0062 er anvendt i den senere fase 1-udrulning, se produktionsbeviset nedenfor.
 
 ## API og manuel verifikation
 
@@ -348,7 +348,7 @@ Statusopslag, preview, simulation og almindelige job kan kun læse kvitteringen.
 
 Hvert dagsclaim/audit og mailpayload bindes til aktiverings-ID, faktisk
 aktiveringstid og lokal startdato. Mail/afsendelsesidempotens er ellers uændret.
-Migreringen er kun klargjort lokalt; ingen aktivering er udført.
+Migreringen er anvendt i fase 1; ingen aktiveringskvittering eller startdato er oprettet.
 
 ### Senere effektstatistik
 
@@ -366,8 +366,8 @@ uændret. **Fredag kl. 14.30 er fortsat blokeret til kl. 14.31**. Godkendelsesko
 har derfor nu den udtrykkeligt godkendte fredagsstart **14.31**, uden undtagelse
 fra beskyttelsen. `APPROVAL_CONTROL_FRIDAY_TIME` kan udelades eller være
 `14:31`; anden værdi blokerer jobbet. Mandag-torsdag er fortsat 14.30.
-Dette er alene lokalt implementeret: ingen scheduler eller produktionsflag
-er aktiveret. Timekontrols frister, kode og afsendelse ændres ikke.
+Koden er udrullet i fase 1, men ingen scheduler eller produktionsflag
+er aktiveret for Godkendelseskontrol. Timekontrols frister, kode og afsendelse ændres ikke.
 
 ### Samlet mail og leveringsresultat
 
@@ -462,14 +462,15 @@ mail ved statusopslag/link. Ukendte rækker vises separat i UI.
 
 | Status | Arbejde |
 | --- | --- |
-| Implementeret lokalt | Direkte scope=mine-genbrug, server-side indsnævring og scope-genkontrol |
-| Implementeret lokalt | HC-bekræftet null-status, godkendt/ukendt, gruppering, deduplikering og manuel preview |
-| Implementeret lokalt | Audit i eksisterende tabel, statusvisning, tenant/aktør-adgang og isolerede regressionsprøver |
-| Afventer godkendt udrulning | Anvend auditmigration 0062 og deploy; intet udført i produktion her |
+| Udrullet fase 1 | Direkte scope=mine-genbrug, server-side indsnævring og scope-genkontrol |
+| Udrullet fase 1 | HC-bekræftet null-status, godkendt/ukendt, gruppering, deduplikering og manuel preview; intet preview kørt ved deploy |
+| Udrullet fase 1 | Audit i eksisterende tabel, statusvisning, tenant/aktør-adgang og isolerede regressionsprøver |
+| Verificeret fase 1 | Migration 0062/0063/0064, deploy og læsende produktionskontroller; ingen aktiv periode |
 | Afgrænset live-verificeret | 23. oktober kl. 00.30, perioden 19.-23. oktober: ny reader med pageSize 100/to komplette passes og faktisk preview matcher rådata. Produktions-HTTP, audit/admission og maildrift er ikke live-verificeret |
-| Implementeret lokalt, slukket | DEP-mailjob med dagsclaim, simuleret payload, eksisterende mailtransport, fremtidsfilter, status og sikker provider-usikkerhed |
-| Godkendt, implementeret lokalt | Fremadrettet dækning fra første produktionsaktivering, fredag 14.31, mandag-torsdag 14.30 og dynamisk periode/fodnote |
-| Afventer godkendt udrulning | Migration 0062/0063/0064, deploy og faktisk scheduler-/mailaktivering med første serverdaterede kvittering |
+| Udrullet fase 1, slukket | DEP-mailjob med dagsclaim, simuleret payload, eksisterende mailtransport, fremtidsfilter, status og sikker provider-usikkerhed |
+| Udrullet fase 1, ikke aktiveret | Fremadrettet dækning fra første produktionsaktivering, fredag 14.31, mandag-torsdag 14.30 og dynamisk periode/fodnote |
+| Afventer ny godkendelse | Fase 2: eksplicit live-preview, særskilt låst testmailvej før aktivering, én test og bekræftet indbakke |
+| Afventer senere godkendelse | Faktisk scheduler-/mailaktivering med første serverdaterede kvittering, efter bestået fase 2-mailtest |
 | Senere særskilt scope | Go-live-afgrænset effektstatistik, andre modtagere/tenants, andre intervaller, helligdage og automatisk retry |
 
 `test/approvalControl.test.js` dækker de ti oprindelige adfærdskrav:
@@ -595,8 +596,8 @@ Dennis har 23. oktober godkendt commit/push og produktionsudrulning af den
 færdige feature med migration 0064, men **ingen aktivering, startdato,
 Godkendelseskontrol-cron, EK-kontrol, outbox-apply eller rigtig mail**.
 Forhåndskontrol kl. 10.24 dansk tid fandt produktionen på migration 0061;
-0062 og 0063 er nødvendige auditafhængigheder, som derfor skal være udtrykkeligt
-godkendt sammen med 0064, før den normale pre-deploy køres. Webservicen er
+Dennis godkendte derefter udtrykkeligt 0062 og 0063 sammen med 0064 som fase 1.
+Webservicen er
 auto-deploy på `main`; push er dermed selve deploygrænsen. Timekontrols
 eksisterende særskilte monitor-cron skal ikke deployes eller ændres i fase 1.
 
@@ -605,6 +606,56 @@ read-only kontroller: checksums/status, HTTP/UI, server-side adgangsafgrænsning
 ingen aktiveringskvittering, tom kontrolperiode, slukkede featureflags samt
 uændrede Timekontrol-indstillinger, kontrolgruppe og monitor-cron. Ingen
 preview-POST eller aktiverings-/mailkommando indgår i efterkontrollen.
+
+### Verificeret fase 1-resultat, 23. oktober 2026
+
+`verified`: commit **`080b9023d3c43030f20582beab559bc9fea349b9`** er pushed
+til `origin/main`. Webservice `srv-d6h0h8fgi27c73a99jgg` er live på præcis
+denne SHA som deploy **`dep-dbdhr6m417fc738kkc9g`**, afsluttet kl.
+**10.41.50 dansk tid** (`2026-10-23T08:41:50.659224Z`). Ingen separat
+manuel deploy eller ændring af servicekonfigurationen blev udført.
+
+- Normal pre-deploy log: `3 applied, 61 skipped`. 0062 tog 151 ms, 0063
+  300 ms, 0064 196 ms. Læsende databasekontrol finder **64 anvendte,
+  0 ventende, 0 fejlede, 0 checksum-afvigelser** mod committede Git-blobs.
+  De tre relevante constraints er validerede og fire unikke auditindekser gyldige.
+- Faktisk produktionsstatus: `scheduler_enabled=false`, `mail_enabled=false`,
+  `scheduler_attached=false`, `activation_valid=false`. `activation_id`,
+  `activated_at`, `coverage_from`, `coverage_to` og næste kørsel er alle null.
+  Render har ingen `APPROVAL_CONTROL_*`-flags; default-off er verificeret i HTTP-responsen.
+- HC har **0 Godkendelseskontrol-auditposter og 0 outboxposter** efter alle
+  kontroller. Ingen capture, preview, dagsclaim, startdato, testmail eller
+  afsendelsesforsøg er oprettet. Ingen EK-kald eller scheduler-job blev kørt.
+- `/health`, faktisk UI/JS og DEP-status giver 200. Uden login: 401;
+  anden HC-bruger: 403; eksisterende bruger fra anden tenant på HC-host: 403;
+  scope-/tenantparametre: 400; ukendt job-ID: 404. Status er `no-store`.
+  Eksisterende DEP-scope er stadig **64 sager**, med 80396-003 og uden 9015.
+- Playwright på det faktiske produktions-UI ved **1365/390/320 px**:
+  korrekt slukket visning uden periode/næste kørsel, indlæst logo, ingen
+  overflow eller scriptfejl. Kun GET; ingen preview-knap blev aktiveret.
+- Timekontrol: komplette miljøhashes, indstillings-/medarbejderhashes og
+  seks-personers gruppe er uændrede. Monitor-cron `crn-db73jjrl550s73aljjo0`
+  er ikke redeployed, har samme kode/kommando og `*/5 * * * *`, ikke suspenderet.
+  Webloggen viser den eksisterende minuttakt-scheduler startet kl. 10.41.42.
+  Status-/drifts-/operations-GETs giver 200, operation er aktiv. Næste
+  beregnede Timekontrol-slot er fredag 23. oktober kl. 12.00, uændret.
+  Ingen nye Timekontrol-outboxposter eller mailforsøg siden forhåndskontrollen
+  kl. 10.40.41 og ingen operationsændring er observeret frem til kl. 10.46.
+- Post-deploy lokal regression, med simuleret transport og uden drift:
+  `timeControlEmail`, `tenantUserInvitationEmail`, `timeControlMonitor`,
+  `timeControlProviderIncident`, `timeControlAutomaticMail`,
+  `notificationOutboxFoundation`, `approvalControl` og `approvalControlMail`:
+  **135 bestået, 0 fejl/skips**. Den tidligere fulde releasegate er fortsat
+  gyldig for den uændrede kode: **682 bestået, 13 opt-in skips**.
+
+Lokale, ikke-committede beviser ligger i `.tmp/approval-control-audit/phase1-*`:
+før/efter-snapshots, HTTP-/browserresultater, regressionslog og slutkontrol med
+filtrerede migrations-/schedulerlogs. Credentials/tokens er ikke gemt i beviserne.
+Driftsdokumentationens efterfølgende commit bruger `[skip render]` for ikke
+at genstarte produktionen ved en ren dokumentationsopdatering; dette følger
+[Renders dokumenterede skip-mekanisme](https://render.com/docs/deploys#skipping-an-auto-deploy).
+
+### Fase 2, endnu ikke godkendt
 
 Fase 2 er en separat, endnu ikke godkendt sekvens:
 

@@ -33,7 +33,7 @@ Scope: points to docs; does not replace them
 
 | Doc | Use For | Status |
 | --- | --- | --- |
-| [Godkendelseskontrol V1](modules/approval-control/APPROVAL_CONTROL_V1.md) | Exact `scope=mine` reuse, HC/DEP preview and disabled weekday mail job, daily claims and immutable first-production-activation period; history only through explicit manual preview | Local implementation 2026-10-23; no active period before activation; Monday-Thursday14:30 / Friday14:31 Copenhagen approved; 0062/0063/0064 not applied in production; no live mail, scheduler activation or deploy |
+| [Godkendelseskontrol V1](modules/approval-control/APPROVAL_CONTROL_V1.md) | Exact `scope=mine` reuse, HC/DEP preview and disabled weekday mail job, daily claims and immutable first-production-activation period; history only through explicit manual preview | Phase 1 deployed/verified 2026-10-23: code 080b902, migrations 0062/0063/0064 applied; no activation, period, scheduler or mail; phase 2 preview/test/activation requires separate approval |
 | [Timekontrol weekly reminder](modules/time-control/TIME_CONTROL_WEEKLY_REMINDER.md) | Friday 37-hour weekly reminder, immutable evidence, planned operational checks and [HC activation runbook](runbooks/TIME_CONTROL_ACTIVATION.md) | 0054-0059 applied; HC six-person operation/live/scheduler/mail activated and verified 2026-10-12; first planned run 2026-10-13 09:00 Copenhagen |
 | `docs/modules/qa/QA_STATUS_MODEL.md` | Manual QA status model v1 and future v2 responsibility direction | Current decision |
 | `docs/modules/qa/QA_V2_DATA_FOUNDATION.md` | QA participants, assignment flag, and per-user read-state foundation | Implemented foundation |
