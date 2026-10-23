@@ -1695,7 +1695,13 @@ test("identity migration requires explicit approval, same-tenant references and 
   for (const event of ["time_control.employee_email_approved", "time_control.run_completed", "time_control.run_blocked", "time_control.mode_changed"]) {
     assert.ok(auditService.ALLOWED_EVENT_TYPES.includes(event));
   }
-  for (const event of auditService.ALLOWED_EVENT_TYPES) assert.ok(migration.includes(`'${event}'`), `Database audit allowlist must retain ${event}`);
+  const auditExtension = read("migrations/0062_approval_control_audit_events.sql") + read("migrations/0063_approval_control_mail_runs.sql") + read("migrations/0064_approval_control_scheduler_activation.sql");
+  assert.match(auditExtension, /pg_get_expr\(conbin, conrelid\)/);
+  assert.match(auditExtension, /CHECK \(\(%s\) OR event_type IN/);
+  for (const event of auditService.ALLOWED_EVENT_TYPES) {
+    assert.ok(migration.includes(`'${event}'`) || auditExtension.includes(`''${event}''`),
+      `Database audit allowlist and its append-only extension must retain ${event}`);
+  }
 });
 
 function coverageEvidence() {

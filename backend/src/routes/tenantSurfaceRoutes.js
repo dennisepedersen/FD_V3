@@ -22,6 +22,7 @@ const specialWindowRoutes = require("../modules/absence/specialWindow.routes");
 const resourceGroupRoutes = require("../modules/resourceGroups/resourceGroup.routes");
 const tenantAdminRoutes = require("../modules/tenantAdmin/tenantAdmin.routes");
 const timeControlRoutes = require("../modules/timeControl/timeControl.routes");
+const approvalControlRoutes = require("../modules/approvalControl/approvalControl.routes");
 const projectEquipmentRoutes = require("../modules/projectEquipment/projectEquipment.routes");
 const restarbejdeRoutes = require("../modules/restarbejde/restarbejde.routes");
 const { createHttpError } = require("../middleware/errorHandler");
@@ -88,6 +89,11 @@ router.get("/accept-invite", requireTenantHost, sendTenantHtml("accept-invite.ht
 
 router.get("/app", requireTenantHost, sendTenantHtml("app.html"));
 router.get("/tenant/time-control.html", requireTenantHost, sendTenantHtml("time-control.html"));
+router.get("/tenant/approval-control.html", requireTenantHost, sendTenantHtml("approval-control.html"));
+router.get("/tenant/approval-control.js", requireTenantHost, (req, res) => {
+  res.type("application/javascript").set("Cache-Control", "no-cache, must-revalidate");
+  res.sendFile(path.join(tenantPublicDir, "approval-control.js"));
+});
 
 router.get("/", requireTenantHost, sendTenantHtml("app.html"));
 
@@ -185,6 +191,7 @@ router.use(specialWindowRoutes);
 router.use(resourceGroupRoutes);
 router.use(tenantAdminRoutes);
 router.use(timeControlRoutes);
+router.use(approvalControlRoutes);
 router.use(projectEquipmentRoutes);
 router.use(restarbejdeRoutes);
 

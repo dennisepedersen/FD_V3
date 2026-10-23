@@ -141,6 +141,13 @@ test("0049 and all subsequent audit allowlists preserve every event valid under 
   let previous = auditTypes(migrations.find((item) => item.sequence === "0048").sql);
   for (const item of migrations.filter((item) => Number(item.sequence) >= 49)) {
     if (!item.sql.includes("event_type IN (")) continue;
+    if (["0062", "0063", "0064"].includes(item.sequence)) {
+      assert.match(item.sql, /pg_get_expr\(conbin, conrelid\)/);
+      assert.match(item.sql, /CHECK \(\(%s\) OR event_type IN/);
+      assert.match(item.sql, /existing_expression/);
+      previous = [...previous, ...[...item.sql.matchAll(/''(approval_control\.[a-z_]+)''/g)].map(match => match[1])];
+      continue;
+    }
     const current = auditTypes(item.sql);
     assert.deepEqual(previous.filter((event) => !current.includes(event)), [], item.filename);
     previous = current;

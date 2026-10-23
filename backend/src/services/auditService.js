@@ -106,6 +106,13 @@ const ALLOWED_EVENT_TYPES = Object.freeze([
   "igva.manager_completion_changed",
   "igva.summary_refreshed",
   "igva.summary_refresh_failed",
+  "approval_control.previewed",
+  "approval_control.preview_failed",
+  "approval_control.capture_admitted",
+  "approval_control.mail_run_started",
+  "approval_control.mail_attempt_started",
+  "approval_control.mail_run_completed",
+  "approval_control.scheduler_activated",
 ]);
 
 const TENANT_SCOPED_ACTOR_SCOPES = new Set(["tenant"]);
