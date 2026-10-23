@@ -23,6 +23,7 @@ const resourceGroupRoutes = require("../modules/resourceGroups/resourceGroup.rou
 const tenantAdminRoutes = require("../modules/tenantAdmin/tenantAdmin.routes");
 const timeControlRoutes = require("../modules/timeControl/timeControl.routes");
 const approvalControlRoutes = require("../modules/approvalControl/approvalControl.routes");
+const operationalMailRoutingRoutes = require("../modules/notifications/operationalMailRouting.routes");
 const projectEquipmentRoutes = require("../modules/projectEquipment/projectEquipment.routes");
 const restarbejdeRoutes = require("../modules/restarbejde/restarbejde.routes");
 const { createHttpError } = require("../middleware/errorHandler");
@@ -94,6 +95,11 @@ router.get("/tenant/approval-control.js", requireTenantHost, (req, res) => {
   res.type("application/javascript").set("Cache-Control", "no-cache, must-revalidate");
   res.sendFile(path.join(tenantPublicDir, "approval-control.js"));
 });
+for (const filename of ["operational-mail-routing.js", "operational-mail-routing.css"]) {
+  router.get("/tenant/" + filename, requireTenantHost, (_req, res) => {
+    res.set("Cache-Control", "no-cache, must-revalidate").sendFile(path.join(tenantPublicDir, filename));
+  });
+}
 
 router.get("/", requireTenantHost, sendTenantHtml("app.html"));
 
@@ -192,6 +198,7 @@ router.use(resourceGroupRoutes);
 router.use(tenantAdminRoutes);
 router.use(timeControlRoutes);
 router.use(approvalControlRoutes);
+router.use(operationalMailRoutingRoutes);
 router.use(projectEquipmentRoutes);
 router.use(restarbejdeRoutes);
 

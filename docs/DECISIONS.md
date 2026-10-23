@@ -51,6 +51,7 @@ Scope: links to decisions; does not duplicate full decisions
 
 | Decision | Source |
 | --- | --- |
+| 2026-10-23: Tenant-admin extra operational CC/BCC is implemented locally, default-off and unseeded, per tenant/mail family with before/after audit and revision/dispatch locking. Individual Timekontrol covers both daily employee mail and individual weekly reminder; Friday status covers only `time_control.friday_weekly_summary_v1`; Approval Control covers its scheduled summary. All monitor status/diagnostics, manual previews, POC/tests and absence mail remain outside. BCC stays private. Changed routing blocks stale messages; legacy queues are never retrofitted or replayed. HC's requested JEL BCC on the two Timekontrol families and JEL CC on Approval Control are not saved or production changes. Future use requires explicit approval, migration 0065 plus web rollout and concrete admin save before new messages; Approval Control remains disabled without a start date. This addendum does not revise earlier dated rollout/activation evidence or claim new validation results. | [Canonical extra-routing contract](modules/calendar/ABSENCE_NOTIFICATIONS_OUTBOX_PR4.md#tenant-admin-ekstra-ccbcc-til-driftsmails) |
 | Render production service identity is verified as `FielddeskAI` / `srv-d6h0h8fgi27c73a99jgg`, repo `FD_V3`, branch `main`, auto deploy enabled, PR previews disabled | `backend/docs/operations/render_service.md` |
 
 ## AI Development Workflow Decisions

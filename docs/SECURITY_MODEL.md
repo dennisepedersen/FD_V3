@@ -287,6 +287,36 @@ Modules:
 ## Tenant admin employees/resource groups
 The tenant admin people/resource-group APIs use the `tenant_admin` module permission and require tenant host, access token auth, and tenant-context match. Manual sync requests are tenant-scoped and endpoint-scoped; double-submit protection reuses an existing queued/running tenant+endpoint job. Create/update/sync admin actions emit audit events where implemented in the tenant admin module.
 
+## Operational Mail Routing Addendum (23 October 2026)
+
+`verified` by local source inspection: the
+[extra CC/BCC contract](modules/calendar/ABSENCE_NOTIFICATIONS_OUTBOX_PR4.md#tenant-admin-ekstra-ccbcc-til-driftsmails)
+requires tenant host, matching access-token tenant, active tenant/user/login,
+explicit `tenant_admin` role and tenant-admin read/update module access.
+Tenant and actor are server-derived; each routing row is keyed by tenant and
+one of three allowed mail families. The settings API is `no-store`; the UI
+clears and hides the whole panel on 401/403. Both extra channels default off
+without seeded recipients. Saving a change and its before/after audit is
+atomic, with optimistic revision checks and a per-tenant/mail-family lock.
+
+Dispatch revalidates the stored routing revision and concrete To/CC/BCC under
+a shared transaction lock held through the provider call. A stale revision or
+recipient mismatch blocks sending. Legacy queued messages never acquire new
+copies; effective extra routing that would change their recipients blocks
+them instead. No replay or automatic retry is introduced. BCC addresses remain
+private in the admin settings API/UI and necessary internal transport/audit
+storage; normal previews, job/status responses, mail bodies, logs and raw
+provider errors must not disclose them.
+
+The individual Timekontrol family includes daily and individual weekly mail;
+the Friday family includes only `time_control.friday_weekly_summary_v1`.
+All monitor status/diagnostics and other unlisted mail flows are excluded.
+This is a local implementation contract, not new production/test evidence.
+HC's JEL BCC/CC request is not a saved configuration or production mutation.
+Future explicit approval, migration 0065, web rollout and admin save are
+required before new messages use it. Approval Control remains disabled with
+no activation date; routing settings confer no feature or scheduler activation.
+
 ## Tenant user account setup invitations
 Tenant user account setup links are tenant-host scoped and require `tenant_admin:invite` to issue. The raw token is never stored; only a SHA-256 hash is persisted in `tenant_user_invitation_token`. Resend revokes existing open account setup tokens for that tenant user, tokens expire after 72 hours, and accept marks the token used before activating the user. Public validation/accept routes do not require login but resolve tenant from the request host and return generic invalid/expired responses for unusable tokens.
 

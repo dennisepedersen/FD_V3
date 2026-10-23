@@ -458,6 +458,35 @@ job/årsag/providerresultat. `GET /api/approval-control/runs/:runId` læser
 kun egen tenant/aktør og filtrerer rækker mod aktuel scope; ingen kørsel eller
 mail ved statusopslag/link. Ukendte rækker vises separat i UI.
 
+## Ekstra CC/BCC: tillæg 23. oktober 2026
+
+`verified` ved læsning af den lokale `operationalMailRouting`-implementation og
+`approvalControl.mailJob`: `approval_control_summary` kan tilføje tenant-admins
+ekstra CC/BCC til den planlagte oversigtsmail. Den eksisterende primære
+DEP-modtager, `scope=mine`, dagsclaim og højst ét providerforsøg bevares.
+Den [kanoniske kontrakt](../calendar/ABSENCE_NOTIFICATIONS_OUTBOX_PR4.md#tenant-admin-ekstra-ccbcc-til-driftsmails)
+beskriver API, tenant-/adminadgang, normalisering, before/after-audit og
+revision/låsning. Begge ekstra kanaler er default-off uden seedede adresser.
+
+Jobbet binder de konkrete modtagere til routingrevisionen i sit eksisterende
+audit-/jobspor. Før providerkald genvalideres de under tenant/mailtype-lås;
+ændret revision eller routing blokerer fail-closed uden nyt forsøg eller
+replay af gamle dagsclaims. Godkendelseskontrol bruger fortsat ikke den fælles
+`email_outbox`. BCC bevares som privat transport-/auditdata og vises kun i det
+afskærmede admin-indstillingspanel/API, ikke i normal preview, jobstatus,
+mailbody eller logs. Manuel preview og den særskilt foreslåede fase 2-testmail
+er udenfor denne routing.
+
+HC-ønsket er JEL som ekstra **CC** på Godkendelseskontrol; det er **ikke gemt**
+og har ikke ændret produktionen. Det kræver senere eksplicit godkendt
+migration 0065 og webudrulning samt konkret tenant-admin-gem før nye
+jobmeddelelser dannes. Det ændrer ikke de daterede fase 1-beviser eller den
+allerede beskrevne DEP-alene-test i fase 2. Godkendelseskontrol er fortsat
+**disabled uden startdato/aktiv periode**; modtagervalg starter ingen scheduler
+eller maildrift og erstatter ikke de særskilte fase 2-godkendelser. Ingen
+ny produktionsverifikation for ekstra routing påstås her. Den gennemførte
+lokale validering er samlet i routingkontrakten ovenfor.
+
 ## Backlog og testgrænse
 
 | Status | Arbejde |
@@ -471,12 +500,18 @@ mail ved statusopslag/link. Ukendte rækker vises separat i UI.
 | Udrullet fase 1, ikke aktiveret | Fremadrettet dækning fra første produktionsaktivering, fredag 14.31, mandag-torsdag 14.30 og dynamisk periode/fodnote |
 | Afventer ny godkendelse | Fase 2: eksplicit live-preview, særskilt låst testmailvej før aktivering, én test og bekræftet indbakke |
 | Afventer senere godkendelse | Faktisk scheduler-/mailaktivering med første serverdaterede kvittering, efter bestået fase 2-mailtest |
+| Implementeret og verificeret lokalt; ikke udrullet eller gemt | Tenant-admin ekstra CC/BCC til den planlagte `approval_control_summary`; afventer eksplicit godkendt 0065/webudrulning og konkret admin-gem af HC's JEL-CC. Ingen startdato, aktivering eller replay |
 | Senere særskilt scope | Go-live-afgrænset effektstatistik, andre modtagere/tenants, andre intervaller, helligdage og automatisk retry |
+
+Ekstra CC/BCC-tillægget afgrænser modtagersporet i den sidste backlogrække:
+den beskrevne ekstra kopifunktion er nu implementeret lokalt; bredere valg
+af primær modtager eller tenant er fortsat senere særskilt scope.
 
 `test/approvalControl.test.js` dækker de ti oprindelige adfærdskrav:
 afventende med, godkendte ude, anden sag ude, entydige linjer, ukendt giver
 ingen mailbeholdning, sagsgruppering, ændret godkendelse, gentagelsesidempotens,
-tenant/adgang samt uændrede Timekontrol-/sync-/identitetskilder. Desuden testes
+tenant/adgang samt uændrede Timekontrol-beregnings-, scheduler-, sync- og
+identitetskilder. Det godkendte ekstra modtagertillæg testes separat. Desuden testes
 pagination, API-fejl, beskyttede preview-vinduer, ugyldig binding og A/B/A-audit.
 HTTP-, EK-, mail- og databasetransport er isoleret/mocket; disse tests er ikke
 produktionsevidens eller faktisk Outlook-levering.

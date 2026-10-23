@@ -319,7 +319,15 @@ async function withWeeklyDispatchFixture(fn) {
   const gates = [];
   const resolutions = [];
   const client = { async query(sql, params) {
+    if (sql.startsWith("SET LOCAL lock_timeout")) return { rows: [] };
+    if (sql.includes("pg_advisory_xact_lock_shared")) {
+      const type = row.template_key === "time_control.employee_weekly_reminder_v1"
+        ? "time_control_missing_hours" : "time_control_friday_status";
+      assert.deepEqual(params, [tenantId + ":" + type]);
+      return { rows: [] };
+    }
     assert.equal(params[0], tenantId);
+    if (sql.includes("FROM tenant_operational_mail_routing")) return { rows: [] };
     if (sql.includes("SELECT r.id")) return { rows: [{ id: id(10), proof_json: proof }] };
     if (sql.includes("FROM time_control_settings")) {
       assert.match(sql, /FOR SHARE OF s,t/);
@@ -373,8 +381,11 @@ async function withWeeklyDispatchFixture(fn) {
 test("weekly employee routing normalizes To/CC and rejects removed or changed CC without rewriting mail", async () => {
   await withWeeklyDispatchFixture(async ({ client, row, settings }) => {
     row.recipient_email = " Employee@Example.Test ";
-    row.payload_json.cc_emails = [" LKE@Example.Test ", "DEP@example.test", "dep@example.test"];
+    row.payload_json.cc_emails = [" LKE@Example.Test ", "DEP@example.test"];
     await weekly.validateDispatchSnapshot(client, { tenantId, row });
+    row.payload_json.cc_emails.push("dep@example.test");
+    await assert.rejects(weekly.validateDispatchSnapshot(client, { tenantId, row }), /dispatch_routing_changed/);
+    row.payload_json.cc_emails.pop();
     const queued = structuredClone(row);
     for (const cc of [[], ["dep@example.test"], ["dep@example.test", "new@example.test"]]) {
       settings.employee_cc_emails = cc;
@@ -388,7 +399,7 @@ test("weekly summary validates full current To/CC and only the exact eligible qu
   await withWeeklyDispatchFixture(async ({ client, row, settings, excluded, gates, resolutions }) => {
     row.template_key = "time_control.friday_weekly_summary_v1";
     row.recipient_email = " DEP@Example.Test ";
-    row.payload_json.cc_emails = [" LKE@Example.Test ", "lke@example.test"];
+    row.payload_json.cc_emails = [" LKE@Example.Test "];
     excluded.status = "config_error";
     excluded.coverage_status = "incomplete";
     await weekly.validateDispatchSnapshot(client, { tenantId, row });

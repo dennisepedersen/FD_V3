@@ -46,6 +46,23 @@ GitHub Actions installs root and backend lockfiles, then runs `npm run check`. N
 
 ## Calendar / Absence Focused Tests
 
+Tenant-admin operational CC/BCC routing (local implementation, migration 0065):
+
+- `node --test test/operationalMailRouting.test.js test/mailServiceBcc.test.js test/approvalControlMail.test.js`
+  checks the three-type allowlist, default-off settings, semicolon input,
+  duplicate/conflicting recipients, unchanged normal To/CC, private BCC
+  provider envelopes, routing revisions, and disabled Godkendelseskontrol.
+- `test/operationalMailRoutingPostgres.integration.js` uses the same guarded
+  local opt-in and database URL as the approval-control PostgreSQL fixtures.
+  It applies the actual migrations to a new disposable database and proves
+  tenant/admin authorization, before/after audit, rollback, schema constraints,
+  immutable outbox payloads, and shared-send/exclusive-save locking in both
+  race directions. External fetch calls are forbidden. It does not connect to
+  production, activate a scheduler or deliver mail.
+- Browser verification uses only local static pages and intercepted in-memory
+  API responses. Do not import the application runtime to preview these
+  settings; that runtime owns the existing workers and scheduler.
+
 For absence request backend slices, the focused Node tests are:
 
 - `node --test test/absenceRequestFoundation.test.js`

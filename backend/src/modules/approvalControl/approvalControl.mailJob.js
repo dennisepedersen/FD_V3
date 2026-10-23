@@ -12,6 +12,7 @@ const activation = require("./approvalControl.activation");
 const policy = require("./approvalControl.mailPolicy");
 const email = require("./approvalControl.mail");
 const mailService = require("../../services/mailService");
+const mailRouting = require("../notifications/operationalMailRouting");
 const { createHttpError } = require("../../middleware/errorHandler");
 
 const sameScope = selected => JSON.stringify({ projects: selected.projects.map(p => p.project_id).sort(),
@@ -94,6 +95,10 @@ async function runDue(context, { mode = "simulation", clock = () => new Date(), 
         return;
       }
       const message = email.build({ context, result: prepared, runId, rootDomain: ENV.ROOT_DOMAIN, sender: ENV.MAIL_FROM, replyTo: ENV.MAIL_REPLY_TO });
+      const route = await mailRouting.composeWithPool({ tenantId: context.tenantId, mailType: "approval_control_summary", to: message.to, cc: message.cc });
+      message.cc = route.cc;
+      if (route.bcc.length) message.bcc = route.bcc;
+      prepared.mail_routing = route.snapshot;
       const idempotencyKey = `approval_control:${context.tenantId}:${context.userId}:${planned.local_date}`;
       if (mode === "simulation") {
         await finish({ ...prepared, state: "simulated", reason: "Mail simuleret; ingen provider kontaktet.", message, idempotency_key: idempotencyKey, mail_attempted: false, provider_id: null });
@@ -122,9 +127,18 @@ async function runDue(context, { mode = "simulation", clock = () => new Date(), 
         return;
       }
       try {
-        transportStarted = true;
-        receipt = await sendEmailFn(message, { idempotencyKey, timeoutMs: 15000 });
+        receipt = await mailRouting.withMessageLock({ tenantId: context.tenantId, message, route }, async () => {
+          const beforeSend = readPolicy(first);
+          if (!beforeSend.mail_enabled || !beforeSend.scheduler_enabled || !beforeSend.configuration_valid ||
+              !beforeSend.activation_valid || !beforeSend.schedule_valid || beforeSend.coverage_from !== settings.coverage_from ||
+              admission.protectedWindow(clock()) || clock().getTime() - started.getTime() > 120000 || policy.local(clock()).date !== planned.local_date) {
+            throw new Error("approval_control_mail_disabled_or_unconfigured");
+          }
+          transportStarted = true;
+          return sendEmailFn(message, { idempotencyKey, timeoutMs: 15000 });
+        });
       } catch (error) {
+        if (!transportStarted) throw error;
         const status = error?.details?.status;
         rejected = Number.isInteger(status) && status >= 400 && status < 500 && ![408, 409, 429].includes(status);
       }

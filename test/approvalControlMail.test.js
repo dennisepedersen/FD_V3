@@ -26,6 +26,7 @@ const refresh = require("../backend/src/services/fitterhoursRefreshService");
 const pool = require("../backend/src/db/pool");
 const mail = require("../backend/src/modules/approvalControl/approvalControl.mail");
 const mailService = require("../backend/src/services/mailService");
+const mailRouting = require("../backend/src/modules/notifications/operationalMailRouting");
 const uuid = n => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const context = { tenantId: uuid(1), userId: uuid(2), tenantSlug: "hoyrup-clemmensen" };
 const firstActivation = { id: uuid(8), tenant_id: context.tenantId, environment: "production", time_zone: "Europe/Copenhagen", activated_at: "2026-10-19T07:00:00.000Z", coverage_from: "2026-10-19" };
@@ -39,12 +40,18 @@ const patches = async (items, fn) => {
 
 async function fixture(fn) {
   let now = new Date("2026-10-22T12:30:00Z"), rows = [row()], selected = current, reads = 0, first = firstActivation;
+  let extraRouting = mailRouting.policy.defaults("approval_control_summary"), routingReads = 0;
   const settings = (record = first) => policy.read({ APPROVAL_CONTROL_FRIDAY_TIME: "14:31", APPROVAL_CONTROL_MAIL_ENABLED: "true", APPROVAL_CONTROL_SCHEDULER_ENABLED: "true" }, now, record);
   const records = new Map(), slots = new Map(), providerCalls = [];
   const client = { release() {}, async query(sql, params) { assert.match(sql, /t.id=\$1 AND t.slug=\$2 AND t.status='active'/); assert.equal(params[0], context.tenantId); return { rows: [{ id: context.tenantId }] }; } };
   const options = { mode: "live", clock: () => now, readPolicy: settings, sendEmailFn: async (message, options) => { providerCalls.push({ message, options }); return { provider: "resend", sent: true, providerMessageId: "fixture-provider" }; } };
   await patches([
     [pool, "connect", async () => client], [scope, "loadMine", async (_c, ctx) => { assert.deepEqual(ctx, context); return selected; }],
+    [mailRouting, "composeWithPool", async input => { routingReads++; return mailRouting.policy.recipients(extraRouting, input); }],
+    [mailRouting, "withMessageLock", async (input, send) => {
+      if (input.route.snapshot.revision !== extraRouting.revision) throw new Error("operational_mail_routing_changed");
+      return send();
+    }],
     [activation, "get", async ctx => ctx.tenantId === context.tenantId ? first : null],
     [activation, "recordFirst", async () => assert.fail("A job or preview must never manufacture an activation")],
     [refresh, "resolveTenantConfig", async () => ({ tenantId: context.tenantId })],
@@ -59,8 +66,45 @@ async function fixture(fn) {
     [repo, "finish", async (_ctx, id, metadata) => { const run = records.get(id); run.result ||= metadata; return run; }],
     [repo, "get", async (ctx, id) => ctx.tenantId === context.tenantId && ctx.userId === context.userId ? records.get(id) : null],
     [repo, "latest", async () => [...records.values()].at(-1) || null],
-  ], async () => fn({ options, providerCalls, records, get reads() { return reads; }, get activation() { return first; }, setActivation: value => { first = value; }, setRows: value => { rows = value; }, setScope: value => { selected = value; }, setNow: value => { now = new Date(value); } }));
+  ], async () => fn({ options, providerCalls, records, get reads() { return reads; }, get routingReads() { return routingReads; }, setRouting: value => { extraRouting = value; }, get activation() { return first; }, setActivation: value => { first = value; }, setRows: value => { rows = value; }, setScope: value => { selected = value; }, setNow: value => { now = new Date(value); } }));
 }
+
+test("approval observer CC/BCC are additive; private BCC is absent from normal run UI and mail content", async () => fixture(async f => {
+  f.setRouting({ ...mailRouting.policy.defaults("approval_control_summary"), revision: 2,
+    extra_cc_enabled: true, extra_cc_emails: ["observer@example.test"], extra_bcc_enabled: true, extra_bcc_emails: ["blind@example.test"] });
+  const run = await job.runDue(context, f.options), message = f.providerCalls[0].message;
+  assert.equal(run.result.state, "provider_accepted"); assert.equal(message.to, current.user.email);
+  assert.deepEqual(message.cc, ["observer@example.test"]); assert.deepEqual(message.bcc, ["blind@example.test"]);
+  assert.doesNotMatch(message.html + message.text, /blind@example.test/);
+  assert.doesNotMatch(JSON.stringify(await job.getRun(context, run.id)), /blind@example.test/);
+  assert.equal(run.attempt.message.bcc[0], "blind@example.test", "private durable attempt retains the exact envelope");
+  assert.equal(run.result.mail_routing.revision, 2);
+}));
+test("approval routing settings never enable a disabled feature or manufacture a period", async () => fixture(async f => {
+  f.setRouting({ ...mailRouting.policy.defaults("approval_control_summary"), revision: 1, extra_cc_enabled: true, extra_cc_emails: ["observer@example.test"] });
+  f.setActivation(null);
+  const result = await job.runDue(context, f.options);
+  assert.equal(result.state, "not_activated"); assert.equal(f.reads, 0); assert.equal(f.routingReads, 0);
+  assert.equal(f.records.size, 0); assert.equal(f.providerCalls.length, 0);
+}));
+test("approval recipient conflict and mid-flight routing disable fail closed without provider or replay", async () => {
+  await fixture(async f => {
+    f.setRouting({ ...mailRouting.policy.defaults("approval_control_summary"), revision: 1, extra_cc_enabled: true, extra_cc_emails: [current.user.email] });
+    const run = await job.runDue(context, f.options);
+    assert.equal(run.result.state, "failed"); assert.equal(f.providerCalls.length, 0);
+  });
+  await fixture(async f => {
+    const config = { ...mailRouting.policy.defaults("approval_control_summary"), revision: 1, extra_bcc_enabled: true, extra_bcc_emails: ["blind@example.test"] };
+    f.setRouting(config);
+    const attempt = repo.attempt;
+    await patches([[repo, "attempt", async (...args) => { const claimed = await attempt(...args); f.setRouting({ ...config, revision: 2, extra_bcc_enabled: false }); return claimed; }]], async () => {
+      const run = await job.runDue(context, f.options);
+      assert.equal(run.result.state, "blocked"); assert.equal(run.result.mail_attempted, false);
+      assert.equal((await job.runDue(context, f.options)).state, "duplicate");
+    });
+    assert.equal(f.providerCalls.length, 0);
+  });
+});
 
 test("today pending rows qualify at 14:30 Copenhagen; no earlier, later, weekend or historical catch-up", async () => fixture(async f => {
   f.setNow("2026-10-22T12:29:59Z"); assert.equal((await job.runDue(context, f.options)).state, "not_due");

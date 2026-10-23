@@ -417,7 +417,13 @@ async function withDailyDispatchFixture(fn) {
       cc_emails: [...settings.employee_cc_emails], result_binding: dispatch.resultBinding(result) } };
   const client = { release() {}, async query(sql, params) {
     if (["BEGIN", "COMMIT", "ROLLBACK"].includes(sql)) return { rows: [] };
+    if (sql.startsWith("SET LOCAL lock_timeout")) return { rows: [] };
+    if (sql.includes("pg_advisory_xact_lock_shared")) {
+      assert.deepEqual(params, [uuid(1) + ":time_control_missing_hours"]);
+      return { rows: [] };
+    }
     assert.equal(params[0], uuid(1));
+    if (sql.includes("FROM tenant_operational_mail_routing")) return { rows: [] };
     if (sql.includes("SELECT tr.*")) return { rows: [result] };
     if (sql.includes("FROM time_control_settings")) {
       assert.match(sql, /FOR SHARE OF s,t/);
@@ -446,8 +452,11 @@ async function withDailyDispatchFixture(fn) {
 test("daily dispatch normalizes full To/CC and rejects removed or changed employee CC without rewriting mail", async () => {
   await withDailyDispatchFixture(async ({ dispatch, client, row, settings }) => {
     row.recipient_email = " Employee@Example.Test ";
-    row.payload_json.cc_emails = [" LKE@Example.Test ", " DEP@Example.Test ", "dep@example.test"];
+    row.payload_json.cc_emails = [" LKE@Example.Test ", " DEP@Example.Test "];
     await dispatch.validateDaily(client, { tenantId: uuid(1), row });
+    row.payload_json.cc_emails.push("dep@example.test");
+    await assert.rejects(dispatch.validateDaily(client, { tenantId: uuid(1), row }), /dispatch_routing_changed/);
+    row.payload_json.cc_emails.pop();
     const queued = structuredClone(row);
     for (const cc of [[], ["dep@example.test"], ["dep@example.test", "new@example.test"]]) {
       settings.employee_cc_emails = cc;

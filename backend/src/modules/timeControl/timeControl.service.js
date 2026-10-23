@@ -165,7 +165,7 @@ async function logInternalErrorMail(client, { tenantId, run, settings, dateLabel
 }
 
 async function logEmployeeMail(client, { tenantId, run, result, settings, dateLabel }) {
-  const ccEmails = asEmailArray(settings.employee_cc_emails);
+  let ccEmails = asEmailArray(settings.employee_cc_emails);
   const variables = buildEmployeeMailVariables({
     employeeName: result.employee_name,
     dateLabel,
@@ -186,6 +186,11 @@ async function logEmployeeMail(client, { tenantId, run, result, settings, dateLa
       subject: variables.subject, bodyPreview: body, idempotencyKey,
     });
   }
+  const routing = require("../notifications/operationalMailRouting");
+  const extra = run.triggered_by === "scheduler" ? routing.payload(await routing.compose(client, {
+    tenantId, mailType: "time_control_missing_hours", to: result.employee_email, cc: ccEmails,
+  })) : {};
+  ccEmails = extra.cc_emails || ccEmails;
   const outbox = await emailOutboxService.enqueueEmail(client, {
     tenantId,
     actorId: "system:time_control",
@@ -194,7 +199,7 @@ async function logEmployeeMail(client, { tenantId, run, result, settings, dateLa
     recipientEmail: result.employee_email,
     recipientName: result.employee_name,
     variables,
-    payload: { run_id: run.id, result_id: result.id, controlled_date: run.controlled_date, cc_emails: ccEmails,
+    payload: { run_id: run.id, result_id: result.id, controlled_date: run.controlled_date, cc_emails: ccEmails, ...extra,
       sender: SENDER, reply_to: ENV.MAIL_REPLY_TO || null,
       identity_snapshot: result.identity_snapshot, result_binding: require("./timeControl.dispatch").resultBinding(result) },
     sourceType: "time_control",
@@ -271,19 +276,24 @@ async function logWeeklyMail(client, { tenantId, run, result = null, settings, p
   const existing = await repository.findEmployeeMailLog(client, { tenantId, idempotencyKey });
   if (existing?.email_outbox_id || existing?.sent_at) return existing;
   const recipients = summary ? asEmailArray(settings.friday_manager_emails) : [result.employee_email];
-  const ccEmails = summary ? recipients.slice(1) : asEmailArray(settings.employee_cc_emails);
+  let ccEmails = summary ? recipients.slice(1) : asEmailArray(settings.employee_cc_emails);
   const content = summary
     ? { subject: `Timekontrol: ugens registrering ${period.monday} – ${period.friday}`, body: weekly.weeklySummary(summaryResults, period) }
     : weekly.weeklyMail({ name: result.employee_name, ...period, validHours: result.valid_hours });
   let outbox = null;
   if (run.mode === "live") {
     if (!weekly.reminderWindow(period.friday)) throw new Error("time_control_weekly_outside_reminder_window");
+    const routing = require("../notifications/operationalMailRouting");
+    const extra = run.triggered_by === "scheduler" ? routing.payload(await routing.compose(client, {
+      tenantId, mailType: summary ? "time_control_friday_status" : "time_control_missing_hours", to: recipients[0], cc: ccEmails,
+    })) : {};
+    ccEmails = extra.cc_emails || ccEmails;
     outbox = await emailOutboxService.enqueueEmail(client, {
       tenantId, actorId: "system:time_control", templateKey: `time_control.${mailType}`,
       recipientEmail: recipients[0], recipientName: summary ? await recipientName(client, tenantId, recipients[0]) : result.employee_name,
       variables: { subject: content.subject, body: content.body },
       payload: { run_id: run.id, weekly_snapshot_id: run.weekly_snapshot_id, monday: period.monday,
-        friday: period.friday, cc_emails: ccEmails, sender: SENDER, reply_to: ENV.MAIL_REPLY_TO || null,
+        friday: period.friday, cc_emails: ccEmails, ...extra, sender: SENDER, reply_to: ENV.MAIL_REPLY_TO || null,
         result_bindings: (summary ? summaryResults : [result]).map(require("./timeControl.dispatch").resultBinding) },
       sourceType: "time_control", sourceId: result?.id || run.id, idempotencyKey,
     });

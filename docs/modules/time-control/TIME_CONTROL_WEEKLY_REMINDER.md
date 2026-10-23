@@ -47,6 +47,38 @@ globale fallbackregler, historiske resultater eller tidligere migrationer.
 Oktoberugen genberegnes i en ny isoleret database; det tidligere blokerede
 resultat og dets evidens bevares med deres oprindelige betydning.
 
+## Ekstra CC/BCC: tillæg 23. oktober 2026
+
+`verified` i den lokale routingpolicy og service-/dispatchintegration:
+tenant-admin kan konfigurere ekstra CC og BCC separat via den
+[kanoniske routingkontrakt](../calendar/ABSENCE_NOTIFICATIONS_OUTBOX_PR4.md#tenant-admin-ekstra-ccbcc-til-driftsmails).
+Dette er et lokalt implementeringstillæg; ovenstående daterede driftsstatus
+og aktiveringsbeviser ændres ikke.
+
+- `time_control_missing_hours` omfatter **både daglig individuel mail**
+  (`time_control.missing_hours.employee`) **og individuel ugepåmindelse**
+  (`time_control.employee_weekly_reminder_v1`).
+- `time_control_friday_status` omfatter **kun**
+  `time_control.friday_weekly_summary_v1`, ugens lederoversigt.
+  Monitorens driftsstatus, watchdog og al diagnostik, herunder
+  `time_control.internal_error`, er udenfor, også om fredagen.
+- Begge ekstra kanaler er default-off uden forudfyldte adresser. Indstillingen
+  ændrer hverken basis-Til/CC, gruppemedlemskab, regler, kørselsbeviser,
+  tidsvinduer eller aktiveringsflags. Manuelle previews/POC/testmails er udenfor.
+  BCC er privat i adminpanelet og serverinterne transport-/auditdata og vises
+  ikke i normale mailpreviews, mailbody eller driftsstatus.
+- Gem er tenant-admin-only med tenantafgrænsning, before/after-audit og
+  revisionskontrol. Nye køposter bindes til routingrevisionen; ændret revision
+  eller effektive modtagere blokerer før providerkald under routinglåsen.
+  Legacykøposter får aldrig nye kopier eftermonteret og blokeres, hvis aktuel
+  ekstra routing kræver andre modtagere. Ingen replay eller genafsendelse.
+
+HC-ønsket om JEL som ekstra BCC på **begge** disse familier er ikke gemt og
+har ikke ændret produktionen. Fremtidig anvendelse kræver særskilt eksplicit
+godkendelse, migration 0065, webudrulning og konkret tenant-admin-gem før nye
+køposter dannes. Monitor-cron og diagnostik ændres ikke. Udrulning/gem er ikke
+udført eller live-verificeret i dette dokumentationstillæg.
+
 ## Afgrænsning fra dagsbaseret POC
 
 Den særskilt godkendte lokale implementering bruger `friday_weekly_v1`.
@@ -372,6 +404,12 @@ grupper efter valideret kilde, konfliktkontrol og særskilt migreringsgodkendels
 
 ### Separat backlog, ikke dags-capture-opgaven
 
+- Ekstra operationel CC/BCC er implementeret lokalt efter
+  [routingkontrakten](../calendar/ABSENCE_NOTIFICATIONS_OUTBOX_PR4.md#tenant-admin-ekstra-ccbcc-til-driftsmails).
+  Verificeret lokalt; afventer godkendt migration 0065/webudrulning samt
+  admin-gem af HC's ønskede JEL-BCC på individuel dags-/ugemail og ugens
+  lederoversigt før nye køposter. Ingen monitor-/diagnostikkopi eller gammel
+  replay er omfattet; gruppebaseret lederrouting er fortsat et separat spor.
 - Historisk backfill: projektvis retention, omfang/omkostning, konfliktkontrol,
   dataklassifikation og ingen paastand om live-freshness fra importtid.
 - Generel syncdrift: eksisterende parser læser ikke dokumenteret v4

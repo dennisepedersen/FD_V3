@@ -130,7 +130,7 @@ async function validateDispatchSnapshot(client, { tenantId, row }) {
   if (!employeeMail) {
     const routing = emailListFailureFor(settings[0].friday_manager_emails);
     if (routing.errorCode) throw new Error("time_control_weekly_dispatch_routing_changed");
-    dispatch.validateRouting(row, { to: routing.emails[0], cc: routing.emails.slice(1) }, "time_control_weekly");
+    await dispatch.validateWithExtras(client, { tenantId, row, to: routing.emails[0], cc: routing.emails.slice(1), prefix: "time_control_weekly" });
   }
   const { rows: bindings } = await client.query(
     `SELECT dataset_id, controlled_date::text AS day FROM time_control_weekly_snapshot_day
@@ -180,7 +180,7 @@ async function validateDispatchSnapshot(client, { tenantId, row }) {
     throw new Error("time_control_weekly_dispatch_binding_invalid");
   }
   if (employeeMail) {
-    dispatch.validateRouting(row, { to: recipients[0].employee_email, cc: settings[0].employee_cc_emails }, "time_control_weekly");
+    await dispatch.validateWithExtras(client, { tenantId, row, to: recipients[0].employee_email, cc: settings[0].employee_cc_emails, prefix: "time_control_weekly" });
   }
   const operation = require("./timeControl.operation");
   for (const result of recipients) {

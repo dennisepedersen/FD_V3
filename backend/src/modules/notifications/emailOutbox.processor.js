@@ -186,6 +186,7 @@ async function processDueEmails({
       const message = {
         to: row.recipient_email,
         cc: row.payload_json?.cc_emails,
+        ...(timeControl && row.payload_json?.bcc_emails ? { bcc: row.payload_json.bcc_emails } : {}),
         from: row.payload_json && row.payload_json.sender ? row.payload_json.sender : undefined,
         ...(timeControl ? { replyTo: row.payload_json?.reply_to } : {}),
         subject: row.subject,
@@ -270,6 +271,11 @@ async function processDueEmails({
             metadata: {
               template_key: row.template_key,
               provider: providerResult?.provider || null,
+              ...(timeControl && row.payload_json?.mail_routing ? {
+                mail_routing: row.payload_json.mail_routing,
+                cc_count: message.cc?.length || 0,
+                bcc_count: message.bcc?.length || 0,
+              } : {}),
             },
           });
         }

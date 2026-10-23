@@ -43,6 +43,7 @@ async function validateAutomatic(client, { tenantId, row }) {
       !operation.dispatchWindow(run.control_type, run.controlled_day)) throw new Error("time_control_automatic_run_invalid");
   const diagnostic = row.template_key === "time_control.internal_error";
   if (diagnostic) {
+    if (payload.mail_routing != null || payload.bcc_emails?.length) throw new Error("time_control_automatic_message_invalid");
     if (!["completed", "blocked"].includes(run.status) || row.source_id !== run.id) {
       throw new Error("time_control_automatic_diagnostic_invalid");
     }
@@ -94,6 +95,18 @@ function validateRouting(row, { to, cc }, prefix) {
   }
 }
 
+async function validateWithExtras(client, { tenantId, row, to, cc, prefix }) {
+  const routing = require("../notifications/operationalMailRouting");
+  const mailType = routing.policy.TEMPLATES[row.template_key];
+  if (!mailType) throw new Error(`${prefix}_dispatch_routing_changed`);
+  try {
+    const expected = await routing.validateQueued(client, { tenantId, mailType, to, cc,
+      queuedTo: row.recipient_email, queuedCc: row.payload_json?.cc_emails,
+      queuedBcc: row.payload_json?.bcc_emails, snapshot: row.payload_json?.mail_routing });
+    validateRouting(row, expected, prefix);
+  } catch (_) { throw new Error(`${prefix}_dispatch_routing_changed`); }
+}
+
 async function validateDaily(client, { tenantId, row }) {
   const payload = row.payload_json || {};
   const day = payload.controlled_date;
@@ -111,7 +124,7 @@ async function validateDaily(client, { tenantId, row }) {
     `SELECT s.* FROM time_control_settings s JOIN tenant t ON t.id=s.tenant_id
      WHERE s.tenant_id=$1 AND t.status='active' FOR SHARE OF s,t`, [tenantId])).rows[0];
   if (settings?.is_enabled !== true || settings.mode !== "live") throw new Error("time_control_daily_dispatch_settings_invalid");
-  validateRouting(row, { to: result.employee_email, cc: settings.employee_cc_emails }, "time_control_daily");
+  await validateWithExtras(client, { tenantId, row, to: result.employee_email, cc: settings.employee_cc_emails, prefix: "time_control_daily" });
   const current = await storage.loadHoursDataset(client, {
     tenantId, controlledDate: day, datasetId: result.hours_dataset_id, freshnessMinutes: settings.sync_freshness_minutes,
   });
@@ -136,4 +149,4 @@ async function validateDaily(client, { tenantId, row }) {
   if (!operation.dispatchWindow("daily_09", day)) throw new Error("time_control_daily_dispatch_window_expired");
 }
 
-module.exports = { validateAutomatic, validateDaily, resultBinding, matchesResultBinding, matchesIdentity, validateRouting };
+module.exports = { validateAutomatic, validateDaily, resultBinding, matchesResultBinding, matchesIdentity, validateRouting, validateWithExtras };

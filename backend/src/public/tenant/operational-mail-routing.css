@@ -1,0 +1,170 @@
+.operational-mail-routing[hidden] {
+  display: none !important;
+}
+
+.operational-mail-routing {
+  min-width: 0;
+  margin: 24px 0;
+  padding: 20px 0;
+  border-block: 1px solid #d8dedb;
+  color: #25312e;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+}
+
+.operational-mail-routing h2 {
+  margin: 0 0 16px;
+  font-size: 17px;
+  line-height: 1.4;
+  letter-spacing: 0;
+}
+
+.operational-mail-routing__form {
+  min-width: 0;
+  margin: 0;
+  padding: 16px 0;
+}
+
+.operational-mail-routing__form + .operational-mail-routing__form {
+  border-top: 1px solid #d8dedb;
+}
+
+.operational-mail-routing fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.operational-mail-routing legend {
+  max-width: 100%;
+  margin-bottom: 14px;
+  padding: 0;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.operational-mail-routing__channels {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.operational-mail-routing__channel {
+  min-width: 0;
+}
+
+.operational-mail-routing label {
+  display: block;
+  margin: 0 0 8px;
+  color: #46544e;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.operational-mail-routing .operational-mail-routing__toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  font-weight: 700;
+}
+
+.operational-mail-routing input[type="checkbox"] {
+  flex: 0 0 18px;
+  width: 18px;
+  min-width: 18px;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  accent-color: #3b6552;
+}
+
+.operational-mail-routing input[type="text"] {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 44px;
+  padding: 10px;
+  border: 1px solid #aab8af;
+  border-radius: 4px;
+  background: #fff;
+  color: #25312e;
+  font: inherit;
+  font-size: 16px;
+}
+
+.operational-mail-routing input[type="text"]:disabled {
+  background: #edf0ee;
+  color: #65736b;
+}
+
+.operational-mail-routing__actions {
+  margin-top: 16px;
+}
+
+.operational-mail-routing button {
+  max-width: 100%;
+  min-height: 44px;
+  padding: 10px 14px;
+  border: 1px solid #aab8af;
+  border-radius: 4px;
+  background: #fff;
+  color: #25312e;
+  box-shadow: none;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.5;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.operational-mail-routing button:hover {
+  background: #edf0ee;
+}
+
+.operational-mail-routing button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.operational-mail-routing :focus-visible {
+  outline: 2px solid #3b6552;
+  outline-offset: 3px;
+}
+
+.operational-mail-routing__status,
+.operational-mail-routing__effective p {
+  margin: 10px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.operational-mail-routing__status:empty {
+  display: none;
+}
+
+.operational-mail-routing__status[data-state="error"] {
+  color: #9b3030;
+}
+
+.operational-mail-routing__effective {
+  margin-top: 16px;
+  color: #46544e;
+}
+
+.operational-mail-routing__effective p:first-child {
+  font-weight: 700;
+}
+
+@media (max-width: 640px) {
+  .operational-mail-routing__channels {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+}

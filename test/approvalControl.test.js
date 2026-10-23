@@ -308,12 +308,13 @@ test("route rejects tenant mismatch and forged query before calling service, nev
   }
 });
 
-test("migration only extends existing audit constraint and Timekontrol/sync/identity bytes are untouched", () => {
+test("preview migration preserves audit; Timekontrol calculation, scheduler, sync and identity are untouched", () => {
   const migration = fs.readFileSync("migrations/0062_approval_control_audit_events.sql", "utf8");
   assert.match(migration, /pg_get_expr\(conbin, conrelid\)/);
   assert.match(migration, /CHECK \(\(%s\) OR event_type IN/);
   assert.doesNotMatch(migration, /CREATE TABLE|UPDATE |INSERT INTO|DELETE FROM|time_control|tenant_user|fitter/i);
-  for (const file of ["backend/src/services/syncWorker.js", "backend/src/services/fitterIdentityService.js", "backend/src/services/mailService.js", "backend/src/config/env.js", "backend/src/services/fielddeskEmailFrame.js", "backend/src/modules/notifications/emailOutbox.processor.js", "backend/src/modules/timeControl/timeControl.logic.js", "backend/src/modules/timeControl/timeControl.email.js", "backend/src/modules/timeControl/timeControl.scheduler.js", "backend/src/modules/timeControl/timeControl.routes.js", "backend/src/modules/timeControl/timeControl.operation.js"]) {
+  // Mail adapter/outbox routing is separately authorized and covered by recipient regressions.
+  for (const file of ["backend/src/services/syncWorker.js", "backend/src/services/fitterIdentityService.js", "backend/src/config/env.js", "backend/src/services/fielddeskEmailFrame.js", "backend/src/modules/timeControl/timeControl.logic.js", "backend/src/modules/timeControl/timeControl.email.js", "backend/src/modules/timeControl/timeControl.scheduler.js", "backend/src/modules/timeControl/timeControl.routes.js", "backend/src/modules/timeControl/timeControl.operation.js", "backend/src/modules/timeControl/timeControl.monitor.js"]) {
     const head = execFileSync("git", ["show", "HEAD:" + file]);
     const normalized = fs.readFileSync(file, "utf8").replace(/\r\n/g, "\n");
     assert.equal(crypto.createHash("sha256").update(normalized).digest("hex"), crypto.createHash("sha256").update(head).digest("hex"), file);

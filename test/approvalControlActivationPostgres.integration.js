@@ -49,7 +49,7 @@ test("approval_control activation: database clock, tenant first-write persistenc
     assert.deepEqual(identity.rows[0], { db: database, actor: "tc_validation", port: 55432 });
     const runner = require("../backend/scripts/db_migrate");
     const files = runner.getMigrationFiles();
-    assert.equal(files.length, 64, "apply all 64 actual migrations to a fresh database");
+    assert.equal(files.length, 65, "65 actual migrations exist; activation regression deliberately tests 0064 separately");
     const migration = files.find(file => file.filename === "0064_approval_control_scheduler_activation.sql");
     assert(migration, "the actual 0064 migration must be present");
     const client = await pool.connect();

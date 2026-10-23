@@ -20,7 +20,7 @@ function requireText(value, code) {
   return normalized;
 }
 
-function buildMessage({ to, cc, from, replyTo, subject, html, text, tenantId, template }) {
+function buildMessage({ to, cc, bcc, from, replyTo, subject, html, text, tenantId, template }) {
   const recipient = emailFailureFor(to);
   if (recipient.errorCode) {
     const code = recipient.errorCode === "recipient_email_missing" ? "mail_to_required" : "mail_to_invalid";
@@ -30,9 +30,27 @@ function buildMessage({ to, cc, from, replyTo, subject, html, text, tenantId, te
   const copies = emailListFailureFor(cc);
   if (copies.errorCode) throw makeMailError("mail_cc_invalid", "mail_cc_invalid", 400);
 
+  let blindCopies;
+  if (bcc !== undefined) {
+    const values = bcc == null ? [] : Array.isArray(bcc) ? bcc : typeof bcc === "string" ? [bcc] : null;
+    if (!values) throw makeMailError("mail_bcc_invalid", "mail_bcc_invalid", 400);
+    blindCopies = [];
+    for (const value of values) {
+      const state = typeof value === "string" ? emailFailureFor(value) : null;
+      if (!state || state.errorCode) throw makeMailError("mail_bcc_invalid", "mail_bcc_invalid", 400);
+      if (blindCopies.includes(state.email)) throw makeMailError("mail_bcc_duplicate", "mail_bcc_duplicate", 400);
+      blindCopies.push(state.email);
+    }
+    const visibleRecipients = [recipient.email, ...copies.emails];
+    if (new Set([...visibleRecipients, ...blindCopies]).size !== visibleRecipients.length + blindCopies.length) {
+      throw makeMailError("mail_recipient_conflict", "mail_recipient_conflict", 400);
+    }
+  }
+
   return {
     to: recipient.email,
     cc: copies.emails.length ? copies.emails : undefined,
+    bcc: blindCopies,
     from: requireText(from || ENV.MAIL_FROM, "mail_from_required"),
     replyTo: replyTo === undefined ? ENV.MAIL_REPLY_TO || undefined : replyTo || undefined,
     subject: requireText(subject, "mail_subject_required"),
@@ -43,18 +61,24 @@ function buildMessage({ to, cc, from, replyTo, subject, html, text, tenantId, te
   };
 }
 
-async function sendWithFetch({ url, headers, body, timeoutMs, redactProviderErrors = false }) {
+async function sendWithFetch({ url, headers, body, timeoutMs, redactProviderErrors = false, hasBcc = false }) {
   if (typeof fetch !== "function") throw makeMailError("mail_fetch_unavailable", "mail_fetch_unavailable", 500);
-  const response = await fetch(url, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
-    ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
-  });
+  let response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
+    });
+  } catch (error) {
+    if (hasBcc) throw makeMailError("mail_provider_request_failed", "mail_provider_request_failed", 502);
+    throw error;
+  }
   if (!response.ok) {
     const error = makeMailError("mail_provider_rejected_message", "mail_provider_rejected_message", 502);
     error.details = { status: response.status };
-    if (redactProviderErrors) {
+    if (redactProviderErrors || hasBcc) {
       await response.body?.cancel().catch(() => {});
     } else {
       const responseText = await response.text().catch(() => "");
@@ -94,10 +118,12 @@ async function sendEmail(input, options = {}) {
       },
       timeoutMs: options.timeoutMs,
       redactProviderErrors: timeControl,
+      hasBcc: message.bcc !== undefined,
       body: {
         from: message.from,
         to: [message.to],
         cc: message.cc,
+        bcc: message.bcc?.length ? message.bcc : undefined,
         subject: message.subject,
         html: message.html,
         text: message.text,
@@ -118,10 +144,12 @@ async function sendEmail(input, options = {}) {
         "X-Postmark-Server-Token": ENV.MAIL_API_KEY,
         "Content-Type": "application/json",
       },
+      hasBcc: message.bcc !== undefined,
       body: {
         From: message.from,
         To: message.to,
         Cc: message.cc?.join(","),
+        Bcc: message.bcc?.length ? message.bcc.join(",") : undefined,
         Subject: message.subject,
         HtmlBody: message.html,
         TextBody: message.text,

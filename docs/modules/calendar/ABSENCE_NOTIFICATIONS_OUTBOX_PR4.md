@@ -133,3 +133,152 @@ Allowed variables are limited to `employee_name`, `manager_name`, `absence_perio
 The special-window submit notification confirms receipt for collective review. It must not imply approval, priority, first-come-first-served handling, or a final calendar absence. Employee comments remain excluded from internal notification payloads, outbox payloads, rendered special-window submit templates, audit metadata, and processor logs.
 
 PR7 still does not activate outbox `apply`, send real mail, create notification UI, or make Render/service configuration changes.
+
+## Tenant-admin ekstra CC/BCC til driftsmails
+
+Status 23. oktober 2026: implementeret i lokal kode; dette tillæg er en
+kontraktbeskrivelse, ikke bevis for validering, produktionsudrulning eller gemte
+modtagere. Ovenstående PR4/PR5/PR7-status og fraværsflows bevarer deres betydning.
+Dette afsnit er den kanoniske kontrakt for den afgrænsede ekstra routing.
+
+`verified` ved læsning af
+[`operationalMailRouting.js`](../../../backend/src/modules/notifications/operationalMailRouting.js),
+[policy](../../../backend/src/modules/notifications/operationalMailRouting.policy.js),
+[routes](../../../backend/src/modules/notifications/operationalMailRouting.routes.js)
+og integrationerne i Timekontrol, Godkendelseskontrol og `mailService`:
+
+| Indstillingsnøgle | Omfattede automatiske mails |
+| --- | --- |
+| `time_control_missing_hours` | Individuel Timekontrol: både `time_control.missing_hours.employee` og `time_control.employee_weekly_reminder_v1` |
+| `time_control_friday_status` | Kun ugens lederoversigt `time_control.friday_weekly_summary_v1` |
+| `approval_control_summary` | Godkendelseskontrols planlagte oversigtsmail via `approvalControl.mailJob`; fortsat slukket |
+
+Timekontrols monitor/driftsstatus, watchdog, diagnostik og
+`time_control.internal_error` er alle udenfor. Fredagsstatus betyder her kun
+lederoversigten, aldrig monitorens statusmail, heller ikke om fredagen.
+Manuelle previews, POC/testmails, fraværsnotifikationer og øvrige mailflows
+får ingen ekstra modtagere gennem denne kontrakt.
+
+### Indstillinger og API
+
+Migration [`0065_operational_mail_routing.sql`](../../../migrations/0065_operational_mail_routing.sql)
+tilføjer `tenant_operational_mail_routing`, entydig på `(tenant_id, mail_type)`.
+Ingen tenant eller adresse seedes, og eksisterende indstillinger/køposter ændres
+ikke. Uden gemt række returneres revision `0`, begge kanaler slukket og tomme
+lister. Første faktiske gemte ændring får revision `1`.
+
+- `GET /api/tenant/admin/operational-mail-routing` returnerer
+  `{success:true,mail_types:[setting,...]}` med de tre kendte typer.
+- `PUT /api/tenant/admin/operational-mail-routing/:mailType` accepterer præcis
+  `revision` som ikke-negativt heltal, `extra_cc_enabled` og `extra_bcc_enabled`
+  som booleans samt `extra_cc_emails` og `extra_bcc_emails` som
+  **semikolonseparerede strenge**. Ingen tenant-, rolle- eller scopeparametre;
+  queryparametre og ukendte felter/typer afvises.
+- PUT returnerer `{success:true,setting:...}`. Et `setting` har `mail_type`,
+  `title`, `revision`, de to enabled-felter, de to mailfelter som
+  **normaliserede arrays** samt `updated_at`.
+- Serveren trimmer og normaliserer adresser til små bogstaver, validerer
+  højst 20 adresser pr. kanal og kræver mindst én adresse for en tilvalgt kanal.
+  Ugyldige adresser og dubletter afvises. Aktive ekstra CC/BCC må ikke
+  overlappe; ved sammensætning af mailen kontrolleres også overlap med dens
+  eksisterende Til/CC. Eksisterende primær modtager og basis-CC erstattes ikke.
+  Slukkede kanalers gyldige adresser kan bevares uden at være effektive.
+- Begge routes er `no-store` og kræver tenant-host, adgangstoken med samme
+  tenant, `tenant_admin` samt modulets read/update-adgang. Tenant og aktør
+  afledes server-side og genvalideres mod aktiv tenant/bruger/login.
+- Faktiske ændringer gemmes sammen med `tenant_config_changed`-audit i samme
+  transaktion med aktør, tenant, mailtype og **before/after**. Uændret input
+  bevarer revisionen. Forkert revision giver HTTP 409
+  `operational_mail_routing_conflict`; klienten skal genindlæse før nyt gem.
+  Inputfejl omfatter `operational_mail_recipients_invalid`,
+  `operational_mail_recipients_required`, `operational_mail_recipients_duplicate`
+  og `operational_mail_routing_input_invalid`.
+
+Tenant-admin-panelet på Timekontrol viser de to Timekontroltyper; panelet på
+Godkendelseskontrol viser den tredje. Browseren bruger Bearer-token fra
+`fielddesk_access_token`, henter kun ved sidevisning og gemmer kun ved eksplicit
+submit. Toggles deaktiverer tekstfelterne uden at rydde værdierne; gemt resultat
+viser serverens normaliserede effektive ekstra modtagere pr. kanal. HTTP 401/403
+skjuler og rydder hele panelet. Ukendte typer ignoreres i UI. Panelet er adskilt
+fra normale mailpreviews og har ingen aktiverings- eller afsendelsesknapper.
+
+### Privat BCC og låsning før afsendelse
+
+BCC er et transportfelt til mailudbyderen, ikke tekst i emne, mailbody eller
+normale previews/statussvar. Adresserne vises kun i det afskærmede
+tenant-admin-indstillingspanel og dets API; de nødvendige serverinterne
+outbox-/jobdata og before/after-audit er også private. Rå providerfejl eller
+logs må ikke afsløre BCC. `mailService` understøtter transportfeltet for
+Resend og Postmark og undertrykker rå providerfejl ved BCC.
+
+Nye omfattede Timekontrol-køposter gemmer de konkrete modtagere samt
+`mail_routing` med mailtype/revision; Godkendelseskontrol binder sit job til
+samme snapshot i sit eksisterende audit-/jobspor, ikke i den fælles outbox.
+Før provideradgang genvalideres revision og alle Til/CC/BCC mod den aktuelle
+tenantindstilling. Save bruger eksklusiv og afsendelse delt transaktionslås
+pr. tenant/mailtype i advisory namespace 6124; afsendelseslåsen holdes gennem
+providerkaldet. Ændret revision eller modtagermismatch blokerer afsendelsen
+fail-closed, også hvis en ny snapshotbærende post senere møder samme adresser
+under en anden revision.
+
+Legacykøposter uden snapshot får aldrig ekstra adresser eftermonteret. De kan
+kun passere, når den effektive routing stadig svarer til deres oprindelige
+Til/CC uden ekstra BCC; aktivering/ændring, som kræver andre effektive
+modtagere, blokerer dem før provideradgang. Ingen køpost omskrives, replayes
+eller genafsendes for at få en ny kopi. Eksisterende regler for idempotens,
+driftsbeviser, tidsvinduer og højst ét Timekontrol-/Godkendelseskontrol-forsøg
+gælder fortsat. Et allerede påbegyndt providerkald kan ikke trækkes tilbage.
+
+### HC-ønske og fremtidig ibrugtagning
+
+Brugerønsket er JEL som ekstra **BCC** på de to Timekontrolfamilier ovenfor
+og ekstra **CC** på Godkendelseskontrol. Det er **ikke gemt**, ikke seedet og
+har ikke ændret produktionsmodtagere. Der fastsættes ingen adresse ved default.
+
+Præcis ønsket opsætning for HC (`hoyrup-clemmensen`), **IKKE GEMT**:
+
+| `mail_type` | `extra_cc_enabled` | `extra_cc_emails` (PUT-streng) | `extra_bcc_enabled` | `extra_bcc_emails` (PUT-streng) |
+| --- | --- | --- | --- | --- |
+| `time_control_missing_hours` | `false` | `""` | `true` | `"jel@hoyrup-clemmensen.dk"` |
+| `time_control_friday_status` | `false` | `""` | `true` | `"jel@hoyrup-clemmensen.dk"` |
+| `approval_control_summary` | `true` | `"jel@hoyrup-clemmensen.dk"` | `false` | `""` |
+
+Tabellen er alene dokumentation af ønsket til et senere eksplicit admin-gem
+med den da aktuelle revision. Adressen må stå her, men må ikke hardcodes i
+source eller seedes via migration; default forbliver slukket med tomme lister.
+
+Efter særskilt eksplicit godkendelse af den konkrete produktionsændring kræves
+anvendelse af migration 0065 og webudrulning med routingkode/API/UI samt et
+eksplicit tenant-admin-gem af de konkrete adresser/kanaler **før nye køposter
+eller jobmeddelelser dannes**. Udrulning alene aktiverer ingen ekstra modtagere;
+der udføres ingen gammel replay, catch-up eller testafsendelse som led heri.
+Timekontrols eksisterende monitor-cron og diagnostik er udenfor denne ændring.
+Godkendelseskontrol forbliver disabled uden startdato/aktiv periode;
+modtagerindstillinger udgør ingen scheduler-/mailaktivering og erstatter ikke
+dens særskilte fase 2-godkendelser. Produktionsverifikation tilføjes først
+efter faktisk, særskilt godkendt udrulning.
+
+### Lokal verifikation 23. oktober 2026
+
+`verified`, kun lokalt og med simuleret transport:
+
+- `npm run check`: 705 beståede tests, 0 fejl, 14 opt-in skips samt grønne
+  syntaks-, whitespace-, encoding-, secrets-, migrations- og static-checks.
+- De fem isolerede PostgreSQL-filer for routing, Godkendelseskontrols
+  preview/mail/aktivering og Timekontrols automatiske outbox: 40 bestået,
+  0 fejl, 0 skips. Ny lokal testdatabase, faktisk migration 0065, ingen
+  ekstern transport; testclusteren stoppet bagefter.
+- Fokuseret routing/mail/dispatch-regression: 88 bestået, inklusive 20 ekstra
+  CC oven i normal CC, private Resend/Postmark-payloads og fortsat slukket
+  Godkendelseskontrol. Uafhængigt review har ingen resterende konkrete fund.
+- Playwright på de faktiske statiske sider med isolerede, simulerede API-svar:
+  desktop 1365 px, mobil 390/320 px, gem/normalisering, toggles, validering,
+  revisionskonflikt og skjult/ryddet panel ved 403. Ingen preview-kørsel,
+  mail-, EK- eller produktionskald. Screenshots er visuelt kontrolleret.
+- Nye, endnu ikke trackede filer er særskilt kontrolleret for syntaks,
+  encoding og secrets; dette er ikke en commit eller staging-handling.
+
+Ingen rigtig mail eller inbox-levering er verificeret i denne opgave.
+HC's produktionsindstillinger, Timekontrols aktive drift og
+Godkendelseskontrols slukkede tilstand er ikke ændret. Ingen commit, push,
+deploy eller produktionsmigration er udført.

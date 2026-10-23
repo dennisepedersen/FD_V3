@@ -11,6 +11,7 @@
     .heading{flex-wrap:wrap}.table-wrap table{min-width:780px}
     .operations{border-block:1px solid #dce2df;margin-bottom:30px;padding:20px 0}.operations h3,.selected-run h3{font-size:15px;margin:20px 0 12px}.operation-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px 24px;margin:16px 0}.operation-fields div{min-width:0}.operation-fields dt{font-size:12px;color:#67756c}.operation-fields dd{margin:6px 0 0;font-size:14px;line-height:1.5;overflow-wrap:anywhere}.coverage-warning{border-left:3px solid #b98b39;padding:8px 12px;font-size:13px;line-height:1.5;overflow-wrap:anywhere}.operations li{font-size:13px;line-height:1.5;overflow-wrap:anywhere}.job-details{margin:18px 0}.job-details summary{cursor:pointer;font-size:14px;padding:10px 0}.selected-run{border-bottom:1px solid #dce2df;margin-bottom:30px;padding-bottom:16px}@media(max-width:800px){.operation-fields{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:420px){.operation-fields{grid-template-columns:minmax(0,1fr)}}
   </style>
+  <link rel="stylesheet" href="/tenant/operational-mail-routing.css">
 </head>
 <body>
   <div class="shell">
@@ -29,6 +30,7 @@
           <p id="operations-status" class="status" role="status" aria-live="polite">Henter driftsstatus…</p>
           <div id="operations-content"></div>
         </section>
+        <section class="operational-mail-routing" data-operational-mail-routing="approval-control" hidden></section>
         <section id="selected-run" class="selected-run" aria-labelledby="selected-run-heading" hidden>
           <h2 id="selected-run-heading">Valgt kørsel</h2>
           <p id="selected-run-status" class="status" role="status" aria-live="polite"></p>
@@ -56,5 +58,6 @@
     </div>
   </div>
   <script src="/tenant/approval-control.js"></script>
+  <script src="/tenant/operational-mail-routing.js"></script>
 </body>
 </html>
